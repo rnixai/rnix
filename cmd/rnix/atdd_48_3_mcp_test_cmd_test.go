@@ -113,6 +113,40 @@ func TestATDD_48_3_008_McpTest_InitializeTimeout(t *testing.T) {
 }
 
 // -----------------------------------------------------------------------------
+// Regression: -32601 "Method not found" on an optional stage renders as N/A
+// (not supported), NOT red FAILED — e.g. Playwright is tools-only. The overall
+// verdict stays OK because resp.OK reflects the connect stage.
+// -----------------------------------------------------------------------------
+func TestMcpTest_UnsupportedCapabilityRendersNA(t *testing.T) {
+	resp := &ipc.MCPTestResponse{
+		Server: "playwright",
+		OK:     true, // connect succeeded → overall OK
+		Stages: []ipc.MCPTestStageWire{
+			{Name: "connect", OK: true, DurationMs: 819},
+			{Name: "tools_list", OK: true, DurationMs: 1},
+			{Name: "resources_list", OK: false, DurationMs: 0, Error: "rpc error -32601: Method not found"},
+			{Name: "prompts_list", OK: false, DurationMs: 0, Error: "rpc error -32601: Method not found"},
+		},
+		Tools: 23,
+	}
+
+	var buf bytes.Buffer
+	renderMCPTestHuman(&buf, resp)
+	out := buf.String()
+
+	if !strings.Contains(out, "N/A") || !strings.Contains(out, "not supported") {
+		t.Errorf("expect optional stage to render N/A (not supported), got:\n%s", out)
+	}
+	if strings.Contains(out, "FAILED") {
+		t.Errorf("-32601 must NOT render as FAILED, got:\n%s", out)
+	}
+	// Core stages stay OK; overall summary line still emitted.
+	if !strings.Contains(out, "tools=23") {
+		t.Errorf("expect tools/list OK detail, got:\n%s", out)
+	}
+}
+
+// -----------------------------------------------------------------------------
 // _009: --json mode shape — MCPTestResponse-compatible JSON
 // -----------------------------------------------------------------------------
 func TestATDD_48_3_009_McpTest_JSONMode(t *testing.T) {

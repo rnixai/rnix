@@ -200,3 +200,96 @@ func mapKeys(m map[string]vfs.MCPConfig) []string {
 	}
 	return out
 }
+
+// -----------------------------------------------------------------------------
+// Regression — implicit mcp_manager when init config declares no service.
+//
+// Root cause of the `rnix mcp test playwright` → "not found in mcp.yaml"
+// inconsistency: a default install has no init.yaml, so DefaultInitConfig()
+// returns an empty service list, mcp_manager is never instantiated, and
+// kernel.MCPRegistry() stays nil — even though mcp.yaml correctly declares the
+// server. `rnix check mcp` reads the file directly so it still reported the
+// server, producing the contradictory diagnostics. The _019 test above only
+// exercised the EXPLICITLY-declared path, so it stayed green.
+// See investigations/mcp-registry-not-bootstrapped-investigation.md.
+// -----------------------------------------------------------------------------
+func TestRegression_McpManager_ImplicitWhenInitConfigEmpty(t *testing.T) {
+	dir := t.TempDir()
+	// GlobalDir() resolves to $XDG_CONFIG_HOME/rnix; place mcp.yaml there so
+	// the implicit mcp_manager fallback (Init(nil) → defaultMCPConfigPath())
+	// finds it without an explicit config_path.
+	t.Setenv("XDG_CONFIG_HOME", dir)
+	rnixDir := filepath.Join(dir, "rnix")
+	if err := os.MkdirAll(rnixDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	writeMCPYaml(t, filepath.Join(rnixDir, "mcp.yaml"), `
+servers:
+  playwright:
+    command: npx
+    args: ["@playwright/mcp"]
+    transport_type: stdio
+`)
+
+	k := newKernelOnly(t)
+
+	// DefaultInitConfig() declares no services — the default-install path.
+	if _, err := Bootstrap(k, DefaultInitConfig(), nil); err != nil {
+		t.Fatalf("Bootstrap: %v", err)
+	}
+
+	reg := k.MCPRegistry()
+	if reg == nil {
+		t.Fatal("kernel.MCPRegistry() = nil after Bootstrap with empty init config; implicit mcp_manager fallback did not run")
+	}
+	if _, ok := reg["playwright"]; !ok {
+		t.Errorf("kernel.MCPRegistry()[playwright] missing; got keys: %v", mapKeys(reg))
+	}
+}
+
+// A user-declared mcp_manager must suppress the implicit fallback (no override
+// of the explicitly-configured registry). Here the declared service points at
+// a project-local mcp.yaml that has a DIFFERENT server than the global one;
+// the registry must reflect the declared config, not the global fallback.
+func TestRegression_McpManager_DeclaredTakesPrecedence(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("XDG_CONFIG_HOME", dir)
+	rnixDir := filepath.Join(dir, "rnix")
+	if err := os.MkdirAll(rnixDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	// Global mcp.yaml (would be picked by the implicit fallback).
+	writeMCPYaml(t, filepath.Join(rnixDir, "mcp.yaml"), `
+servers:
+  global-only:
+    command: npx
+    transport_type: stdio
+`)
+	// Explicit project config with a different server.
+	declaredPath := filepath.Join(dir, "declared.yaml")
+	writeMCPYaml(t, declaredPath, `
+servers:
+  declared-only:
+    command: npx
+    transport_type: stdio
+`)
+
+	cfg := &InitConfig{Services: []ServiceConfig{{
+		Name:   "mcp-validator",
+		Type:   "mcp_manager",
+		Config: map[string]any{"config_path": declaredPath},
+	}}}
+
+	k := newKernelOnly(t)
+	if _, err := Bootstrap(k, cfg, nil); err != nil {
+		t.Fatalf("Bootstrap: %v", err)
+	}
+
+	reg := k.MCPRegistry()
+	if _, ok := reg["declared-only"]; !ok {
+		t.Errorf("declared config not honored; got keys: %v", mapKeys(reg))
+	}
+	if _, ok := reg["global-only"]; ok {
+		t.Error("implicit fallback overrode the declared mcp_manager config")
+	}
+}

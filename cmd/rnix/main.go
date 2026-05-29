@@ -1924,8 +1924,9 @@ func runDaemon(cmd *cobra.Command, args []string) error {
 	}()
 
 	// Init bootstrap sequence (Story 10.5)
-	// Check CWD rnix-init.yaml first (backward compat), then global init.yaml
-	initCfg, err := loadInitConfigCompat(cwd, globalDir)
+	// Daemon bootstrap is global-only: read <globalDir>/init.yaml, never a
+	// project-level .rnix/init.yaml (the daemon is shared across projects).
+	initCfg, err := loadInitConfig(globalDir)
 	if err != nil {
 		srv.Shutdown()
 		srv.Wait()
@@ -1973,22 +1974,22 @@ func resolveDataDir(cwd, name string) string {
 	return filepath.Join(cwd, ".rnix", "data", name)
 }
 
-// loadInitConfigCompat loads init configuration with backward compatibility.
-// Checks CWD/rnix-init.yaml first, then global dir init.yaml, then defaults.
-func loadInitConfigCompat(cwd, globalDir string) (*kernel.InitConfig, error) {
-	// First: CWD rnix-init.yaml (backward compat)
-	cwdInit := filepath.Join(cwd, "rnix-init.yaml")
-	if _, err := os.Stat(cwdInit); err == nil {
-		return kernel.LoadInitConfig(cwdInit)
-	}
-
-	// Second: global dir init.yaml
+// loadInitConfig resolves the daemon's bootstrap init configuration. The daemon
+// is a single per-user process shared across ALL projects (one socket), so its
+// bootstrap — init-time services + supervisor trees — is a GLOBAL concern and is
+// read ONLY from <globalDir>/init.yaml. It deliberately does NOT read any
+// project-level (.rnix/init.yaml) file: which project happens to auto-start the
+// daemon is nondeterministic, so binding daemon bootstrap to a CWD-relative
+// project config would be both surprising and fragile (a malformed project file
+// would brick the shared daemon). Project-scoped config — agents, skills, MCP
+// servers, env — is resolved per-spawn instead, not at daemon bootstrap.
+func loadInitConfig(globalDir string) (*kernel.InitConfig, error) {
 	globalInit := filepath.Join(globalDir, "init.yaml")
 	if _, err := os.Stat(globalInit); err == nil {
 		return kernel.LoadInitConfig(globalInit)
 	}
 
-	// Neither exists: use default empty config
+	// No global init.yaml: use default empty config.
 	return kernel.DefaultInitConfig(), nil
 }
 

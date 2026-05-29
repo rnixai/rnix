@@ -1,6 +1,8 @@
 package ipc
 
 import (
+	"os"
+	"path/filepath"
 	"testing"
 	"time"
 )
@@ -38,8 +40,17 @@ func setupDaemonStatusServer(t *testing.T) (*Server, string) {
 
 	srv := NewServer(nil, nil, testDaemonStatusVersion, testDaemonStatusCommit, testDaemonStatusBuildDate)
 
-	sockDir := t.TempDir()
-	sockPath := sockDir + "/test-daemon-status.sock"
+	// Unix socket paths are capped at ~108 bytes (sockaddr_un.sun_path).
+	// t.TempDir() embeds the full test name, which — combined with a non-default
+	// TMPDIR (e.g. sandboxed /tmp/<uid>/) and a long socket filename — can
+	// overflow that limit and fail bind() with "invalid argument". Use a short,
+	// test-name-independent temp dir + short socket filename instead.
+	sockDir, err := os.MkdirTemp("", "rnix")
+	if err != nil {
+		t.Fatalf("MkdirTemp: %v", err)
+	}
+	t.Cleanup(func() { _ = os.RemoveAll(sockDir) })
+	sockPath := filepath.Join(sockDir, "d.sock")
 
 	if err := srv.ListenAndServe(sockPath); err != nil {
 		t.Fatalf("ListenAndServe: %v", err)

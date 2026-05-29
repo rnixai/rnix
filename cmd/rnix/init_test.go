@@ -242,60 +242,72 @@ func TestResolveDataDir_OldPathFallback(t *testing.T) {
 	}
 }
 
-func TestLoadInitConfigCompat_CWDFirst(t *testing.T) {
+// loadInitConfig must IGNORE any project-level .rnix/init.yaml — daemon
+// bootstrap is global-only (the daemon is a single shared per-user process).
+// This guards against re-introducing CWD-based project loading, which would let
+// a malformed project file brick the shared daemon.
+func TestLoadInitConfig_IgnoresProjectConfig(t *testing.T) {
 	tmpDir := t.TempDir()
 	globalDir := filepath.Join(tmpDir, "global")
 	if err := os.MkdirAll(globalDir, 0o755); err != nil {
 		t.Fatal(err)
 	}
 
-	// Create CWD rnix-init.yaml
-	cwdInit := filepath.Join(tmpDir, "rnix-init.yaml")
-	if err := os.WriteFile(cwdInit, []byte("services: []\n"), 0o644); err != nil {
+	// A deliberately MALFORMED project .rnix/init.yaml (map-style services) that
+	// would fail to parse if the daemon ever tried to load it.
+	projDir := filepath.Join(tmpDir, "proj")
+	if err := os.MkdirAll(filepath.Join(projDir, ".rnix"), 0o755); err != nil {
 		t.Fatal(err)
 	}
+	bad := "services:\n  review-gateway:\n    intent: x\n    agent: y\n"
+	if err := os.WriteFile(filepath.Join(projDir, ".rnix", "init.yaml"), []byte(bad), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	t.Chdir(projDir)
 
-	cfg, err := loadInitConfigCompat(tmpDir, globalDir)
+	// No global init.yaml → must fall back to default WITHOUT touching the
+	// malformed project file.
+	cfg, err := loadInitConfig(globalDir)
 	if err != nil {
-		t.Fatalf("loadInitConfigCompat failed: %v", err)
+		t.Fatalf("loadInitConfig must ignore project .rnix/init.yaml, got error: %v", err)
 	}
 	if cfg == nil {
-		t.Fatal("expected non-nil config")
+		t.Fatal("expected non-nil default config")
 	}
 }
 
-func TestLoadInitConfigCompat_GlobalFallback(t *testing.T) {
+func TestLoadInitConfig_GlobalFallback(t *testing.T) {
 	tmpDir := t.TempDir()
 	globalDir := filepath.Join(tmpDir, "global")
 	if err := os.MkdirAll(globalDir, 0o755); err != nil {
 		t.Fatal(err)
 	}
 
-	// No CWD init file, but create global init.yaml
+	// Create global init.yaml
 	globalInit := filepath.Join(globalDir, "init.yaml")
 	if err := os.WriteFile(globalInit, []byte("services: []\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 
-	cfg, err := loadInitConfigCompat(tmpDir, globalDir)
+	cfg, err := loadInitConfig(globalDir)
 	if err != nil {
-		t.Fatalf("loadInitConfigCompat failed: %v", err)
+		t.Fatalf("loadInitConfig failed: %v", err)
 	}
 	if cfg == nil {
 		t.Fatal("expected non-nil config")
 	}
 }
 
-func TestLoadInitConfigCompat_DefaultWhenNoneExist(t *testing.T) {
+func TestLoadInitConfig_DefaultWhenNoneExist(t *testing.T) {
 	tmpDir := t.TempDir()
 	globalDir := filepath.Join(tmpDir, "global")
 	if err := os.MkdirAll(globalDir, 0o755); err != nil {
 		t.Fatal(err)
 	}
 
-	cfg, err := loadInitConfigCompat(tmpDir, globalDir)
+	cfg, err := loadInitConfig(globalDir)
 	if err != nil {
-		t.Fatalf("loadInitConfigCompat failed: %v", err)
+		t.Fatalf("loadInitConfig failed: %v", err)
 	}
 	if cfg == nil {
 		t.Fatal("expected non-nil default config")

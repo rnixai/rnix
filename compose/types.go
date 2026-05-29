@@ -8,7 +8,7 @@ import (
 	"github.com/rnixai/rnix/kernel"
 )
 
-// ComposeSpec is the top-level structure of rnix-compose.yaml.
+// ComposeSpec is the top-level structure of .rnix/compose.yaml.
 type ComposeSpec struct {
 	Version     string                `yaml:"version"`
 	Intent      string                `yaml:"intent"`

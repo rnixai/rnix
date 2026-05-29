@@ -56,7 +56,7 @@ var (
 )
 
 func init() {
-	composeResumeCmd.Flags().StringVarP(&flagComposeResumeFile, "file", "f", "rnix-compose.yaml", "Compose file path")
+	composeResumeCmd.Flags().StringVarP(&flagComposeResumeFile, "file", "f", ".rnix/compose.yaml", "Compose file path")
 	composeResumeCmd.Flags().StringVar(&flagComposeResumeNode, "node", "", "Compose node name to resume (required)")
 	composeResumeCmd.Flags().BoolVar(&flagComposeResumeFork, "fork", false, "Fork: create new UUID instead of inheriting original")
 	composeResumeCmd.Flags().IntVar(&flagComposeResumeFromStep, "from-step", 0, "Truncate history replay at this step before resuming (0 = no truncation)")
@@ -88,7 +88,7 @@ func runComposeResume(cmd *cobra.Command, args []string) error {
 	spec, err := compose.ParseFile(flagComposeResumeFile)
 	if err != nil {
 		outputError(renderer, mode, "compose-resume", err.Error(),
-			"compose file parse failed", "check rnix-compose.yaml syntax")
+			"compose file parse failed", "check .rnix/compose.yaml syntax")
 		exitCode = 2
 		return nil
 	}
@@ -97,7 +97,7 @@ func runComposeResume(cmd *cobra.Command, args []string) error {
 	if vErr := validateComposeNodeInSpec(spec, flagComposeResumeNode); vErr != nil {
 		outputError(renderer, mode, "compose-resume", vErr.Error(),
 			fmt.Sprintf("node %q not in compose spec", flagComposeResumeNode),
-			"check rnix-compose.yaml agents list")
+			"check .rnix/compose.yaml agents list")
 		exitCode = 2
 		return nil
 	}
@@ -305,7 +305,7 @@ func runComposeResume(cmd *cobra.Command, args []string) error {
 	engine, err := compose.NewEngine(spec, spawner, agentLoaderFunc)
 	if err != nil {
 		outputError(renderer, mode, "compose-resume", err.Error(),
-			"compose engine creation failed", "check rnix-compose.yaml for circular dependencies")
+			"compose engine creation failed", "check .rnix/compose.yaml for circular dependencies")
 		exitCode = 2
 		return nil
 	}

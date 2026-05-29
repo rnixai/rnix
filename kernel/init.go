@@ -79,7 +79,7 @@ var serviceRegistry = map[string]func() ServiceInitializer{
 	"log_aggregator": func() ServiceInitializer { return &logAggregatorService{} },
 }
 
-// LoadInitConfig reads and parses a rnix-init.yaml file.
+// LoadInitConfig reads and parses an init.yaml file.
 // If the file does not exist, returns DefaultInitConfig().
 func LoadInitConfig(path string) (*InitConfig, error) {
 	data, err := os.ReadFile(path)
@@ -97,7 +97,7 @@ func LoadInitConfig(path string) (*InitConfig, error) {
 	return &cfg, nil
 }
 
-// DefaultInitConfig returns an empty config for when no rnix-init.yaml exists.
+// DefaultInitConfig returns an empty config for when no init.yaml exists.
 func DefaultInitConfig() *InitConfig {
 	return &InitConfig{}
 }
@@ -115,7 +115,7 @@ func Bootstrap(k *KernelImpl, cfg *InitConfig, agentLoader AgentLoaderFunc) (*In
 			se := ServiceError{
 				Service:  svcCfg.Name,
 				Err:      fmt.Errorf("unknown service type: %s", svcCfg.Type),
-				Recovery: fmt.Sprintf("Check rnix-init.yaml: service %q has invalid type %q", svcCfg.Name, svcCfg.Type),
+				Recovery: fmt.Sprintf("Check init.yaml: service %q has invalid type %q", svcCfg.Name, svcCfg.Type),
 			}
 			if svcCfg.Required {
 				result.Failed = append(result.Failed, se)
@@ -151,6 +151,33 @@ func Bootstrap(k *KernelImpl, cfg *InitConfig, agentLoader AgentLoaderFunc) (*In
 		}
 
 		result.Started = append(result.Started, svcCfg.Name)
+	}
+
+	// Always-on MCP registry — guarantee kernel.MCPRegistry() is populated even
+	// when no init config declares an `mcp_manager` service. `mcp test` /
+	// `mcp list` resolve server names through the in-memory registry
+	// (ipc/server_mcp.go); without this fallback a default install — empty
+	// DefaultInitConfig(), or a user init.yaml that omits mcp_manager — leaves
+	// the registry nil and EVERY `mcp test <name>` returns NOT_FOUND despite
+	// mcp.yaml declaring the server, while `rnix check mcp` (which reads the
+	// file directly) reports it present. The service does not pre-connect any
+	// server, so the cost is a single mcp.yaml read at startup. A user-declared
+	// mcp_manager (handled in the loop above) takes precedence and suppresses
+	// this implicit init.
+	if !hasServiceType(cfg.Services, "mcp_manager") {
+		svc := &mcpManagerService{}
+		if err := svc.Init(nil); err != nil {
+			// mcp.yaml present but malformed — surface as a warning, not fatal,
+			// mirroring optional-service (Required=false) semantics. Missing
+			// mcp.yaml is not an error (Init returns nil → nil registry).
+			result.Warnings = append(result.Warnings, fmt.Sprintf("mcp-manager (implicit): %v", err))
+		} else {
+			// Populate the registry silently. The implicit fallback is an
+			// internal always-on mechanism, not a user-declared service, so it
+			// is intentionally NOT added to result.Started (which represents
+			// declared services and drives the daemon's "[init] ✓" banner).
+			k.SetMCPRegistry(svc.Servers())
+		}
 	}
 
 	// Phase 2: Supervisor tree construction (serial, ordered)
@@ -386,6 +413,18 @@ func (s *mcpManagerService) Init(cfg map[string]any) error {
 // Returns nil before Init runs, on Init failure, or when mcp.yaml is absent.
 func (s *mcpManagerService) Servers() map[string]vfs.MCPConfig {
 	return s.servers
+}
+
+// hasServiceType reports whether the init config declares a service of the
+// given type. Used by Bootstrap to decide whether the always-on mcp_manager
+// fallback should run (a user-declared mcp_manager takes precedence).
+func hasServiceType(services []ServiceConfig, typ string) bool {
+	for _, s := range services {
+		if s.Type == typ {
+			return true
+		}
+	}
+	return false
 }
 
 // defaultMCPConfigPath returns the canonical mcp.yaml location (mirrors

@@ -188,8 +188,44 @@ func initGlobal(globalDir string) error {
 		return fmt.Errorf("write config.yaml: %w", err)
 	}
 
+	// Generate global init.yaml template. The daemon reads its bootstrap config
+	// (services + supervisor trees) ONLY from <globalDir>/init.yaml — it is a
+	// single shared per-user process, so bootstrap is a global concern (never
+	// project-scoped). Defaults to an empty service list so the daemon starts
+	// cleanly; mcp_manager is loaded implicitly regardless.
+	initPath := filepath.Join(globalDir, "init.yaml")
+	if _, err := os.Stat(initPath); os.IsNotExist(err) {
+		if err := os.WriteFile(initPath, []byte(globalInitYAMLTemplate), 0o644); err != nil {
+			return fmt.Errorf("write init.yaml: %w", err)
+		}
+	}
+
 	return nil
 }
+
+// globalInitYAMLTemplate is the scaffold written to <globalDir>/init.yaml by
+// `rnix init`. It documents the supported schema and defaults to an empty
+// service list so the daemon starts cleanly.
+const globalInitYAMLTemplate = `# rnix daemon init configuration (~/.config/rnix/init.yaml)
+#
+# Read by the shared per-user daemon at startup. Bootstrap is GLOBAL: the daemon
+# is a single process across all projects, so it does NOT read any project-level
+# .rnix/init.yaml. Two sections are supported:
+#
+# services:    init-time setup, each item is a ServiceConfig
+#   - name:     display name
+#     type:     registered service type (skill_registry | mcp_manager | log_aggregator)
+#     required: true -> bootstrap aborts on failure; false -> warn and continue
+#     config:   type-specific key/value map
+#
+# supervisors: long-running supervised agent trees, each item is a
+#   SupervisorConfig with a children: list of {name, agent, intent, model, ...}.
+#
+# Note: mcp_manager is loaded automatically even when omitted, so MCP servers
+# declared in mcp.yaml are always resolvable by ` + "`rnix mcp test/list`" + `.
+
+services: []
+`
 
 func initProject(projectDir string) error {
 	// Create directory structure

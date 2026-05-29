@@ -99,13 +99,13 @@ func TestATDD_42_4_CLI_001_CommandShape(t *testing.T) {
 		t.Errorf("flag --node must be marked required; annotations=%v", nodeFlag.Annotations)
 	}
 
-	// --file default must be rnix-compose.yaml (mirrors `up`/`down`).
+	// --file default must be .rnix/compose.yaml (mirrors `up`/`down`).
 	fileFlag := composeResumeCmd.Flags().Lookup("file")
 	if fileFlag == nil {
 		t.Fatal("flag --file missing")
 	}
-	if fileFlag.DefValue != "rnix-compose.yaml" {
-		t.Errorf("flag --file default = %q, want %q", fileFlag.DefValue, "rnix-compose.yaml")
+	if fileFlag.DefValue != ".rnix/compose.yaml" {
+		t.Errorf("flag --file default = %q, want %q", fileFlag.DefValue, ".rnix/compose.yaml")
 	}
 
 	// --fork / --from-step / --dry-run must be the right types.
@@ -356,7 +356,7 @@ func TestATDD_42_4_CLI_StubSanity_RunComposeResume(t *testing.T) {
 	flagComposeResumeFile = "rnix-compose-missing.yaml"
 	defer func() {
 		flagComposeResumeNode = ""
-		flagComposeResumeFile = "rnix-compose.yaml"
+		flagComposeResumeFile = ".rnix/compose.yaml"
 		exitCode = 0
 	}()
 

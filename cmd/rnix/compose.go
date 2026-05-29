@@ -26,14 +26,14 @@ import (
 var composeCmd = &cobra.Command{
 	Use:   "compose",
 	Short: "Multi-agent orchestration",
-	Long:  "Manage multi-agent workflows defined in rnix-compose.yaml.",
+	Long:  "Manage multi-agent workflows defined in .rnix/compose.yaml.",
 }
 
 var composeUpCmd = &cobra.Command{
 	Use:   "up",
 	Short: "Start all agents defined in compose file",
-	Long:  "Parse rnix-compose.yaml, resolve dependencies, and spawn all agents in DAG order.",
-	Example: `  rnix compose up                      # Use rnix-compose.yaml in current directory
+	Long:  "Parse .rnix/compose.yaml, resolve dependencies, and spawn all agents in DAG order.",
+	Example: `  rnix compose up                      # Use .rnix/compose.yaml in current directory
   rnix compose up -f my-workflow.yaml   # Use specified file
   rnix compose up --json                # JSON output mode`,
 	RunE: runComposeUp,
@@ -45,7 +45,7 @@ var composeDownCmd = &cobra.Command{
 	Use:   "down",
 	Short: "Stop all agents defined in compose file",
 	Long:  "Stop all running agents from the compose orchestration and release resources.",
-	Example: `  rnix compose down                      # Stop agents from rnix-compose.yaml
+	Example: `  rnix compose down                      # Stop agents from .rnix/compose.yaml
   rnix compose down -f my-workflow.yaml   # Stop agents from specified file
   rnix compose down --json                # JSON output mode`,
 	RunE: runComposeDown,
@@ -54,9 +54,9 @@ var composeDownCmd = &cobra.Command{
 var flagComposeDownFile string
 
 func init() {
-	composeUpCmd.Flags().StringVarP(&flagComposeFile, "file", "f", "rnix-compose.yaml", "Compose file path")
+	composeUpCmd.Flags().StringVarP(&flagComposeFile, "file", "f", ".rnix/compose.yaml", "Compose file path")
 	composeCmd.AddCommand(composeUpCmd)
-	composeDownCmd.Flags().StringVarP(&flagComposeDownFile, "file", "f", "rnix-compose.yaml", "Compose file path")
+	composeDownCmd.Flags().StringVarP(&flagComposeDownFile, "file", "f", ".rnix/compose.yaml", "Compose file path")
 	composeCmd.AddCommand(composeDownCmd)
 }
 
@@ -211,7 +211,7 @@ func runComposeUp(cmd *cobra.Command, args []string) error {
 	spec, err := compose.ParseFile(flagComposeFile)
 	if err != nil {
 		outputError(renderer, mode, "compose", err.Error(),
-			"compose file parse failed", "check rnix-compose.yaml syntax")
+			"compose file parse failed", "check .rnix/compose.yaml syntax")
 		exitCode = 2
 		return nil
 	}
@@ -266,7 +266,7 @@ func runComposeUp(cmd *cobra.Command, args []string) error {
 	engine, err := compose.NewEngine(spec, spawner, agentLoaderFunc)
 	if err != nil {
 		outputError(renderer, mode, "compose", err.Error(),
-			"compose engine creation failed", "check rnix-compose.yaml for circular dependencies")
+			"compose engine creation failed", "check .rnix/compose.yaml for circular dependencies")
 		exitCode = 2
 		return nil
 	}
@@ -412,7 +412,7 @@ func runComposeDown(cmd *cobra.Command, args []string) error {
 	spec, err := compose.ParseFile(flagComposeDownFile)
 	if err != nil {
 		outputError(renderer, mode, "compose", err.Error(),
-			"compose file parse failed", "check rnix-compose.yaml syntax")
+			"compose file parse failed", "check .rnix/compose.yaml syntax")
 		exitCode = 2
 		return nil
 	}

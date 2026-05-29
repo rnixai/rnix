@@ -89,9 +89,16 @@ func (s *Server) handleMCPTest(conn net.Conn, payload json.RawMessage) {
 	cfg, ok := registry[req.Name]
 	if !ok {
 		available := availableMCPServerNames(registry)
-		msg := fmt.Sprintf("server %q not found in mcp.yaml", req.Name)
-		if len(available) > 0 {
-			msg = fmt.Sprintf("%s. Available: %s", msg, strings.Join(available, ", "))
+		var msg string
+		if len(registry) == 0 {
+			// Empty/nil registry is a distinct failure from "name not declared":
+			// the daemon never loaded an MCP registry. Point at the daemon/config
+			// rather than the server name, so the operator does not chase a
+			// mcp.yaml that is actually correct (see investigations/
+			// mcp-registry-not-bootstrapped-investigation.md).
+			msg = fmt.Sprintf("MCP registry is empty — daemon loaded no servers. Verify mcp.yaml exists at the global config dir and restart the daemon (`rnix daemon stop`); run `rnix check mcp` to confirm the file. (server %q)", req.Name)
+		} else {
+			msg = fmt.Sprintf("server %q not found in mcp.yaml. Available: %s", req.Name, strings.Join(available, ", "))
 		}
 		writeResponse(conn, Response{OK: false, Error: &ErrorPayload{Code: "NOT_FOUND", Message: msg}})
 		return

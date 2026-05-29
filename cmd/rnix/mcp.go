@@ -359,6 +359,14 @@ func renderMCPTestHuman(w io.Writer, resp *ipc.MCPTestResponse) {
 		case !s.OK && strings.Contains(strings.ToLower(s.Error), "context deadline exceeded"):
 			marker = "TIMEOUT"
 			detail = fmt.Sprintf(" (after %dms)", s.DurationMs)
+		case !s.OK && mcpStageUnsupported(s.Error):
+			// JSON-RPC -32601 "Method not found" means the server does not
+			// implement this (optional) capability — not a failure. Render it
+			// distinctly so e.g. a tools-only server (Playwright: no resources /
+			// prompts) doesn't look broken. The probe already treats these
+			// stages as non-fatal (kernel.RunMCPProbe / Story §决策 6).
+			marker = "N/A"
+			detail = " (not supported)"
 		case !s.OK:
 			marker = "FAILED"
 			if s.Error != "" {
@@ -400,6 +408,18 @@ func renderMCPTestQuiet(w io.Writer, resp *ipc.MCPTestResponse) {
 		return
 	}
 	fmt.Fprintln(w, "FAILED")
+}
+
+// mcpStageUnsupported reports whether a stage error is JSON-RPC -32601
+// ("Method not found") — i.e. the server legitimately does not implement that
+// optional capability, rather than failing it. Matches the numeric code or the
+// canonical message text so it survives transport-specific error wrapping.
+func mcpStageUnsupported(errMsg string) bool {
+	if errMsg == "" {
+		return false
+	}
+	return strings.Contains(errMsg, "-32601") ||
+		strings.Contains(strings.ToLower(errMsg), "method not found")
 }
 
 // mcpStageLabel maps the wire stage name to a human-friendly label.

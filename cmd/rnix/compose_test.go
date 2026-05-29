@@ -98,9 +98,9 @@ func TestComposeUp_HelpOutput(t *testing.T) {
 // --- AC #1: compose up 默认文件 ---
 
 func TestComposeUp_DefaultFile(t *testing.T) {
-	// Given: a directory with rnix-compose.yaml
+	// Given: a directory with .rnix/compose.yaml
 	// When: running compose up without -f flag
-	// Then: reads rnix-compose.yaml from current directory
+	// Then: reads .rnix/compose.yaml from current directory
 
 	tmpDir := t.TempDir()
 	composeYAML := `version: "1.0"
@@ -109,7 +109,10 @@ agents:
   worker:
     intent: "do work"
 `
-	if err := os.WriteFile(filepath.Join(tmpDir, "rnix-compose.yaml"), []byte(composeYAML), 0644); err != nil {
+	if err := os.MkdirAll(filepath.Join(tmpDir, ".rnix"), 0o755); err != nil {
+		t.Fatalf("mkdir .rnix: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(tmpDir, ".rnix", "compose.yaml"), []byte(composeYAML), 0644); err != nil {
 		t.Fatalf("write compose file: %v", err)
 	}
 
@@ -132,7 +135,7 @@ agents:
 		flagComposeFile = savedFile
 		exitCode = savedExit
 	})
-	flagComposeFile = "rnix-compose.yaml"
+	flagComposeFile = ".rnix/compose.yaml"
 	exitCode = 0
 
 	err := runComposeUp(&cobra.Command{}, []string{})
@@ -140,8 +143,8 @@ agents:
 	// but it should NOT fail with "file not found" for the compose file.
 	if err != nil {
 		errMsg := err.Error()
-		if strings.Contains(errMsg, "no such file") || strings.Contains(errMsg, "rnix-compose.yaml") {
-			t.Fatalf("compose up should find default rnix-compose.yaml, got: %v", err)
+		if strings.Contains(errMsg, "no such file") || strings.Contains(errMsg, "compose.yaml") {
+			t.Fatalf("compose up should find default .rnix/compose.yaml, got: %v", err)
 		}
 	}
 }
