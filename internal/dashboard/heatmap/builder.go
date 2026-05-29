@@ -254,8 +254,16 @@ func BuildSegments(profile *debug.CtxProfileResult) []Segment {
 		})
 	}
 
+	// Sort by tokens desc, with SegmentKind asc as a deterministic tie-breaker.
+	// Without the tie-break, equal-token segments (e.g. a 400-token system prompt
+	// vs 400 tokens of merged tool calls) keep the randomized order of the
+	// kindBucket map iteration, which made TestBuildSegments_BasicAggregation
+	// flaky (~5% of runs the tools segment sorted ahead of System).
 	sort.Slice(segments, func(i, j int) bool {
-		return segments[i].Tokens > segments[j].Tokens
+		if segments[i].Tokens != segments[j].Tokens {
+			return segments[i].Tokens > segments[j].Tokens
+		}
+		return segments[i].Kind < segments[j].Kind
 	})
 
 	return segments

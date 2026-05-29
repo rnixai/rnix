@@ -1,5 +1,3 @@
-//go:build atdd_48_6_red
-
 package mcp
 
 import (
@@ -16,10 +14,11 @@ import (
 //                              → TransportConfig → StdioTransport defaults
 //
 // Story: _bmad-output/implementation-artifacts/48-6-mount-concurrency-per-server-timeout.md
-// Phase: 🔴 RED — gated `//go:build atdd_48_6_red`. Run:
-//            go test -tags=atdd_48_6_red -race -run TestATDD_48_6 ./drivers/mcp/
+// Phase: ✅ GREEN — the `//go:build atdd_48_6_red` tag was removed after the dev
+//        implementation landed, folding these into `make test`. Run:
+//            go test -race -run TestATDD_48_6 ./drivers/mcp/
 //
-// Pre-impl RED signal: COMPILE failure — none of the three new fields exist yet
+// Pre-impl RED signal: COMPILE failure — none of the three new fields existed yet
 // (MCPServerConfig.{MountTimeout,RequestTimeout,MaxOutputBytes}, vfs.MCPConfig
 // runtime durations, TransportConfig.{MountTimeout,RequestTimeout,MaxOutputBytes}).
 // That compile error under the tag IS the red signal (48.5 convention).

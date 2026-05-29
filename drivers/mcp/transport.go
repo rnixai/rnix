@@ -21,11 +21,14 @@ import (
 
 // gracefulShutdownTimeout is the SIGTERM-to-SIGKILL escalation budget for
 // transport.Close (Story 48.2 AC4). Kept package-level (not configurable) by
-// design — Story 48.6 introduces per-server timeout configuration.
+// design — Story 48.6 added per-server mount/request timeout + output config
+// (TransportConfig.{MountTimeout,RequestTimeout,MaxOutputBytes}), but the Close
+// escalation budget intentionally stays a single global.
 const gracefulShutdownTimeout = 5 * time.Second
 
-// Story 48.5 health-check tuning. Package-level consts (not per-server config —
-// that is Story 48.6). l2IdleThreshold is the idle window after which the next
+// Story 48.5 health-check tuning. Package-level consts (the per-server knobs
+// added by Story 48.6 cover mount/request timeout + output size, not these L2
+// internals). l2IdleThreshold is the idle window after which the next
 // Call runs an L2 readiness ping; l2PingTimeout bounds that ping so a hung-but-
 // alive child cannot stall the call. stderrRingCapacity bounds the captured
 // stderr ring buffer (AC4: "保留最近 256 行").
@@ -53,6 +56,18 @@ type TransportConfig struct {
 	// ReconnectPolicy governs the L2-triggered backoff reconnect (Story 48.5
 	// AC3). Zero value → production defaults (3 retries, 1s/2s/4s backoff).
 	ReconnectPolicy ReconnectPolicy
+
+	// Per-server timeout / output knobs (Story 48.6 FR-48-S8). Zero values are
+	// backfilled with package defaults by NewStdioTransport so a transport built
+	// outside the mcp.yaml path (probe / resume) is never handed a 0 timeout.
+	//   - MountTimeout: carried for completeness; the Connect budget is enforced
+	//     by the MountManager's ctx (vfs/mount.go), this is the defensive copy.
+	//   - RequestTimeout: bounds a single tools/call stdout read (requestLocked).
+	//   - MaxOutputBytes: caps a tools/call result; oversized results are
+	//     truncated and a warning pushed to the stderr ring.
+	MountTimeout   time.Duration
+	RequestTimeout time.Duration
+	MaxOutputBytes int64
 }
 
 // jsonRPCRequest is the JSON-RPC 2.0 request envelope.
@@ -131,7 +146,19 @@ type readResult struct {
 }
 
 // NewStdioTransport creates a new StdioTransport with the given configuration.
+// Zero-value per-server knobs are backfilled with package defaults (Story 48.6
+// §易错点 5 / Task 1.5) so probe / resume paths that bypass mcp.yaml never get a
+// "0 = instant timeout / no output" surprise.
 func NewStdioTransport(config TransportConfig) *StdioTransport {
+	if config.MountTimeout <= 0 {
+		config.MountTimeout = defaultMountTimeout
+	}
+	if config.RequestTimeout <= 0 {
+		config.RequestTimeout = defaultRequestTimeout
+	}
+	if config.MaxOutputBytes <= 0 {
+		config.MaxOutputBytes = defaultMaxOutputBytes
+	}
 	t := &StdioTransport{
 		config:    config,
 		stderrBuf: xsync.NewRingBuffer[string](stderrRingCapacity),
@@ -226,7 +253,15 @@ func (t *StdioTransport) startProcessLocked(ctx context.Context) error {
 	t.lastChildPID.Store(int64(cmd.Process.Pid))
 	t.stdin = json.NewEncoder(stdinPipe)
 	sc := bufio.NewScanner(stdoutPipe)
-	sc.Buffer(make([]byte, 0, 64*1024), 4*1024*1024) // 4 MB max line
+	// Story 48.6 §易错点 4: one MCP stdio response is a single line of JSON, so
+	// the scanner's max-line cap bounds the largest result we can read. It MUST
+	// be >= MaxOutputBytes — otherwise an 8MB max_output_bytes hits bufio's 4MB
+	// ErrTooLong first, the whole response is lost as a "read response" error,
+	// and the truncation path (AC3) never runs. Raise it to max(4MB, limit) so
+	// the line reads in and truncation happens AFTER (you can only truncate what
+	// you managed to read).
+	maxLine := max(4*1024*1024, int(t.config.MaxOutputBytes))
+	sc.Buffer(make([]byte, 0, 64*1024), maxLine)
 	t.stdout = sc
 
 	// Single-reader pump for THIS cmd (Story 48.5). Fresh channel + done so a
@@ -456,10 +491,19 @@ func (t *StdioTransport) Call(ctx context.Context, method string, params json.Ra
 }
 
 // requestLocked issues one JSON-RPC request/response round on the current
-// stdin/stdout. Caller MUST hold t.mu and have validated connectivity. The
-// stdout scan is unbounded by design — after L1+L2 the server is known
-// responsive, and the existing 30s ctx budget (vfs.mcpCallTimeout) still
-// governs the broader VFS Read path.
+// stdin/stdout. Caller MUST hold t.mu and have validated connectivity.
+//
+// Story 48.6:
+//   - Task 4: the stdout read is bounded by the per-server request_timeout
+//     (default 60s), narrowed to the caller's remaining ctx budget when shorter.
+//     ctx cancellation still always unblocks the wait, so a server that hangs
+//     AFTER ping-OK can never pin t.mu and stall every concurrent Call
+//     ([Review][Patch] P6 preserved).
+//   - Task 3: an oversized result is truncated to max_output_bytes and a warning
+//     is pushed to the stderr ring, so the call returns a (truncated) result
+//     instead of flooding context — applied uniformly to every Call method (the
+//     read-only tools/list / resources/* paths route through Call too), which
+//     §易错点 / Task 3.4 endorses as the low-risk consistent choice.
 func (t *StdioTransport) requestLocked(ctx context.Context, method string, params json.RawMessage) (json.RawMessage, error) {
 	id := t.nextID.Add(1)
 	req := jsonRPCRequest{JSONRPC: "2.0", ID: id, Method: method, Params: params}
@@ -468,11 +512,7 @@ func (t *StdioTransport) requestLocked(ctx context.Context, method string, param
 		return nil, fmt.Errorf("write request: %w", err)
 	}
 
-	// timeout 0: the request is unbounded by design (the server is known
-	// responsive after L1+L2), but ctx cancellation (the VFS mcpCallTimeout)
-	// still unblocks the wait so a server that hangs AFTER ping-OK cannot pin
-	// t.mu and stall every concurrent Call ([Review][Patch] P6).
-	line, err := t.readResponseLocked(ctx, id, 0)
+	line, err := t.readResponseLocked(ctx, id, t.effectiveRequestTimeout(ctx))
 	if err != nil {
 		return nil, fmt.Errorf("read response: %w", err)
 	}
@@ -484,7 +524,42 @@ func (t *StdioTransport) requestLocked(ctx context.Context, method string, param
 	if resp.Error != nil {
 		return nil, fmt.Errorf("rpc error %d: %s", resp.Error.Code, resp.Error.Message)
 	}
-	return resp.Result, nil
+	return t.truncateResultLocked(method, resp.Result), nil
+}
+
+// effectiveRequestTimeout derives the stdout read budget for one request
+// (Story 48.6 Task 4): the per-server RequestTimeout, narrowed to the caller's
+// remaining ctx deadline when that is sooner. A non-positive result (deadline
+// already passed) is fine — readResponseLocked then runs with no internal timer
+// and ctx.Done fires immediately to unblock the wait.
+func (t *StdioTransport) effectiveRequestTimeout(ctx context.Context) time.Duration {
+	rt := t.config.RequestTimeout
+	if rt <= 0 {
+		rt = defaultRequestTimeout
+	}
+	if ctx != nil {
+		if dl, ok := ctx.Deadline(); ok {
+			if remaining := time.Until(dl); remaining < rt {
+				return remaining
+			}
+		}
+	}
+	return rt
+}
+
+// truncateResultLocked caps a result at max_output_bytes (Story 48.6 Task 3),
+// recording a warning in the stderr ring (surfaced by `rnix mcp logs <name>`)
+// when it has to cut. Caller MUST hold t.mu.
+func (t *StdioTransport) truncateResultLocked(method string, result json.RawMessage) json.RawMessage {
+	max := t.config.MaxOutputBytes
+	if max <= 0 || int64(len(result)) <= max {
+		return result
+	}
+	orig := len(result)
+	t.stderrBuf.Push(fmt.Sprintf(
+		"[mcp] WARN: %s result truncated from %d to %d bytes (max_output_bytes)",
+		method, orig, max))
+	return result[:max]
 }
 
 // pingLocked sends a JSON-RPC ping and waits up to timeout for any response,

@@ -1553,6 +1553,11 @@ func runDaemon(cmd *cobra.Command, args []string) error {
 			Command: cfg.Command,
 			Args:    cfg.Args,
 			WorkDir: cfg.WorkDir,
+			// Story 48.6 — carry the per-server timeout / output knobs through
+			// to the transport (NewStdioTransport backfills any zero values).
+			MountTimeout:   cfg.MountTimeout,
+			RequestTimeout: cfg.RequestTimeout,
+			MaxOutputBytes: cfg.MaxOutputBytes,
 		}
 		for k, v := range cfg.Env {
 			tc.Env = append(tc.Env, k+"="+v)

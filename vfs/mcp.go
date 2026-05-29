@@ -17,7 +17,13 @@ import (
 // tools/call timeout is managed by the caller's context via VFS Write.
 const mcpCallTimeout = 30 * time.Second
 
-// MCPConfig describes how to connect to an MCP server.
+// MCPConfig describes how to connect to an MCP server. It is the parsed,
+// runtime form: the per-server timeout knobs are time.Duration here (decoded
+// from the mcp.yaml duration strings by MCPServerConfig.ToMCPConfig), not raw
+// strings. A zero MountTimeout / RequestTimeout / MaxOutputBytes means "use the
+// transport default" — both the MountManager (mount.go) and NewStdioTransport
+// (drivers/mcp) fall back rather than treating zero as an instant timeout
+// (Story 48.6 §易错点 5).
 type MCPConfig struct {
 	ServerName    string            `json:"server_name" yaml:"server_name"`
 	Command       string            `json:"command" yaml:"command"`
@@ -26,6 +32,11 @@ type MCPConfig struct {
 	TransportType string            `json:"transport_type" yaml:"transport_type"` // "stdio" (default)
 	WorkDir       string            `json:"work_dir,omitempty" yaml:"work_dir,omitempty"`
 	Instructions  string            `json:"instructions,omitempty" yaml:"instructions,omitempty"` // usage instructions injected into system prompt
+
+	// Per-server timeout / output knobs (Story 48.6 FR-48-S8). Zero = default.
+	MountTimeout   time.Duration `json:"mount_timeout,omitempty" yaml:"mount_timeout,omitempty"`     // Connect budget (default 5s)
+	RequestTimeout time.Duration `json:"request_timeout,omitempty" yaml:"request_timeout,omitempty"` // single tools/call read budget (default 60s)
+	MaxOutputBytes int64         `json:"max_output_bytes,omitempty" yaml:"max_output_bytes,omitempty"` // tools/call result cap (default 4MB)
 }
 
 // MCPTransport defines the interface for communicating with an MCP server.
@@ -80,6 +91,12 @@ const (
 	// IPC wire serialization and potential persistence reference — never shift.
 	MCPStatusReconnecting     // reconnecter is mid-backoff re-exec
 	MCPStatusBackoffExhausted // all reconnect attempts failed; calls fast-fail
+	// Story 48.6 §并发化设计: a Mount placeholder is inserted with this status
+	// while transport.Connect runs OUTSIDE the global lock. APPENDED last (value
+	// 5) so the existing iota wire values never shift. A placeholder is never
+	// surfaced to a reuser — Acquire blocks on the per-entry lock until Mount
+	// finalizes to Connected (or deletes the placeholder on Connect failure).
+	MCPStatusConnecting
 )
 
 // MCPStatusString returns the human-readable form of an MCPStatus. Used by
@@ -97,6 +114,8 @@ func MCPStatusString(s MCPStatus) string {
 		return "reconnecting"
 	case MCPStatusBackoffExhausted:
 		return "backoff_exhausted"
+	case MCPStatusConnecting:
+		return "connecting"
 	default:
 		return "unknown"
 	}
@@ -113,13 +132,28 @@ func MCPStatusString(s MCPStatus) string {
 // reuser's eventual Unmount happened against an entry whose only owner was
 // already gone, stranding the mount forever.
 //
-// Protected by MountManager.mu; never mutated outside of the manager.
+// Concurrency (Story 48.6): the global MountManager.mu is GONE. Each entry now
+// carries its OWN lock (mu, a pointer so ListMounts can copy the struct without
+// tripping go vet copylocks). The mutable fields below (Status / transport /
+// refCount) are guarded by that per-entry lock; the entry's presence in the
+// registry is the atomic xsync.SyncMap. Mount inserts a Connecting placeholder
+// with the lock already held, runs Connect OUTSIDE any global critical section
+// (so distinct paths Connect in parallel), then finalizes under the held lock —
+// an Acquire racing the in-flight Connect blocks on mu until finalize, then
+// sees either Connected or a deleted placeholder. Read paths (GetStatus /
+// ListMounts / Range) are lock-free SyncMap reads.
 type MCPMount struct {
 	Path      string
 	Config    MCPConfig
 	Status    MCPStatus
 	transport MCPTransport
 	refCount  int
+
+	// mu guards Status / transport / refCount for THIS entry (Story 48.6). It is
+	// a pointer so the value copies ListMounts/Transport() hand out do not copy a
+	// lock (go vet copylocks). nil mu (e.g. a bare MCPMount{Path:...} built by a
+	// test mock for ListMounts) is never locked by the manager.
+	mu *sync.Mutex
 }
 
 // Transport exposes the mount's transport for read-only observability
@@ -130,6 +164,22 @@ type MCPMount struct {
 // The returned value is a copy of the interface held by the MCPMount value
 // copy that ListMounts hands out; it points at the same underlying transport.
 func (m MCPMount) Transport() MCPTransport { return m.transport }
+
+// lock / unlock guard this entry's mutable fields (Story 48.6 per-entry lock).
+// They tolerate a nil mu so a bare MCPMount{Path:...} built by a test mock for
+// ListMounts is never a hazard — only entries the MountManager creates carry a
+// real lock. Pointer receiver: the manager always holds *MCPMount, never a copy.
+func (m *MCPMount) lock() {
+	if m.mu != nil {
+		m.mu.Lock()
+	}
+}
+
+func (m *MCPMount) unlock() {
+	if m.mu != nil {
+		m.mu.Unlock()
+	}
+}
 
 // mcpFile implements VFSFile for MCP tool invocations.
 // Each Open on an MCP path creates one mcpFile instance.

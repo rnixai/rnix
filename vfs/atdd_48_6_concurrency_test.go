@@ -1,5 +1,3 @@
-//go:build atdd_48_6_red
-
 package vfs
 
 import (
@@ -15,12 +13,11 @@ import (
 // ATDD 48.6 AC1/AC2 — concurrent mount + per-server mount_timeout
 //
 // Story: _bmad-output/implementation-artifacts/48-6-mount-concurrency-per-server-timeout.md
-// Phase: 🔴 RED — gated `//go:build atdd_48_6_red`. Run:
-//            go test -tags=atdd_48_6_red -race -run TestATDD_48_6 ./vfs/
-//        Dev removes the tag once green so the tests fold into `make test`
-//        (same gating flow as Story 48.5).
+// Phase: ✅ GREEN — the `//go:build atdd_48_6_red` tag was removed after the dev
+//        implementation landed, folding these into `make test` (same gating flow
+//        as Story 48.5). Run: go test -race -run TestATDD_48_6 ./vfs/
 //
-// Pre-impl RED signals:
+// Pre-impl RED signals (now satisfied by the implementation):
 //   _001 — BEHAVIORAL red: the current global `MountManager.mu` serializes every
 //          Mount, so 10 × 200ms Connect ≈ 2s, blowing the < 1s parallel bound;
 //          peak concurrency stays at 1.

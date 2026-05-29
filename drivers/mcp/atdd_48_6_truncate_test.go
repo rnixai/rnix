@@ -1,4 +1,4 @@
-//go:build atdd_48_6_red && unix
+//go:build unix
 
 package mcp
 
@@ -13,11 +13,12 @@ import (
 // ATDD 48.6 AC3 — per-server max_output_bytes truncation
 //
 // Story: _bmad-output/implementation-artifacts/48-6-mount-concurrency-per-server-timeout.md
-// Phase: 🔴 RED — gated `//go:build atdd_48_6_red && unix`. The unix tag scopes
-//        out Windows (the bash mock servers below are unix-only). Run:
-//            go test -tags=atdd_48_6_red -race -run TestATDD_48_6_02 ./drivers/mcp/
+// Phase: ✅ GREEN — the `atdd_48_6_red` tag was removed after the dev
+//        implementation landed; the `//go:build unix` tag stays because the bash
+//        mock servers below are unix-only. Run:
+//            go test -race -run TestATDD_48_6_02 ./drivers/mcp/
 //
-// Pre-impl RED signals:
+// Pre-impl RED signals (now satisfied by the implementation):
 //   _020/_021/_022 — COMPILE red: TransportConfig.MaxOutputBytes does not exist
 //                    yet (Task 1.5). The compile failure under the tag IS the red
 //                    signal (48.5 convention).
