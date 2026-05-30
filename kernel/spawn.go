@@ -763,6 +763,13 @@ func (k *KernelImpl) Spawn(intent string, agent *agents.AgentInfo, opts SpawnOpt
 				k.immuneDaemon.RecordCooperationTyped(parentTemplate, agentName, "spawn")
 			}
 		}
+
+		// Similarity matrix feed: record agent template→skills mapping (Story 51.3 / EM-2).
+		// Accumulates templates and triggers full matrix recomputation on each spawn.
+		// Empty agentName / empty skills skip (ad-hoc spawn guard).
+		if agentName != "" && len(proc.Skills) > 0 {
+			k.immuneDaemon.RecordAgentSkills(agentName, proc.Skills)
+		}
 	}
 
 	return proc.PID, nil

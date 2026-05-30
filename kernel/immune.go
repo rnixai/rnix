@@ -588,6 +588,9 @@ type ImmuneDaemon struct {
 
 	// Story 22.5: collaboration topology
 	coopRecords map[string]map[string]*CoopRecord // agentA -> agentB -> typed record
+
+	// Story 51.3: agent template→skills accumulator for similarity matrix feed
+	agentSkills map[string][]string // template name → skill list (deduplicated by template)
 }
 
 // NewImmuneDaemon creates a new ImmuneDaemon backed by the given store and config.
@@ -1194,7 +1197,31 @@ type MigrationResult struct {
 // MigrateFunc is the function signature for spawning a migration target process.
 type MigrateFunc func(intent string, agentName string, contextMessages []string) (types.PID, error)
 
-// --- ImmuneDaemon integration methods for Story 22.4 ---
+// --- ImmuneDaemon integration methods for Story 22.4 / 51.3 ---
+
+// RecordAgentSkills records an agent template's skill set into the internal
+// accumulator and triggers a full similarity matrix recomputation. Nil receiver,
+// empty template, or empty skills are no-ops. Multiple calls with the same
+// template overwrite the entry (template-level deduplication).
+func (d *ImmuneDaemon) RecordAgentSkills(template string, skills []string) {
+	if d == nil || template == "" || len(skills) == 0 {
+		return
+	}
+
+	d.mu.Lock()
+	if d.agentSkills == nil {
+		d.agentSkills = make(map[string][]string)
+	}
+	cp := make([]string, len(skills))
+	copy(cp, skills)
+	d.agentSkills[template] = cp
+
+	snapshot := make(map[string][]string, len(d.agentSkills))
+	maps.Copy(snapshot, d.agentSkills)
+	d.mu.Unlock()
+
+	d.UpdateSimilarityMatrix(snapshot)
+}
 
 // UpdateSimilarityMatrix recomputes the similarity matrix with the given agent-skill mapping.
 func (d *ImmuneDaemon) UpdateSimilarityMatrix(agents map[string][]string) {

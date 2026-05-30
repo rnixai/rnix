@@ -1785,6 +1785,19 @@ func runDaemon(cmd *cobra.Command, args []string) error {
 		immuneDaemon.SetSuspendFunc(func(pid types.PID) error {
 			return k.Kill(pid, types.SIGPAUSE)
 		})
+
+		// Story 51.3 (EM-2): wire reputation store + migration function so
+		// supervisor fault migration can actually find candidates and spawn
+		// a replacement agent (breaking the second activation gap where
+		// migrateFn was nil even with a populated similarity matrix).
+		immuneDaemon.SetReputationStore(reputationStore)
+		immuneDaemon.SetMigrateFunc(func(intent, agentName string, contextMessages []string) (types.PID, error) {
+			agentInfo, err := agentLoader.Load(agentName)
+			if err != nil {
+				return 0, fmt.Errorf("load agent %q for migration: %w", agentName, err)
+			}
+			return k.Spawn(intent, agentInfo, kernel.SpawnOpts{})
+		})
 	}
 
 	// Initialize span persistence (Story 15.1)

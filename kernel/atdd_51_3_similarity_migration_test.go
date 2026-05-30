@@ -313,10 +313,8 @@ func TestATDD_51_3_AC5_ControlGroup_TaskLost(t *testing.T) {
 	}
 	defer daemon.Stop()
 
-	// Empty matrix: only the failing agent, no backup
-	daemon.UpdateSimilarityMatrix(map[string][]string{
-		"crasher-agent": {"unique-skill"},
-	})
+	// Only the failing agent, no backup — migration will find no candidates
+	daemon.RecordAgentSkills("crasher-agent", []string{"unique-skill"})
 
 	daemon.SetMigrateFunc(func(intent, agentName string, contextMsgs []string) (types.PID, error) {
 		t.Error("migrateFn should not be called when no similar candidates exist")
@@ -357,21 +355,22 @@ func TestATDD_51_3_AC5_ControlGroup_TaskLost(t *testing.T) {
 // =============================================================================
 
 func TestATDD_51_3_AC5_ExperimentGroup_MigrationSuccess(t *testing.T) {
-	// Per-Open factory: first 3 opens → crash (initial + 2 restarts),
-	// subsequent opens → normal "done" (for the migrated backup-agent).
+	// Per-Open factory: first 2 opens → crash (initial spawn + 1 restart = 2 opens
+	// before MaxRestarts=2 is reached), then normal "done" for the migrated backup-agent.
 	var openCount atomic.Int32
 	k, daemon := newImmuneMigrationKernel(t, func() vfs.VFSFile {
-		if openCount.Add(1) <= 3 {
+		if openCount.Add(1) <= 2 {
 			return &alwaysCrashFile{}
 		}
 		return &normalFile{}
 	})
 
-	// Feed similarity matrix: crasher-agent is similar to backup-agent
-	daemon.UpdateSimilarityMatrix(map[string][]string{
-		"crasher-agent": {"analysis", "coding"},
-		"backup-agent":  {"analysis", "coding", "review"},
-	})
+	// Feed similarity matrix via RecordAgentSkills (production path, not direct
+	// UpdateSimilarityMatrix). Pre-register backup-agent so AttemptMigration finds
+	// it as a candidate. Crasher-agent spawn feed only adds/overwrites the same
+	// entry — backup-agent survives because RecordAgentSkills accumulates.
+	daemon.RecordAgentSkills("crasher-agent", []string{"analysis", "coding"})
+	daemon.RecordAgentSkills("backup-agent", []string{"analysis", "coding", "review"})
 
 	// Setup reputation store (default neutral score 0.5)
 	repStore := NewReputationStore(t.TempDir())
@@ -443,21 +442,19 @@ func TestATDD_51_3_AC5_ExperimentGroup_MigrationSuccess(t *testing.T) {
 // =============================================================================
 
 func TestATDD_51_3_AC6_SimilarityTargetSelection(t *testing.T) {
-	// Per-Open factory: first 3 crash, then normal
+	// Per-Open factory: first 2 crash (initial + 1 restart before MaxRestarts=2), then normal
 	var openCount atomic.Int32
 	k, daemon := newImmuneMigrationKernel(t, func() vfs.VFSFile {
-		if openCount.Add(1) <= 3 {
+		if openCount.Add(1) <= 2 {
 			return &alwaysCrashFile{}
 		}
 		return &normalFile{}
 	})
 
-	// Feed: crasher-agent has two candidates — one similar, one unrelated
-	daemon.UpdateSimilarityMatrix(map[string][]string{
-		"crasher-agent":  {"analysis", "coding", "debugging"},
-		"similar-agent":  {"analysis", "coding", "review"},   // skill overlap ≥ 0.3 (Jaccard = 2/4 = 0.5)
-		"unrelated-agent": {"cooking", "baking"},              // skill overlap 0 (Jaccard = 0/5 = 0)
-	})
+	// Feed via RecordAgentSkills (production path): crasher-agent has two candidates
+	daemon.RecordAgentSkills("crasher-agent", []string{"analysis", "coding", "debugging"})
+	daemon.RecordAgentSkills("similar-agent", []string{"analysis", "coding", "review"})     // skill overlap ≥ 0.3 (Jaccard = 2/4 = 0.5)
+	daemon.RecordAgentSkills("unrelated-agent", []string{"cooking", "baking"})              // skill overlap 0 (Jaccard = 0/5 = 0)
 
 	repStore := NewReputationStore(t.TempDir())
 	daemon.SetReputationStore(repStore)
