@@ -1766,13 +1766,8 @@ func runDaemon(cmd *cobra.Command, args []string) error {
 	// keyword matching on every restart (audit AR-3). Co-located here (not at the
 	// stem-matcher assembly above) because resolveDataDir needs `cwd`. On load
 	// failure, fall back to pure in-memory — never panic or block daemon startup.
-	diffMemoryPath := filepath.Join(resolveDataDir(cwd, "diffmemory"), "diffmemory.json")
-	diffMemory, err := kernel.NewDiffMemoryWithPersistence(256, diffMemoryPath)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "[kernel] warn: load diff memory persistence: %v; falling back to in-memory\n", err)
-		diffMemory = kernel.NewDiffMemory(256)
-	}
-	k.SetDiffMemory(diffMemory)
+	// Logic lives in assembleDiffMemory so AC7 has direct regression coverage.
+	k.SetDiffMemory(assembleDiffMemory(cwd))
 
 	// Initialize immune daemon (Story 22.1) — conditional on config
 	var immuneDaemon *kernel.ImmuneDaemon
@@ -1986,6 +1981,29 @@ func resolveDataDir(cwd, name string) string {
 		return oldPath
 	}
 	return filepath.Join(cwd, ".rnix", "data", name)
+}
+
+// diffMemoryMaxEntries caps the daemon's differentiation-memory store; once
+// exceeded, the lowest-HitCount / oldest entry is evicted (kernel.evictOne).
+const diffMemoryMaxEntries = 256
+
+// assembleDiffMemory builds the kernel's differentiation-memory store for the
+// daemon (Story 51.1 / audit AR-3). It wires the store to on-disk persistence at
+// resolveDataDir(cwd, "diffmemory")/diffmemory.json so stem-agent "accumulated
+// adaptation" (intent → skills) survives daemon restarts instead of resetting to
+// keyword matching every boot.
+//
+// On load failure it warns to stderr and falls back to a pure in-memory store: a
+// corrupt or unreadable persistence file must never panic or block daemon
+// startup. The returned store is always non-nil and ready to use.
+func assembleDiffMemory(cwd string) *kernel.DiffMemory {
+	diffMemoryPath := filepath.Join(resolveDataDir(cwd, "diffmemory"), "diffmemory.json")
+	diffMemory, err := kernel.NewDiffMemoryWithPersistence(diffMemoryMaxEntries, diffMemoryPath)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "[kernel] warn: load diff memory persistence: %v; falling back to in-memory\n", err)
+		return kernel.NewDiffMemory(diffMemoryMaxEntries)
+	}
+	return diffMemory
 }
 
 // loadInitConfig resolves the daemon's bootstrap init configuration. The daemon
