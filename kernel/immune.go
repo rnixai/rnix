@@ -967,7 +967,7 @@ func (d *ImmuneDaemon) GetAlerts() map[types.PID]*AnomalyAlert {
 }
 
 // SuspendedPIDs returns the PIDs of all processes that have active anomaly alerts.
-// These are the processes that have been suspended due to detected anomalies.
+// In warn-only mode, no processes are actually suspended, so returns nil.
 func (d *ImmuneDaemon) SuspendedPIDs() []types.PID {
 	if d == nil {
 		return nil
@@ -975,6 +975,10 @@ func (d *ImmuneDaemon) SuspendedPIDs() []types.PID {
 
 	d.mu.RLock()
 	defer d.mu.RUnlock()
+
+	if d.config.WarnOnly {
+		return []types.PID{}
+	}
 
 	pids := make([]types.PID, 0, len(d.alerts))
 	for pid := range d.alerts {

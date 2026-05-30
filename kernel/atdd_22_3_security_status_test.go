@@ -139,7 +139,9 @@ func TestImmuneDaemon_SuspendedPIDs_WithAlerts(t *testing.T) {
 		t.Fatalf("SaveProfile failed: %v", err)
 	}
 
-	daemon := NewImmuneDaemon(store, DefaultImmuneConfig())
+	cfg := DefaultImmuneConfig()
+	cfg.WarnOnly = false // enforce mode for suspend testing
+	daemon := NewImmuneDaemon(store, cfg)
 	if err := daemon.Start(); err != nil {
 		t.Fatalf("Start failed: %v", err)
 	}
@@ -212,7 +214,9 @@ func TestImmuneDaemon_SuspendedPIDs_AfterClear(t *testing.T) {
 		t.Fatalf("SaveProfile failed: %v", err)
 	}
 
-	daemon := NewImmuneDaemon(store, DefaultImmuneConfig())
+	cfg := DefaultImmuneConfig()
+	cfg.WarnOnly = false // enforce mode for suspend testing
+	daemon := NewImmuneDaemon(store, cfg)
 	if err := daemon.Start(); err != nil {
 		t.Fatalf("Start failed: %v", err)
 	}
@@ -294,7 +298,9 @@ func TestImmuneDaemon_SuspendedPIDs_Concurrent(t *testing.T) {
 		t.Fatalf("SaveProfile failed: %v", err)
 	}
 
-	daemon := NewImmuneDaemon(store, DefaultImmuneConfig())
+	cfg := DefaultImmuneConfig()
+	cfg.WarnOnly = false // enforce mode for suspend testing
+	daemon := NewImmuneDaemon(store, cfg)
 	if err := daemon.Start(); err != nil {
 		t.Fatalf("Start failed: %v", err)
 	}
