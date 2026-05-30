@@ -264,7 +264,7 @@ func TestATDD_51_4_INT_006_ReRankSkillOrder(t *testing.T) {
 		return []skills.SkillInfo{
 			{Manifest: skills.SkillManifest{
 				Name:        "skill-B",
-				Description: "code code code analysis",
+				Description: "deeply code analysis",
 			}},
 			{Manifest: skills.SkillManifest{
 				Name:        "skill-A",
@@ -312,7 +312,7 @@ func TestATDD_51_4_INT_002_EpsilonPureGreedy(t *testing.T) {
 		return []skills.SkillInfo{
 			{Manifest: skills.SkillManifest{
 				Name:        "skill-B",
-				Description: "code code code analysis",
+				Description: "deeply code analysis",
 			}},
 			{Manifest: skills.SkillManifest{
 				Name:        "skill-A",
@@ -355,7 +355,7 @@ func TestATDD_51_4_INT_002_EpsilonPureExplore(t *testing.T) {
 		return []skills.SkillInfo{
 			{Manifest: skills.SkillManifest{
 				Name:        "skill-B",
-				Description: "code code code analysis",
+				Description: "deeply code analysis",
 			}},
 			{Manifest: skills.SkillManifest{
 				Name:        "skill-A",
@@ -468,9 +468,12 @@ func TestATDD_51_4_INT_003_FinishProcessRecordResult_NoTemplate(t *testing.T) {
 	waitProc514(t, proc, 5*time.Second)
 
 	// Should have no records for empty template
-	agents := reputationStore.ListAgents()
-	if len(agents) != 0 {
-		t.Errorf("expected no reputation records for empty template, got agents: %v", agents)
+	agentNames, err := reputationStore.ListAgents()
+	if err != nil {
+		t.Fatalf("ListAgents failed: %v", err)
+	}
+	if len(agentNames) != 0 {
+		t.Errorf("expected no reputation records for empty template, got agents: %v", agentNames)
 	}
 }
 
@@ -658,7 +661,7 @@ func TestATDD_51_4_INT_009_ReRankNoDataNeutral(t *testing.T) {
 		return []skills.SkillInfo{
 			{Manifest: skills.SkillManifest{
 				Name:        "skill-B",
-				Description: "code code code analysis",
+				Description: "deeply code analysis",
 			}},
 			{Manifest: skills.SkillManifest{
 				Name:        "skill-A",

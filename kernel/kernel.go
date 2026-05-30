@@ -210,6 +210,12 @@ type KernelImpl struct {
 	stemMatcher *StemMatcher
 	skillLoader func(string) (*skills.SkillInfo, error)
 
+	// Stem rerank: synergy/reputation integration (Story 51.4 AR-1 + EM-1)
+	reputationStoreForStem *ReputationStore
+	synergyMatrixForStem   *SynergyMatrix
+	stemEpsilon            float64
+	stemReRankWeights      *StemReRankWeights
+
 	// Differentiation memory (Story 20.4)
 	diffMemory *DiffMemory
 
@@ -388,6 +394,26 @@ func (k *KernelImpl) SetSkillLoader(fn func(string) (*skills.SkillInfo, error)) 
 // SetDiffMemory injects the differentiation memory for stem agent path reuse.
 func (k *KernelImpl) SetDiffMemory(m *DiffMemory) {
 	k.diffMemory = m
+}
+
+// SetReputationStoreForStem injects the reputation store for stem skill reranking (Story 51.4).
+func (k *KernelImpl) SetReputationStoreForStem(rs *ReputationStore) {
+	k.reputationStoreForStem = rs
+}
+
+// SetSynergyMatrixForStem injects the synergy matrix for stem skill reranking (Story 51.4).
+func (k *KernelImpl) SetSynergyMatrixForStem(m *SynergyMatrix) {
+	k.synergyMatrixForStem = m
+}
+
+// SetStemEpsilon sets the exploration probability for stem skill reranking (Story 51.4).
+func (k *KernelImpl) SetStemEpsilon(epsilon float64) {
+	k.stemEpsilon = epsilon
+}
+
+// SetStemReRankWeights sets the weight configuration for stem skill reranking (Story 51.4).
+func (k *KernelImpl) SetStemReRankWeights(w *StemReRankWeights) {
+	k.stemReRankWeights = w
 }
 
 // SetImmuneDaemon injects the immune daemon for behavioral monitoring (Story 22.1).

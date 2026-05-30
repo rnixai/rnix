@@ -4,6 +4,7 @@ import (
 	gocontext "context"
 	"fmt"
 	"log"
+	"math/rand/v2"
 	"strings"
 	"time"
 
@@ -101,6 +102,8 @@ func (k *KernelImpl) Spawn(intent string, agent *agents.AgentInfo, opts SpawnOpt
 
 	// Load Agent information if specified
 	if agent != nil {
+		proc.AgentTemplate = agent.Manifest.Name
+
 		// Stem agent differentiation: auto-match skills based on intent (Story 20.3)
 		if agent.Manifest.Name == "stem" && len(agent.Manifest.Skills) == 0 && k.stemMatcher != nil {
 			diffStart := time.Now()
@@ -123,6 +126,25 @@ func (k *KernelImpl) Spawn(intent string, agent *agents.AgentInfo, opts SpawnOpt
 				matchedSkills, matchErr = k.stemMatcher.Match(intent)
 				if matchErr != nil {
 					k.emitLog(proc, 0, types.LogOutput, fmt.Sprintf("differentiating: match error: %v", matchErr), "")
+				}
+			}
+
+			// Story 51.4 AR-1+EM-1: rerank matched skills using synergy/reputation data.
+			// ε exploration: with probability ε, skip rerank (preserve original keyword order).
+			if matchErr == nil && len(matchedSkills) > 1 && !fromMemory &&
+				(k.synergyMatrixForStem != nil || k.reputationStoreForStem != nil) {
+				skipReRank := k.stemEpsilon >= 1.0
+				if !skipReRank && k.stemEpsilon > 0 {
+					skipReRank = rand.Float64() < k.stemEpsilon
+				}
+				if !skipReRank {
+					matchedSkills = reRankSkills(
+						matchedSkills,
+						agent.Manifest.Name,
+						k.synergyMatrixForStem,
+						k.reputationStoreForStem,
+						k.stemReRankWeights,
+					)
 				}
 			}
 

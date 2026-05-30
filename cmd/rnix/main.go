@@ -1760,6 +1760,14 @@ func runDaemon(cmd *cobra.Command, args []string) error {
 	reputationStore := kernel.NewReputationStore(reputationDir)
 	synergyMatrix := kernel.NewSynergyMatrix(reputationDir)
 
+	// Story 51.4 AR-1+EM-1: wire reputation/synergy into stem skill reranking.
+	// Unconditional (not gated on immune Enabled) — reputation/synergy are
+	// independent infrastructure that should collect data and influence stem
+	// selection even when the immune system is disabled.
+	k.SetReputationStoreForStem(reputationStore)
+	k.SetSynergyMatrixForStem(synergyMatrix)
+	k.SetStemEpsilon(0.1)
+
 	// Differentiation memory persistence (Story 51.1): replay differentiation
 	// paths (intent → skills) from disk and persist new Records, so stem-agent
 	// "accumulated adaptation" survives daemon restarts instead of resetting to

@@ -101,6 +101,31 @@ func (k *KernelImpl) finishProcess(proc *Process, exit ExitStatus) {
 		proc.SuspendReason = ""
 	}
 	proc.mu.Unlock()
+
+	// Story 51.4 AR-1: all template-named processes feed reputation store.
+	if k.reputationStoreForStem != nil && proc.AgentTemplate != "" {
+		slaResult := &SLAResult{
+			AgentName:   proc.AgentTemplate,
+			Passed:      exit.Code == 0,
+			TokensUsed:  proc.TokensUsed,
+			DurationMs:  time.Since(proc.CreatedAt).Milliseconds(),
+			EvaluatedAt: time.Now(),
+		}
+		_ = k.reputationStoreForStem.RecordResult(proc.AgentTemplate, slaResult)
+	}
+
+	// Story 51.4 EM-1: all processes with skills feed synergy matrix.
+	if k.synergyMatrixForStem != nil && len(proc.Skills) > 0 {
+		_ = k.synergyMatrixForStem.RecordCombo(SynergyRecord{
+			ComboKey:   NewComboKey(proc.Skills),
+			Skills:     proc.Skills,
+			Passed:     exit.Code == 0,
+			TokensUsed: proc.TokensUsed,
+			DurationMs: time.Since(proc.CreatedAt).Milliseconds(),
+			Timestamp:  time.Now(),
+		})
+	}
+
 	if k.mountMgr != nil {
 		for _, mountPath := range mcpMounts {
 			unmountStart := time.Now()
