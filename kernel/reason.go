@@ -111,19 +111,23 @@ func (k *KernelImpl) finishProcess(proc *Process, exit ExitStatus) {
 			DurationMs:  time.Since(proc.CreatedAt).Milliseconds(),
 			EvaluatedAt: time.Now(),
 		}
-		_ = k.reputationStoreForStem.RecordResult(proc.AgentTemplate, slaResult)
+		if err := k.reputationStoreForStem.RecordResult(proc.AgentTemplate, slaResult); err != nil {
+			log.Printf("[warn] finishProcess pid=%d: RecordResult(%s) failed: %v", proc.PID, proc.AgentTemplate, err)
+		}
 	}
 
 	// Story 51.4 EM-1: all processes with skills feed synergy matrix.
 	if k.synergyMatrixForStem != nil && len(proc.Skills) > 0 {
-		_ = k.synergyMatrixForStem.RecordCombo(SynergyRecord{
+		if err := k.synergyMatrixForStem.RecordCombo(SynergyRecord{
 			ComboKey:   NewComboKey(proc.Skills),
 			Skills:     proc.Skills,
 			Passed:     exit.Code == 0,
 			TokensUsed: proc.TokensUsed,
 			DurationMs: time.Since(proc.CreatedAt).Milliseconds(),
 			Timestamp:  time.Now(),
-		})
+		}); err != nil {
+			log.Printf("[warn] finishProcess pid=%d: RecordCombo failed: %v", proc.PID, err)
+		}
 	}
 
 	if k.mountMgr != nil {
