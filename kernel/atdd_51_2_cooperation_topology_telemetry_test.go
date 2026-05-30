@@ -251,7 +251,7 @@ func TestATDD_51_2_AC1_SpawnFeed_Monotonic(t *testing.T) {
 	}
 	waitForCollector(t, d, parentPID)
 
-	for i := 0; i < 2; i++ {
+	for i := range 2 {
 		childPID, err := k.Spawn("child intent", testNamedAgent("agent-child"), SpawnOpts{ParentPID: parentPID})
 		if err != nil {
 			t.Fatalf("Spawn child #%d failed: %v", i, err)
@@ -315,7 +315,7 @@ func TestATDD_51_2_AC2_MsgFeed_Monotonic(t *testing.T) {
 	}
 	waitForCollector(t, d, p2)
 
-	for i := 0; i < 3; i++ {
+	for i := range 3 {
 		if err := k.Send(p1, p2, []byte("ping")); err != nil {
 			t.Fatalf("Send #%d failed: %v", i, err)
 		}
@@ -450,10 +450,10 @@ func TestATDD_51_2_AC9_ConcurrentSendFeed_RaceClean(t *testing.T) {
 	const sends = 10
 	var wg sync.WaitGroup
 	wg.Add(goroutines)
-	for g := 0; g < goroutines; g++ {
+	for range goroutines {
 		go func() {
 			defer wg.Done()
-			for i := 0; i < sends; i++ {
+			for range sends {
 				_ = k.Send(p1, p2, []byte("concurrent"))
 			}
 		}()

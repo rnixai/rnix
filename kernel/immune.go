@@ -694,6 +694,26 @@ func (d *ImmuneDaemon) OnProcessStart(pid types.PID, agentTemplate string) {
 	d.collectors[pid] = NewBehaviorCollector(pid, agentTemplate)
 }
 
+// AgentTemplateForPID resolves the agent template name registered for pid via
+// OnProcessStart. Returns "" if d is nil, the pid has no collector, or the
+// collector is nil. Used by spawn/Send cooperation feed injection points to map
+// a PID to its agent template without adding a field to the Process struct
+// (Story 51.2 / EM-3).
+func (d *ImmuneDaemon) AgentTemplateForPID(pid types.PID) string {
+	if d == nil {
+		return ""
+	}
+
+	d.mu.RLock()
+	defer d.mu.RUnlock()
+
+	c, ok := d.collectors[pid]
+	if !ok || c == nil {
+		return ""
+	}
+	return c.agentTemplate
+}
+
 // OnSyscallEvent forwards a SyscallEvent to the corresponding BehaviorCollector
 // and performs anomaly detection (Story 22.2).
 func (d *ImmuneDaemon) OnSyscallEvent(pid types.PID, event types.SyscallEvent) {

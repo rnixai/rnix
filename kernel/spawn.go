@@ -753,6 +753,16 @@ func (k *KernelImpl) Spawn(intent string, agent *agents.AgentInfo, opts SpawnOpt
 			agentName = agent.Manifest.Name
 		}
 		k.immuneDaemon.OnProcessStart(proc.PID, agentName)
+
+		// Cooperation topology feed: record parent→child spawn edge (Story 51.2 / EM-3).
+		// Parent collector was registered at the parent's earlier OnProcessStart.
+		// Skip if either template resolves to "" (ad-hoc intent spawn / unregistered PID).
+		if opts.ParentPID > 0 {
+			parentTemplate := k.immuneDaemon.AgentTemplateForPID(opts.ParentPID)
+			if parentTemplate != "" && agentName != "" {
+				k.immuneDaemon.RecordCooperationTyped(parentTemplate, agentName, "spawn")
+			}
+		}
 	}
 
 	return proc.PID, nil

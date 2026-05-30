@@ -162,6 +162,17 @@ func (k *KernelImpl) Send(senderPID, targetPID types.PID, data []byte) error {
 			fmt.Errorf("target process %d queue closed", targetPID), types.ErrNotFound)
 	}
 
+	// Cooperation topology feed: record agent→agent msg edge (Story 51.2 / EM-3).
+	// Both sender and target are alive here (validated above) → collectors exist
+	// when immune is active. Skip if either template resolves to "" (unregistered).
+	if k.immuneDaemon != nil {
+		from := k.immuneDaemon.AgentTemplateForPID(senderPID)
+		to := k.immuneDaemon.AgentTemplateForPID(targetPID)
+		if from != "" && to != "" {
+			k.immuneDaemon.RecordCooperationTyped(from, to, "msg")
+		}
+	}
+
 	// SyscallEvent
 	k.emitEvent(senderProc, "Send", map[string]any{
 		"target_pid": targetPID,
