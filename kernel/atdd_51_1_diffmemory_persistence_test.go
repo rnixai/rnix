@@ -384,3 +384,69 @@ func TestATDD_51_1_AC9_ConcurrentRecordWithPersistence(t *testing.T) {
 		}
 	}
 }
+
+// AC9（并发安全·硬化）：多 goroutine 争用**同一** intent（竞争单一 map entry +
+// 交错追加同一文件）。Review finding 加固——原 AC9 用例每 goroutine 用唯一 intent，
+// 不触发同一 entry 的并发争用，也不验证对同一文件的交错 O_APPEND 是否产生坏行。
+// 本用例断言：-race 干净、落盘文件每行均为合法 JSONL（无撕裂行）、reload 命中且
+// skills 为某次实际写入值之一（last-wins 收敛到合法状态，非损坏）。
+func TestATDD_51_1_AC9_ConcurrentSameIntentNoCorruption(t *testing.T) {
+	path := tempDiffMemoryFile(t)
+	d, err := NewDiffMemoryWithPersistence(256, path)
+	if err != nil {
+		t.Fatalf("NewDiffMemoryWithPersistence: %v", err)
+	}
+
+	const (
+		intent  = "shared hot intent"
+		writers = 16
+		rounds  = 8
+	)
+	// 每个 writer 用一组可区分的 skills，最终内存值必为其中某组（last-wins）。
+	valid := make(map[string]bool, writers)
+	for w := range writers {
+		valid[fmt.Sprintf("skill-%d", w)] = true
+	}
+
+	var wg sync.WaitGroup
+	for w := range writers {
+		wg.Add(1)
+		go func(id int) {
+			defer wg.Done()
+			skill := fmt.Sprintf("skill-%d", id)
+			for range rounds {
+				d.Record(intent, []string{skill})
+				if _, ok := d.Lookup(intent); !ok {
+					t.Errorf("concurrent Lookup miss on shared intent")
+					return
+				}
+			}
+		}(w)
+	}
+	wg.Wait()
+
+	// 交错追加未产生撕裂行：readDiffMemoryEntries 内部对每行 Unmarshal，
+	// 任一坏行都会 t.Fatalf。每行 skills 必为已知合法值之一。
+	entries := readDiffMemoryEntries(t, path)
+	if len(entries) == 0 {
+		t.Fatalf("expected persisted lines for shared intent, got 0")
+	}
+	for _, e := range entries {
+		if len(e.Skills) != 1 || !valid[e.Skills[0]] {
+			t.Fatalf("persisted line carries unexpected/corrupt skills: %v", e.Skills)
+		}
+	}
+
+	// reload 后命中，且 skills 收敛为某 writer 的合法值（证明并发落盘最终状态合法）。
+	d2, err := NewDiffMemoryWithPersistence(256, path)
+	if err != nil {
+		t.Fatalf("reload after concurrent same-intent writes: %v", err)
+	}
+	skills, ok := d2.Lookup(intent)
+	if !ok {
+		t.Fatalf("shared intent lost after concurrent persist + reload")
+	}
+	if len(skills) != 1 || !valid[skills[0]] {
+		t.Fatalf("reloaded skills not a valid last-wins value: %v", skills)
+	}
+}
