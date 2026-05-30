@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"encoding/json"
 	"fmt"
+	"log"
 	"maps"
 	"math"
 	"os"
@@ -627,6 +628,14 @@ func (d *ImmuneDaemon) SetSuspendFunc(fn func(pid types.PID) error) {
 	d.suspendFn = fn
 }
 
+// IsWarnOnly returns whether the daemon is in warn-only mode. Nil-safe.
+func (d *ImmuneDaemon) IsWarnOnly() bool {
+	if d == nil {
+		return false
+	}
+	return d.config.WarnOnly
+}
+
 // Start initializes the ImmuneDaemon and loads existing NormalProfiles and threat signatures.
 func (d *ImmuneDaemon) Start() error {
 	if d == nil {
@@ -742,6 +751,7 @@ func (d *ImmuneDaemon) OnSyscallEvent(pid types.PID, event types.SyscallEvent) {
 	profile := d.profiles[agentTpl]
 	threats := d.threats
 	suspendFn := d.suspendFn
+	warnOnly := d.config.WarnOnly
 	d.mu.RUnlock()
 
 	collector.Observe(event)
@@ -763,6 +773,11 @@ func (d *ImmuneDaemon) OnSyscallEvent(pid types.PID, event types.SyscallEvent) {
 		}
 		d.mu.Lock()
 		d.alerts[pid] = alert
+		if warnOnly {
+			d.mu.Unlock()
+			log.Printf("[immune] warn-only: threat match for PID %d agent %q syscall %q (signature %s)", pid, agentTpl, event.Syscall, matched.ID)
+			return
+		}
 		d.suspending[pid] = true
 		d.mu.Unlock()
 		if suspendFn != nil {
@@ -781,7 +796,7 @@ func (d *ImmuneDaemon) OnSyscallEvent(pid types.PID, event types.SyscallEvent) {
 		return
 	}
 
-	// Anomaly detected: record alert, persist threat, suspend process
+	// Anomaly detected: record alert, persist threat
 	d.mu.Lock()
 	d.alerts[pid] = alert
 
@@ -795,6 +810,14 @@ func (d *ImmuneDaemon) OnSyscallEvent(pid types.PID, event types.SyscallEvent) {
 		CreatedAt:     time.Now(),
 	}
 	d.threats = append(d.threats, sig)
+
+	if warnOnly {
+		d.mu.Unlock()
+		_ = d.store.SaveThreat(sig)
+		log.Printf("[immune] warn-only: anomaly detected for PID %d agent %q syscall %q (deviation %.2f)", pid, agentTpl, event.Syscall, alert.Deviation)
+		return
+	}
+
 	d.suspending[pid] = true
 	d.mu.Unlock()
 

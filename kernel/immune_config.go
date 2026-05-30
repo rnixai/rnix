@@ -6,16 +6,19 @@ import "fmt"
 // Parsed from the "immune" section of .rnix/config.yaml.
 type ImmuneConfig struct {
 	Enabled                bool    `json:"enabled" yaml:"enabled"`
+	WarnOnly               bool    `json:"warn_only" yaml:"warn_only"`
 	DeviationThreshold     float64 `json:"deviation_threshold" yaml:"deviation_threshold"`
 	MinSamples             int     `json:"min_samples" yaml:"min_samples"`
 	ReinforcementThreshold int     `json:"reinforcement_threshold" yaml:"reinforcement_threshold"`
 	MinMigrationSimilarity float64 `json:"min_migration_similarity" yaml:"min_migration_similarity"`
 }
 
-// DefaultImmuneConfig returns the default immune configuration (disabled).
+// DefaultImmuneConfig returns the default immune configuration.
+// Enabled=true and WarnOnly=true: immune system is on by default in observation mode.
 func DefaultImmuneConfig() ImmuneConfig {
 	return ImmuneConfig{
-		Enabled:                false,
+		Enabled:                true,
+		WarnOnly:               true,
 		DeviationThreshold:     DefaultDeviationThreshold,
 		MinSamples:             MinSamplesForProfile,
 		ReinforcementThreshold: DefaultReinforcementThreshold,
@@ -40,6 +43,12 @@ func ParseImmuneConfig(data map[string]any, base ...ImmuneConfig) (ImmuneConfig,
 	if v, ok := data["enabled"]; ok {
 		if b, ok := v.(bool); ok {
 			cfg.Enabled = b
+		}
+	}
+
+	if v, ok := data["warn_only"]; ok {
+		if b, ok := v.(bool); ok {
+			cfg.WarnOnly = b
 		}
 	}
 

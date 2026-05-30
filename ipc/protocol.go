@@ -1127,6 +1127,7 @@ type ImmuneStatusResponse struct {
 	Alerts         []AlertWire                      `json:"alerts"`
 	ThreatCount    int                              `json:"threat_count"`
 	SecurityStatus string                           `json:"security_status"`
+	WarnOnly       bool                             `json:"warn_only"`
 }
 
 // AlertWire is the IPC wire format for AnomalyAlert.

@@ -153,6 +153,15 @@ func runImmuneStatus(cmd *cobra.Command, args []string) error {
 	}
 	fmt.Fprintf(w, "Immune Daemon: %s\n", statusStr)
 
+	// Mode display
+	if result.Running {
+		modeStr := "enforce"
+		if result.WarnOnly {
+			modeStr = "warn-only"
+		}
+		fmt.Fprintf(w, "Mode: %s\n", modeStr)
+	}
+
 	// Security status summary line
 	fmt.Fprintln(w, securitySummary(len(result.Alerts), len(result.SuspendedPIDs)))
 

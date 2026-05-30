@@ -534,7 +534,9 @@ func TestImmuneDaemon_AnomalyDetection(t *testing.T) {
 		t.Fatalf("SaveProfile failed: %v", err)
 	}
 
-	daemon := NewImmuneDaemon(store, DefaultImmuneConfig())
+	cfg := DefaultImmuneConfig()
+	cfg.WarnOnly = false // enforce mode for suspend testing
+	daemon := NewImmuneDaemon(store, cfg)
 	if err := daemon.Start(); err != nil {
 		t.Fatalf("Start failed: %v", err)
 	}
@@ -617,7 +619,9 @@ func TestImmuneDaemon_ThreatMemoryMatch(t *testing.T) {
 		t.Fatalf("SaveProfile failed: %v", err)
 	}
 
-	daemon := NewImmuneDaemon(store, DefaultImmuneConfig())
+	cfg := DefaultImmuneConfig()
+	cfg.WarnOnly = false // enforce mode for suspend testing
+	daemon := NewImmuneDaemon(store, cfg)
 	if err := daemon.Start(); err != nil {
 		t.Fatalf("Start failed: %v", err)
 	}
@@ -855,7 +859,9 @@ func TestImmuneDaemon_SuspendFnNil(t *testing.T) {
 		t.Fatalf("SaveProfile failed: %v", err)
 	}
 
-	daemon := NewImmuneDaemon(store, DefaultImmuneConfig())
+	cfg := DefaultImmuneConfig()
+	cfg.WarnOnly = false // enforce mode to test suspendFn=nil safety
+	daemon := NewImmuneDaemon(store, cfg)
 	if err := daemon.Start(); err != nil {
 		t.Fatalf("Start failed: %v", err)
 	}
@@ -918,7 +924,9 @@ func TestImmuneDaemon_ConcurrentAnomalyDetection(t *testing.T) {
 		t.Fatalf("SaveProfile failed: %v", err)
 	}
 
-	daemon := NewImmuneDaemon(store, DefaultImmuneConfig())
+	cfg := DefaultImmuneConfig()
+	cfg.WarnOnly = false // enforce mode for suspend testing
+	daemon := NewImmuneDaemon(store, cfg)
 	if err := daemon.Start(); err != nil {
 		t.Fatalf("Start failed: %v", err)
 	}

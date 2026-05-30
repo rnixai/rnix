@@ -7,8 +7,11 @@ import (
 func TestDefaultImmuneConfig(t *testing.T) {
 	cfg := DefaultImmuneConfig()
 
-	if cfg.Enabled {
-		t.Error("default config should have Enabled=false")
+	if !cfg.Enabled {
+		t.Error("default config should have Enabled=true")
+	}
+	if !cfg.WarnOnly {
+		t.Error("default config should have WarnOnly=true")
 	}
 	if cfg.DeviationThreshold != DefaultDeviationThreshold {
 		t.Errorf("DeviationThreshold = %f, want %f", cfg.DeviationThreshold, DefaultDeviationThreshold)
@@ -29,8 +32,11 @@ func TestParseImmuneConfig_NilData(t *testing.T) {
 	if len(warnings) != 0 {
 		t.Errorf("expected no warnings, got %v", warnings)
 	}
-	if cfg.Enabled {
-		t.Error("nil data should produce disabled config")
+	if !cfg.Enabled {
+		t.Error("nil data should produce Enabled=true")
+	}
+	if !cfg.WarnOnly {
+		t.Error("nil data should produce WarnOnly=true")
 	}
 }
 
@@ -39,8 +45,11 @@ func TestParseImmuneConfig_EmptyMap(t *testing.T) {
 	if len(warnings) != 0 {
 		t.Errorf("expected no warnings, got %v", warnings)
 	}
-	if cfg.Enabled {
-		t.Error("empty map should produce disabled config")
+	if !cfg.Enabled {
+		t.Error("empty map should produce Enabled=true")
+	}
+	if !cfg.WarnOnly {
+		t.Error("empty map should produce WarnOnly=true")
 	}
 }
 
@@ -176,6 +185,49 @@ func TestParseImmuneConfig_ZeroDeviationThreshold(t *testing.T) {
 	if cfg.DeviationThreshold != DefaultDeviationThreshold {
 		t.Errorf("should fall back to default, got %f", cfg.DeviationThreshold)
 	}
+}
+
+func TestParseImmuneConfig_WarnOnly(t *testing.T) {
+	t.Run("explicit_false", func(t *testing.T) {
+		data := map[string]any{
+			"warn_only": false,
+		}
+		cfg, warnings := ParseImmuneConfig(data)
+		if len(warnings) != 0 {
+			t.Errorf("expected no warnings, got %v", warnings)
+		}
+		if cfg.WarnOnly {
+			t.Error("expected WarnOnly=false when explicitly set")
+		}
+	})
+
+	t.Run("explicit_true", func(t *testing.T) {
+		data := map[string]any{
+			"warn_only": true,
+		}
+		cfg, warnings := ParseImmuneConfig(data)
+		if len(warnings) != 0 {
+			t.Errorf("expected no warnings, got %v", warnings)
+		}
+		if !cfg.WarnOnly {
+			t.Error("expected WarnOnly=true when explicitly set")
+		}
+	})
+
+	t.Run("not_specified_retains_base", func(t *testing.T) {
+		base := DefaultImmuneConfig()
+		base.WarnOnly = false
+		data := map[string]any{
+			"enabled": true,
+		}
+		cfg, warnings := ParseImmuneConfig(data, base)
+		if len(warnings) != 0 {
+			t.Errorf("expected no warnings, got %v", warnings)
+		}
+		if cfg.WarnOnly {
+			t.Error("expected WarnOnly=false retained from base")
+		}
+	})
 }
 
 func TestParseImmuneConfig_MergeWithBase(t *testing.T) {

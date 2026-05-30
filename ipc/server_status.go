@@ -238,6 +238,7 @@ func (s *Server) handleImmuneStatus(conn net.Conn) {
 		Alerts:         alertWires,
 		ThreatCount:    len(threats),
 		SecurityStatus: securityStatus,
+		WarnOnly:       s.immuneDaemon.IsWarnOnly(),
 	}
 	respPayload, _ := json.Marshal(resp)
 	writeResponse(conn, Response{OK: true, Payload: respPayload})

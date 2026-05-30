@@ -1786,6 +1786,12 @@ func runDaemon(cmd *cobra.Command, args []string) error {
 
 		if err := immuneDaemon.Start(); err != nil {
 			fmt.Fprintf(os.Stderr, "[kernel] warn: immune daemon start failed: %v\n", err)
+		} else {
+			modeStr := "enforce mode"
+			if immuneCfg.WarnOnly {
+				modeStr = "warn-only mode"
+			}
+			fmt.Fprintf(os.Stderr, "[immune] started (%s)\n", modeStr)
 		}
 		k.SetImmuneDaemon(immuneDaemon)
 
