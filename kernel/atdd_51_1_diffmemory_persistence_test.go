@@ -82,7 +82,7 @@ func readDiffMemoryEntries(t *testing.T, path string) []DiffMemoryEntry {
 		t.Fatalf("read persistence file: %v", err)
 	}
 	var out []DiffMemoryEntry
-	for _, line := range strings.Split(string(data), "\n") {
+	for line := range strings.SplitSeq(string(data), "\n") {
 		if strings.TrimSpace(line) == "" {
 			continue
 		}

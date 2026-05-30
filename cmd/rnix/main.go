@@ -1619,9 +1619,9 @@ func runDaemon(cmd *cobra.Command, args []string) error {
 	k.SetStemMatcher(stemMatcher)
 	k.SetSkillLoader(skillLoader.LoadFull)
 
-	// Differentiation memory (Story 20.4)
-	diffMemory := kernel.NewDiffMemory(256)
-	k.SetDiffMemory(diffMemory)
+	// Differentiation memory (Story 20.4): persistence assembly relocated to the
+	// data-store init section below (Story 51.1), where `cwd` is available for
+	// resolveDataDir. See the "Differentiation memory persistence" block.
 
 	// Memory store injection (Story 35.2)
 	if memStore != nil {
@@ -1759,6 +1759,20 @@ func runDaemon(cmd *cobra.Command, args []string) error {
 	reputationDir := resolveDataDir(cwd, "reputation")
 	reputationStore := kernel.NewReputationStore(reputationDir)
 	synergyMatrix := kernel.NewSynergyMatrix(reputationDir)
+
+	// Differentiation memory persistence (Story 51.1): replay differentiation
+	// paths (intent → skills) from disk and persist new Records, so stem-agent
+	// "accumulated adaptation" survives daemon restarts instead of resetting to
+	// keyword matching on every restart (audit AR-3). Co-located here (not at the
+	// stem-matcher assembly above) because resolveDataDir needs `cwd`. On load
+	// failure, fall back to pure in-memory — never panic or block daemon startup.
+	diffMemoryPath := filepath.Join(resolveDataDir(cwd, "diffmemory"), "diffmemory.json")
+	diffMemory, err := kernel.NewDiffMemoryWithPersistence(256, diffMemoryPath)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "[kernel] warn: load diff memory persistence: %v; falling back to in-memory\n", err)
+		diffMemory = kernel.NewDiffMemory(256)
+	}
+	k.SetDiffMemory(diffMemory)
 
 	// Initialize immune daemon (Story 22.1) — conditional on config
 	var immuneDaemon *kernel.ImmuneDaemon
