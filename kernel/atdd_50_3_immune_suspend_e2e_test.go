@@ -2,6 +2,7 @@ package kernel
 
 import (
 	gocontext "context"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -310,8 +311,8 @@ func TestATDD_50_3_INT_002_E2E_ThreatMatch_SuspendsClosure(t *testing.T) {
 	if !ok {
 		t.Fatal("AC2: expected alert for PID after threat match")
 	}
-	if alert.Detail == "" {
-		t.Error("AC2: alert.Detail is empty, expected 'known threat' mention")
+	if !strings.Contains(alert.Detail, "known threat") {
+		t.Errorf("AC2: alert.Detail = %q, want substring 'known threat'", alert.Detail)
 	}
 }
 
