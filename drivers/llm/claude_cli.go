@@ -5,10 +5,13 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"log"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"regexp"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -70,6 +73,11 @@ type ClaudeCliDriver struct {
 	capsOnce       sync.Once
 	caps           claudeCapabilities
 	capsWarnedOnce sync.Once
+
+	resolvedBin     string
+	resolvedBinOnce sync.Once
+	resolvedBinErr  error
+	fallbackBins    []string
 }
 
 // ClaudeCliOption configures a ClaudeCliDriver.
@@ -118,6 +126,15 @@ func WithExtraArgs(args []string) ClaudeCliOption {
 	}
 }
 
+// WithFallbackBins appends additional candidate binary names to the fallback
+// resolution list. The default list is ["claude", "openclaude"]; custom
+// candidates are appended after these defaults.
+func WithFallbackBins(bins []string) ClaudeCliOption {
+	return func(d *ClaudeCliDriver) {
+		d.fallbackBins = append(d.fallbackBins, bins...)
+	}
+}
+
 // WithPermissionMode sets the --permission-mode value the driver passes to
 // Claude CLI when the locally installed binary supports the flag. An empty
 // mode is treated as "no override" (default applies). Invalid values are
@@ -143,6 +160,7 @@ func NewClaudeCliDriver(opts ...ClaudeCliOption) *ClaudeCliDriver {
 		defaultTimeout: DefaultTimeout,
 		cmdBuilder:     defaultCommandBuilder,
 		permissionMode: DefaultPermissionMode,
+		fallbackBins:   []string{"claude", "openclaude"},
 	}
 	for _, opt := range opts {
 		opt(d)
@@ -212,9 +230,15 @@ func (d *ClaudeCliDriver) Call(ctx context.Context, req LLMRequest) (*LLMRespons
 	if sysPromptFile != "" {
 		defer func() { _ = os.Remove(sysPromptFile) }()
 	}
-	cmd := d.cmdBuilder(ctx, d.cliCommand, args...)
+	cmd := d.cmdBuilder(ctx, d.effectiveBinary(), args...)
 	configureCommandGrace(cmd, d.graceSec)
-	cmd.Stdin = strings.NewReader(d.buildPrompt(req))
+
+	prompt := d.buildPrompt(req)
+	stdinPipe, pipeErr := cmd.StdinPipe()
+	if pipeErr != nil {
+		return nil, NewLLMError("claude", 0, fmt.Errorf("create stdin pipe: %w", pipeErr))
+	}
+	go writeStdinSafe(stdinPipe, prompt)()
 
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout
@@ -333,9 +357,18 @@ func (d *ClaudeCliDriver) Stream(ctx context.Context, req LLMRequest) (<-chan St
 		cancel()
 		return nil, NewLLMError("claude", 0, err)
 	}
-	cmd := d.cmdBuilder(ctx, d.cliCommand, args...)
+	cmd := d.cmdBuilder(ctx, d.effectiveBinary(), args...)
 	configureCommandGrace(cmd, d.graceSec)
-	cmd.Stdin = strings.NewReader(d.buildPrompt(req))
+
+	prompt := d.buildPrompt(req)
+	stdinPipe, pipeErr := cmd.StdinPipe()
+	if pipeErr != nil {
+		cancel()
+		if sysPromptFile != "" {
+			_ = os.Remove(sysPromptFile)
+		}
+		return nil, fmt.Errorf("failed to create stdin pipe: %w", pipeErr)
+	}
 
 	stdoutPipe, err := cmd.StdoutPipe()
 	if err != nil {
@@ -356,6 +389,8 @@ func (d *ClaudeCliDriver) Stream(ctx context.Context, req LLMRequest) (<-chan St
 		}
 		return nil, fmt.Errorf("failed to start claude cli: %w", err)
 	}
+
+	go writeStdinSafe(stdinPipe, prompt)()
 
 	ch := make(chan StreamEvent, streamChanBuffer)
 
@@ -626,8 +661,30 @@ func (d *ClaudeCliDriver) buildArgs(req LLMRequest, outputFormat string) ([]stri
 // buildPrompt constructs the prompt for a CLI Agent invocation.
 // CLI Agents manage their own agent loop internally, so each Call is an
 // independent task — no cross-invocation history serialization needed.
+//
+// When req.ProjectDir or req.Skills is non-empty, a # Instructions prefix
+// is injected so the model knows its working directory and available skills
+// without an extra tool call. Tools are NOT copied — Claude CLI discovers
+// them via --add-dir and built-in tools.
 func (d *ClaudeCliDriver) buildPrompt(req LLMRequest) string {
-	return req.Intent
+	if req.ProjectDir == "" && len(req.Skills) == 0 {
+		return req.Intent
+	}
+	var sb strings.Builder
+	sb.WriteString("# Instructions\n\n")
+	if req.ProjectDir != "" {
+		fmt.Fprintf(&sb, "Working directory: %s\n\n", req.ProjectDir)
+	}
+	if len(req.Skills) > 0 {
+		names := make([]string, len(req.Skills))
+		for i, s := range req.Skills {
+			names[i] = s.Name
+		}
+		fmt.Fprintf(&sb, "Accessible skills: %s\n\n", strings.Join(names, ", "))
+	}
+	sb.WriteString("# User request\n\n")
+	sb.WriteString(req.Intent)
+	return sb.String()
 }
 
 // contentBlocksToAny converts content blocks to a generic slice for StreamEvent.Data.
@@ -743,6 +800,7 @@ func detectLoginRequired(result, stderr string) (bool, string) {
 // tests can mock its output.
 func (d *ClaudeCliDriver) ensureCapabilities() claudeCapabilities {
 	d.capsOnce.Do(func() {
+		_ = d.resolveBinaryIfNeeded()
 		d.caps = d.probeCapabilities()
 	})
 	return d.caps
@@ -756,7 +814,7 @@ func (d *ClaudeCliDriver) probeCapabilities() claudeCapabilities {
 	ctx, cancel := context.WithTimeout(context.Background(), claudeCapabilityProbeTimeout)
 	defer cancel()
 
-	cmd := d.cmdBuilder(ctx, d.cliCommand, "-p", "--help")
+	cmd := d.cmdBuilder(ctx, d.effectiveBinary(), "-p", "--help")
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
@@ -785,6 +843,87 @@ func (d *ClaudeCliDriver) warnCapabilityProbeFailure(reason string) {
 	d.capsWarnedOnce.Do(func() {
 		log.Printf("[llm] warning: claude-cli capability probe (%s) failed: %s. Falling back to conservative flag set.", d.cliCommand, reason)
 	})
+}
+
+// resolveClaudeBinary searches for a usable Claude-compatible CLI binary.
+// It tries each candidate in fallbackBins via exec.LookPath first, then
+// checks extended install directories (npm global, nvm, bun). The first
+// match is cached in d.resolvedBin.
+func (d *ClaudeCliDriver) resolveClaudeBinary() (string, error) {
+	var tried []string
+	for _, bin := range d.fallbackBins {
+		tried = append(tried, bin)
+		if p, err := exec.LookPath(bin); err == nil {
+			return p, nil
+		}
+		for _, dir := range extendedBinDirs() {
+			full := filepath.Join(dir, bin)
+			if fi, err := os.Stat(full); err == nil && !fi.IsDir() {
+				return full, nil
+			}
+		}
+	}
+	return "", fmt.Errorf("no claude-compatible CLI found in PATH: tried %v", tried)
+}
+
+// resolveBinaryIfNeeded runs resolveClaudeBinary exactly once (via sync.Once)
+// and caches the result. Returns the cached error (nil on success).
+func (d *ClaudeCliDriver) resolveBinaryIfNeeded() error {
+	d.resolvedBinOnce.Do(func() {
+		d.resolvedBin, d.resolvedBinErr = d.resolveClaudeBinary()
+	})
+	return d.resolvedBinErr
+}
+
+// extendedBinDirs returns non-standard directories where CLI tools like
+// claude/openclaude might be installed (npm global, nvm, bun).
+func extendedBinDirs() []string {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return nil
+	}
+	var dirs []string
+
+	// ~/.local/bin (common for pipx, npm global on some systems)
+	dirs = append(dirs, filepath.Join(home, ".local", "bin"))
+
+	// $NVM_DIR/versions/node/*/bin — pick the newest version directory
+	nvmDir := os.Getenv("NVM_DIR")
+	if nvmDir == "" {
+		nvmDir = filepath.Join(home, ".nvm")
+	}
+	if nvmDir != "" {
+		pattern := filepath.Join(nvmDir, "versions", "node", "*", "bin")
+		if matches, err := filepath.Glob(pattern); err == nil && len(matches) > 0 {
+			sort.Sort(sort.Reverse(sort.StringSlice(matches)))
+			dirs = append(dirs, matches[0])
+		}
+	}
+
+	// ~/.bun/bin
+	dirs = append(dirs, filepath.Join(home, ".bun", "bin"))
+
+	return dirs
+}
+
+// writeStdinSafe returns a closure that writes prompt to w and closes it,
+// silently swallowing EPIPE/ErrClosed (CLI fast-exit scenarios). Errors are
+// reported via stderr/exit code instead.
+func writeStdinSafe(w io.WriteCloser, prompt string) func() {
+	return func() {
+		defer w.Close()
+		_, err := io.WriteString(w, prompt)
+		_ = err // EPIPE / ErrClosed are expected on CLI fast-exit; real errors surface via stderr
+	}
+}
+
+// effectiveBinary returns the binary name to use for exec: the resolved
+// absolute path if available, otherwise the original cliCommand.
+func (d *ClaudeCliDriver) effectiveBinary() string {
+	if d.resolvedBin != "" {
+		return d.resolvedBin
+	}
+	return d.cliCommand
 }
 
 // claudeStreamParser converts raw Claude API stream events into driver-level

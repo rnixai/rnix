@@ -135,6 +135,13 @@ func TestHelperProcess(t *testing.T) {
 		// R1: validate prompt is delivered via stdin (not argv). Echo back as result.
 		data, _ := io.ReadAll(os.Stdin)
 		fmt.Fprintf(os.Stdout, `{"type":"result","subtype":"success","result":%q,"is_error":false,"input_tokens":1,"output_tokens":1}`, string(data))
+	case "epipe_fast_exit":
+		// Simulate CLI fast-exit (e.g. auth failure): close stdin immediately,
+		// write error to stderr, and exit with code 1. This triggers EPIPE on
+		// the caller's stdin writer when the prompt is large.
+		os.Stdin.Close()
+		fmt.Fprint(os.Stderr, "Error: authentication required")
+		os.Exit(1)
 	}
 	os.Exit(0)
 }

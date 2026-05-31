@@ -189,7 +189,7 @@ func TestATDD_40_2_AC2_BuildPrompt_ToolsNotCopied(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 func TestATDD_40_2_AC3_FallbackBins_SecondCandidate(t *testing.T) {
-	t.Parallel()
+	// no t.Parallel: t.Setenv modifies shared process environment
 
 	// GIVEN: cliCommand == "claude" 但 PATH 中不存在 "claude"
 	// AND:   PATH 中存在 "openclaude"
@@ -217,7 +217,7 @@ func TestATDD_40_2_AC3_FallbackBins_SecondCandidate(t *testing.T) {
 }
 
 func TestATDD_40_2_AC3_FallbackBins_AllFail(t *testing.T) {
-	t.Parallel()
+	// no t.Parallel: t.Setenv modifies shared process environment
 
 	// GIVEN: PATH 中没有 "claude" 也没有 "openclaude"
 	// AND:   扩展路径也无候选
@@ -239,7 +239,7 @@ func TestATDD_40_2_AC3_FallbackBins_AllFail(t *testing.T) {
 }
 
 func TestATDD_40_2_AC3_FallbackBins_CustomOption(t *testing.T) {
-	t.Parallel()
+	// no t.Parallel: t.Setenv modifies shared process environment
 
 	// GIVEN: WithFallbackBins(["my-claude"]) 追加候选
 	// AND:   PATH 中存在 "my-claude"
@@ -268,7 +268,7 @@ func TestATDD_40_2_AC3_FallbackBins_CustomOption(t *testing.T) {
 }
 
 func TestATDD_40_2_AC3_ResolvedBinOnce_SingleExecution(t *testing.T) {
-	t.Parallel()
+	// no t.Parallel: t.Setenv modifies shared process environment
 
 	// GIVEN: resolvedBinOnce 保证解析只执行一次
 	// WHEN:  并发调用 resolveBinaryIfNeeded
@@ -308,7 +308,7 @@ func TestATDD_40_2_AC3_ResolvedBinOnce_SingleExecution(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 func TestATDD_40_2_AC4_ExtendedBinDirs_LocalBin(t *testing.T) {
-	t.Parallel()
+	// no t.Parallel: t.Setenv modifies shared process environment
 
 	// GIVEN: PATH 中不含 claude/openclaude
 	// AND:   ~/.local/bin/ 下存在 "claude" 可执行文件
@@ -407,7 +407,7 @@ func TestATDD_40_2_AC5_EPIPE_SilentSwallow_Stream(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 func TestATDD_40_2_INT_Call_UsesResolvedBinary(t *testing.T) {
-	t.Parallel()
+	// no t.Parallel: t.Setenv modifies shared process environment
 
 	// GIVEN: resolveClaudeBinary 解析到特定路径
 	// WHEN:  Call 执行
@@ -443,7 +443,7 @@ func TestATDD_40_2_INT_Call_UsesResolvedBinary(t *testing.T) {
 }
 
 func TestATDD_40_2_INT_EnsureCapabilities_UsesResolvedBin(t *testing.T) {
-	t.Parallel()
+	// no t.Parallel: t.Setenv modifies shared process environment
 
 	// GIVEN: resolveClaudeBinary 先于 ensureCapabilities 执行
 	// WHEN:  ensureCapabilities 中调 probeCapabilities
