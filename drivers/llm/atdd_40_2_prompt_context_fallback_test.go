@@ -59,6 +59,12 @@ func TestATDD_40_2_AC1_BuildPrompt_WithProjectDirAndSkills(t *testing.T) {
 	if !strings.Contains(prompt, "Working directory: /home/user/myproject") {
 		t.Error("AC1 FAIL: prompt missing 'Working directory' with correct path")
 	}
+	if !strings.Contains(prompt, "Accessible skill bundle:") {
+		t.Error("AC1 FAIL: prompt missing 'Accessible skill bundle:' label")
+	}
+	if !strings.Contains(prompt, "/home/user/myproject/.claude/skills/") {
+		t.Error("AC1 FAIL: prompt missing bundleRoot path prefix")
+	}
 	if !strings.Contains(prompt, "code-analyst") || !strings.Contains(prompt, "reviewer") {
 		t.Error("AC1 FAIL: prompt missing skill names")
 	}
@@ -113,7 +119,7 @@ func TestATDD_40_2_AC1_BuildPrompt_OnlyProjectDir(t *testing.T) {
 	if !strings.Contains(prompt, "Working directory: /tmp/proj") {
 		t.Error("AC1 FAIL: prompt missing Working directory when ProjectDir is set")
 	}
-	if strings.Contains(prompt, "skill") || strings.Contains(prompt, "Skill") {
+	if strings.Contains(prompt, "Accessible skill bundle") {
 		t.Error("AC1 FAIL: prompt should NOT contain skills section when Skills is empty")
 	}
 	if !strings.Contains(prompt, "# User request") {
@@ -141,8 +147,14 @@ func TestATDD_40_2_AC1_BuildPrompt_OnlySkills(t *testing.T) {
 	if strings.Contains(prompt, "Working directory") {
 		t.Error("AC1 FAIL: prompt should NOT contain Working directory when ProjectDir is empty")
 	}
+	if !strings.Contains(prompt, "Accessible skill bundle:") {
+		t.Error("AC1 FAIL: prompt missing 'Accessible skill bundle:' label when Skills is set")
+	}
 	if !strings.Contains(prompt, "debugger") {
 		t.Error("AC1 FAIL: prompt missing skill name 'debugger'")
+	}
+	if strings.Contains(prompt, "/.claude/skills/") {
+		t.Error("AC1 FAIL: prompt should NOT contain bundleRoot path when ProjectDir is empty")
 	}
 	if !strings.Contains(prompt, "# Instructions") {
 		t.Error("AC1 FAIL: prompt missing '# Instructions' header when Skills is set")

@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log"
@@ -15,6 +16,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"syscall"
 	"time"
 )
 
@@ -227,6 +229,9 @@ func (d *ClaudeCliDriver) Call(ctx context.Context, req LLMRequest) (*LLMRespons
 	if err != nil {
 		return nil, NewLLMError("claude", 0, err)
 	}
+	if d.resolvedBinErr != nil {
+		return nil, NewLLMError("claude", 0, d.resolvedBinErr)
+	}
 	if sysPromptFile != "" {
 		defer func() { _ = os.Remove(sysPromptFile) }()
 	}
@@ -356,6 +361,10 @@ func (d *ClaudeCliDriver) Stream(ctx context.Context, req LLMRequest) (<-chan St
 	if err != nil {
 		cancel()
 		return nil, NewLLMError("claude", 0, err)
+	}
+	if d.resolvedBinErr != nil {
+		cancel()
+		return nil, NewLLMError("claude", 0, d.resolvedBinErr)
 	}
 	cmd := d.cmdBuilder(ctx, d.effectiveBinary(), args...)
 	configureCommandGrace(cmd, d.graceSec)
@@ -680,7 +689,11 @@ func (d *ClaudeCliDriver) buildPrompt(req LLMRequest) string {
 		for i, s := range req.Skills {
 			names[i] = s.Name
 		}
-		fmt.Fprintf(&sb, "Accessible skills: %s\n\n", strings.Join(names, ", "))
+		if req.ProjectDir != "" {
+			fmt.Fprintf(&sb, "Accessible skill bundle: %s/.claude/skills/%s\n\n", req.ProjectDir, strings.Join(names, ", "))
+		} else {
+			fmt.Fprintf(&sb, "Accessible skill bundle: %s\n\n", strings.Join(names, ", "))
+		}
 	}
 	sb.WriteString("# User request\n\n")
 	sb.WriteString(req.Intent)
@@ -858,7 +871,7 @@ func (d *ClaudeCliDriver) resolveClaudeBinary() (string, error) {
 		}
 		for _, dir := range extendedBinDirs() {
 			full := filepath.Join(dir, bin)
-			if fi, err := os.Stat(full); err == nil && !fi.IsDir() {
+			if fi, err := os.Stat(full); err == nil && !fi.IsDir() && fi.Mode().Perm()&0o111 != 0 {
 				return full, nil
 			}
 		}
@@ -907,13 +920,16 @@ func extendedBinDirs() []string {
 }
 
 // writeStdinSafe returns a closure that writes prompt to w and closes it,
-// silently swallowing EPIPE/ErrClosed (CLI fast-exit scenarios). Errors are
-// reported via stderr/exit code instead.
+// silently swallowing EPIPE/ErrClosed (CLI fast-exit scenarios). Unexpected
+// errors are logged for debugging; the CLI's stderr/exit code is the primary
+// error channel.
 func writeStdinSafe(w io.WriteCloser, prompt string) func() {
 	return func() {
 		defer w.Close()
 		_, err := io.WriteString(w, prompt)
-		_ = err // EPIPE / ErrClosed are expected on CLI fast-exit; real errors surface via stderr
+		if err != nil && !errors.Is(err, syscall.EPIPE) && !errors.Is(err, os.ErrClosed) {
+			log.Printf("[llm] warning: unexpected stdin write error (non-EPIPE): %v", err)
+		}
 	}
 }
 
