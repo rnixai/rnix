@@ -145,6 +145,7 @@ func TestATDD_40_3_AC2_Spawn_EmitsResolveEvent(t *testing.T) {
 		"cap_partial_messages": "true",
 		"cap_add_dir":          "false",
 		"cap_permission_mode":  "true",
+		"fallback_candidates":  "claude,openclaude",
 	}
 
 	_, proc, baseDir := newDriverMetaTestKernelWithMeta(t, meta)
@@ -174,6 +175,12 @@ func TestATDD_40_3_AC2_Spawn_EmitsResolveEvent(t *testing.T) {
 			if !filepath.IsAbs(resolvedPath) {
 				t.Errorf("AC2 FAIL: resolved_path should be absolute, got %q", resolvedPath)
 			}
+			// candidates carries the attempted fallback binary list (JSON array
+			// decodes to []any after the events.jsonl round-trip).
+			cands, ok := row.Args["candidates"].([]any)
+			if !ok || len(cands) == 0 {
+				t.Errorf("AC2 FAIL: claude_cli.resolve event missing candidates list, got %v", row.Args["candidates"])
+			}
 			break
 		}
 	}
@@ -194,6 +201,7 @@ func TestATDD_40_3_AC3_Spawn_EmitsCapabilitiesEvent(t *testing.T) {
 		"cap_partial_messages": "true",
 		"cap_add_dir":          "false",
 		"cap_permission_mode":  "true",
+		"probe_duration_ms":    "12",
 	}
 
 	_, proc, baseDir := newDriverMetaTestKernelWithMeta(t, meta)
@@ -216,7 +224,7 @@ func TestATDD_40_3_AC3_Spawn_EmitsCapabilitiesEvent(t *testing.T) {
 	for _, row := range rows {
 		if row.Syscall == "claude_cli.capabilities" {
 			found = true
-			for _, key := range []string{"partial_messages", "add_dir", "permission_mode"} {
+			for _, key := range []string{"partial_messages", "add_dir", "permission_mode", "probe_duration_ms"} {
 				if _, ok := row.Args[key]; !ok {
 					t.Errorf("AC3 FAIL: claude_cli.capabilities event missing arg %q", key)
 				}

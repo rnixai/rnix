@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log"
 	"math/rand/v2"
+	"strconv"
 	"strings"
 	"time"
 
@@ -735,16 +736,25 @@ func (k *KernelImpl) Spawn(intent string, agent *agents.AgentInfo, opts SpawnOpt
 
 	// Emit driver observability events (Story 40.3)
 	if proc.DriverMeta != nil {
-		if rbin, ok := proc.DriverMeta["resolved_bin"]; ok {
-			k.emitEvent(proc, "claude_cli.resolve", map[string]any{
-				"resolved_path": rbin,
-			}, nil, nil, 0)
+		// claude_cli.resolve — only when a binary was actually resolved (P2:
+		// an empty resolved_bin means resolution failed, so emitting a
+		// "success" resolve event would be misleading).
+		if rbin, ok := proc.DriverMeta["resolved_bin"]; ok && rbin != "" {
+			resolveArgs := map[string]any{"resolved_path": rbin}
+			if cands := proc.DriverMeta["fallback_candidates"]; cands != "" {
+				resolveArgs["candidates"] = strings.Split(cands, ",")
+			}
+			k.emitEvent(proc, "claude_cli.resolve", resolveArgs, nil, nil, 0)
 		}
-		k.emitEvent(proc, "claude_cli.capabilities", map[string]any{
+		capArgs := map[string]any{
 			"partial_messages": proc.DriverMeta["cap_partial_messages"] == "true",
 			"add_dir":          proc.DriverMeta["cap_add_dir"] == "true",
 			"permission_mode":  proc.DriverMeta["cap_permission_mode"] == "true",
-		}, nil, nil, 0)
+		}
+		if ms, err := strconv.Atoi(proc.DriverMeta["probe_duration_ms"]); err == nil {
+			capArgs["probe_duration_ms"] = ms
+		}
+		k.emitEvent(proc, "claude_cli.capabilities", capArgs, nil, nil, 0)
 	}
 
 	// Capture FinalSystemPrompt eagerly at spawn time so process-meta.json

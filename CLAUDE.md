@@ -155,6 +155,8 @@ Claude CLI driver (`/dev/llm/claude`) uses capability probing to adapt to differ
 | `cap_partial_messages` | `--include-partial-messages` supported | `"true"` / `"false"` |
 | `cap_add_dir` | `--add-dir` supported | `"true"` / `"false"` |
 | `cap_permission_mode` | `--permission-mode` supported | `"true"` / `"false"` |
+| `fallback_candidates` | Comma-joined candidate binary names (split to `candidates[]` in the `claude_cli.resolve` event) | `claude,openclaude` |
+| `probe_duration_ms` | Capability-probe wall-clock duration in ms (emitted as `probe_duration_ms` in the `claude_cli.capabilities` event) | `12` |
 
 ### Timeline Fold & Navigation (Story 41-3)
 

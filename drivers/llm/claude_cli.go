@@ -72,9 +72,10 @@ type ClaudeCliDriver struct {
 	extraArgs      []string
 	permissionMode string
 
-	capsOnce       sync.Once
-	caps           claudeCapabilities
-	capsWarnedOnce sync.Once
+	capsOnce            sync.Once
+	caps                claudeCapabilities
+	capsProbeDurationMs int64 // capability probe wall-clock duration (ms); set inside capsOnce
+	capsWarnedOnce      sync.Once
 
 	resolvedBin     string
 	resolvedBinOnce sync.Once
@@ -814,7 +815,9 @@ func detectLoginRequired(result, stderr string) (bool, string) {
 func (d *ClaudeCliDriver) ensureCapabilities() claudeCapabilities {
 	d.capsOnce.Do(func() {
 		_ = d.resolveBinaryIfNeeded()
+		start := time.Now()
 		d.caps = d.probeCapabilities()
+		d.capsProbeDurationMs = time.Since(start).Milliseconds()
 	})
 	return d.caps
 }
@@ -943,17 +946,20 @@ func (d *ClaudeCliDriver) effectiveBinary() string {
 }
 
 // DriverMeta returns runtime metadata for observability: resolved binary path,
-// permission mode, and capability flags. It triggers lazy binary resolution and
-// capability probing if not yet executed.
+// permission mode, capability flags, the candidate binary list, and the
+// capability-probe duration. It triggers lazy binary resolution and capability
+// probing if not yet executed.
 func (d *ClaudeCliDriver) DriverMeta() map[string]string {
 	_ = d.resolveBinaryIfNeeded()
 	caps := d.ensureCapabilities()
 	return map[string]string{
-		"resolved_bin":        d.resolvedBin,
-		"permission_mode":     d.permissionMode,
+		"resolved_bin":         d.resolvedBin,
+		"permission_mode":      d.permissionMode,
 		"cap_partial_messages": strconv.FormatBool(caps.partialMessages),
 		"cap_add_dir":          strconv.FormatBool(caps.addDir),
 		"cap_permission_mode":  strconv.FormatBool(caps.permissionMode),
+		"fallback_candidates":  strings.Join(d.fallbackBins, ","),
+		"probe_duration_ms":    strconv.FormatInt(d.capsProbeDurationMs, 10),
 	}
 }
 
