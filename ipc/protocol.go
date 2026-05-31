@@ -244,6 +244,8 @@ type ProcInfoWire struct {
 	ExitCode    int  `json:"exit_code,omitempty"`
 	ExitCodeSet bool `json:"exit_code_set,omitempty"`
 
+	DriverMeta map[string]string `json:"driver_meta,omitempty"`
+
 	// Story 48.1 / code-review P7 — vfs.ProcInfo.MCPMounts is INTENTIONALLY
 	// not mirrored onto this wire type. The field is consumed only by the
 	// kernel-internal resume / load_suspended path (kernel/rehydrate.go); no
@@ -294,6 +296,7 @@ func ProcInfoToWire(p vfs.ProcInfo) ProcInfoWire {
 		PipelineTotal: p.PipelineTotal,
 		ExitCode:      p.ExitCode,
 		ExitCodeSet:   p.ExitCodeSet,
+		DriverMeta:    p.DriverMeta,
 	}
 	if !p.DeadAt.IsZero() {
 		w.DeadAt = p.DeadAt.UnixMilli()
@@ -344,6 +347,7 @@ func WireToProcInfo(w ProcInfoWire) vfs.ProcInfo {
 		PipelineTotal: w.PipelineTotal,
 		ExitCode:      w.ExitCode,
 		ExitCodeSet:   w.ExitCodeSet,
+		DriverMeta:    w.DriverMeta,
 	}
 	if w.DeadAt != 0 {
 		p.DeadAt = unixMilliToTime(w.DeadAt)
@@ -1327,8 +1331,9 @@ type GetProcDetailResponse struct {
 	// Story 42.3 — Resume lineage fields (mirrored from proc.OriginUUID /
 	// proc.ResumedFromStep for active procs, procInfoDisk for history).
 	// Omitempty so普通 spawn 进程序列化时不带噪声字段。
-	OriginUUID      string `json:"origin_uuid,omitempty"`
-	ResumedFromStep int    `json:"resumed_from_step,omitempty"`
+	OriginUUID      string            `json:"origin_uuid,omitempty"`
+	ResumedFromStep int               `json:"resumed_from_step,omitempty"`
+	DriverMeta      map[string]string `json:"driver_meta,omitempty"`
 }
 
 // SkillInfoWire is the wire-format representation of a loaded skill with its allowed tools.

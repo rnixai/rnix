@@ -157,8 +157,9 @@ type Process struct {
 	FallbackProvider string // fallback provider name; "" = same as primary
 	FallbackDevice   string // resolved fallback VFS device path; "" = no fallback
 	PrimaryDevice    string // primary VFS device path (e.g. "/dev/llm/claude")
-	Provider         string // resolved provider name (immutable after spawn)
-	Model            string // resolved model name (immutable after spawn)
+	Provider         string            // resolved provider name (immutable after spawn)
+	Model            string            // resolved model name (immutable after spawn)
+	DriverMeta       map[string]string // runtime metadata from DriverMetaProvider (immutable after spawn)
 	AgentTemplate    string // agent manifest name (immutable after spawn; Story 51.4)
 	ContextWindow    int    // per-model context window size (immutable after spawn); 0 = use fallback
 	PlanningEnabled  bool   // true = inject planProtocol; derived from agent manifest Planning field
@@ -406,6 +407,7 @@ type DetailSnapshot struct {
 	// of a fork/resume operation; empty otherwise).
 	OriginUUID      string
 	ResumedFromStep int
+	DriverMeta      map[string]string
 }
 
 // GetDetailSnapshot returns a thread-safe copy of process detail fields.
@@ -437,6 +439,7 @@ func (p *Process) GetDetailSnapshot() DetailSnapshot {
 		PipelineTotal:   p.PipelineTotal,
 		OriginUUID:      p.OriginUUID,
 		ResumedFromStep: p.ResumedFromStep,
+		DriverMeta:      p.DriverMeta,
 	}
 }
 

@@ -31,7 +31,7 @@ func TestATDD_40_3_AC1_DriverMetaProvider_InterfaceSatisfied(t *testing.T) {
 
 	var _ DriverMetaProvider = d // compile-time interface check
 
-	if _, ok := interface{}(d).(DriverMetaProvider); !ok {
+	if _, ok := any(d).(DriverMetaProvider); !ok {
 		t.Fatal("AC1 FAIL: ClaudeCliDriver does not implement DriverMetaProvider interface")
 	}
 }

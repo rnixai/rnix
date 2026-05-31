@@ -40,6 +40,15 @@ func (f *LLMFile) DefaultModel() string {
 	return f.driver.Info().DefaultModel
 }
 
+// DriverMeta returns runtime metadata from the underlying driver, if it
+// implements DriverMetaProvider. Returns nil otherwise.
+func (f *LLMFile) DriverMeta() map[string]string {
+	if dmp, ok := f.driver.(DriverMetaProvider); ok {
+		return dmp.DriverMeta()
+	}
+	return nil
+}
+
 // Write accepts a JSON-encoded LLMRequest, invokes the driver, and buffers the response.
 func (f *LLMFile) Write(ctx context.Context, data []byte) error {
 	if f.closed {

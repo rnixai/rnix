@@ -138,6 +138,24 @@ VFS device registration must declare full ToolDef metadata:
 - Use ShouldDefer + SearchHint for non-core devices
 - Device descriptions use Go embed templates (not hardcoded strings)
 
+### Claude CLI Driver 兼容性约定 (Epic 40)
+
+Claude CLI driver (`/dev/llm/claude`) uses capability probing to adapt to different CLI versions:
+
+- **Capability probe**: `claude -p --help` with 5s timeout; scans stdout for `--include-partial-messages`, `--add-dir`, `--permission-mode`
+- **Default permission**: `bypassPermissions` (daemon-managed, no-TTY agent loop)
+- **Fallback binaries**: `claude` → `openclaude` (configurable via `WithFallbackBins`)
+- **Extended search paths**: `~/.local/bin`, nvm latest, `~/.bun/bin`
+- **DriverMetaProvider**: optional interface on LLM drivers; kernel spawn path type-asserts to populate `ProcInfo.DriverMeta` and emit `claude_cli.resolve` / `claude_cli.capabilities` strace events
+
+| Key | Value | Example |
+|-----|-------|---------|
+| `resolved_bin` | Absolute path to resolved binary | `/usr/local/bin/claude` |
+| `permission_mode` | Active permission mode | `bypassPermissions` |
+| `cap_partial_messages` | `--include-partial-messages` supported | `"true"` / `"false"` |
+| `cap_add_dir` | `--add-dir` supported | `"true"` / `"false"` |
+| `cap_permission_mode` | `--permission-mode` supported | `"true"` / `"false"` |
+
 ### Timeline Fold & Navigation (Story 41-3)
 
 **toolAggGroup vs RootIntent**: These are distinct fold granularities. toolAggGroup (≥3 consecutive steps with same ToolPath, defined in `event.BuildToolAggGroups`) is the Timeline pane's fold unit. RootIntent is the Intent pane's collapse unit. Do not confuse them.

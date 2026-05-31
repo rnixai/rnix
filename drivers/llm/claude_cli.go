@@ -942,6 +942,21 @@ func (d *ClaudeCliDriver) effectiveBinary() string {
 	return d.cliCommand
 }
 
+// DriverMeta returns runtime metadata for observability: resolved binary path,
+// permission mode, and capability flags. It triggers lazy binary resolution and
+// capability probing if not yet executed.
+func (d *ClaudeCliDriver) DriverMeta() map[string]string {
+	_ = d.resolveBinaryIfNeeded()
+	caps := d.ensureCapabilities()
+	return map[string]string{
+		"resolved_bin":        d.resolvedBin,
+		"permission_mode":     d.permissionMode,
+		"cap_partial_messages": strconv.FormatBool(caps.partialMessages),
+		"cap_add_dir":          strconv.FormatBool(caps.addDir),
+		"cap_permission_mode":  strconv.FormatBool(caps.permissionMode),
+	}
+}
+
 // claudeStreamParser converts raw Claude API stream events into driver-level
 // StreamEvent values while tracking which assistant message has already
 // emitted text_delta increments. The Stream goroutine creates one parser per

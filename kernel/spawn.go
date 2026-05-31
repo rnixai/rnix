@@ -587,6 +587,16 @@ func (k *KernelImpl) Spawn(intent string, agent *agents.AgentInfo, opts SpawnOpt
 			}
 		}
 
+		// Populate DriverMeta from DriverMetaProvider if available
+		if file := k.vfs.GetFile(proc.PID, llmFD); file != nil {
+			type driverMetaProvider interface {
+				DriverMeta() map[string]string
+			}
+			if dmp, ok := file.(driverMetaProvider); ok {
+				proc.DriverMeta = dmp.DriverMeta()
+			}
+		}
+
 		if k.contextWindowFunc != nil {
 			proc.ContextWindow = k.contextWindowFunc(proc.Provider, proc.Model)
 		}
@@ -722,6 +732,20 @@ func (k *KernelImpl) Spawn(intent string, agent *agents.AgentInfo, opts SpawnOpt
 		spawnArgs["skip_reason_loop"] = true
 	}
 	k.emitEvent(proc, "Spawn", spawnArgs, proc.PID, nil, time.Since(start))
+
+	// Emit driver observability events (Story 40.3)
+	if proc.DriverMeta != nil {
+		if rbin, ok := proc.DriverMeta["resolved_bin"]; ok {
+			k.emitEvent(proc, "claude_cli.resolve", map[string]any{
+				"resolved_path": rbin,
+			}, nil, nil, 0)
+		}
+		k.emitEvent(proc, "claude_cli.capabilities", map[string]any{
+			"partial_messages": proc.DriverMeta["cap_partial_messages"] == "true",
+			"add_dir":          proc.DriverMeta["cap_add_dir"] == "true",
+			"permission_mode":  proc.DriverMeta["cap_permission_mode"] == "true",
+		}, nil, nil, 0)
+	}
 
 	// Capture FinalSystemPrompt eagerly at spawn time so process-meta.json
 	// (written at reap) always has a non-empty `system_prompt` field —

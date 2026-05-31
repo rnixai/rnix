@@ -103,6 +103,29 @@ func Render(state DetailState, ctx RenderContext, innerW int) string {
 	fmt.Fprintf(&b, "  Provider: %s  Model: %s\n", d.Provider, d.Model)
 	fmt.Fprintf(&b, "  Uptime: %s\n", ui.FormatDuration(uptime))
 
+	// Section 1c: Driver metadata (Story 40.3)
+	if len(d.DriverMeta) > 0 {
+		if bin := d.DriverMeta["resolved_bin"]; bin != "" {
+			perm := d.DriverMeta["permission_mode"]
+			fmt.Fprintf(&b, "  Binary: %s  Permission: %s\n", bin, perm)
+		}
+		yes, no := "✓", "✗"
+		if ui.IsASCIIMode() {
+			yes, no = "Y", "N"
+		}
+		boolMark := func(v bool) string {
+			if v {
+				return yes
+			}
+			return no
+		}
+		capPM := d.DriverMeta["cap_partial_messages"] == "true"
+		capAD := d.DriverMeta["cap_add_dir"] == "true"
+		capPerm := d.DriverMeta["cap_permission_mode"] == "true"
+		fmt.Fprintf(&b, "  Capabilities: partialMessages=%s addDir=%s permissionMode=%s\n",
+			boolMark(capPM), boolMark(capAD), boolMark(capPerm))
+	}
+
 	// Section 1b: Allowed devices
 	if len(d.AllowedDevices) > 0 {
 		fmt.Fprintf(&b, "  Devices: %s\n", strings.Join(d.AllowedDevices, ", "))

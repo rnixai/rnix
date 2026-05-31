@@ -162,3 +162,10 @@ type LLMDriver interface {
 type HealthChecker interface {
 	HealthCheck(ctx context.Context) error
 }
+
+// DriverMetaProvider is an optional interface that LLM drivers may implement
+// to expose runtime metadata (resolved binary path, capabilities, permission
+// mode) for observability. Kernel spawn path uses type assertion to detect.
+type DriverMetaProvider interface {
+	DriverMeta() map[string]string
+}

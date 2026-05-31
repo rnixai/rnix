@@ -114,6 +114,12 @@ type ProcInfo struct {
 	// effective IPC contract — Story 48.1 code-review P11 fixed the prior
 	// silent PascalCase/snake_case split.
 	MCPMounts []MCPMountSnapshot `json:"mcp_mounts,omitempty"`
+
+	// DriverMeta holds optional runtime metadata from the LLM driver (e.g.
+	// resolved binary path, permission mode, capability flags). Populated at
+	// spawn time via DriverMetaProvider interface; nil for drivers that don't
+	// implement it.
+	DriverMeta map[string]string `json:"driver_meta,omitempty"`
 }
 
 // ProcFS implements a read-only /proc filesystem that exposes process runtime state.
