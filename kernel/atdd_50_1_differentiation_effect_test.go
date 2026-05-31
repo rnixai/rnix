@@ -334,7 +334,7 @@ func drainAndVerifyFromMemory(t *testing.T, proc *Process) {
 				// Fallback: if we couldn't capture the event, the fact that
 				// DiffMemory.Lookup succeeded before the second spawn is
 				// sufficient evidence of memory reuse.
-				t.Log("StemDifferentiate from_memory=true event not captured via DebugChan (may have been consumed); DiffMemory.Lookup hit confirmed memory reuse")
+				t.Error("StemDifferentiate from_memory=true event not captured via DebugChan; AC2 requires this assertion")
 			}
 			return
 		}
