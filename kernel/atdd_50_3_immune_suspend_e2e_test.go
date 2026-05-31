@@ -113,6 +113,7 @@ func setupImmuneE2E(t *testing.T, k *KernelImpl, warnOnly bool, agentTemplate st
 
 	cfg := DefaultImmuneConfig()
 	cfg.WarnOnly = warnOnly
+	cfg.DeviationThreshold = 3.0
 	daemon := NewImmuneDaemon(store, cfg)
 	if err := daemon.Start(); err != nil {
 		t.Fatalf("daemon.Start: %v", err)
@@ -216,6 +217,9 @@ func TestATDD_50_3_INT_001_E2E_StatisticalAnomaly_SuspendsClosure(t *testing.T) 
 	}
 	if exit.Code != ExitSuspended {
 		t.Errorf("AC4: Exit.Code = %d, want ExitSuspended (%d)", exit.Code, ExitSuspended)
+	}
+	if !strings.Contains(exit.Reason, "suspended") {
+		t.Errorf("AC4: Exit.Reason = %q, want substring \"suspended\"", exit.Reason)
 	}
 
 	// AC1: alert exists with correct type
