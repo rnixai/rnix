@@ -120,11 +120,15 @@ func WithExtraArgs(args []string) ClaudeCliOption {
 
 // WithPermissionMode sets the --permission-mode value the driver passes to
 // Claude CLI when the locally installed binary supports the flag. An empty
-// mode is treated as "no override" (default applies). Validation of the value
-// happens in NewClaudeCliDriver / ProvidersConfig.Validate.
+// mode is treated as "no override" (default applies). Invalid values are
+// rejected with a log warning; the default is preserved.
 func WithPermissionMode(mode string) ClaudeCliOption {
 	return func(d *ClaudeCliDriver) {
 		if mode == "" {
+			return
+		}
+		if !validPermissionModes[mode] {
+			log.Printf("[llm] warning: invalid permission_mode %q ignored (valid: bypassPermissions, acceptEdits, plan, default)", mode)
 			return
 		}
 		d.permissionMode = mode

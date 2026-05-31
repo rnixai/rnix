@@ -1216,3 +1216,17 @@ func TestClaudeCliDriver_PermissionMode_EmptyKeepsDefault(t *testing.T) {
 		t.Errorf("permissionMode = %q, want default %q", d.permissionMode, DefaultPermissionMode)
 	}
 }
+
+// TestClaudeCliDriver_PermissionMode_InvalidRejected verifies that an invalid
+// permission mode passed via WithPermissionMode is rejected and the default is
+// preserved (AC3: invalid values rejected in NewClaudeCliDriver).
+func TestClaudeCliDriver_PermissionMode_InvalidRejected(t *testing.T) {
+	t.Parallel()
+	d := NewClaudeCliDriver(
+		WithCommandBuilder(mockCmdBuilder("cap_probe_full")),
+		WithPermissionMode("yolo"),
+	)
+	if d.permissionMode != DefaultPermissionMode {
+		t.Errorf("permissionMode = %q after invalid input, want default %q", d.permissionMode, DefaultPermissionMode)
+	}
+}
