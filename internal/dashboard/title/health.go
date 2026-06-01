@@ -31,25 +31,24 @@ func ComputeCtxPercent(selectedPID types.PID, processes []vfs.ProcInfo) int {
 	if selectedPID > 0 {
 		for _, p := range processes {
 			if p.PID == selectedPID {
-				if p.ContextBudget > 0 {
-					return ClampPercent(int(int64(p.TokensUsed) * 100 / int64(p.ContextBudget)))
+				if p.ContextBudget > 0 && p.LastInputTokens > 0 {
+					return ClampPercent(int(int64(p.LastInputTokens) * 100 / int64(p.ContextBudget)))
 				}
 				return 0
 			}
 		}
-		return 0 // selected PID not found (reaped between ticks)
+		return 0
 	}
-	var totalUsed, totalBudget int64
+	var maxPct int
 	for _, p := range processes {
-		if (p.State == types.StateRunning || p.State == types.StateCreated) && p.ContextBudget > 0 {
-			totalUsed += int64(p.TokensUsed)
-			totalBudget += int64(p.ContextBudget)
+		if (p.State == types.StateRunning || p.State == types.StateCreated) && p.ContextBudget > 0 && p.LastInputTokens > 0 {
+			pct := int(int64(p.LastInputTokens) * 100 / int64(p.ContextBudget))
+			if pct > maxPct {
+				maxPct = pct
+			}
 		}
 	}
-	if totalBudget > 0 {
-		return ClampPercent(int(totalUsed * 100 / totalBudget))
-	}
-	return 0
+	return ClampPercent(maxPct)
 }
 
 // ComputeBudgetPercent returns the cost / token budget usage percentage (0-999)

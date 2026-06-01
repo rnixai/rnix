@@ -54,8 +54,9 @@ type ProcInfo struct {
 	State          types.ProcessState
 	Intent         string
 	Skills         []string
-	TokensUsed     int
-	ContextBudget  int
+	TokensUsed      int
+	LastInputTokens int
+	ContextBudget   int
 	MaxTokens      int64
 	MaxCost        float64
 	UsedCost       float64

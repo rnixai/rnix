@@ -53,6 +53,7 @@ func (s *Server) handleSpawn(conn net.Conn, rawPayload json.RawMessage) {
 		FallbackProvider: req.FallbackProvider,
 		MaxTurns:         req.MaxSteps,
 		ContextBudget:    req.ContextBudget,
+		MaxTokens:        req.MaxTokens,
 		TimeoutMs:        req.TimeoutMs,
 		TraceID:          types.TraceID(req.TraceID),
 		ParentSpanID:     types.SpanID(req.ParentSpanID),

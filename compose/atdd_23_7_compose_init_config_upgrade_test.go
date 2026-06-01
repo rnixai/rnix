@@ -453,7 +453,7 @@ func TestATDD_23_7_TypesExist(t *testing.T) {
 	// Verify existing types are unaffected
 	_ = ComposeSpec{Version: "1.0", Intent: "test", Model: "haiku", Provider: "groq", Agents: map[string]*AgentSpec{}}
 	_ = AgentSpec{Intent: "task", Provider: "ollama", Model: "llama3"}
-	_ = ComposeSpawnOpts{Model: "llama3", Provider: "ollama", ContextBudget: 1000}
+	_ = ComposeSpawnOpts{Model: "llama3", Provider: "ollama", MaxTokens: 1000}
 
 	// Verify mock records Provider
 	ks := newMockKernelSpawner()

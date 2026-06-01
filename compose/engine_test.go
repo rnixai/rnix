@@ -696,18 +696,18 @@ func TestEngine_Execute_PartialFailure(t *testing.T) {
 // ============================================================
 // ATDD RED PHASE — Story 10.3: Token 预算管理 (AC2)
 //
-// Tests reference AgentSpec.ContextBudget and ComposeSpawnOpts.ContextBudget
+// Tests reference AgentSpec.MaxTokens and ComposeSpawnOpts.MaxTokens
 // which do NOT exist yet → compile failure = RED phase.
 // ============================================================
 
-// --- 10.3-UNIT-020: [P0] AgentSpec.ContextBudget passed to ComposeSpawnOpts ---
+// --- 10.3-UNIT-020: [P0] AgentSpec.MaxTokens passed to ComposeSpawnOpts ---
 
-func TestEngine_Execute_ContextBudgetPassthrough(t *testing.T) {
+func TestEngine_Execute_MaxTokensPassthrough(t *testing.T) {
 	spec := &ComposeSpec{
 		Version: "1.0",
 		Intent:  "budget passthrough",
 		Agents: map[string]*AgentSpec{
-			"worker": {Intent: "do work", ContextBudget: 5000},
+			"worker": {Intent: "do work", MaxTokens: 5000},
 		},
 	}
 	ks := newMockKernelSpawner()
@@ -727,8 +727,8 @@ func TestEngine_Execute_ContextBudgetPassthrough(t *testing.T) {
 	if len(ks.spawned) != 1 {
 		t.Fatalf("expected 1 spawn, got %d", len(ks.spawned))
 	}
-	if ks.spawned[0].opts.ContextBudget != 5000 {
-		t.Errorf("expected ContextBudget 5000, got %d", ks.spawned[0].opts.ContextBudget)
+	if ks.spawned[0].opts.MaxTokens != 5000 {
+		t.Errorf("expected MaxTokens 5000, got %d", ks.spawned[0].opts.MaxTokens)
 	}
 }
 
@@ -756,8 +756,8 @@ func TestEngine_Execute_NoBudgetPassesZero(t *testing.T) {
 	if len(ks.spawned) != 1 {
 		t.Fatalf("expected 1 spawn, got %d", len(ks.spawned))
 	}
-	if ks.spawned[0].opts.ContextBudget != 0 {
-		t.Errorf("expected ContextBudget 0 for no-budget agent, got %d", ks.spawned[0].opts.ContextBudget)
+	if ks.spawned[0].opts.MaxTokens != 0 {
+		t.Errorf("expected MaxTokens 0 for no-budget agent, got %d", ks.spawned[0].opts.MaxTokens)
 	}
 }
 
@@ -768,8 +768,8 @@ func TestEngine_Execute_MultipleBudgets(t *testing.T) {
 		Version: "1.0",
 		Intent:  "mixed budgets",
 		Agents: map[string]*AgentSpec{
-			"cheap":     {Intent: "cheap task", ContextBudget: 1000},
-			"expensive": {Intent: "expensive task", ContextBudget: 50000},
+			"cheap":     {Intent: "cheap task", MaxTokens: 1000},
+			"expensive": {Intent: "expensive task", MaxTokens: 50000},
 			"unlimited": {Intent: "unlimited task"},
 		},
 	}
@@ -784,9 +784,9 @@ func TestEngine_Execute_MultipleBudgets(t *testing.T) {
 		t.Fatalf("Execute failed: %v", err)
 	}
 
-	budgetByIntent := make(map[string]int)
+	budgetByIntent := make(map[string]int64)
 	for _, rec := range ks.spawned {
-		budgetByIntent[rec.intent] = rec.opts.ContextBudget
+		budgetByIntent[rec.intent] = rec.opts.MaxTokens
 	}
 	if budgetByIntent["cheap task"] != 1000 {
 		t.Errorf("expected 1000 for cheap, got %d", budgetByIntent["cheap task"])
@@ -873,11 +873,11 @@ func TestEngine_Execute_WithBudgetPool(t *testing.T) {
 		t.Fatalf("expected 3 results, got %d", len(results))
 	}
 
-	// Verify ContextBudget was set based on priority allocation
+	// Verify MaxTokens was set based on priority allocation
 	// High priority agent should get the largest budget
-	budgetByIntent := make(map[string]int)
+	budgetByIntent := make(map[string]int64)
 	for _, rec := range ks.spawned {
-		budgetByIntent[rec.intent] = rec.opts.ContextBudget
+		budgetByIntent[rec.intent] = rec.opts.MaxTokens
 	}
 
 	highBudget := budgetByIntent["review code"]
@@ -966,7 +966,7 @@ func TestEngine_Execute_NoBudgetPool(t *testing.T) {
 	// When: executing
 	results, err := engine.Execute(context.Background())
 
-	// Then: all agents succeed with ContextBudget=0 (no pool allocation override)
+	// Then: all agents succeed with MaxTokens=0 (no pool allocation override)
 	if err != nil {
 		t.Fatalf("Execute failed: %v", err)
 	}
@@ -974,11 +974,11 @@ func TestEngine_Execute_NoBudgetPool(t *testing.T) {
 		t.Fatalf("expected 2 results, got %d", len(results))
 	}
 
-	// ContextBudget should remain 0 (no budget pool to allocate from)
+	// MaxTokens should remain 0 (no budget pool to allocate from)
 	for _, rec := range ks.spawned {
-		if rec.opts.ContextBudget != 0 {
-			t.Errorf("expected ContextBudget 0 for no-budget spec, agent %q got %d",
-				rec.intent, rec.opts.ContextBudget)
+		if rec.opts.MaxTokens != 0 {
+			t.Errorf("expected MaxTokens 0 for no-budget spec, agent %q got %d",
+				rec.intent, rec.opts.MaxTokens)
 		}
 	}
 }

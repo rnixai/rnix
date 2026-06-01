@@ -677,8 +677,10 @@ func (k *KernelImpl) reasonStep(proc *Process, llmFD types.FD, opts SpawnOpts) {
 
 		proc.mu.Lock()
 		proc.TokensUsed += resp.TokensUsed
+		proc.LastInputTokens = resp.InputTokens
 		budget := proc.ContextBudget
 		tokens := proc.TokensUsed
+		inputTokens := resp.InputTokens
 		hasTrace := proc.TraceID != ""
 		procGroups := make([]types.PGID, len(proc.groups))
 		copy(procGroups, proc.groups)
@@ -697,15 +699,17 @@ func (k *KernelImpl) reasonStep(proc *Process, llmFD types.FD, opts SpawnOpts) {
 			}
 		}
 
-		k.checkBudgetWarning(proc, step, tokens, budget)
+		k.checkBudgetWarning(proc, step, inputTokens, budget)
 
-		if budget > 0 && tokens >= budget {
-			k.emitLog(proc, step, types.LogOutput, fmt.Sprintf("Token budget exceeded: %d/%d", tokens, budget), "")
-			k.emitEvent(proc, "ReasonStep", map[string]any{"step": step, "action": "budget_exceeded", "tokens": tokens, "budget": budget}, nil, nil, time.Since(stepStart))
-			// Record the step that triggered budget exceeded so LLM viewer shows the interaction
+		if budget > 0 && inputTokens >= budget {
+			k.emitLog(proc, step, types.LogOutput, fmt.Sprintf("Context budget exceeded: %d/%d input tokens", inputTokens, budget), "")
+			k.emitEvent(proc, "ReasonStep", map[string]any{"step": step, "action": "context_full", "input_tokens": inputTokens, "budget": budget}, nil, nil, time.Since(stepStart))
 			k.writeStepRecord(proc, step, promptResult, rawResponseStr, &resp,
-				"error", fmt.Sprintf("budget_exceeded: %d/%d tokens", tokens, budget), "", "", "", "", 0, nil)
-			k.finishProcess(proc, ExitStatus{Code: ExitSuspended, Reason: "budget_exceeded", Err: fmt.Errorf("token budget exceeded: %d/%d", tokens, budget)})
+				"error", fmt.Sprintf("context_full: %d/%d input tokens", inputTokens, budget), "", "", "", "", 0, nil)
+			if err := k.selfSuspend(proc, "context_full", ExitContextFull); err != nil {
+				log.Printf("[kernel] pid=%d context_full suspend failed: %v, falling back to terminate", proc.PID, err)
+				k.finishProcess(proc, ExitStatus{Code: ExitContextFull, Reason: "context_full", Err: fmt.Errorf("context budget exceeded: %d/%d input tokens", inputTokens, budget)})
+			}
 			return
 		}
 

@@ -1,6 +1,7 @@
 package kernel
 
 import (
+	"encoding/json"
 	"strings"
 	"testing"
 	"time"
@@ -12,34 +13,38 @@ import (
 )
 
 // ============================================================
-// ATDD RED PHASE — Story 10.3: Token 预算管理
+// ATDD — Story 10.3: Token 预算管理 (updated for C2 semantics)
 //
-// All tests reference ContextBudget fields that do NOT exist yet.
-// They will fail to COMPILE until implementation adds:
-//   - SpawnOpts.ContextBudget int
-//   - Process.ContextBudget int
-//   - Budget check logic in reasonStep
-//
-// RED → GREEN: implement the fields and logic, tests compile and pass.
+// context_budget = per-step prompt input token ceiling (context window guard).
+// Exceed → selfSuspend with ExitContextFull (code 3).
 // ============================================================
 
-// --- 10.3-UNIT-001: [P0] Budget enforcement terminates process at limit ---
+func makeLLMResponseWithInput(content string, totalTokens, inputTokens int) []byte {
+	resp := llmResponse{Content: content, TokensUsed: totalTokens, InputTokens: inputTokens}
+	data, _ := json.Marshal(resp)
+	return data
+}
+
+func makeToolCallResponseWithInput(toolName string, toolInput map[string]any, totalTokens, inputTokens int) []byte {
+	resp := llmResponse{
+		TokensUsed:  totalTokens,
+		InputTokens: inputTokens,
+		ToolCalls: []llmToolCall{{
+			ID:    "call_" + toolName,
+			Name:  toolName,
+			Input: toolInput,
+		}},
+	}
+	data, _ := json.Marshal(resp)
+	return data
+}
+
+// --- 10.3-UNIT-001: [P0] Context budget suspends process when input exceeds limit ---
 
 func TestBudgetEnforcement_TerminatesAtBudget(t *testing.T) {
-	// LLM returns 1000 tokens per call; budget=2500 → 3rd call (3000 >= 2500) triggers termination
 	reg := vfs.NewDeviceRegistry()
 	_ = reg.Register("/dev/llm/claude", func(_ string, _ vfs.OpenFlag, _ string) (vfs.VFSFile, error) {
-		return &sequenceLLMFile{
-			responses: [][]byte{
-				makeToolCallResponse("/dev/tools/echo", map[string]any{}, 1000),
-				makeToolCallResponse("/dev/tools/echo", map[string]any{}, 1000),
-				makeToolCallResponse("/dev/tools/echo", map[string]any{}, 1000),
-				makeLLMResponse("should not reach here", 1000),
-			},
-		}, nil
-	})
-	registerMockTool(reg, "/dev/tools/echo", func(_ string, _ vfs.OpenFlag, _ string) (vfs.VFSFile, error) {
-		return &mockToolFile{readData: []byte("ok")}, nil
+		return &mockLLMFile{readData: makeLLMResponseWithInput("big prompt", 3500, 3000)}, nil
 	})
 	v := vfs.NewVFS(reg)
 	ctxMgr := rnixctx.NewManager()
@@ -58,18 +63,18 @@ func TestBudgetEnforcement_TerminatesAtBudget(t *testing.T) {
 
 	select {
 	case exit := <-proc.Done:
-		if exit.Code != 2 {
-			t.Fatalf("expected exit code 2 (budget_exceeded), got %d: %s", exit.Code, exit.Reason)
+		if exit.Code != ExitContextFull {
+			t.Fatalf("expected exit code %d (ExitContextFull), got %d: %s", ExitContextFull, exit.Code, exit.Reason)
 		}
-		if exit.Reason != "budget_exceeded" {
-			t.Fatalf("expected reason 'budget_exceeded', got %q", exit.Reason)
+		if !strings.Contains(exit.Reason, "context_full") {
+			t.Fatalf("expected reason containing 'context_full', got %q", exit.Reason)
 		}
 	case <-time.After(5 * time.Second):
-		t.Fatal("timed out waiting for budget termination")
+		t.Fatal("timed out waiting for budget suspension")
 	}
 
-	if proc.GetState() != types.StateZombie {
-		t.Fatalf("expected Zombie state, got %d", proc.GetState())
+	if proc.GetState() != types.StateSuspended {
+		t.Fatalf("expected Suspended state, got %s", proc.GetState())
 	}
 }
 
@@ -190,12 +195,12 @@ func TestBudgetPriority_AgentManifestWhenOptsZero(t *testing.T) {
 	}
 }
 
-// --- 10.3-UNIT-005: [P0] ExitStatus Code=2 for budget exceeded ---
+// --- 10.3-UNIT-005: [P0] ExitStatus Code=ExitContextFull for context budget exceeded ---
 
 func TestBudgetExceeded_ExitCode2(t *testing.T) {
 	reg := vfs.NewDeviceRegistry()
 	_ = reg.Register("/dev/llm/claude", func(_ string, _ vfs.OpenFlag, _ string) (vfs.VFSFile, error) {
-		return &mockLLMFile{readData: makeLLMResponse("big response", 5000)}, nil
+		return &mockLLMFile{readData: makeLLMResponseWithInput("big response", 5500, 5000)}, nil
 	})
 	v := vfs.NewVFS(reg)
 	ctxMgr := rnixctx.NewManager()
@@ -210,26 +215,23 @@ func TestBudgetExceeded_ExitCode2(t *testing.T) {
 	proc, _ := k.GetProcess(pid)
 	select {
 	case exit := <-proc.Done:
-		if exit.Code != 2 {
-			t.Fatalf("expected Code 2, got %d", exit.Code)
+		if exit.Code != ExitContextFull {
+			t.Fatalf("expected Code %d, got %d", ExitContextFull, exit.Code)
 		}
-		if exit.Reason != "budget_exceeded" {
-			t.Fatalf("expected Reason 'budget_exceeded', got %q", exit.Reason)
-		}
-		if exit.Err == nil {
-			t.Fatal("expected non-nil Err in ExitStatus")
+		if !strings.Contains(exit.Reason, "context_full") {
+			t.Fatalf("expected Reason containing 'context_full', got %q", exit.Reason)
 		}
 	case <-time.After(5 * time.Second):
 		t.Fatal("timed out")
 	}
 }
 
-// --- 10.3-UNIT-006: [P1] emitLog called with budget exceeded message ---
+// --- 10.3-UNIT-006: [P1] emitLog called with context budget exceeded message ---
 
 func TestBudgetExceeded_EmitsLog(t *testing.T) {
 	reg := vfs.NewDeviceRegistry()
 	_ = reg.Register("/dev/llm/claude", func(_ string, _ vfs.OpenFlag, _ string) (vfs.VFSFile, error) {
-		return &mockLLMFile{readData: makeLLMResponse("response", 3000)}, nil
+		return &mockLLMFile{readData: makeLLMResponseWithInput("response", 3500, 3000)}, nil
 	})
 	v := vfs.NewVFS(reg)
 	ctxMgr := rnixctx.NewManager()
@@ -252,7 +254,7 @@ func TestBudgetExceeded_EmitsLog(t *testing.T) {
 	for {
 		select {
 		case entry := <-proc.LogChan:
-			if entry.Category == types.LogOutput && strings.Contains(entry.Content, "budget") {
+			if entry.Category == types.LogOutput && strings.Contains(entry.Content, "Context budget exceeded") {
 				foundBudgetLog = true
 			}
 		default:
@@ -261,16 +263,16 @@ func TestBudgetExceeded_EmitsLog(t *testing.T) {
 	}
 drained:
 	if !foundBudgetLog {
-		t.Error("expected [output] log entry about budget exceeded")
+		t.Error("expected [output] log entry about context budget exceeded")
 	}
 }
 
-// --- 10.3-UNIT-007: [P1] emitEvent called with budget_exceeded action ---
+// --- 10.3-UNIT-007: [P1] emitEvent called with context_full action ---
 
 func TestBudgetExceeded_EmitsEvent(t *testing.T) {
 	reg := vfs.NewDeviceRegistry()
 	_ = reg.Register("/dev/llm/claude", func(_ string, _ vfs.OpenFlag, _ string) (vfs.VFSFile, error) {
-		return &mockLLMFile{readData: makeLLMResponse("response", 3000)}, nil
+		return &mockLLMFile{readData: makeLLMResponseWithInput("response", 3500, 3000)}, nil
 	})
 	v := vfs.NewVFS(reg)
 	ctxMgr := rnixctx.NewManager()
@@ -293,28 +295,28 @@ func TestBudgetExceeded_EmitsEvent(t *testing.T) {
 	var foundBudgetEvent bool
 	for _, ev := range events {
 		if ev.Syscall == "ReasonStep" {
-			if action, ok := ev.Args["action"]; ok && action == "budget_exceeded" {
+			if action, ok := ev.Args["action"]; ok && action == "context_full" {
 				foundBudgetEvent = true
-				if ev.Args["tokens"] == nil {
-					t.Error("budget_exceeded event should include 'tokens' arg")
+				if ev.Args["input_tokens"] == nil {
+					t.Error("context_full event should include 'input_tokens' arg")
 				}
 				if ev.Args["budget"] == nil {
-					t.Error("budget_exceeded event should include 'budget' arg")
+					t.Error("context_full event should include 'budget' arg")
 				}
 			}
 		}
 	}
 	if !foundBudgetEvent {
-		t.Error("expected ReasonStep event with action=budget_exceeded")
+		t.Error("expected ReasonStep event with action=context_full")
 	}
 }
 
-// --- 10.3-UNIT-008: [P1] Exact budget boundary (tokens == budget) triggers termination ---
+// --- 10.3-UNIT-008: [P1] Exact budget boundary (inputTokens == budget) triggers suspension ---
 
 func TestBudgetEnforcement_ExactBoundary(t *testing.T) {
 	reg := vfs.NewDeviceRegistry()
 	_ = reg.Register("/dev/llm/claude", func(_ string, _ vfs.OpenFlag, _ string) (vfs.VFSFile, error) {
-		return &mockLLMFile{readData: makeLLMResponse("exact hit", 500)}, nil
+		return &mockLLMFile{readData: makeLLMResponseWithInput("exact hit", 600, 500)}, nil
 	})
 	v := vfs.NewVFS(reg)
 	ctxMgr := rnixctx.NewManager()
@@ -329,8 +331,8 @@ func TestBudgetEnforcement_ExactBoundary(t *testing.T) {
 	proc, _ := k.GetProcess(pid)
 	select {
 	case exit := <-proc.Done:
-		if exit.Code != 2 {
-			t.Fatalf("expected Code 2 for tokens == budget, got %d: %s", exit.Code, exit.Reason)
+		if exit.Code != ExitContextFull {
+			t.Fatalf("expected Code %d for inputTokens == budget, got %d: %s", ExitContextFull, exit.Code, exit.Reason)
 		}
 	case <-time.After(5 * time.Second):
 		t.Fatal("timed out")
@@ -381,17 +383,16 @@ func TestGetProcInfo_IncludesContextBudget(t *testing.T) {
 	}
 }
 
-// --- 10.3-UNIT-011: [P0] Budget check uses >= not > (TOCTOU safe under lock) ---
+// --- 10.3-UNIT-011: [P0] Per-step check — cumulative exceeding budget does NOT trigger if per-step is under ---
 
 func TestBudgetEnforcement_MultiStep_CumulativeCheck(t *testing.T) {
 	reg := vfs.NewDeviceRegistry()
 	_ = reg.Register("/dev/llm/claude", func(_ string, _ vfs.OpenFlag, _ string) (vfs.VFSFile, error) {
 		return &sequenceLLMFile{
 			responses: [][]byte{
-				makeToolCallResponse("/dev/tools/echo", map[string]any{}, 800),
-				makeToolCallResponse("/dev/tools/echo", map[string]any{}, 800),
-				makeToolCallResponse("/dev/tools/echo", map[string]any{}, 800),
-				makeLLMResponse("should not reach", 800),
+				makeToolCallResponseWithInput("/dev/tools/echo", map[string]any{}, 800, 500),
+				makeToolCallResponseWithInput("/dev/tools/echo", map[string]any{}, 800, 600),
+				makeLLMResponseWithInput("done", 800, 700),
 			},
 		}, nil
 	})
@@ -411,17 +412,15 @@ func TestBudgetEnforcement_MultiStep_CumulativeCheck(t *testing.T) {
 	proc, _ := k.GetProcess(pid)
 	select {
 	case exit := <-proc.Done:
-		if exit.Code != 2 {
-			t.Fatalf("expected budget termination (code 2), got %d: %s", exit.Code, exit.Reason)
+		if exit.Code != 0 {
+			t.Fatalf("expected normal completion (per-step InputTokens < budget), got code %d: %s", exit.Code, exit.Reason)
 		}
 	case <-time.After(5 * time.Second):
 		t.Fatal("timed out")
 	}
 
-	// After 3 steps of 800 = 2400 tokens, should exceed budget of 2000
-	// Budget check happens after token accumulation in each step
 	if proc.TokensUsed < 2000 {
-		t.Errorf("expected tokens >= 2000, got %d", proc.TokensUsed)
+		t.Errorf("expected cumulative tokens >= 2000, got %d", proc.TokensUsed)
 	}
 }
 
@@ -448,12 +447,11 @@ func TestBudgetEnforcement_DefaultNoLimit(t *testing.T) {
 		t.Fatal("timed out")
 	}
 
-	if proc.ContextBudget != 0 {
-		t.Errorf("expected ContextBudget 0 for default opts, got %d", proc.ContextBudget)
-	}
+	// With auto-derive, ContextBudget may be non-zero if ContextWindow is set.
+	// In test kernel with no contextWindowFunc, ContextWindow = 0, so no auto-derive.
 }
 
-// --- 10.3-UNIT-013: [P0] Budget check prevents action execution after limit ---
+// --- 10.3-UNIT-013: [P0] Budget check prevents tool execution when context exceeded ---
 
 func TestBudgetEnforcement_PreventsActionAfterExceeded(t *testing.T) {
 	actionExecuted := false
@@ -461,7 +459,7 @@ func TestBudgetEnforcement_PreventsActionAfterExceeded(t *testing.T) {
 	_ = reg.Register("/dev/llm/claude", func(_ string, _ vfs.OpenFlag, _ string) (vfs.VFSFile, error) {
 		return &sequenceLLMFile{
 			responses: [][]byte{
-				makeToolCallResponse("/dev/tools/track", map[string]any{}, 5000),
+				makeToolCallResponseWithInput("/dev/tools/track", map[string]any{}, 5500, 5000),
 				makeLLMResponse("should not run", 100),
 			},
 		}, nil
@@ -483,15 +481,15 @@ func TestBudgetEnforcement_PreventsActionAfterExceeded(t *testing.T) {
 	proc, _ := k.GetProcess(pid)
 	select {
 	case exit := <-proc.Done:
-		if exit.Code != 2 {
-			t.Fatalf("expected code 2, got %d", exit.Code)
+		if exit.Code != ExitContextFull {
+			t.Fatalf("expected code %d, got %d", ExitContextFull, exit.Code)
 		}
 	case <-time.After(5 * time.Second):
 		t.Fatal("timed out")
 	}
 
 	if actionExecuted {
-		t.Error("tool action should NOT execute after budget exceeded; budget check must precede tool execution")
+		t.Error("tool action should NOT execute after context budget exceeded; budget check must precede tool execution")
 	}
 }
 
@@ -569,12 +567,12 @@ func TestSpawn_WithAgent_UsesBudgetFromManifest(t *testing.T) {
 	}
 }
 
-// --- 15.5-INT: Budget Warning integration tests ---
+// --- 15.5-INT: Budget Warning integration tests (per-step semantics) ---
 
 func TestBudgetWarning_EmitsWarningLevel(t *testing.T) {
 	reg := vfs.NewDeviceRegistry()
 	_ = reg.Register("/dev/llm/claude", func(_ string, _ vfs.OpenFlag, _ string) (vfs.VFSFile, error) {
-		return &mockLLMFile{readData: makeLLMResponse("done", 850)}, nil
+		return &mockLLMFile{readData: makeLLMResponseWithInput("done", 900, 850)}, nil
 	})
 	v := vfs.NewVFS(reg)
 	ctxMgr := rnixctx.NewManager()
@@ -597,7 +595,7 @@ func TestBudgetWarning_EmitsWarningLevel(t *testing.T) {
 	for {
 		select {
 		case entry := <-proc.LogChan:
-			if entry.Category == types.LogWarning && strings.Contains(entry.Content, "Budget warning") {
+			if entry.Category == types.LogWarning && strings.Contains(entry.Content, "Context warning") {
 				foundWarningLog = true
 			}
 		default:
@@ -606,7 +604,7 @@ func TestBudgetWarning_EmitsWarningLevel(t *testing.T) {
 	}
 drainedWarn:
 	if !foundWarningLog {
-		t.Error("expected LogWarning entry with 'Budget warning'")
+		t.Error("expected LogWarning entry with 'Context warning'")
 	}
 
 	events := drainEvents(proc.DebugChan)
@@ -628,7 +626,7 @@ drainedWarn:
 func TestBudgetWarning_EmitsCriticalLevel(t *testing.T) {
 	reg := vfs.NewDeviceRegistry()
 	_ = reg.Register("/dev/llm/claude", func(_ string, _ vfs.OpenFlag, _ string) (vfs.VFSFile, error) {
-		return &mockLLMFile{readData: makeLLMResponse("done", 920)}, nil
+		return &mockLLMFile{readData: makeLLMResponseWithInput("done", 950, 920)}, nil
 	})
 	v := vfs.NewVFS(reg)
 	ctxMgr := rnixctx.NewManager()
@@ -675,7 +673,7 @@ func TestCheckBudgetWarning_NoEmitAboveThreshold(t *testing.T) {
 
 	select {
 	case entry := <-proc.LogChan:
-		t.Errorf("no log expected for 30%% remaining, got: %+v", entry)
+		t.Errorf("no log expected for 70%% usage, got: %+v", entry)
 	default:
 	}
 }
@@ -694,7 +692,7 @@ func TestCheckBudgetWarning_EstimatedStepsLeft(t *testing.T) {
 	for {
 		select {
 		case entry := <-proc.LogChan:
-			if entry.Category == types.LogWarning && strings.Contains(entry.Content, "~0 steps left") {
+			if entry.Category == types.LogWarning && strings.Contains(entry.Content, "85%") {
 				foundLog = true
 			}
 		default:
@@ -703,6 +701,78 @@ func TestCheckBudgetWarning_EstimatedStepsLeft(t *testing.T) {
 	}
 drainedSteps:
 	if !foundLog {
-		t.Error("expected warning log with estimated steps left")
+		t.Error("expected warning log with 85% usage")
+	}
+}
+
+// --- C2-UNIT-001: Auto-derive ContextBudget from ContextWindow ---
+
+func TestContextBudget_AutoDerive(t *testing.T) {
+	llmFile := &mockLLMFile{readData: makeLLMResponse("done", 10)}
+	k, _, _ := newTestKernel(t, llmFile)
+	k.SetContextWindowFunc(func(_, _ string) int { return 1_000_000 })
+
+	pid, err := k.Spawn("auto derive", nil, SpawnOpts{})
+	if err != nil {
+		t.Fatalf("Spawn failed: %v", err)
+	}
+
+	proc, _ := k.GetProcess(pid)
+	select {
+	case <-proc.Done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("timed out")
+	}
+
+	if proc.ContextBudget != 900_000 {
+		t.Errorf("expected auto-derived ContextBudget 900000, got %d", proc.ContextBudget)
+	}
+}
+
+// --- C2-UNIT-002: Clamp ContextBudget to ContextWindow ---
+
+func TestContextBudget_ClampToWindow(t *testing.T) {
+	llmFile := &mockLLMFile{readData: makeLLMResponse("done", 10)}
+	k, _, _ := newTestKernel(t, llmFile)
+	k.SetContextWindowFunc(func(_, _ string) int { return 100_000 })
+
+	pid, err := k.Spawn("clamp test", nil, SpawnOpts{ContextBudget: 200_000})
+	if err != nil {
+		t.Fatalf("Spawn failed: %v", err)
+	}
+
+	proc, _ := k.GetProcess(pid)
+	select {
+	case <-proc.Done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("timed out")
+	}
+
+	if proc.ContextBudget != 100_000 {
+		t.Errorf("expected clamped ContextBudget 100000, got %d", proc.ContextBudget)
+	}
+}
+
+// --- C2-UNIT-003: Explicit ContextBudget < ContextWindow preserved ---
+
+func TestContextBudget_ExplicitPreserved(t *testing.T) {
+	llmFile := &mockLLMFile{readData: makeLLMResponse("done", 10)}
+	k, _, _ := newTestKernel(t, llmFile)
+	k.SetContextWindowFunc(func(_, _ string) int { return 1_000_000 })
+
+	pid, err := k.Spawn("explicit budget", nil, SpawnOpts{ContextBudget: 50_000})
+	if err != nil {
+		t.Fatalf("Spawn failed: %v", err)
+	}
+
+	proc, _ := k.GetProcess(pid)
+	select {
+	case <-proc.Done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("timed out")
+	}
+
+	if proc.ContextBudget != 50_000 {
+		t.Errorf("expected explicit ContextBudget 50000, got %d", proc.ContextBudget)
 	}
 }

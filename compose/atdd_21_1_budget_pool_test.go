@@ -15,7 +15,7 @@ import (
 
 // --- 21.1-INT-004: [P1] Pool quota and agent context_budget take min ---
 
-func TestEngine_Execute_QuotaAndContextBudgetMin(t *testing.T) {
+func TestEngine_Execute_QuotaAndMaxTokensMin(t *testing.T) {
 	spec := &ComposeSpec{
 		Version:     "1.0",
 		Intent:      "min budget test",
@@ -24,7 +24,7 @@ func TestEngine_Execute_QuotaAndContextBudgetMin(t *testing.T) {
 			"limited": {
 				Intent:        "limited agent",
 				Priority:      "high",
-				ContextBudget: 3000, // agent's own limit is lower than pool quota
+				MaxTokens: 3000, // agent's own limit is lower than pool quota
 			},
 		},
 	}
@@ -52,9 +52,9 @@ func TestEngine_Execute_QuotaAndContextBudgetMin(t *testing.T) {
 
 	// Pool would allocate full budget to single agent (50000),
 	// but agent's own context_budget (3000) should cap it
-	if mock.spawned[0].opts.ContextBudget != 3000 {
-		t.Errorf("expected ContextBudget 3000 (min of pool quota and agent limit), got %d",
-			mock.spawned[0].opts.ContextBudget)
+	if mock.spawned[0].opts.MaxTokens != 3000 {
+		t.Errorf("expected MaxTokens 3000 (min of pool quota and agent limit), got %d",
+			mock.spawned[0].opts.MaxTokens)
 	}
 }
 

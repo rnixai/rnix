@@ -374,8 +374,8 @@ func (s *Server) handleGetProcDetail(conn net.Conn, rawPayload json.RawMessage) 
 		TokensUsed:    snap.TokensUsed,
 		ContextBudget: snap.ContextBudget,
 	}
-	if snap.ContextBudget > 0 {
-		resp.ContextStats.UsagePct = float64(snap.TokensUsed) * 100.0 / float64(snap.ContextBudget)
+	if snap.ContextBudget > 0 && snap.LastInputTokens > 0 {
+		resp.ContextStats.UsagePct = float64(snap.LastInputTokens) * 100.0 / float64(snap.ContextBudget)
 	}
 	if s.ctxMgr != nil && snap.CtxID > 0 {
 		info, err := s.ctxMgr.GetContextInfo(snap.CtxID)
@@ -470,8 +470,8 @@ func (s *Server) handleGetProcDetailFromHistory(conn net.Conn, pid types.PID, uu
 		TokensUsed:    info.TokensUsed,
 		ContextBudget: info.ContextBudget,
 	}
-	if info.ContextBudget > 0 {
-		resp.ContextStats.UsagePct = float64(info.TokensUsed) * 100.0 / float64(info.ContextBudget)
+	if info.ContextBudget > 0 && info.LastInputTokens > 0 {
+		resp.ContextStats.UsagePct = float64(info.LastInputTokens) * 100.0 / float64(info.ContextBudget)
 	}
 
 	payload, err := json.Marshal(resp)

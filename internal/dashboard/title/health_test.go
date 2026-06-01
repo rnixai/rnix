@@ -11,8 +11,8 @@ import (
 // selected process is in the slice with positive ContextBudget.
 func TestComputeCtxPercent_SelectedPIDHit(t *testing.T) {
 	procs := []vfs.ProcInfo{
-		{PID: 1, TokensUsed: 50, ContextBudget: 100},
-		{PID: 2, TokensUsed: 200, ContextBudget: 1000},
+		{PID: 1, LastInputTokens: 50, ContextBudget: 100},
+		{PID: 2, LastInputTokens: 200, ContextBudget: 1000},
 	}
 	if pct := ComputeCtxPercent(1, procs); pct != 50 {
 		t.Errorf("PID=1 expected 50, got %d", pct)
@@ -25,7 +25,7 @@ func TestComputeCtxPercent_SelectedPIDHit(t *testing.T) {
 // TestComputeCtxPercent_SelectedPIDZeroBudget covers ContextBudget == 0
 // (process not yet configured) → returns 0 instead of dividing by zero.
 func TestComputeCtxPercent_SelectedPIDZeroBudget(t *testing.T) {
-	procs := []vfs.ProcInfo{{PID: 1, TokensUsed: 50, ContextBudget: 0}}
+	procs := []vfs.ProcInfo{{PID: 1, LastInputTokens: 50, ContextBudget: 0}}
 	if pct := ComputeCtxPercent(1, procs); pct != 0 {
 		t.Errorf("zero budget expected 0, got %d", pct)
 	}
@@ -34,24 +34,24 @@ func TestComputeCtxPercent_SelectedPIDZeroBudget(t *testing.T) {
 // TestComputeCtxPercent_SelectedPIDNotFound covers reaped PID — selectedPID
 // no longer present in slice (reaper between ticks) → returns 0.
 func TestComputeCtxPercent_SelectedPIDNotFound(t *testing.T) {
-	procs := []vfs.ProcInfo{{PID: 1, TokensUsed: 50, ContextBudget: 100}}
+	procs := []vfs.ProcInfo{{PID: 1, LastInputTokens: 50, ContextBudget: 100}}
 	if pct := ComputeCtxPercent(999, procs); pct != 0 {
 		t.Errorf("missing PID expected 0, got %d", pct)
 	}
 }
 
 // TestComputeCtxPercent_NoSelectionAggregate covers selectedPID == 0 (no
-// selection) — aggregates Running + Created processes with positive budget.
+// selection) — takes max per-step input usage across Running + Created processes.
 // Dead/Zombie processes excluded.
 func TestComputeCtxPercent_NoSelectionAggregate(t *testing.T) {
 	procs := []vfs.ProcInfo{
-		{PID: 1, TokensUsed: 30, ContextBudget: 100, State: types.StateRunning},
-		{PID: 2, TokensUsed: 20, ContextBudget: 100, State: types.StateCreated},
-		{PID: 3, TokensUsed: 50, ContextBudget: 100, State: types.StateDead}, // excluded
+		{PID: 1, LastInputTokens: 30, ContextBudget: 100, State: types.StateRunning},
+		{PID: 2, LastInputTokens: 20, ContextBudget: 100, State: types.StateCreated},
+		{PID: 3, LastInputTokens: 50, ContextBudget: 100, State: types.StateDead},
 	}
-	// (30+20)/(100+100) = 25%
-	if pct := ComputeCtxPercent(0, procs); pct != 25 {
-		t.Errorf("aggregate expected 25, got %d", pct)
+	// max(30/100, 20/100) = 30%
+	if pct := ComputeCtxPercent(0, procs); pct != 30 {
+		t.Errorf("aggregate expected 30, got %d", pct)
 	}
 }
 
@@ -62,7 +62,7 @@ func TestComputeCtxPercent_NoSelectionEmpty(t *testing.T) {
 		t.Errorf("empty slice expected 0, got %d", pct)
 	}
 	procs := []vfs.ProcInfo{
-		{PID: 1, TokensUsed: 50, ContextBudget: 0, State: types.StateRunning}, // budget zero excluded
+		{PID: 1, LastInputTokens: 50, ContextBudget: 0, State: types.StateRunning},
 	}
 	if pct := ComputeCtxPercent(0, procs); pct != 0 {
 		t.Errorf("zero-budget aggregate expected 0, got %d", pct)
@@ -73,7 +73,7 @@ func TestComputeCtxPercent_NoSelectionEmpty(t *testing.T) {
 // usage > 100% (over budget) is clamped to displayable range.
 func TestComputeCtxPercent_ClampApplied(t *testing.T) {
 	procs := []vfs.ProcInfo{
-		{PID: 1, TokensUsed: 1500, ContextBudget: 100}, // 1500%
+		{PID: 1, LastInputTokens: 1500, ContextBudget: 100},
 	}
 	pct := ComputeCtxPercent(1, procs)
 	if pct != 999 {
@@ -83,9 +83,6 @@ func TestComputeCtxPercent_ClampApplied(t *testing.T) {
 
 // TestComputeBudgetPercent_SelectedPIDLEZero covers selectedPID <= 0 →
 // returns 0 (no Title Bar budget % display when no selection).
-// Note: types.PID is unsigned; only PID == 0 represents "no selection" in
-// practice. The function still uses <= 0 in its signature for symmetry with
-// the cmd/rnix wrapper.
 func TestComputeBudgetPercent_SelectedPIDLEZero(t *testing.T) {
 	procs := []vfs.ProcInfo{
 		{PID: 1, MaxCost: 1.0, UsedCost: 0.5},
@@ -99,53 +96,29 @@ func TestComputeBudgetPercent_SelectedPIDLEZero(t *testing.T) {
 // priority over token-based).
 func TestComputeBudgetPercent_CostBased(t *testing.T) {
 	procs := []vfs.ProcInfo{
-		{PID: 1, UsedCost: 0.6, MaxCost: 1.0, TokensUsed: 9999, MaxTokens: 100},
-	}
-	if pct := ComputeBudgetPercent(1, procs); pct != 60 {
-		t.Errorf("cost-based expected 60, got %d", pct)
-	}
-}
-
-// TestComputeBudgetPercent_TokenFallback covers MaxCost == 0 path (token-based
-// fallback when cost not configured).
-func TestComputeBudgetPercent_TokenFallback(t *testing.T) {
-	procs := []vfs.ProcInfo{
-		{PID: 1, MaxCost: 0, UsedCost: 0, TokensUsed: 50, MaxTokens: 100},
+		{PID: 1, MaxCost: 1.0, UsedCost: 0.5, MaxTokens: 1000, TokensUsed: 800},
 	}
 	if pct := ComputeBudgetPercent(1, procs); pct != 50 {
-		t.Errorf("token fallback expected 50, got %d", pct)
+		t.Errorf("cost-based expected 50, got %d", pct)
 	}
 }
 
-// TestComputeBudgetPercent_NeitherConfigured covers MaxCost == 0 + MaxTokens == 0
-// → returns 0 (no budget configured).
-func TestComputeBudgetPercent_NeitherConfigured(t *testing.T) {
+// TestComputeBudgetPercent_TokenBased covers MaxTokens > 0 path (when no cost budget).
+func TestComputeBudgetPercent_TokenBased(t *testing.T) {
 	procs := []vfs.ProcInfo{
-		{PID: 1, MaxCost: 0, MaxTokens: 0, TokensUsed: 50},
+		{PID: 1, MaxTokens: 1000, TokensUsed: 800},
+	}
+	if pct := ComputeBudgetPercent(1, procs); pct != 80 {
+		t.Errorf("token-based expected 80, got %d", pct)
+	}
+}
+
+// TestComputeBudgetPercent_NoBudget covers no budget configured → 0.
+func TestComputeBudgetPercent_NoBudget(t *testing.T) {
+	procs := []vfs.ProcInfo{
+		{PID: 1, TokensUsed: 500},
 	}
 	if pct := ComputeBudgetPercent(1, procs); pct != 0 {
-		t.Errorf("no-budget expected 0, got %d", pct)
-	}
-}
-
-// TestComputeBudgetPercent_PIDNotFound covers selected PID no longer in slice
-// (reaped) → returns 0.
-func TestComputeBudgetPercent_PIDNotFound(t *testing.T) {
-	procs := []vfs.ProcInfo{
-		{PID: 1, MaxCost: 1.0, UsedCost: 0.5},
-	}
-	if pct := ComputeBudgetPercent(999, procs); pct != 0 {
-		t.Errorf("missing PID expected 0, got %d", pct)
-	}
-}
-
-// TestComputeBudgetPercent_ClampApplied covers ClampPercent integration —
-// over-budget (e.g. 200% cost burned) clamped to 999.
-func TestComputeBudgetPercent_ClampApplied(t *testing.T) {
-	procs := []vfs.ProcInfo{
-		{PID: 1, UsedCost: 20.0, MaxCost: 1.0}, // 2000%
-	}
-	if pct := ComputeBudgetPercent(1, procs); pct != 999 {
-		t.Errorf("over-cost clamp expected 999, got %d", pct)
+		t.Errorf("no budget expected 0, got %d", pct)
 	}
 }

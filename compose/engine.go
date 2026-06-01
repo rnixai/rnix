@@ -159,7 +159,7 @@ func (e *Engine) executeNode(ctx context.Context, name string, traceID types.Tra
 	opts := ComposeSpawnOpts{
 		Model:         model,
 		Provider:      provider,
-		ContextBudget: agentSpec.ContextBudget,
+		MaxTokens:     agentSpec.MaxTokens,
 		TimeoutMs:     agentSpec.TimeoutMs,
 		TraceID:       traceID,
 		ComposeNode:   name,
@@ -168,15 +168,15 @@ func (e *Engine) executeNode(ctx context.Context, name string, traceID types.Tra
 		opts.ComposeDeps = append([]string(nil), node.DependsOn...)
 	}
 
-	// Apply BudgetPool quota to ContextBudget (Story 21.1)
+	// Apply BudgetPool quota to MaxTokens (lifetime cost control)
 	if quota, ok := agentQuotas[name]; ok && quota > 0 {
-		if agentSpec.ContextBudget > 0 {
-			// Take min(quota, context_budget) -- agent's own limit wins if smaller
-			if quota < agentSpec.ContextBudget {
-				opts.ContextBudget = quota
+		q := int64(quota)
+		if opts.MaxTokens > 0 {
+			if q < opts.MaxTokens {
+				opts.MaxTokens = q
 			}
 		} else {
-			opts.ContextBudget = quota
+			opts.MaxTokens = q
 		}
 	}
 	// ParentSpanID from first upstream dependency (Story 15.1)

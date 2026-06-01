@@ -96,7 +96,7 @@ func (s *ipcKernelSpawner) Spawn(intent string, agent *agents.AgentInfo, opts co
 		Intent:        intent,
 		Model:         opts.Model,
 		Provider:      opts.Provider,
-		ContextBudget: opts.ContextBudget,
+		MaxTokens:     opts.MaxTokens,
 		TimeoutMs:     opts.TimeoutMs,
 		TraceID:       string(opts.TraceID),
 		ParentSpanID:  string(opts.ParentSpanID),

@@ -48,18 +48,18 @@ func TestE2E_BudgetPool_AllocateAndConsume(t *testing.T) {
 		t.Fatalf("expected 2 results, got %d", len(results))
 	}
 
-	// With token_budget set, each agent should get a positive ContextBudget
+	// With token_budget set, each agent should get a positive MaxTokens
 	for _, rec := range ks.spawned {
-		if rec.opts.ContextBudget <= 0 {
-			t.Errorf("expected positive ContextBudget for %q with token_budget, got %d",
-				rec.intent, rec.opts.ContextBudget)
+		if rec.opts.MaxTokens <= 0 {
+			t.Errorf("expected positive MaxTokens for %q with token_budget, got %d",
+				rec.intent, rec.opts.MaxTokens)
 		}
 	}
 
 	// High priority should get more budget than normal
-	budgetByIntent := make(map[string]int)
+	budgetByIntent := make(map[string]int64)
 	for _, rec := range ks.spawned {
-		budgetByIntent[rec.intent] = rec.opts.ContextBudget
+		budgetByIntent[rec.intent] = rec.opts.MaxTokens
 	}
 	if budgetByIntent["alpha task"] <= budgetByIntent["beta task"] {
 		t.Errorf("high priority (%d) should get more budget than normal (%d)",
@@ -102,7 +102,7 @@ func TestE2E_BudgetPool_NoBudget_BackwardCompat(t *testing.T) {
 		Version: "1.0",
 		Intent:  "backward compat",
 		Agents: map[string]*AgentSpec{
-			"worker": {Intent: "do work", ContextBudget: 5000},
+			"worker": {Intent: "do work", MaxTokens: 5000},
 		},
 	}
 	ks := newMockKernelSpawner()
@@ -119,9 +119,9 @@ func TestE2E_BudgetPool_NoBudget_BackwardCompat(t *testing.T) {
 		t.Fatalf("expected 1 result, got %d", len(results))
 	}
 
-	if ks.spawned[0].opts.ContextBudget != 5000 {
-		t.Errorf("expected ContextBudget 5000 from AgentSpec, got %d",
-			ks.spawned[0].opts.ContextBudget)
+	if ks.spawned[0].opts.MaxTokens != 5000 {
+		t.Errorf("expected MaxTokens 5000 from AgentSpec, got %d",
+			ks.spawned[0].opts.MaxTokens)
 	}
 }
 
@@ -152,9 +152,9 @@ func TestE2E_BudgetPool_PriorityAllocation(t *testing.T) {
 		t.Fatalf("expected 3 results, got %d", len(results))
 	}
 
-	budgetByIntent := make(map[string]int)
+	budgetByIntent := make(map[string]int64)
 	for _, rec := range ks.spawned {
-		budgetByIntent[rec.intent] = rec.opts.ContextBudget
+		budgetByIntent[rec.intent] = rec.opts.MaxTokens
 	}
 
 	critical := budgetByIntent["critical task"]

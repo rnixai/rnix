@@ -188,8 +188,9 @@ type procInfoDisk struct {
 	State          string   `json:"state"`
 	Intent         string   `json:"intent"`
 	Skills         []string `json:"skills,omitempty"`
-	TokensUsed     int      `json:"tokens_used"`
-	ContextBudget  int      `json:"context_budget,omitempty"`
+	TokensUsed      int `json:"tokens_used"`
+	LastInputTokens int `json:"last_input_tokens,omitempty"`
+	ContextBudget   int `json:"context_budget,omitempty"`
 	MaxSteps       int      `json:"max_steps,omitempty"`
 	CreatedAt      string   `json:"created_at"`
 	DeadAt         string   `json:"dead_at,omitempty"`
@@ -264,8 +265,9 @@ func procInfoToDisk(info vfs.ProcInfo) procInfoDisk {
 		State:          info.State.String(),
 		Intent:         info.Intent,
 		Skills:         info.Skills,
-		TokensUsed:     info.TokensUsed,
-		ContextBudget:  info.ContextBudget,
+		TokensUsed:      info.TokensUsed,
+		LastInputTokens: info.LastInputTokens,
+		ContextBudget:   info.ContextBudget,
 		MaxSteps:       info.MaxSteps,
 		CreatedAt:      info.CreatedAt.Format(time.RFC3339Nano),
 		CtxID:          uint64(info.CtxID),
@@ -322,8 +324,9 @@ func procInfoFromDisk(d procInfoDisk) vfs.ProcInfo {
 		State:          parseProcessState(d.State),
 		Intent:         d.Intent,
 		Skills:         d.Skills,
-		TokensUsed:     d.TokensUsed,
-		ContextBudget:  d.ContextBudget,
+		TokensUsed:      d.TokensUsed,
+		LastInputTokens: d.LastInputTokens,
+		ContextBudget:   d.ContextBudget,
 		MaxSteps:       d.MaxSteps,
 		CtxID:          types.CtxID(d.CtxID),
 		Result:         d.Result,

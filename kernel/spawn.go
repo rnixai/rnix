@@ -602,6 +602,15 @@ func (k *KernelImpl) Spawn(intent string, agent *agents.AgentInfo, opts SpawnOpt
 			proc.ContextWindow = k.contextWindowFunc(proc.Provider, proc.Model)
 		}
 
+		if proc.ContextBudget == 0 && proc.ContextWindow > 0 {
+			proc.ContextBudget = proc.ContextWindow * 9 / 10
+		}
+		if proc.ContextBudget > 0 && proc.ContextWindow > 0 && proc.ContextBudget > proc.ContextWindow {
+			log.Printf("[kernel] pid=%d clamped context_budget %d to context_window %d",
+				proc.PID, proc.ContextBudget, proc.ContextWindow)
+			proc.ContextBudget = proc.ContextWindow
+		}
+
 		// Determine model source: CLI --model > agent manifest preferred > driver default
 		modelSource := "driver"
 		if cliModel != "" {

@@ -26,7 +26,7 @@ type AgentSpec struct {
 	Provider      string            `yaml:"provider,omitempty"`
 	Skills        []string          `yaml:"skills,omitempty"`
 	Priority      string            `yaml:"priority,omitempty"`
-	ContextBudget int               `yaml:"context_budget,omitempty"`
+	MaxTokens     int64             `yaml:"max_tokens,omitempty"`
 	TimeoutMs     int64             `yaml:"timeout_ms,omitempty"`
 	DependsOn     map[string]string `yaml:"depends_on,omitempty"`
 	SLA           *kernel.SLASpec   `yaml:"sla,omitempty"`
@@ -48,12 +48,12 @@ type DAGNode struct {
 
 // ComposeSpawnOpts contains spawn options for the compose engine.
 type ComposeSpawnOpts struct {
-	Model         string
-	Provider      string
-	SystemPrompt  string
-	ParentPID     types.PID
-	ContextBudget int
-	TimeoutMs     int64
+	Model        string
+	Provider     string
+	SystemPrompt string
+	ParentPID    types.PID
+	MaxTokens    int64
+	TimeoutMs    int64
 	TraceID       types.TraceID
 	ParentSpanID  types.SpanID
 	ComposeNode   string   // compose node name

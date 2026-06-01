@@ -2223,7 +2223,7 @@ func TestComputeHealthCounts_DeadProcess(t *testing.T) {
 
 func TestComputeHealthCounts_CtxWarn(t *testing.T) {
 	procs := []vfs.ProcInfo{
-		{PID: 1, State: types.StateRunning, TokensUsed: 850, ContextBudget: 1000},
+		{PID: 1, State: types.StateRunning, LastInputTokens: 850, ContextBudget: 1000},
 	}
 	e, w := computeHealthCounts(procs, nil, nil)
 	if e != 0 {
@@ -2238,7 +2238,7 @@ func TestComputeHealthCounts_CtxWarn(t *testing.T) {
 
 func TestComputeHealthCounts_BudgetCostWarn(t *testing.T) {
 	procs := []vfs.ProcInfo{
-		{PID: 1, State: types.StateRunning, TokensUsed: 100, ContextBudget: 1000, MaxCost: 10.0, UsedCost: 8.5},
+		{PID: 1, State: types.StateRunning, LastInputTokens: 100, ContextBudget: 1000, MaxCost: 10.0, UsedCost: 8.5},
 	}
 	e, w := computeHealthCounts(procs, nil, nil)
 	if e != 0 {
@@ -2253,7 +2253,7 @@ func TestComputeHealthCounts_BudgetCostWarn(t *testing.T) {
 
 func TestComputeHealthCounts_CtxAndStallSamePID(t *testing.T) {
 	procs := []vfs.ProcInfo{
-		{PID: 1, State: types.StateRunning, TokensUsed: 900, ContextBudget: 1000},
+		{PID: 1, State: types.StateRunning, LastInputTokens: 900, ContextBudget: 1000},
 	}
 	heartbeat := &ipc.HeartbeatStatusResponse{
 		CurrentStalled: []ipc.StalledProcWire{{PID: 1}},
@@ -2364,20 +2364,20 @@ func TestRenderDashboardTitle_ASCII(t *testing.T) {
 
 func TestComputeCtxPercent(t *testing.T) {
 	procs := []vfs.ProcInfo{
-		{PID: 1, State: types.StateRunning, TokensUsed: 620, ContextBudget: 1000},
-		{PID: 2, State: types.StateRunning, TokensUsed: 800, ContextBudget: 1000},
+		{PID: 1, State: types.StateRunning, LastInputTokens: 620, ContextBudget: 1000},
+		{PID: 2, State: types.StateRunning, LastInputTokens: 800, ContextBudget: 1000},
 	}
 	// Selected process
 	pct := computeCtxPercent(1, procs)
 	if pct != 62 {
 		t.Errorf("expected ctx 62%% for PID 1, got %d%%", pct)
 	}
-	// No selection → average
+	// No selection → max across running processes
 	pct = computeCtxPercent(0, procs)
-	if pct != 71 { // (620+800)/(1000+1000)*100 = 71
-		t.Errorf("expected ctx average 71%%, got %d%%", pct)
+	if pct != 80 { // max(620/1000, 800/1000) = 80%
+		t.Errorf("expected ctx max 80%%, got %d%%", pct)
 	}
-	// Selected PID not found → 0, not average
+	// Selected PID not found → 0
 	pct = computeCtxPercent(999, procs)
 	if pct != 0 {
 		t.Errorf("expected ctx 0%% for missing PID, got %d%%", pct)
@@ -3264,14 +3264,15 @@ func TestRenderDashboardTitle_CtxBudgetColorGradient(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			procs := []vfs.ProcInfo{{
-				PID:           1,
-				UUID:          "uuid-pct",
-				State:         types.StateRunning,
-				TokensUsed:    tc.ctxPct,
-				ContextBudget: 100,
-				MaxCost:       1.0,
-				UsedCost:      float64(tc.ctxPct) / 100.0,
-				CreatedAt:     time.Now(),
+				PID:             1,
+				UUID:            "uuid-pct",
+				State:           types.StateRunning,
+				TokensUsed:      tc.ctxPct,
+				LastInputTokens: tc.ctxPct,
+				ContextBudget:   100,
+				MaxCost:         1.0,
+				UsedCost:        float64(tc.ctxPct) / 100.0,
+				CreatedAt:       time.Now(),
 			}}
 			m := newTestDashboardModel(procs)
 			m.selectedPID = 1
@@ -3300,12 +3301,13 @@ func TestRenderDashboardTitle_CtxBudgetColorGradient(t *testing.T) {
 // no colour-gradient logic runs (segment simply absent from the output).
 func TestRenderDashboardTitle_CtxBudgetColorGradient_TrimmedAway(t *testing.T) {
 	procs := []vfs.ProcInfo{{
-		PID:           1,
-		UUID:          "uuid-pct",
-		State:         types.StateRunning,
-		TokensUsed:    90, // ≥80% so red gradient would normally fire
-		ContextBudget: 100,
-		CreatedAt:     time.Now(),
+		PID:             1,
+		UUID:            "uuid-pct",
+		State:           types.StateRunning,
+		TokensUsed:      90,
+		LastInputTokens: 90,
+		ContextBudget:   100,
+		CreatedAt:       time.Now(),
 	}}
 	m := newTestDashboardModel(procs)
 	m.selectedPID = 1
@@ -3330,12 +3332,13 @@ func TestRenderDashboardTitle_CtxBudgetColorGradient_ASCII(t *testing.T) {
 	t.Setenv("RNIX_ASCII", "1")
 
 	procs := []vfs.ProcInfo{{
-		PID:           1,
-		UUID:          "uuid-pct",
-		State:         types.StateRunning,
-		TokensUsed:    85, // ≥80% → red+bold
-		ContextBudget: 100,
-		CreatedAt:     time.Now(),
+		PID:             1,
+		UUID:            "uuid-pct",
+		State:           types.StateRunning,
+		TokensUsed:      85,
+		LastInputTokens: 85,
+		ContextBudget:   100,
+		CreatedAt:       time.Now(),
 	}}
 	m := newTestDashboardModel(procs)
 	m.selectedPID = 1

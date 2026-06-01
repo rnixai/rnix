@@ -66,8 +66,8 @@ func ComputeHealthCounts(
 	warnPIDs := make(map[types.PID]struct{})
 	for _, p := range processes {
 		if p.State == types.StateRunning || p.State == types.StateCreated {
-			// ctx usage >= 80%
-			if p.ContextBudget > 0 && int64(p.TokensUsed)*100/int64(p.ContextBudget) >= 80 {
+			// ctx usage >= 80% (per-step input tokens vs context budget)
+			if p.ContextBudget > 0 && p.LastInputTokens > 0 && int64(p.LastInputTokens)*100/int64(p.ContextBudget) >= 80 {
 				warnPIDs[p.PID] = struct{}{}
 			}
 			// cost budget >= 80%

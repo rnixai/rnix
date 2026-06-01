@@ -99,7 +99,7 @@ func TestComputeHealthCounts_DedupesByPID(t *testing.T) {
 // TestComputeHealthCounts_HighCtxWarn covers Running with ctx >= 80% → W++.
 func TestComputeHealthCounts_HighCtxWarn(t *testing.T) {
 	procs := []vfs.ProcInfo{
-		{PID: 1, State: types.StateRunning, TokensUsed: 800, ContextBudget: 1000},
+		{PID: 1, State: types.StateRunning, LastInputTokens: 800, ContextBudget: 1000},
 	}
 	_, w := ComputeHealthCounts(procs, nil, nil)
 	if w != 1 {
@@ -110,7 +110,7 @@ func TestComputeHealthCounts_HighCtxWarn(t *testing.T) {
 // TestComputeHealthCounts_LowCtxNoWarn covers Running with ctx < 80% → no W.
 func TestComputeHealthCounts_LowCtxNoWarn(t *testing.T) {
 	procs := []vfs.ProcInfo{
-		{PID: 1, State: types.StateRunning, TokensUsed: 700, ContextBudget: 1000},
+		{PID: 1, State: types.StateRunning, LastInputTokens: 700, ContextBudget: 1000},
 	}
 	_, w := ComputeHealthCounts(procs, nil, nil)
 	if w != 0 {
@@ -205,7 +205,7 @@ func TestComputeHealthCounts_WarnDedupesByPID(t *testing.T) {
 func TestComputeHealthCounts_ComplexScenario(t *testing.T) {
 	procs := []vfs.ProcInfo{
 		{PID: 1, State: types.StateDead, Result: "error: crash"},                              // E
-		{PID: 2, State: types.StateRunning, TokensUsed: 800, ContextBudget: 1000},             // W (ctx)
+		{PID: 2, State: types.StateRunning, LastInputTokens: 800, ContextBudget: 1000},        // W (ctx)
 		{PID: 3, State: types.StateRunning, UsedCost: 0.5, MaxCost: 1.0},                      // healthy
 		{PID: 4, State: types.StateCreated, TokensUsed: 850, MaxTokens: 1000},                 // W (token)
 		{PID: 5, State: types.StateDead, Result: "ok"},                                          // healthy dead

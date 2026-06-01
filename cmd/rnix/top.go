@@ -79,13 +79,12 @@ func topDetailView(info vfs.ProcInfo, allProcs []vfs.ProcInfo) string {
 	} else {
 		fmt.Fprintf(&b, "  Skills:   —\n")
 	}
-	if info.ContextBudget > 0 {
-		pct := info.TokensUsed * 100 / info.ContextBudget
-		fmt.Fprintf(&b, "  Budget:   %s/%s (%d%%)\n",
-			ui.FormatTokens(info.TokensUsed),
+	fmt.Fprintf(&b, "  Tokens:   %s\n", ui.FormatTokens(info.TokensUsed))
+	if info.ContextBudget > 0 && info.LastInputTokens > 0 {
+		pct := info.LastInputTokens * 100 / info.ContextBudget
+		fmt.Fprintf(&b, "  Context:  %s/%s (%d%%)\n",
+			ui.FormatTokens(info.LastInputTokens),
 			ui.FormatTokens(info.ContextBudget), pct)
-	} else {
-		fmt.Fprintf(&b, "  Tokens:   %s\n", ui.FormatTokens(info.TokensUsed))
 	}
 	fmt.Fprintf(&b, "  Elapsed:  %s\n", ui.FormatDuration(elapsed))
 	fmt.Fprintf(&b, "  Context:  CtxID=%d\n", info.CtxID)
@@ -292,15 +291,13 @@ func (m topModel) View() tea.View {
 
 		elapsed := ui.FormatDuration(elapsedDuration(row.Proc))
 		var tokens string
-		if row.Proc.ContextBudget > 0 {
-			tokens = fmt.Sprintf("%s/%s",
-				ui.FormatTokens(row.Proc.TokensUsed),
-				ui.FormatTokens(row.Proc.ContextBudget))
-			if row.Proc.TokensUsed >= row.Proc.ContextBudget*80/100 {
+		tokens = ui.FormatTokens(row.Proc.TokensUsed)
+		if row.Proc.ContextBudget > 0 && row.Proc.LastInputTokens > 0 {
+			pct := row.Proc.LastInputTokens * 100 / row.Proc.ContextBudget
+			tokens = fmt.Sprintf("%s ctx:%d%%", tokens, pct)
+			if pct >= 80 {
 				tokens = ui.WarningStyle.Render(tokens)
 			}
-		} else {
-			tokens = ui.FormatTokens(row.Proc.TokensUsed)
 		}
 		state := strings.ToLower(row.Proc.State.String())
 

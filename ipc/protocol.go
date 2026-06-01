@@ -174,6 +174,7 @@ type SpawnRequest struct {
 	FallbackProvider string `json:"fallback_provider,omitempty"`
 	MaxSteps         int    `json:"max_steps,omitempty"`
 	ContextBudget    int    `json:"context_budget,omitempty"`
+	MaxTokens        int64  `json:"max_tokens,omitempty"`
 	TimeoutMs        int64  `json:"timeout_ms,omitempty"`
 	TraceID          string `json:"trace_id,omitempty"`
 	ParentSpanID     string `json:"parent_span_id,omitempty"`
@@ -213,6 +214,7 @@ type ProcInfoWire struct {
 	Intent          string             `json:"intent"`
 	Skills          []string           `json:"skills"`
 	TokensUsed      int                `json:"tokens_used"`
+	LastInputTokens int                `json:"last_input_tokens,omitempty"`
 	CreatedAt       int64              `json:"created_at_ms"`
 	DeadAt          int64              `json:"dead_at_ms,omitempty"`
 	CtxID           types.CtxID        `json:"ctx_id"`
@@ -276,8 +278,9 @@ func ProcInfoToWire(p vfs.ProcInfo) ProcInfoWire {
 		State:         p.State,
 		Intent:        p.Intent,
 		Skills:        skills,
-		TokensUsed:    p.TokensUsed,
-		CreatedAt:     p.CreatedAt.UnixMilli(),
+		TokensUsed:      p.TokensUsed,
+		LastInputTokens: p.LastInputTokens,
+		CreatedAt:       p.CreatedAt.UnixMilli(),
 		CtxID:         p.CtxID,
 		Result:        p.Result,
 		ContextBudget: p.ContextBudget,
@@ -327,8 +330,9 @@ func WireToProcInfo(w ProcInfoWire) vfs.ProcInfo {
 		State:         w.State,
 		Intent:        w.Intent,
 		Skills:        w.Skills,
-		TokensUsed:    w.TokensUsed,
-		CreatedAt:     unixMilliToTime(w.CreatedAt),
+		TokensUsed:      w.TokensUsed,
+		LastInputTokens: w.LastInputTokens,
+		CreatedAt:       unixMilliToTime(w.CreatedAt),
 		CtxID:         w.CtxID,
 		Result:        w.Result,
 		ContextBudget: w.ContextBudget,

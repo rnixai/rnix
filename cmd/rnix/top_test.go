@@ -559,19 +559,20 @@ func TestTopSummaryLine_WithBudgetInfo(t *testing.T) {
 
 func TestTopDetailView_ShowsBudget(t *testing.T) {
 	proc := vfs.ProcInfo{
-		PID:           1,
-		State:         types.StateRunning,
-		Intent:        "budget display test",
-		TokensUsed:    4500,
-		ContextBudget: 5000,
+		PID:             1,
+		State:           types.StateRunning,
+		Intent:          "budget display test",
+		TokensUsed:      4500,
+		LastInputTokens: 4000,
+		ContextBudget:   5000,
 	}
 	detail := topDetailView(proc, nil)
 
 	if !strings.Contains(detail, "5000") && !strings.Contains(detail, "5,000") {
 		t.Errorf("detail view should show budget value 5000, got %q", detail)
 	}
-	if !strings.Contains(detail, "4500") && !strings.Contains(detail, "4,500") {
-		t.Errorf("detail view should show tokens used 4500, got %q", detail)
+	if !strings.Contains(detail, "4000") && !strings.Contains(detail, "4,000") {
+		t.Errorf("detail view should show last input tokens 4000, got %q", detail)
 	}
 }
 

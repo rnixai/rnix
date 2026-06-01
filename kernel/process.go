@@ -82,8 +82,9 @@ type Process struct {
 	Exit           *ExitStatus // non-nil in Zombie/Dead
 	CtxID          types.CtxID // context allocated by Spawn
 	Result         string      // final output from reasoning
-	TokensUsed     int         // cumulative token consumption
-	ContextBudget  int            // 0 = no limit; >0 = terminate when TokensUsed >= ContextBudget
+	TokensUsed      int // cumulative token consumption
+	LastInputTokens int // most recent LLM call's prompt input tokens (for context_budget check)
+	ContextBudget   int // 0 = no limit; >0 = suspend when single-step InputTokens >= ContextBudget
 	CtxSize        int            // context message slot limit used at allocation (for checkpoint)
 	Budget         ProcessBudget // per-process resource budget (mu protected); suspend when exhausted
 	MaxSteps       int            // max reasoning steps for this process (from SpawnOpts.MaxTurns or DefaultMaxSteps)
@@ -393,9 +394,10 @@ type DetailSnapshot struct {
 	Skills         []string
 	AllowedDevices []string
 	CtxID          types.CtxID
-	TokensUsed     int
-	ContextBudget  int
-	MaxTokens      int64
+	TokensUsed      int
+	LastInputTokens int
+	ContextBudget   int
+	MaxTokens       int64
 	MaxCost        float64
 	UsedCost       float64
 	ComposeNode    string
@@ -429,6 +431,7 @@ func (p *Process) GetDetailSnapshot() DetailSnapshot {
 		AllowedDevices:  append([]string(nil), p.AllowedDevices...),
 		CtxID:           p.CtxID,
 		TokensUsed:      p.TokensUsed,
+		LastInputTokens: p.LastInputTokens,
 		ContextBudget:   p.ContextBudget,
 		MaxTokens:       p.Budget.MaxTokens,
 		MaxCost:         p.Budget.MaxCost,

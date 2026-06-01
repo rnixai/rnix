@@ -272,11 +272,10 @@ func Render(state TreeState, ctx RenderContext, innerW, innerH int) string {
 				elapsed = ui.FormatDuration(ctx.Now.Sub(row.Proc.CreatedAt) - row.Proc.PausedTotal)
 			}
 		} else {
-			if row.Proc.ContextBudget > 0 {
-				pct := max(0, min(int(int64(row.Proc.TokensUsed)*100/int64(row.Proc.ContextBudget)), 100))
-				tokens = fmt.Sprintf("%s/%s(%d%%)",
-					timeline.FormatTokenCount(row.Proc.TokensUsed),
-					timeline.FormatTokenCount(row.Proc.ContextBudget), pct)
+			if row.Proc.ContextBudget > 0 && row.Proc.LastInputTokens > 0 {
+				pct := max(0, min(int(int64(row.Proc.LastInputTokens)*100/int64(row.Proc.ContextBudget)), 100))
+				tokens = fmt.Sprintf("%s ctx:%d%%",
+					timeline.FormatTokenCount(row.Proc.TokensUsed), pct)
 				if pct >= 80 {
 					tokens = ui.WarningStyle.Render(tokens)
 				}
