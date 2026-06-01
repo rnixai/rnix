@@ -69,6 +69,11 @@ func (k *KernelImpl) Spawn(intent string, agent *agents.AgentInfo, opts SpawnOpt
 	proc := NewProcess(opts.ParentPID, intent, skillNames)
 	// Note: proc.Skills may be updated below after stem differentiation (Story 20.3)
 
+	// Spawn-recursion guard depth: inherited from opts. Only ActionSpawn sets
+	// it to parent.Depth+1; all other spawn paths leave opts.Depth=0, so those
+	// processes are top-level (Depth=0) and never trip MaxSpawnDepth.
+	proc.Depth = opts.Depth
+
 	// Set project config snapshot (Story 25.3) — immutable after spawn
 	proc.ProjectConfig = opts.ProjectConfig
 

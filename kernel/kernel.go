@@ -62,6 +62,14 @@ const DefaultMaxSteps = 0
 // DefaultCtxSize is the default context size (message count) for new contexts.
 const DefaultCtxSize = 256
 
+// MaxSpawnDepth caps the process-tree depth an LLM may reach via ActionSpawn.
+// It is a safety net against infinite spawn recursion: when a process lacks a
+// required device permission, the LLM may try to spawn a child to "acquire"
+// it, but child AllowedDevices are always ≤ parent (commit 30fba3c), so the
+// chain can never succeed. Only ActionSpawn accumulates depth — resume /
+// compose / CLI / supervisor spawns leave Depth=0 and are unaffected.
+const MaxSpawnDepth = 8
+
 // SpawnOpts configures optional parameters for Spawn.
 type SpawnOpts struct {
 	Model         string
@@ -69,6 +77,7 @@ type SpawnOpts struct {
 	MaxTurns      int
 	TimeoutMs     int64
 	ParentPID     types.PID     // parent process PID; 0 = top-level/CLI spawn
+	Depth         int           // process-tree depth for the spawn-recursion guard; 0 = top-level. Only ActionSpawn sets this (parent.Depth+1); all other spawn paths leave 0.
 	ContextBudget int           // 0 = no limit; >0 = terminate when TokensUsed >= ContextBudget
 	CtxSize       int           // 0 = use DefaultCtxSize; >0 = context message slot limit
 	MaxTokens     int64         // per-process token budget; 0 = unlimited; >0 = suspend when exhausted

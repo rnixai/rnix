@@ -65,6 +65,7 @@ type Process struct {
 	OriginUUID     string // non-empty when this process was forked from another UUID (resume --fork)
 	ResumedFromStep int   // step number from which this process was resumed (0 = fresh spawn)
 	PPID           types.PID
+	Depth          int    // spawn-chain depth for the recursion guard; 0 = top-level. Set from SpawnOpts.Depth; only ActionSpawn accumulates (parent.Depth+1).
 	ParentUUID     string // UUID of parent process — immutable after creation
 	State          types.ProcessState // guarded by mu
 	Intent         string             // immutable after creation

@@ -110,6 +110,26 @@ func bumpToolError(counter *errFingerprintCounter, seen map[string]bool, errCode
 	return n, n >= 3
 }
 
+// spawnBreakerOutcome applies the circuit-breaker policy for a child spawn that
+// finished, based on its exit code (spec spawn-recursion-no-permission, scheme
+// 3). A child that finished cleanly (ExitOK) is progress and resets the breaker.
+// A child that exited abnormally (ExitError) is a no-progress "spawn-to-escape"
+// and bumps the shared "INTERNAL|spawn" fingerprint — returns tripped=true when
+// the breaker should fire. Because a circuit-broken child itself exits with
+// code 1, the trip cascades up the recursion chain. Suspended / context-full
+// children are neutral (neither reset nor bump). The shared fingerprint means a
+// failing child and a failing spawn() accumulate together, so alternating
+// failure modes cannot silently bypass the breaker.
+func spawnBreakerOutcome(counter *errFingerprintCounter, seen map[string]bool, code int) (tripped bool) {
+	switch code {
+	case ExitOK:
+		counter.reset()
+	case ExitError:
+		_, tripped = bumpToolError(counter, seen, string(types.ErrInternal), "spawn")
+	}
+	return tripped
+}
+
 func (k *KernelImpl) executeToolCalls(proc *Process, resp llmResponse, step int, stepStart time.Time, counter *errFingerprintCounter, promptResult *rnixctx.PromptResult, rawResponseStr string) ([]types.ToolCallRecord, bool) {
 	// Spec step-inspector-data-fidelity：vfs 主路径累积器,toolLoop 内每个 call append 一项;
 	// caller 在 step 完成时合并写入一行 StepRecord。声明在函数顶部以便所有 return 点引用。
@@ -349,7 +369,10 @@ func (k *KernelImpl) executeVFSTool(proc *Process, tc llmToolCall, mapping toolM
 			}
 		}
 		if !allowed {
-			return "", fmt.Errorf("permission denied: device %s not in allowed list %v", mapping.VFSPath, proc.AllowedDevices)
+			return "", fmt.Errorf("permission denied: device %s not in allowed list %v. "+
+				"Child processes inherit the same device restrictions, so spawning a child will NOT grant access to this device. "+
+				"If you cannot finish the task with the devices you have, use complete to report what you accomplished and which capability was missing",
+				mapping.VFSPath, proc.AllowedDevices)
 		}
 	}
 
@@ -669,9 +692,34 @@ func (k *KernelImpl) executeMetaAction(proc *Process, tc llmToolCall, mapping to
 		intentStr, _ := tc.Input["intent"].(string)
 		agentStr, _ := tc.Input["agent"].(string)
 		modelStr, _ := tc.Input["model"].(string)
+
+		// Spawn-recursion guard (spec spawn-recursion-no-permission): reject a
+		// spawn that would exceed MaxSpawnDepth. Deterministic backstop for the
+		// case where the LLM keeps spawning children to "acquire" a device
+		// permission it lacks — child AllowedDevices are always ≤ parent, so
+		// the chain can never succeed. The rejection feeds the circuit breaker
+		// (fingerprint "INTERNAL|spawn") so repeated attempts at the depth
+		// limit trip the breaker and unwind the chain.
+		if proc.Depth+1 > MaxSpawnDepth {
+			errMsg := fmt.Sprintf("spawn rejected: maximum spawn depth %d reached (current depth %d). "+
+				"Child processes inherit your device restrictions and cannot gain new permissions by spawning deeper. "+
+				"Use complete to report your results with the devices you have", MaxSpawnDepth, proc.Depth)
+			_ = k.appendToolResult(proc, step, tc.ID, tc.Name, errMsg)
+			k.emitLog(proc, step, types.LogTool, errMsg, "spawn")
+			k.emitEvent(proc, "ReasonStep", map[string]any{"step": step, "action": "spawn_depth_exceeded", "depth": proc.Depth, "max_depth": MaxSpawnDepth}, nil, fmt.Errorf("%s", errMsg), time.Since(stepStart))
+			k.writeSpawnFailureStepRecord(proc, step, tc, errMsg, promptResult, rawResponseStr, resp, stepStart)
+			if _, tripped := bumpToolError(counter, seen, string(types.ErrInternal), "spawn"); tripped {
+				k.emitEvent(proc, "ReasonStep", map[string]any{"step": step, "action": "circuit_breaker", "consecutive_errors": counter.count}, nil, nil, time.Since(stepStart))
+				k.finishProcess(proc, ExitStatus{Code: 1, Reason: circuitBreakerReason(counter.fp, counter.count)})
+				return false
+			}
+			return true
+		}
+
 		childOpts := SpawnOpts{
 			Model:          modelStr,
 			ParentPID:      proc.PID,
+			Depth:          proc.Depth + 1,
 			TraceID:        proc.TraceID,
 			ProjectConfig:  proc.ProjectConfig,
 			AllowedDevices: append([]string(nil), proc.AllowedDevices...),
@@ -733,9 +781,6 @@ func (k *KernelImpl) executeMetaAction(proc *Process, tc llmToolCall, mapping to
 			}
 			return true
 		}
-		// Successful spawn resets the circuit breaker — matches the vfs success path
-		// and the spec's "any tool success resets counter" rule.
-		counter.reset()
 		// WaitChildInReason is cancellable on parent.ctx (so SuspendSubtree on
 		// the parent can unwind reasonStep instead of deadlocking on a child
 		// that may run for many minutes) and refreshes parent.LastHeartbeat
@@ -784,6 +829,16 @@ func (k *KernelImpl) executeMetaAction(proc *Process, tc llmToolCall, mapping to
 		stepDur := time.Since(stepStart)
 		if k.callbacks != nil {
 			k.callbacks.OnStepComplete(proc.PID, step, "spawn", fmt.Sprintf("child pid=%d", childPID), false, float64(stepDur.Microseconds())/1000.0)
+		}
+
+		// Circuit breaker (spec spawn-recursion-no-permission, scheme 3): only
+		// a clean child resets; an abnormal child is a no-progress spawn that
+		// feeds the breaker so runaway "spawn-to-escape" loops trip and cascade
+		// up the chain. See spawnBreakerOutcome.
+		if spawnBreakerOutcome(counter, seen, childExit.Code) {
+			k.emitEvent(proc, "ReasonStep", map[string]any{"step": step, "action": "circuit_breaker", "consecutive_errors": counter.count}, nil, nil, time.Since(stepStart))
+			k.finishProcess(proc, ExitStatus{Code: 1, Reason: circuitBreakerReason(counter.fp, counter.count)})
+			return false
 		}
 		return true
 
