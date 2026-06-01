@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/rnixai/rnix/internal/config"
 	rnixctx "github.com/rnixai/rnix/context"
 	"github.com/rnixai/rnix/internal/types"
 	"github.com/rnixai/rnix/vfs"
@@ -199,7 +200,6 @@ func TestCheckpoint_WriteFailure_CleansTmp(t *testing.T) {
 // --- 30.2-INT-001: Multi-step reasoning writes checkpoint.json after each step ---
 
 func TestCheckpoint_Integration_MultiStep(t *testing.T) {
-	tmpDir := t.TempDir()
 
 	// Set up a 2-step reasoning loop: tool_call → text (complete)
 	reg := vfs.NewDeviceRegistry()
@@ -219,11 +219,12 @@ func TestCheckpoint_Integration_MultiStep(t *testing.T) {
 	v := vfs.NewVFS(reg)
 	ctxMgr := rnixctx.NewManager()
 	k := NewKernel(v, ctxMgr, nil)
-	k.SetStepDataDir(tmpDir)
+	dataDir, _ := TestSetupDataDir(t, k)
 	k.SetCheckpointConfig(CheckpointConfig{IntervalSteps: 1, IntervalSeconds: 1}) // Story 42.2: per-step checkpoint for 30.2 regression test
 	defer k.Shutdown()
 
-	pid, err := k.Spawn("test checkpoint", nil, SpawnOpts{})
+	projCfg := &config.ProjectConfig{ProjectDir: testProjectDir}
+	pid, err := k.Spawn("test checkpoint", nil, SpawnOpts{ProjectConfig: projCfg})
 	if err != nil {
 		t.Fatalf("Spawn: %v", err)
 	}
@@ -242,7 +243,7 @@ func TestCheckpoint_Integration_MultiStep(t *testing.T) {
 	time.Sleep(100 * time.Millisecond)
 
 	// Verify checkpoint.json exists in the UUID-based directory
-	cpDir := filepath.Join(tmpDir, "data", "steps", proc.UUID)
+	cpDir := TestStepsDir(dataDir, proc.UUID)
 	cp, err := readCheckpoint(cpDir)
 	if err != nil {
 		t.Fatalf("readCheckpoint: %v", err)
@@ -265,7 +266,6 @@ func TestCheckpoint_Integration_MultiStep(t *testing.T) {
 // --- 30.2-INT-002: Checkpoint context_snapshot can be deserialized ---
 
 func TestCheckpoint_Integration_ContextRestore(t *testing.T) {
-	tmpDir := t.TempDir()
 
 	reg := vfs.NewDeviceRegistry()
 	seqFile := &sequenceLLMFile{
@@ -284,11 +284,12 @@ func TestCheckpoint_Integration_ContextRestore(t *testing.T) {
 	v := vfs.NewVFS(reg)
 	ctxMgr := rnixctx.NewManager()
 	k := NewKernel(v, ctxMgr, nil)
-	k.SetStepDataDir(tmpDir)
+	dataDir, _ := TestSetupDataDir(t, k)
 	k.SetCheckpointConfig(CheckpointConfig{IntervalSteps: 1, IntervalSeconds: 1}) // Story 42.2: per-step checkpoint for 30.2 regression test
 	defer k.Shutdown()
 
-	pid, err := k.Spawn("test context restore", nil, SpawnOpts{})
+	projCfg := &config.ProjectConfig{ProjectDir: testProjectDir}
+	pid, err := k.Spawn("test context restore", nil, SpawnOpts{ProjectConfig: projCfg})
 	if err != nil {
 		t.Fatalf("Spawn: %v", err)
 	}
@@ -302,7 +303,7 @@ func TestCheckpoint_Integration_ContextRestore(t *testing.T) {
 
 	time.Sleep(100 * time.Millisecond)
 
-	cpDir := filepath.Join(tmpDir, "data", "steps", proc.UUID)
+	cpDir := TestStepsDir(dataDir, proc.UUID)
 	cp, err := readCheckpoint(cpDir)
 	if err != nil {
 		t.Fatalf("readCheckpoint: %v", err)
@@ -323,21 +324,13 @@ func TestCheckpoint_Integration_ContextRestore(t *testing.T) {
 // --- 30.2-INT-003: Async write error does not terminate reasoning loop ---
 
 func TestCheckpoint_Integration_AsyncErrorNonFatal(t *testing.T) {
-	// Use a read-only directory to force write errors
-	tmpDir := t.TempDir()
-	badDir := filepath.Join(tmpDir, "readonly")
-	if err := os.MkdirAll(badDir, 0o755); err != nil {
-		t.Fatal(err)
-	}
-
 	llmFile := &mockLLMFile{
 		readData: makeLLMResponse("The answer is 42", 100),
 	}
 	k, _, _ := newTestKernel(t, llmFile)
-	// Set stepDataDir to a path that will be valid for StepWriter but invalid for checkpoint
-	// Actually, we cannot easily make checkpoint fail without making StepWriter fail too.
-	// Instead, test that the process completes normally even when checkpoint infra is present.
-	k.SetStepDataDir(tmpDir)
+	// Set dataDir so checkpoint infra is active; test verifies process
+	// completes normally even when checkpoint writes are present.
+	TestSetupDataDir(t, k)
 
 	pid, err := k.Spawn("test async error", nil, SpawnOpts{})
 	if err != nil {

@@ -12,6 +12,7 @@ import (
 	"time"
 
 	rnixctx "github.com/rnixai/rnix/context"
+	"github.com/rnixai/rnix/internal/config"
 	"github.com/rnixai/rnix/internal/types"
 	"github.com/rnixai/rnix/vfs"
 )
@@ -118,7 +119,7 @@ func TestATDD27_1_StepWriter_AppendAndRead(t *testing.T) {
 		}
 	}
 
-	stepsFile := filepath.Join(baseDir, "data", "steps", "test-uuid-42", "steps.jsonl")
+	stepsFile := filepath.Join(baseDir, "steps", "test-uuid-42", "steps.jsonl")
 	for i := range 3 {
 		rec, err := ReadStep(stepsFile, i+1)
 		if err != nil {
@@ -164,7 +165,7 @@ func TestATDD27_1_StepWriter_ConcurrentSafety(t *testing.T) {
 	}
 	wg.Wait()
 
-	stepsFile := filepath.Join(baseDir, "data", "steps", "test-uuid-99", "steps.jsonl")
+	stepsFile := filepath.Join(baseDir, "steps", "test-uuid-99", "steps.jsonl")
 	f, err := os.Open(stepsFile)
 	if err != nil {
 		t.Fatalf("Open: %v", err)
@@ -208,7 +209,7 @@ func TestATDD27_1_StepWriter_FlushGuarantee(t *testing.T) {
 		t.Fatalf("WriteStep: %v", err)
 	}
 
-	stepsFile := filepath.Join(baseDir, "data", "steps", "test-uuid-77", "steps.jsonl")
+	stepsFile := filepath.Join(baseDir, "steps", "test-uuid-77", "steps.jsonl")
 	data, err := os.ReadFile(stepsFile)
 	if err != nil {
 		t.Fatalf("ReadFile: %v", err)
@@ -236,7 +237,7 @@ func TestATDD27_1_StepWriter_CreatesDirStructure(t *testing.T) {
 	}
 	defer sw.Close()
 
-	expectedDir := filepath.Join(baseDir, "data", "steps", "test-uuid-123")
+	expectedDir := filepath.Join(baseDir, "steps", "test-uuid-123")
 	info, err := os.Stat(expectedDir)
 	if err != nil {
 		t.Fatalf("directory not created: %v", err)
@@ -303,8 +304,6 @@ func TestATDD27_1_StepWriter_WritePerformance(t *testing.T) {
 // --- AC-3 & AC-5 & AC-6: 集成测试 — reasonStep 自动创建并写入 StepRecord ---
 
 func TestATDD27_1_Integration_StepRecordAutoCreatedOnSpawn(t *testing.T) {
-	baseDir := t.TempDir()
-
 	reg := vfs.NewDeviceRegistry()
 	seqFile := &sequenceLLMFile{
 		responses: [][]byte{
@@ -324,9 +323,11 @@ func TestATDD27_1_Integration_StepRecordAutoCreatedOnSpawn(t *testing.T) {
 	k := NewKernel(v, ctxMgr, nil)
 	defer k.Shutdown()
 
-	k.SetStepDataDir(baseDir)
+	_, projBaseDir := TestSetupDataDir(t, k)
 
-	pid, err := k.Spawn("step record auto test", nil, SpawnOpts{})
+	pid, err := k.Spawn("step record auto test", nil, SpawnOpts{
+		ProjectConfig: &config.ProjectConfig{ProjectDir: testProjectDir},
+	})
 	if err != nil {
 		t.Fatalf("Spawn: %v", err)
 	}
@@ -342,7 +343,7 @@ func TestATDD27_1_Integration_StepRecordAutoCreatedOnSpawn(t *testing.T) {
 	}
 
 	// AC-3: StepWriter 应已自动创建并写入 steps.jsonl (UUID path since Story 28-2)
-	stepsFile := filepath.Join(baseDir, "data", "steps", proc.UUID, "steps.jsonl")
+	stepsFile := filepath.Join(projBaseDir, "steps", proc.UUID, "steps.jsonl")
 	data, err := os.ReadFile(stepsFile)
 	if err != nil {
 		t.Fatalf("steps.jsonl not found — StepWriter not auto-created: %v", err)
@@ -433,8 +434,6 @@ func TestATDD27_1_Integration_FinalSystemPromptCaptured(t *testing.T) {
 // --- AC-8: 进程退出清理 ---
 
 func TestATDD27_1_Integration_ProcessMetaWrittenOnExit(t *testing.T) {
-	baseDir := t.TempDir()
-
 	reg := vfs.NewDeviceRegistry()
 	seqFile := &sequenceLLMFile{
 		responses: [][]byte{
@@ -450,9 +449,12 @@ func TestATDD27_1_Integration_ProcessMetaWrittenOnExit(t *testing.T) {
 	k := NewKernel(v, ctxMgr, nil)
 	defer k.Shutdown()
 
-	k.SetStepDataDir(baseDir)
+	_, projBaseDir := TestSetupDataDir(t, k)
 
-	pid, err := k.Spawn("meta exit test", nil, SpawnOpts{SystemPrompt: "You are a test assistant."})
+	pid, err := k.Spawn("meta exit test", nil, SpawnOpts{
+		SystemPrompt:  "You are a test assistant.",
+		ProjectConfig: &config.ProjectConfig{ProjectDir: testProjectDir},
+	})
 	if err != nil {
 		t.Fatalf("Spawn: %v", err)
 	}
@@ -468,7 +470,7 @@ func TestATDD27_1_Integration_ProcessMetaWrittenOnExit(t *testing.T) {
 
 	proc, _ := k.GetProcess(pid)
 	// AC-8: process-meta.json 应被写入 (uses UUID path since Story 28-2)
-	metaFile := filepath.Join(baseDir, "data", "steps", proc.UUID, "process-meta.json")
+	metaFile := filepath.Join(projBaseDir, "steps", proc.UUID, "process-meta.json")
 	data, err := os.ReadFile(metaFile)
 	if err != nil {
 		t.Fatalf("process-meta.json not found: %v", err)
@@ -498,8 +500,6 @@ func TestATDD27_1_Integration_ProcessMetaWrittenOnExit(t *testing.T) {
 //   - 非 tool_call 路径（text/error/budget 等）仍用 promptResult.Messages（LLM 调用前快照）,
 //     语义未变,因为这些路径下 step 内没有后续 tool 交互。
 func TestATDD27_1_Integration_MessagesIncludeStepToolResult(t *testing.T) {
-	baseDir := t.TempDir()
-
 	reg := vfs.NewDeviceRegistry()
 	seqFile := &sequenceLLMFile{
 		responses: [][]byte{
@@ -519,9 +519,11 @@ func TestATDD27_1_Integration_MessagesIncludeStepToolResult(t *testing.T) {
 	k := NewKernel(v, ctxMgr, nil)
 	defer k.Shutdown()
 
-	k.SetStepDataDir(baseDir)
+	_, projBaseDir := TestSetupDataDir(t, k)
 
-	pid, err := k.Spawn("write order test", nil, SpawnOpts{})
+	pid, err := k.Spawn("write order test", nil, SpawnOpts{
+		ProjectConfig: &config.ProjectConfig{ProjectDir: testProjectDir},
+	})
 	if err != nil {
 		t.Fatalf("Spawn: %v", err)
 	}
@@ -536,7 +538,7 @@ func TestATDD27_1_Integration_MessagesIncludeStepToolResult(t *testing.T) {
 		t.Fatal("timeout")
 	}
 
-	stepsFile := filepath.Join(baseDir, "data", "steps", proc.UUID, "steps.jsonl")
+	stepsFile := filepath.Join(projBaseDir, "steps", proc.UUID, "steps.jsonl")
 	data, err := os.ReadFile(stepsFile)
 	if err != nil {
 		t.Fatalf("ReadFile: %v", err)

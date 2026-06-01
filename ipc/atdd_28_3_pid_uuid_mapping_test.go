@@ -142,11 +142,11 @@ func TestATDD_28_3_AC1_GetStepDetail_PID_LiveProcess(t *testing.T) {
 		{Name: "test_tool", Description: "Test tool"},
 	})
 
-	tmpDir := t.TempDir()
-	srv.kern.SetStepDataDir(tmpDir)
+	_, projBase := kernel.TestSetupDataDir(t, srv.kern)
+	kernel.TestSetProjectConfig(proc)
 
 	// Write steps under UUID directory
-	writeTestStepsUUID(t, tmpDir, proc.UUID, []types.StepRecord{
+	writeTestStepsUUID(t, projBase, proc.UUID, []types.StepRecord{
 		testStepRecord(1),
 		testStepRecord(2),
 	})
@@ -186,10 +186,10 @@ func TestATDD_28_3_AC2_GetStepDetail_UUID_LiveProcess(t *testing.T) {
 		{Name: "fs", Description: "Filesystem"},
 	})
 
-	tmpDir := t.TempDir()
-	srv.kern.SetStepDataDir(tmpDir)
+	_, projBase := kernel.TestSetupDataDir(t, srv.kern)
+	kernel.TestSetProjectConfig(proc)
 
-	writeTestStepsUUID(t, tmpDir, proc.UUID, []types.StepRecord{
+	writeTestStepsUUID(t, projBase, proc.UUID, []types.StepRecord{
 		testStepRecord(1),
 		testStepRecord(2),
 		testStepRecord(3),
@@ -225,10 +225,10 @@ func TestATDD_28_3_AC2_ListSteps_UUID_LiveProcess(t *testing.T) {
 	proc := kernel.NewProcess(0, "uuid list steps test", nil)
 	_ = proc.Start()
 
-	tmpDir := t.TempDir()
-	srv.kern.SetStepDataDir(tmpDir)
+	_, projBase := kernel.TestSetupDataDir(t, srv.kern)
+	kernel.TestSetProjectConfig(proc)
 
-	writeTestStepsUUID(t, tmpDir, proc.UUID, []types.StepRecord{
+	writeTestStepsUUID(t, projBase, proc.UUID, []types.StepRecord{
 		testStepRecord(1),
 		testStepRecord(2),
 		testStepRecord(3),
@@ -259,14 +259,13 @@ func TestATDD_28_3_AC2_ListSteps_UUID_LiveProcess(t *testing.T) {
 func TestATDD_28_3_AC4_GetStepDetail_PID_ReapedProcess_NotFound(t *testing.T) {
 	srv, sockPath, _ := setupTestServer(t)
 
-	tmpDir := t.TempDir()
-	srv.kern.SetStepDataDir(tmpDir)
+	_, projBase := kernel.TestSetupDataDir(t, srv.kern)
 
 	// Write steps under a UUID directory with process-meta containing PID
 	procUUID := "019576f4-aaaa-7000-8000-aaaaaaaaaaaa"
 	pid := types.PID(12345)
 
-	uuidDir := filepath.Join(tmpDir, "data", "steps", procUUID)
+	uuidDir := filepath.Join(projBase, "steps", procUUID)
 	if err := os.MkdirAll(uuidDir, 0o755); err != nil {
 		t.Fatalf("AC-4: mkdir: %v", err)
 	}
@@ -284,7 +283,7 @@ func TestATDD_28_3_AC4_GetStepDetail_PID_ReapedProcess_NotFound(t *testing.T) {
 		t.Fatalf("AC-4: write meta: %v", err)
 	}
 
-	writeTestStepsUUID(t, tmpDir, procUUID, []types.StepRecord{
+	writeTestStepsUUID(t, projBase, procUUID, []types.StepRecord{
 		testStepRecord(1),
 	})
 
@@ -308,13 +307,12 @@ func TestATDD_28_3_AC4_GetStepDetail_PID_ReapedProcess_NotFound(t *testing.T) {
 func TestATDD_28_3_AC4_ListSteps_PID_ReapedProcess_NotFound(t *testing.T) {
 	srv, sockPath, _ := setupTestServer(t)
 
-	tmpDir := t.TempDir()
-	srv.kern.SetStepDataDir(tmpDir)
+	_, projBase := kernel.TestSetupDataDir(t, srv.kern)
 
 	procUUID := "019576f4-bbbb-7000-8000-bbbbbbbbbbbb"
 	pid := types.PID(12346)
 
-	uuidDir := filepath.Join(tmpDir, "data", "steps", procUUID)
+	uuidDir := filepath.Join(projBase, "steps", procUUID)
 	if err := os.MkdirAll(uuidDir, 0o755); err != nil {
 		t.Fatalf("AC-4: mkdir: %v", err)
 	}
@@ -325,7 +323,7 @@ func TestATDD_28_3_AC4_ListSteps_PID_ReapedProcess_NotFound(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(uuidDir, "process-meta.json"), metaJSON, 0o644); err != nil {
 		t.Fatalf("AC-4: write meta: %v", err)
 	}
-	writeTestStepsUUID(t, tmpDir, procUUID, []types.StepRecord{
+	writeTestStepsUUID(t, projBase, procUUID, []types.StepRecord{
 		testStepRecord(1),
 		testStepRecord(2),
 	})
@@ -352,12 +350,11 @@ func TestATDD_28_3_AC4_ListSteps_PID_ReapedProcess_NotFound(t *testing.T) {
 func TestATDD_28_3_AC5_GetStepDetail_UUID_ReapedProcess_DiskRead(t *testing.T) {
 	srv, sockPath, _ := setupTestServer(t)
 
-	tmpDir := t.TempDir()
-	srv.kern.SetStepDataDir(tmpDir)
+	_, projBase := kernel.TestSetupDataDir(t, srv.kern)
 
 	procUUID := "019576f4-cccc-7000-8000-cccccccccccc"
 
-	uuidDir := filepath.Join(tmpDir, "data", "steps", procUUID)
+	uuidDir := filepath.Join(projBase, "steps", procUUID)
 	if err := os.MkdirAll(uuidDir, 0o755); err != nil {
 		t.Fatalf("AC-5: mkdir: %v", err)
 	}
@@ -376,7 +373,7 @@ func TestATDD_28_3_AC5_GetStepDetail_UUID_ReapedProcess_DiskRead(t *testing.T) {
 		t.Fatalf("AC-5: write meta: %v", err)
 	}
 
-	writeTestStepsUUID(t, tmpDir, procUUID, []types.StepRecord{
+	writeTestStepsUUID(t, projBase, procUUID, []types.StepRecord{
 		testStepRecord(1),
 		testStepRecord(2),
 	})
@@ -408,17 +405,16 @@ func TestATDD_28_3_AC5_GetStepDetail_UUID_ReapedProcess_DiskRead(t *testing.T) {
 func TestATDD_28_3_AC5_ListSteps_UUID_ReapedProcess_DiskRead(t *testing.T) {
 	srv, sockPath, _ := setupTestServer(t)
 
-	tmpDir := t.TempDir()
-	srv.kern.SetStepDataDir(tmpDir)
+	_, projBase := kernel.TestSetupDataDir(t, srv.kern)
 
 	procUUID := "019576f4-dddd-7000-8000-dddddddddddd"
 
-	uuidDir := filepath.Join(tmpDir, "data", "steps", procUUID)
+	uuidDir := filepath.Join(projBase, "steps", procUUID)
 	if err := os.MkdirAll(uuidDir, 0o755); err != nil {
 		t.Fatalf("AC-5: mkdir: %v", err)
 	}
 
-	writeTestStepsUUID(t, tmpDir, procUUID, []types.StepRecord{
+	writeTestStepsUUID(t, projBase, procUUID, []types.StepRecord{
 		testStepRecord(1),
 		testStepRecord(2),
 		testStepRecord(3),
@@ -659,10 +655,10 @@ func TestATDD_28_3_ClientRoundtrip_GetStepDetail_ByUUID(t *testing.T) {
 	_ = proc.Start()
 	proc.SetFinalSystemPrompt("Client UUID roundtrip prompt")
 
-	tmpDir := t.TempDir()
-	srv.kern.SetStepDataDir(tmpDir)
+	_, projBase := kernel.TestSetupDataDir(t, srv.kern)
+	kernel.TestSetProjectConfig(proc)
 
-	writeTestStepsUUID(t, tmpDir, proc.UUID, []types.StepRecord{
+	writeTestStepsUUID(t, projBase, proc.UUID, []types.StepRecord{
 		testStepRecord(1),
 	})
 	srv.kern.AddProcess(proc)
@@ -689,10 +685,10 @@ func TestATDD_28_3_ClientRoundtrip_ListSteps_ByUUID(t *testing.T) {
 	proc := kernel.NewProcess(0, "client uuid list roundtrip", nil)
 	_ = proc.Start()
 
-	tmpDir := t.TempDir()
-	srv.kern.SetStepDataDir(tmpDir)
+	_, projBase := kernel.TestSetupDataDir(t, srv.kern)
+	kernel.TestSetProjectConfig(proc)
 
-	writeTestStepsUUID(t, tmpDir, proc.UUID, []types.StepRecord{
+	writeTestStepsUUID(t, projBase, proc.UUID, []types.StepRecord{
 		testStepRecord(1),
 		testStepRecord(2),
 	})

@@ -542,25 +542,25 @@ func executeForkContinue(w interface{ Write([]byte) (int, error) }, forkCtx *deb
 }
 
 func findStepsByUUIDPrefix(prefix string) string {
-	cwd, _ := os.Getwd()
-	stepsDir := resolveDataDir(cwd, "steps")
-	entries, err := os.ReadDir(stepsDir)
-	if err != nil {
-		return ""
-	}
 	var match string
-	for _, e := range entries {
-		if !e.IsDir() {
+	for _, stepsDir := range allStepsDirs() {
+		entries, err := os.ReadDir(stepsDir)
+		if err != nil {
 			continue
 		}
-		if !isUUIDDir(e.Name()) {
-			continue
-		}
-		if strings.HasPrefix(e.Name(), prefix) {
-			if match != "" {
-				return "" // ambiguous prefix
+		for _, e := range entries {
+			if !e.IsDir() {
+				continue
 			}
-			match = filepath.Join(stepsDir, e.Name(), "steps.jsonl")
+			if !isUUIDDir(e.Name()) {
+				continue
+			}
+			if strings.HasPrefix(e.Name(), prefix) {
+				if match != "" {
+					return "" // ambiguous prefix (possibly across projects)
+				}
+				match = filepath.Join(stepsDir, e.Name(), "steps.jsonl")
+			}
 		}
 	}
 	if match == "" {

@@ -29,7 +29,7 @@ import (
 // in proc-info.json so the history path has a parent to restore from.
 func writeTestStepsAndMetaWithParent(t *testing.T, baseDir, uuid, parentUUID string, lastStep int) {
 	t.Helper()
-	stepsDir := filepath.Join(baseDir, "data", "steps", uuid)
+	stepsDir := filepath.Join(baseDir, "steps", uuid)
 	if err := os.MkdirAll(stepsDir, 0o755); err != nil {
 		t.Fatalf("mkdir steps dir: %v", err)
 	}
@@ -157,7 +157,7 @@ func TestResume_FromCheckpoint_RestoresParentLinkage(t *testing.T) {
 	k.AddProcess(parent)
 
 	childUUID := "cp-child-ffffffff-ffff-ffff-ffffffffffff"
-	stepsDir := filepath.Join(baseDir, "data", "steps", childUUID)
+	stepsDir := filepath.Join(baseDir, "steps", childUUID)
 	if err := os.MkdirAll(stepsDir, 0o755); err != nil {
 		t.Fatalf("mkdir: %v", err)
 	}

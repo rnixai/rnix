@@ -20,6 +20,7 @@ const (
 // underlying data with other config instances.
 type GlobalConfig struct {
 	Dir        string // Absolute path to global config directory
+	DataDir    string // Absolute path to global data directory (~/.local/share/rnix)
 	Providers  any    // *llm.ProvidersConfig (typed as any to avoid circular imports)
 	Config     any    // Parsed global rnix config
 	MCP        any    // MCP configuration

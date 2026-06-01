@@ -614,9 +614,9 @@ func (s *Server) resolveStepsPath(pid types.PID, uuid string) string {
 	}
 	// Process not in memory — UUID can read from disk
 	if uuid != "" && isValidUUID(uuid) {
-		base := s.kern.GetStepDataDir()
+		base := kernel.FindBaseDirByUUID(s.kern.GetDataDir(), uuid)
 		if base != "" {
-			p := filepath.Join(base, "data", "steps", uuid, "steps.jsonl")
+			p := filepath.Join(base, "steps", uuid, "steps.jsonl")
 			if _, err := os.Stat(p); err == nil {
 				return p
 			}
@@ -629,16 +629,11 @@ func (s *Server) resolveStepsPath(pid types.PID, uuid string) string {
 
 // resolveStepsPathFromProc resolves the steps.jsonl path from a living process using UUID.
 func (s *Server) resolveStepsPathFromProc(proc *kernel.Process) string {
-	procUUID := proc.UUID
-	pc := proc.GetProjectConfig()
-	if pc != nil && pc.ProjectDir != "" {
-		return filepath.Join(pc.ProjectDir, ".rnix", "data", "steps", procUUID, "steps.jsonl")
-	}
-	base := s.kern.GetStepDataDir()
+	base := s.kern.ResolveStepBaseDir(proc)
 	if base == "" {
 		return ""
 	}
-	return filepath.Join(base, "data", "steps", procUUID, "steps.jsonl")
+	return filepath.Join(base, "steps", proc.UUID, "steps.jsonl")
 }
 
 type processMetaFile struct {

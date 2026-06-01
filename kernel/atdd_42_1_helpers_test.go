@@ -10,9 +10,10 @@ import (
 
 // writeTestStepsAndMeta writes minimal steps.jsonl + process-meta.json + proc-info.json
 // to simulate a completed/dead process on disk for resume testing.
+// baseDir should be the per-project base directory (projBaseDir from setupResumeKernel).
 func writeTestStepsAndMeta(t *testing.T, baseDir, uuid string, lastStep int, exitReason string) {
 	t.Helper()
-	stepsDir := filepath.Join(baseDir, "data", "steps", uuid)
+	stepsDir := filepath.Join(baseDir, "steps", uuid)
 	if err := os.MkdirAll(stepsDir, 0o755); err != nil {
 		t.Fatalf("mkdir steps dir: %v", err)
 	}

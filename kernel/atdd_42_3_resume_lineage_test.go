@@ -31,7 +31,7 @@ import (
 // used to set up lineage chain fixtures on disk.
 func writeProcInfoLineage(t *testing.T, baseDir, uuid, originUUID string, resumedFromStep int) {
 	t.Helper()
-	dir := filepath.Join(baseDir, "data", "steps", uuid)
+	dir := filepath.Join(baseDir, "steps", uuid)
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		t.Fatalf("mkdir: %v", err)
 	}
@@ -63,7 +63,7 @@ func TestATDD_42_3_009_BuildLineage_SoloProcess(t *testing.T) {
 	writeProcInfoLineage(t, baseDir, uuid, "", 0)
 	k.procHistory.Add(vfs.ProcInfo{PID: 1, UUID: uuid, State: types.StateDead, Intent: "solo"})
 
-	data, err := callBuildResumeLineage(t, uuid, k.procHistory, baseDir)
+	data, err := callBuildResumeLineage(t, uuid, k.procHistory, k.GetDataDir())
 	if err != nil {
 		t.Fatalf("BuildResumeLineage: %v", err)
 	}
@@ -96,7 +96,7 @@ func TestATDD_42_3_010_BuildLineage_ThreeLevelAncestors(t *testing.T) {
 	k.procHistory.Add(vfs.ProcInfo{PID: 2, UUID: uuidB, State: types.StateDead, Intent: "B", OriginUUID: uuidA, ResumedFromStep: 5})
 	k.procHistory.Add(vfs.ProcInfo{PID: 3, UUID: uuidC, State: types.StateDead, Intent: "C", OriginUUID: uuidB, ResumedFromStep: 8})
 
-	data, err := callBuildResumeLineage(t, uuidC, k.procHistory, baseDir)
+	data, err := callBuildResumeLineage(t, uuidC, k.procHistory, k.GetDataDir())
 	if err != nil {
 		t.Fatalf("BuildResumeLineage: %v", err)
 	}
@@ -140,7 +140,7 @@ func TestATDD_42_3_011_BuildLineage_FiveDescendants(t *testing.T) {
 		})
 	}
 
-	data, err := callBuildResumeLineage(t, parent, k.procHistory, baseDir)
+	data, err := callBuildResumeLineage(t, parent, k.procHistory, k.GetDataDir())
 	if err != nil {
 		t.Fatalf("BuildResumeLineage: %v", err)
 	}
@@ -171,7 +171,7 @@ func TestATDD_42_3_012_BuildLineage_CycleDetection(t *testing.T) {
 	k.procHistory.Add(vfs.ProcInfo{PID: 1, UUID: uuidA, State: types.StateDead, Intent: "A", OriginUUID: uuidB})
 	k.procHistory.Add(vfs.ProcInfo{PID: 2, UUID: uuidB, State: types.StateDead, Intent: "B", OriginUUID: uuidA})
 
-	data, err := callBuildResumeLineage(t, uuidA, k.procHistory, baseDir)
+	data, err := callBuildResumeLineage(t, uuidA, k.procHistory, k.GetDataDir())
 	if err != nil {
 		t.Fatalf("BuildResumeLineage on cycle should not error: %v", err)
 	}
@@ -202,7 +202,7 @@ func TestATDD_42_3_013_BuildLineage_DeepChainTruncation(t *testing.T) {
 		})
 	}
 
-	data, err := callBuildResumeLineage(t, uuids[0], k.procHistory, baseDir)
+	data, err := callBuildResumeLineage(t, uuids[0], k.procHistory, k.GetDataDir())
 	if err != nil {
 		t.Fatalf("BuildResumeLineage: %v", err)
 	}
@@ -218,10 +218,10 @@ func TestATDD_42_3_013_BuildLineage_DeepChainTruncation(t *testing.T) {
 // --- 42.3-UNIT-014: UUID 不存在 → ErrNotFound (AC#7) ---
 
 func TestATDD_42_3_014_BuildLineage_UUIDNotFound(t *testing.T) {
-	k, baseDir := setupResumeKernel(t)
+	k, _ := setupResumeKernel(t)
 	missingUUID := "missing-aaaaaaaa-bbbb-cccc-dddd-000000000001"
 
-	_, err := callBuildResumeLineage(t, missingUUID, k.procHistory, baseDir)
+	_, err := callBuildResumeLineage(t, missingUUID, k.procHistory, k.GetDataDir())
 	if err == nil {
 		t.Fatal("BuildResumeLineage should return error for missing UUID")
 	}

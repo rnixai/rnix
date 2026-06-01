@@ -49,15 +49,14 @@ import (
 // authored ("上述 10 步全部断言通过").
 func TestATDD_44_3_080_EndToEnd_DaemonRestart_SuspendedPersist_Resume(t *testing.T) {
 	srv, sockPath, _ := setupTestServer(t)
-	tmpDir := t.TempDir()
-	srv.kern.SetStepDataDir(tmpDir)
+	_, projBase := kernel.TestSetupDataDir(t, srv.kern)
 
 	parentUUID := uuidIPCForTest("e2ep080")
 	childUUID := uuidIPCForTest("e2ec080")
 
 	// Steps 1-3: leave the disk state that 44.1 SubtreeManager would have
 	// written. suspend_reason="user_paused" matches the 44.1 main-path value.
-	writeIPCSuspendFixture(t, tmpDir, ipcSuspendDiskInfo{
+	writeIPCSuspendFixture(t, projBase, ipcSuspendDiskInfo{
 		PID:           80,
 		UUID:          parentUUID,
 		State:         "suspended",
@@ -70,7 +69,7 @@ func TestATDD_44_3_080_EndToEnd_DaemonRestart_SuspendedPersist_Resume(t *testing
 		SuspendReason: "user_paused",
 		IsPaused:      true,
 	}, true, true)
-	writeIPCSuspendFixture(t, tmpDir, ipcSuspendDiskInfo{
+	writeIPCSuspendFixture(t, projBase, ipcSuspendDiskInfo{
 		PID:           81,
 		UUID:          childUUID,
 		PPID:          80,
@@ -88,7 +87,7 @@ func TestATDD_44_3_080_EndToEnd_DaemonRestart_SuspendedPersist_Resume(t *testing
 
 	// Step 4: verify on-disk state via raw JSON read (independent of
 	// procInfoFromDisk and any field deserialization).
-	parentDisk := readDiskProcInfoForE2E(t, tmpDir, parentUUID)
+	parentDisk := readDiskProcInfoForE2E(t, projBase, parentUUID)
 	if got, _ := parentDisk["state"].(string); got != "suspended" {
 		t.Errorf("Step 4: parent disk state = %q, want %q", got, "suspended")
 	}
@@ -110,7 +109,7 @@ func TestATDD_44_3_080_EndToEnd_DaemonRestart_SuspendedPersist_Resume(t *testing
 	freshVFS := vfs.NewVFS(freshReg)
 	freshCtxMgr := rnixctx.NewManager()
 	freshKern := kernel.NewKernel(freshVFS, freshCtxMgr, nil)
-	freshKern.SetStepDataDir(tmpDir)
+	freshKern.SetDataDir(srv.kern.GetDataDir())
 	t.Cleanup(freshKern.Shutdown)
 
 	if err := freshKern.LoadHistory(); err != nil {
@@ -208,9 +207,9 @@ func TestATDD_44_3_080_EndToEnd_DaemonRestart_SuspendedPersist_Resume(t *testing
 // and returns it as a raw map so the e2e test can assert against JSON
 // field names without depending on Go struct definitions (insulates the
 // test from procInfoDisk evolution).
-func readDiskProcInfoForE2E(t *testing.T, baseDir, uuid string) map[string]any {
+func readDiskProcInfoForE2E(t *testing.T, projBase, uuid string) map[string]any {
 	t.Helper()
-	path := filepath.Join(baseDir, "data", "steps", uuid, "proc-info.json")
+	path := filepath.Join(projBase, "steps", uuid, "proc-info.json")
 	data, err := os.ReadFile(path)
 	if err != nil {
 		t.Fatalf("read %s: %v", path, err)

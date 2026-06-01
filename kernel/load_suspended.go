@@ -1,7 +1,6 @@
 package kernel
 
 import (
-	"fmt"
 	"log"
 	"path/filepath"
 	"slices"
@@ -25,13 +24,18 @@ import (
 //
 // Returns the number of placeholders that were inserted into procTable.
 func (k *KernelImpl) LoadSuspendedFromDisk() (int, error) {
-	if k.stepDataDir == "" {
+	if k.dataDir == "" {
 		return 0, nil
 	}
 
-	candidates, err := ListResumable(k.stepDataDir)
-	if err != nil {
-		return 0, fmt.Errorf("scan resumable: %w", err)
+	var candidates []vfs.ProcInfo
+	for _, baseDir := range AllProjectBaseDirs(k.dataDir) {
+		c, err := ListResumable(baseDir)
+		if err != nil {
+			log.Printf("[load_suspended] warn: scan %s: %v", baseDir, err)
+			continue
+		}
+		candidates = append(candidates, c...)
 	}
 
 	loaded := 0
@@ -118,36 +122,10 @@ func (k *KernelImpl) LoadSuspendedFromDisk() (int, error) {
 		}
 		proc.mu.Unlock()
 
-		// Re-attach ProjectConfig. Without this, placeholders for processes
-		// that used a project-only LLM provider (e.g. EchoMatrix's
-		// opencodego) fail their resume with "device not found:
-		// /dev/llm/<provider>" because the global VFS has no such device.
-		// resolveProjectContext (wrapped by k.projectConfigLoader) re-runs
-		// the same .env / providers.yaml / loader merge that handleSpawn
-		// performs, so the revived placeholder behaves identically to a
-		// freshly-spawned one with the same ProjectDir.
-		//
-		// projectDirCandidate resolution order:
-		//   1. info.ProjectDir from proc-info.json — set by post-Epic-44.8
-		//      spawn/suspend writes; the authoritative source.
-		//   2. Fallback: filepath.Dir(k.stepDataDir). The daemon spawned
-		//      these processes from its own cwd, and SetStepDataDir uses
-		//      filepath.Join(cwd, ".rnix"), so the parent of stepDataDir
-		//      points back at the original project root. Without this fallback
-		//      every legacy snapshot — written before project_dir persistence
-		//      landed — would be silently stuck after a daemon restart.
-		//
-		// Best-effort: a loader error degrades to "no project context", in
-		// which case the placeholder still loads but its first resume will
-		// surface the underlying error (missing device / bad providers.yaml)
-		// to the user instead of silently hanging.
+		// Re-attach ProjectConfig so project-only LLM providers are available.
 		projectDirCandidate := info.ProjectDir
-		if projectDirCandidate == "" && k.stepDataDir != "" {
-			if guessed := filepath.Dir(k.stepDataDir); guessed != "" && guessed != "." && guessed != "/" {
-				projectDirCandidate = guessed
-				log.Printf("[load_suspended] uuid=%s: project_dir missing on disk — fallback to filepath.Dir(stepDataDir) = %q",
-					info.UUID, projectDirCandidate)
-			}
+		if projectDirCandidate == "" {
+			log.Printf("[load_suspended] uuid=%s: project_dir missing in proc-info.json — skipping project context", info.UUID)
 		}
 		if projectDirCandidate != "" && k.projectConfigLoader != nil {
 			if pcfg, perr := k.projectConfigLoader(projectDirCandidate); perr != nil {
@@ -180,8 +158,8 @@ func (k *KernelImpl) LoadSuspendedFromDisk() (int, error) {
 		// re-derives PrimaryDevice from Provider. The dashboard `r` path,
 		// however, will misroute legacy placeholders into the script-runner
 		// branch until a re-resume rewrites their proc-info.json.
-		if k.stepDataDir != "" {
-			stepsDir := filepath.Join(k.stepDataDir, "data", "steps", info.UUID)
+		if baseDir := FindBaseDirByUUID(k.dataDir, info.UUID); baseDir != "" {
+			stepsDir := filepath.Join(baseDir, "steps", info.UUID)
 			if _, _, rehErr := k.rehydrateRuntimeStateFromDisk(proc, stepsDir, info.CtxSize, 0); rehErr != nil {
 				log.Printf("[load_suspended] rehydrate uuid=%s failed: %v — skipping placeholder", info.UUID, rehErr)
 				continue

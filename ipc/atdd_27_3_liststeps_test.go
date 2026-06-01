@@ -228,9 +228,9 @@ func TestATDD_27_3_AC8_ServerHandler_AllSteps(t *testing.T) {
 	proc := kernel.NewProcess(0, "list steps test", nil)
 	_ = proc.Start()
 
-	tmpDir := t.TempDir()
-	srv.kern.SetStepDataDir(tmpDir)
-	writeTestStepsUUID(t, tmpDir, proc.UUID, []types.StepRecord{
+	_, projBase := kernel.TestSetupDataDir(t, srv.kern)
+	kernel.TestSetProjectConfig(proc)
+	writeTestStepsUUID(t, projBase, proc.UUID, []types.StepRecord{
 		testStepRecord(1),
 		testStepRecord(2),
 		testStepRecord(3),
@@ -272,14 +272,14 @@ func TestATDD_27_3_AC8_ServerHandler_IncrementalFetch(t *testing.T) {
 	proc := kernel.NewProcess(0, "incremental test", nil)
 	_ = proc.Start()
 
-	tmpDir := t.TempDir()
-	srv.kern.SetStepDataDir(tmpDir)
+	_, projBase := kernel.TestSetupDataDir(t, srv.kern)
+	kernel.TestSetProjectConfig(proc)
 
 	steps := make([]types.StepRecord, 10)
 	for i := range steps {
 		steps[i] = testStepRecord(i + 1)
 	}
-	writeTestStepsUUID(t, tmpDir, proc.UUID, steps)
+	writeTestStepsUUID(t, projBase, proc.UUID, steps)
 	srv.kern.AddProcess(proc)
 
 	conn := dial(t, sockPath)
@@ -314,12 +314,12 @@ func TestATDD_27_3_AC8_ServerHandler_HasError_FromToolError(t *testing.T) {
 	proc := kernel.NewProcess(0, "error step test", nil)
 	_ = proc.Start()
 
-	tmpDir := t.TempDir()
-	srv.kern.SetStepDataDir(tmpDir)
+	_, projBase := kernel.TestSetupDataDir(t, srv.kern)
+	kernel.TestSetProjectConfig(proc)
 
 	rec := testStepRecord(1)
 	rec.ToolError = "exit status 1"
-	writeTestStepsUUID(t, tmpDir, proc.UUID, []types.StepRecord{rec})
+	writeTestStepsUUID(t, projBase, proc.UUID, []types.StepRecord{rec})
 	srv.kern.AddProcess(proc)
 
 	conn := dial(t, sockPath)
@@ -351,12 +351,12 @@ func TestATDD_27_3_AC8_ServerHandler_DurationMs(t *testing.T) {
 	proc := kernel.NewProcess(0, "duration test", nil)
 	_ = proc.Start()
 
-	tmpDir := t.TempDir()
-	srv.kern.SetStepDataDir(tmpDir)
+	_, projBase := kernel.TestSetupDataDir(t, srv.kern)
+	kernel.TestSetProjectConfig(proc)
 
 	rec := testStepRecord(1)
 	rec.ToolDuration = 1500 * time.Millisecond
-	writeTestStepsUUID(t, tmpDir, proc.UUID, []types.StepRecord{rec})
+	writeTestStepsUUID(t, projBase, proc.UUID, []types.StepRecord{rec})
 	srv.kern.AddProcess(proc)
 
 	conn := dial(t, sockPath)
@@ -385,18 +385,17 @@ func TestATDD_27_3_AC8_ServerHandler_DurationMs(t *testing.T) {
 func TestATDD_27_3_AC8_ServerHandler_ReapedProcess(t *testing.T) {
 	srv, sockPath, _ := setupTestServer(t)
 
-	tmpDir := t.TempDir()
-	srv.kern.SetStepDataDir(tmpDir)
+	_, projBase := kernel.TestSetupDataDir(t, srv.kern)
 
 	// Story 28-3: Use UUID to query reaped process (PID-only returns NOT_FOUND)
 	procUUID := "019576f5-ac08-7000-8000-ac0800000001"
 
-	uuidDir := filepath.Join(tmpDir, "data", "steps", procUUID)
+	uuidDir := filepath.Join(projBase, "steps", procUUID)
 	if err := os.MkdirAll(uuidDir, 0o755); err != nil {
 		t.Fatalf("AC-8: mkdir: %v", err)
 	}
 
-	writeTestStepsUUID(t, tmpDir, procUUID, []types.StepRecord{
+	writeTestStepsUUID(t, projBase, procUUID, []types.StepRecord{
 		testStepRecord(1),
 		testStepRecord(2),
 	})
@@ -448,9 +447,9 @@ func TestATDD_27_3_AC8_ClientMethod(t *testing.T) {
 	proc := kernel.NewProcess(0, "client list test", nil)
 	_ = proc.Start()
 
-	tmpDir := t.TempDir()
-	srv.kern.SetStepDataDir(tmpDir)
-	writeTestStepsUUID(t, tmpDir, proc.UUID, []types.StepRecord{
+	_, projBase := kernel.TestSetupDataDir(t, srv.kern)
+	kernel.TestSetProjectConfig(proc)
+	writeTestStepsUUID(t, projBase, proc.UUID, []types.StepRecord{
 		testStepRecord(1),
 		testStepRecord(2),
 		testStepRecord(3),
@@ -485,14 +484,14 @@ func TestATDD_27_3_AC8_ClientMethod_Incremental(t *testing.T) {
 	proc := kernel.NewProcess(0, "client incremental test", nil)
 	_ = proc.Start()
 
-	tmpDir := t.TempDir()
-	srv.kern.SetStepDataDir(tmpDir)
+	_, projBase := kernel.TestSetupDataDir(t, srv.kern)
+	kernel.TestSetProjectConfig(proc)
 
 	steps := make([]types.StepRecord, 5)
 	for i := range steps {
 		steps[i] = testStepRecord(i + 1)
 	}
-	writeTestStepsUUID(t, tmpDir, proc.UUID, steps)
+	writeTestStepsUUID(t, projBase, proc.UUID, steps)
 	srv.kern.AddProcess(proc)
 
 	client, err := DialTimeout(sockPath, 3*time.Second)
@@ -523,14 +522,14 @@ func TestATDD_27_3_AC8_Performance(t *testing.T) {
 	proc := kernel.NewProcess(0, "perf test", nil)
 	_ = proc.Start()
 
-	tmpDir := t.TempDir()
-	srv.kern.SetStepDataDir(tmpDir)
+	_, projBase := kernel.TestSetupDataDir(t, srv.kern)
+	kernel.TestSetProjectConfig(proc)
 
 	steps := make([]types.StepRecord, 30)
 	for i := range steps {
 		steps[i] = testStepRecord(i + 1)
 	}
-	writeTestStepsUUID(t, tmpDir, proc.UUID, steps)
+	writeTestStepsUUID(t, projBase, proc.UUID, steps)
 	srv.kern.AddProcess(proc)
 
 	client, err := DialTimeout(sockPath, 3*time.Second)

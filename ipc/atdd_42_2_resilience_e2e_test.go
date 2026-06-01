@@ -23,9 +23,9 @@ import (
 // a daemon crash (proc-info.json still says state=running because reap never
 // fired). Includes checkpoint.json so 42-1's checkpoint-priority resume path
 // is exercised.
-func writeCrashLeftover(t *testing.T, baseDir, uuid string, lastStep int) {
+func writeCrashLeftover(t *testing.T, projBase, uuid string, lastStep int) {
 	t.Helper()
-	dir := filepath.Join(baseDir, "data", "steps", uuid)
+	dir := filepath.Join(projBase, "steps", uuid)
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		t.Fatalf("mkdir: %v", err)
 	}

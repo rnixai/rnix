@@ -66,9 +66,9 @@ type ipcSuspendDiskInfo struct {
 	PausedTotalMs  int64    `json:"paused_total_ms,omitempty"`
 }
 
-func writeIPCSuspendFixture(t *testing.T, baseDir string, info ipcSuspendDiskInfo, withSteps, withMeta bool) {
+func writeIPCSuspendFixture(t *testing.T, projBase string, info ipcSuspendDiskInfo, withSteps, withMeta bool) {
 	t.Helper()
-	dir := filepath.Join(baseDir, "data", "steps", info.UUID)
+	dir := filepath.Join(projBase, "steps", info.UUID)
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		t.Fatalf("mkdir: %v", err)
 	}
@@ -125,11 +125,10 @@ func uuidIPCForTest(tag string) string {
 // resumeFromHistory, which succeeds.
 func TestATDD_44_3_040_ResumeAfterRestart_FallbackToHistoryWhenNoCheckpoint(t *testing.T) {
 	srv, _, _ := setupTestServer(t)
-	tmpDir := t.TempDir()
-	srv.kern.SetStepDataDir(tmpDir)
+	_, projBase := kernel.TestSetupDataDir(t, srv.kern)
 
 	uuid := uuidIPCForTest("rar040")
-	writeIPCSuspendFixture(t, tmpDir, ipcSuspendDiskInfo{
+	writeIPCSuspendFixture(t, projBase, ipcSuspendDiskInfo{
 		PID:           42,
 		UUID:          uuid,
 		State:         "suspended",
@@ -181,13 +180,12 @@ func TestATDD_44_3_040_ResumeAfterRestart_FallbackToHistoryWhenNoCheckpoint(t *t
 // the child transitions to Running.
 func TestATDD_44_3_041_ResumeAfterRestart_TriggersSubtreeResume(t *testing.T) {
 	srv, _, _ := setupTestServer(t)
-	tmpDir := t.TempDir()
-	srv.kern.SetStepDataDir(tmpDir)
+	_, projBase := kernel.TestSetupDataDir(t, srv.kern)
 
 	parentUUID := uuidIPCForTest("par041")
 	childUUID := uuidIPCForTest("chl041")
 
-	writeIPCSuspendFixture(t, tmpDir, ipcSuspendDiskInfo{
+	writeIPCSuspendFixture(t, projBase, ipcSuspendDiskInfo{
 		PID:           50,
 		UUID:          parentUUID,
 		State:         "suspended",
@@ -200,7 +198,7 @@ func TestATDD_44_3_041_ResumeAfterRestart_TriggersSubtreeResume(t *testing.T) {
 		SuspendReason: "user_paused",
 		IsPaused:      true,
 	}, true, true)
-	writeIPCSuspendFixture(t, tmpDir, ipcSuspendDiskInfo{
+	writeIPCSuspendFixture(t, projBase, ipcSuspendDiskInfo{
 		PID:           51,
 		UUID:          childUUID,
 		PPID:          50,

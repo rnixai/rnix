@@ -109,12 +109,12 @@ func (s *Server) handleCtxProfileFromDisk(conn net.Conn, pid types.PID, uuid str
 		writeResponse(conn, Response{OK: false, Error: &ErrorPayload{Code: "NOT_FOUND", Message: "process not found"}})
 		return
 	}
-	baseDir := s.kern.GetStepDataDir()
+	baseDir := kernel.FindBaseDirByUUID(s.kern.GetDataDir(), uuid)
 	if baseDir == "" {
-		writeResponse(conn, Response{OK: false, Error: &ErrorPayload{Code: "NOT_FOUND", Message: "no step data dir"}})
+		writeResponse(conn, Response{OK: false, Error: &ErrorPayload{Code: "NOT_FOUND", Message: "no data found for UUID"}})
 		return
 	}
-	path := filepath.Join(baseDir, "data", "steps", uuid, "ctx-profile.json")
+	path := filepath.Join(baseDir, "steps", uuid, "ctx-profile.json")
 	data, err := os.ReadFile(path)
 	if err != nil {
 		writeResponse(conn, Response{OK: false, Error: &ErrorPayload{Code: "NOT_FOUND", Message: "context profile not available"}})
@@ -438,11 +438,11 @@ func (s *Server) resolveEventsPath(uuid string) string {
 	if uuid == "" || !isValidUUID(uuid) {
 		return ""
 	}
-	baseDir := s.kern.GetStepDataDir()
+	baseDir := kernel.FindBaseDirByUUID(s.kern.GetDataDir(), uuid)
 	if baseDir == "" {
 		return ""
 	}
-	path := filepath.Join(baseDir, "data", "steps", uuid, "events.jsonl")
+	path := filepath.Join(baseDir, "steps", uuid, "events.jsonl")
 	if _, err := os.Stat(path); err != nil {
 		return ""
 	}

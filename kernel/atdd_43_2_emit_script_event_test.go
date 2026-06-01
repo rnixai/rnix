@@ -81,7 +81,7 @@ func TestKernel_EmitScriptEvent_WritesToDisk(t *testing.T) {
 		t.Fatalf("Flush: %v", err)
 	}
 
-	path := filepath.Join(baseDir, "data", "steps", proc.UUID, "events.jsonl")
+	path := filepath.Join(baseDir, "steps", proc.UUID, "events.jsonl")
 	if _, err := os.Stat(path); err != nil {
 		t.Fatalf("events.jsonl not created at %s: %v", path, err)
 	}

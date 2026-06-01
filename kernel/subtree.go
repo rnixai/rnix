@@ -313,7 +313,7 @@ func (k *KernelImpl) resumeOneForSubtree(proc *Process) error {
 	// Process.Unsuspend() to keep the Process → Kernel one-way dependency
 	// intact (策略 A from Story 44.3 §Tasks/2.2). Best-effort.
 	if info, ierr := k.GetProcInfo(proc.PID); ierr == nil && info != nil {
-		if perr := SaveProcInfo(k.stepDataDir, *info); perr != nil {
+		if perr := SaveProcInfo(k.ResolveStepBaseDir(proc), *info); perr != nil {
 			log.Printf("[subtree] proc-info.json write error pid=%d uuid=%s: %v",
 				proc.PID, proc.UUID, perr)
 		}

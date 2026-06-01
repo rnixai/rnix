@@ -77,7 +77,7 @@ func (k *KernelImpl) reapProcess(proc *Process) {
 		// Both reap and suspendProcess now share writeProcessMeta so the
 		// invariant "every UUID with proc-info.json on disk has a sibling
 		// process-meta.json" holds.
-		writeProcessMetaBestEffort(k.stepDataDir, proc, "reap")
+		writeProcessMetaBestEffort(k.ResolveStepBaseDir(proc), proc, "reap")
 		if sw != nil {
 			if err := sw.Close(); err != nil {
 				log.Printf("[step_writer] close error pid=%d: %v", proc.PID, err)
@@ -142,10 +142,7 @@ func (k *KernelImpl) reapProcess(proc *Process) {
 		proc.ClearCoroutines()
 
 		// Resolve base directory for persistence (used by steps 8.5 and 12)
-		baseDir := k.stepDataDir
-		if baseDir == "" && proc.ProjectConfig != nil && proc.ProjectConfig.ProjectDir != "" {
-			baseDir = filepath.Join(proc.ProjectConfig.ProjectDir, ".rnix")
-		}
+		baseDir := k.ResolveStepBaseDir(proc)
 
 		// 8.5 Snapshot context profile before freeing (for dead process heatmap)
 		if k.ctxMgr != nil && proc.CtxID > 0 {
@@ -433,14 +430,11 @@ func (k *KernelImpl) cleanupExpiredDead(ttl time.Duration) {
 		if info, err := k.GetProcInfo(pid); err == nil {
 			k.procHistory.Add(*info)
 			// Best-effort persist (safety net if reapProcess didn't write it)
-			baseDir := k.stepDataDir
-			if baseDir == "" {
-				if proc, ok := k.GetProcess(pid); ok && proc.ProjectConfig != nil && proc.ProjectConfig.ProjectDir != "" {
-					baseDir = filepath.Join(proc.ProjectConfig.ProjectDir, ".rnix")
+			if proc, ok := k.GetProcess(pid); ok {
+				baseDir := k.ResolveStepBaseDir(proc)
+				if err := SaveProcInfo(baseDir, *info); err != nil {
+					log.Printf("[reaper] proc-info.json write error pid=%d: %v", pid, err)
 				}
-			}
-			if err := SaveProcInfo(baseDir, *info); err != nil {
-				log.Printf("[reaper] proc-info.json write error pid=%d: %v", pid, err)
 			}
 		}
 		k.RemoveProcess(pid)
@@ -449,14 +443,11 @@ func (k *KernelImpl) cleanupExpiredDead(ttl time.Duration) {
 
 // resolveStepsDir returns the .rnix/data/steps/<uuid>/ directory for a process.
 func (k *KernelImpl) resolveStepsDir(proc *Process) string {
-	baseDir := k.stepDataDir
-	if baseDir == "" && proc.ProjectConfig != nil && proc.ProjectConfig.ProjectDir != "" {
-		baseDir = filepath.Join(proc.ProjectConfig.ProjectDir, ".rnix")
-	}
+	baseDir := k.ResolveStepBaseDir(proc)
 	if baseDir == "" || proc.UUID == "" {
 		return ""
 	}
-	return filepath.Join(baseDir, "data", "steps", proc.UUID)
+	return filepath.Join(baseDir, "steps", proc.UUID)
 }
 
 // saveCtxProfile snapshots the context profile to disk before CtxFree.
@@ -483,7 +474,7 @@ func (k *KernelImpl) saveCtxProfile(proc *Process, baseDir string) {
 	if err != nil {
 		return
 	}
-	dir := filepath.Join(baseDir, "data", "steps", proc.UUID)
+	dir := filepath.Join(baseDir, "steps", proc.UUID)
 	_ = os.MkdirAll(dir, 0o755)
 	if err := os.WriteFile(filepath.Join(dir, "ctx-profile.json"), data, 0o644); err != nil {
 		log.Printf("[reaper] ctx-profile.json write error pid=%d: %v", proc.PID, err)
@@ -563,10 +554,7 @@ func (k *KernelImpl) Shutdown() {
 	// This catches Running/Created processes that were cancelled above but whose
 	// reapProcess never ran because the reaper was already stopped.
 	k.procTable.Range(func(pid types.PID, proc *Process) bool {
-		baseDir := k.stepDataDir
-		if baseDir == "" && proc.ProjectConfig != nil && proc.ProjectConfig.ProjectDir != "" {
-			baseDir = filepath.Join(proc.ProjectConfig.ProjectDir, ".rnix")
-		}
+		baseDir := k.ResolveStepBaseDir(proc)
 		if baseDir == "" {
 			return true
 		}

@@ -24,7 +24,7 @@ type PersistentMessage struct {
 
 // ipcPersistDir returns the directory path for IPC persistence files.
 func ipcPersistDir(baseDir, uuid string) string {
-	return filepath.Join(baseDir, "data", "ipc", uuid)
+	return filepath.Join(baseDir, "ipc", uuid)
 }
 
 // enablePersistence sets up NDJSON append-mode file for the message queue.

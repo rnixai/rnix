@@ -54,9 +54,9 @@ func TestHandleGetStepDetail_ContainsProviderAndDriverType_LiveProcess(t *testin
 	proc.Model = "claude-sonnet-4-6"
 	proc.SetFinalSystemPrompt("You are an Anthropic agent.")
 
-	tmpDir := t.TempDir()
-	srv.kern.SetStepDataDir(tmpDir)
-	writeTestStepsUUID(t, tmpDir, proc.UUID, []types.StepRecord{testStepRecord(1)})
+	_, projBase := kernel.TestSetupDataDir(t, srv.kern)
+	kernel.TestSetProjectConfig(proc)
+	writeTestStepsUUID(t, projBase, proc.UUID, []types.StepRecord{testStepRecord(1)})
 	srv.kern.AddProcess(proc)
 
 	conn := dial(t, sockPath)
@@ -82,14 +82,13 @@ func TestHandleGetStepDetail_ContainsProviderAndDriverType_ReapedProcess(t *test
 	setProviderConfigForTest(srv)
 
 	// Create a reaped process: history entry only, not in proc table.
-	tmpDir := t.TempDir()
-	srv.kern.SetStepDataDir(tmpDir)
+	_, projBase := kernel.TestSetupDataDir(t, srv.kern)
 	reapedUUID := "00000000-0000-7000-0000-deadbeef0042"
 	pid := types.PID(54321)
-	writeTestStepsUUID(t, tmpDir, reapedUUID, []types.StepRecord{testStepRecord(1)})
+	writeTestStepsUUID(t, projBase, reapedUUID, []types.StepRecord{testStepRecord(1)})
 
 	// Persist process-meta.json so handleGetStepDetail can read SystemPrompt.
-	metaDir := filepath.Join(tmpDir, "data", "steps", reapedUUID)
+	metaDir := filepath.Join(projBase, "steps", reapedUUID)
 	if err := os.MkdirAll(metaDir, 0o755); err != nil {
 		t.Fatalf("mkdir meta: %v", err)
 	}
@@ -111,7 +110,7 @@ func TestHandleGetStepDetail_ContainsProviderAndDriverType_ReapedProcess(t *test
 		CreatedAt: time.Now().Add(-1 * time.Minute),
 		DeadAt:    time.Now(),
 	}
-	if err := kernel.SaveProcInfo(tmpDir, procInfo); err != nil {
+	if err := kernel.SaveProcInfo(projBase, procInfo); err != nil {
 		t.Fatalf("SaveProcInfo: %v", err)
 	}
 	if err := srv.kern.LoadHistory(); err != nil {
@@ -146,9 +145,9 @@ func TestHandleGetStepDetail_ProviderEmpty_WhenNotConfigured(t *testing.T) {
 	// Provider 留空模拟极旧进程数据
 	proc.SetFinalSystemPrompt("hi")
 
-	tmpDir := t.TempDir()
-	srv.kern.SetStepDataDir(tmpDir)
-	writeTestStepsUUID(t, tmpDir, proc.UUID, []types.StepRecord{testStepRecord(1)})
+	_, projBase := kernel.TestSetupDataDir(t, srv.kern)
+	kernel.TestSetProjectConfig(proc)
+	writeTestStepsUUID(t, projBase, proc.UUID, []types.StepRecord{testStepRecord(1)})
 	srv.kern.AddProcess(proc)
 
 	conn := dial(t, sockPath)

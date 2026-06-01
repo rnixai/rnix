@@ -67,23 +67,27 @@ func (k *KernelImpl) FindHistoryByUUID(uuid string) *vfs.ProcInfo {
 	return k.procHistory.FindByUUID(uuid)
 }
 
-// LoadHistory loads process history from disk into the in-memory ring buffer.
+// LoadHistory loads process history from all per-project data directories
+// into the in-memory ring buffer.
 func (k *KernelImpl) LoadHistory() error {
-	if k.stepDataDir == "" {
+	if k.dataDir == "" {
 		return nil
 	}
-	history, err := LoadProcHistory(k.stepDataDir, 1000)
-	if err != nil {
-		return err
+	merged := NewProcessHistory(1000)
+	for _, baseDir := range AllProjectBaseDirs(k.dataDir) {
+		h, err := LoadProcHistory(baseDir, 1000)
+		if err != nil {
+			log.Printf("[history] warn: load %s: %v", baseDir, err)
+			continue
+		}
+		for _, info := range h.List() {
+			merged.Add(info)
+		}
+		if removed, rerr := LoadGcRemovedUUIDs(baseDir); rerr == nil {
+			merged.SeedRemovedUUIDs(removed)
+		}
 	}
-	// Seed removedUUIDs from .gc-removed.json so HasEverSeen stays correct
-	// across daemon restarts (Story 42.5 AC#6, review Decision #2).
-	if removed, rerr := LoadGcRemovedUUIDs(k.stepDataDir); rerr == nil {
-		history.SeedRemovedUUIDs(removed)
-	} else {
-		log.Printf("[history] warn: load gc-removed: %v", rerr)
-	}
-	k.procHistory = history
+	k.procHistory = merged
 	return nil
 }
 
@@ -98,9 +102,14 @@ func (k *KernelImpl) LoadHistory() error {
 //   - Exclude: disk entries whose live process is in Running state (the live
 //     process IS the resumed session; no parallel resume permitted).
 func (k *KernelImpl) ListResumable() ([]vfs.ProcInfo, error) {
-	candidates, err := ListResumable(k.stepDataDir)
-	if err != nil {
-		return nil, err
+	var candidates []vfs.ProcInfo
+	for _, baseDir := range AllProjectBaseDirs(k.dataDir) {
+		c, err := ListResumable(baseDir)
+		if err != nil {
+			log.Printf("[resumable] warn: scan %s: %v", baseDir, err)
+			continue
+		}
+		candidates = append(candidates, c...)
 	}
 	out := make([]vfs.ProcInfo, 0, len(candidates))
 	for _, c := range candidates {

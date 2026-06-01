@@ -40,6 +40,7 @@ import (
 func TestATDD_44_3_020_SuspendSubtree_PersistsSuspendReason(t *testing.T) {
 	k, dataDir := newReloadKernel(t)
 	proc := makeRunningProc44_1(t, k, 0, "AC#2 suspend persist")
+	TestSetProjectConfig(proc)
 
 	affected, err := k.SuspendSubtree(proc.PID)
 	if err != nil {
@@ -77,6 +78,7 @@ func TestATDD_44_3_021_ResumeSubtree_PersistsRunningState(t *testing.T) {
 	// SuspendSubtree to write the initial Suspended snapshot (AC#2-a above)
 	// then assert ResumeSubtree overwrites it.
 	proc := makeRunningProc44_1(t, k, 0, "AC#2 resume persist")
+	TestSetProjectConfig(proc)
 	if _, err := k.SuspendSubtree(proc.PID); err != nil {
 		t.Fatalf("SuspendSubtree: %v", err)
 	}
@@ -124,8 +126,9 @@ func TestATDD_44_3_022_SuspendProcess_BestEffortSurvivesDirError(t *testing.T) {
 	}
 	k, _ := newReloadKernel(t)
 	proc := makeRunningProc44_1(t, k, 0, "AC#2 best-effort")
+	TestSetProjectConfig(proc)
 
-	// Point stepDataDir at a child of a read-only (0o500) directory so
+	// Point dataDir at a child of a read-only (0o500) directory so
 	// SaveProcInfo's MkdirAll fails deterministically with EACCES. Using a
 	// chmod'd TempDir rather than /sys avoids the previous no-op degradation
 	// on sandboxes where /sys happens to be writable.
@@ -135,7 +138,7 @@ func TestATDD_44_3_022_SuspendProcess_BestEffortSurvivesDirError(t *testing.T) {
 	}
 	// Restore writable perms so t.TempDir cleanup can remove the tree.
 	t.Cleanup(func() { _ = os.Chmod(roDir, 0o700) })
-	k.SetStepDataDir(filepath.Join(roDir, "stepdata"))
+	k.SetDataDir(filepath.Join(roDir, "stepdata"))
 
 	_, err := k.SuspendSubtree(proc.PID)
 	if err != nil {

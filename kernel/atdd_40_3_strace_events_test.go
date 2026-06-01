@@ -48,7 +48,7 @@ func newDriverMetaTestKernel(t *testing.T) (*KernelImpl, *Process, string) {
 
 	baseDir := t.TempDir()
 	k := NewKernel(v, ctxMgr, nil)
-	k.stepDataDir = baseDir
+	k.dataDir = baseDir
 	t.Cleanup(k.Shutdown)
 
 	pid, err := k.Spawn("test driver meta events", nil, SpawnOpts{
@@ -90,7 +90,7 @@ func newDriverMetaTestKernelWithMeta(t *testing.T, meta map[string]string) (*Ker
 
 	baseDir := t.TempDir()
 	k := NewKernel(v, ctxMgr, nil)
-	k.stepDataDir = baseDir
+	k.dataDir = baseDir
 	t.Cleanup(k.Shutdown)
 
 	pid, err := k.Spawn("test driver meta events", nil, SpawnOpts{
@@ -154,7 +154,7 @@ func TestATDD_40_3_AC2_Spawn_EmitsResolveEvent(t *testing.T) {
 		_ = proc.eventWriter.Flush()
 	}
 
-	eventsPath := filepath.Join(baseDir, "data", "steps", proc.UUID, "events.jsonl")
+	eventsPath := filepath.Join(baseDir, "steps", proc.UUID, "events.jsonl")
 	if _, err := os.Stat(eventsPath); err != nil {
 		t.Fatalf("events.jsonl not created: %v", err)
 	}
@@ -210,7 +210,7 @@ func TestATDD_40_3_AC3_Spawn_EmitsCapabilitiesEvent(t *testing.T) {
 		_ = proc.eventWriter.Flush()
 	}
 
-	eventsPath := filepath.Join(baseDir, "data", "steps", proc.UUID, "events.jsonl")
+	eventsPath := filepath.Join(baseDir, "steps", proc.UUID, "events.jsonl")
 	if _, err := os.Stat(eventsPath); err != nil {
 		t.Fatalf("events.jsonl not created: %v", err)
 	}
@@ -249,7 +249,7 @@ func TestATDD_40_3_AC1_NonClaudeDriver_NoDriverEvents(t *testing.T) {
 		_ = proc.eventWriter.Flush()
 	}
 
-	eventsPath := filepath.Join(baseDir, "data", "steps", proc.UUID, "events.jsonl")
+	eventsPath := filepath.Join(baseDir, "steps", proc.UUID, "events.jsonl")
 	if _, err := os.Stat(eventsPath); err != nil {
 		return
 	}

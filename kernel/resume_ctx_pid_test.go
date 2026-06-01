@@ -124,7 +124,7 @@ func TestSubtreeResume_ProcCtxCarriesPID(t *testing.T) {
 	// here is racy and orthogonal to the ctx-PID invariant under test.
 
 	// resumeOneForSubtree launched a reasonStep goroutine that writes events to
-	// k.stepDataDir; wait for it to terminate before t.Cleanup unbinds the
+	// k.dataDir; wait for it to terminate before t.Cleanup unbinds the
 	// TempDir, otherwise RemoveAll races with the goroutine's writes and
 	// surfaces as "directory not empty" under -race.
 	cleanupResumedProc(t, k, proc.PID)

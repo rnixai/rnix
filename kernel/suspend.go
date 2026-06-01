@@ -3,7 +3,6 @@ package kernel
 import (
 	"fmt"
 	"log"
-	"path/filepath"
 	"time"
 
 	"github.com/rnixai/rnix/internal/types"
@@ -88,8 +87,9 @@ func (k *KernelImpl) suspendProcess(proc *Process, reason string, exitCode int) 
 	// daemon restart. Best-effort: a write failure must NOT block the state
 	// transition (44.1 dashboard p / Ctrl+C hot path). Mirrors the
 	// reapSuspendedProcess SaveProcInfo block.
+	baseDir := k.ResolveStepBaseDir(proc)
 	if info, ierr := k.GetProcInfo(proc.PID); ierr == nil && info != nil {
-		if perr := SaveProcInfo(k.stepDataDir, *info); perr != nil {
+		if perr := SaveProcInfo(baseDir, *info); perr != nil {
 			log.Printf("[suspend] proc-info.json write error pid=%d uuid=%s: %v",
 				proc.PID, proc.UUID, perr)
 		}
@@ -103,7 +103,7 @@ func (k *KernelImpl) suspendProcess(proc *Process, reason string, exitCode int) 
 	// silently skip the placeholder ("process-meta.json missing"). Same
 	// best-effort contract as SaveProcInfo above: log on failure, do not
 	// block the state transition.
-	writeProcessMetaBestEffort(k.stepDataDir, proc, "suspend")
+	writeProcessMetaBestEffort(baseDir, proc, "suspend")
 
 	// Notify callbacks
 	if k.callbacks != nil {
@@ -233,10 +233,7 @@ func (k *KernelImpl) reapSuspendedProcess(proc *Process) {
 		}
 
 		// Persist proc-info for history
-		baseDir := k.stepDataDir
-		if baseDir == "" && proc.ProjectConfig != nil && proc.ProjectConfig.ProjectDir != "" {
-			baseDir = filepath.Join(proc.ProjectConfig.ProjectDir, ".rnix")
-		}
+		baseDir := k.ResolveStepBaseDir(proc)
 		if info, err := k.GetProcInfo(proc.PID); err == nil {
 			if err := SaveProcInfo(baseDir, *info); err != nil {
 				log.Printf("[reaper] proc-info.json write error pid=%d: %v", proc.PID, err)

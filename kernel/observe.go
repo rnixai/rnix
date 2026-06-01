@@ -54,7 +54,7 @@ func (k *KernelImpl) emitEvent(proc *Process, syscall string, args map[string]an
 	// Persist syscall event to disk (always-on)
 	if ew != nil {
 		_ = ew.WriteEvent(event)
-	} else if k.stepDataDir != "" && shouldWarnEventDrop(proc) && proc.eventDropWarned.CompareAndSwap(false, true) {
+	} else if k.dataDir != "" && shouldWarnEventDrop(proc) && proc.eventDropWarned.CompareAndSwap(false, true) {
 		// First-time warning per process that we are dropping disk events.
 		// This is the breadcrumb that would have saved hours during Epic 44
 		// follow-up debugging — before this line, a placeholder revived by

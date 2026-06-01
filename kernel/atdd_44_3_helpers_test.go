@@ -40,9 +40,8 @@ import (
 func newReloadKernel(t *testing.T) (*KernelImpl, string) {
 	t.Helper()
 	k := newSimpleKernel(t)
-	dataDir := t.TempDir()
-	k.SetStepDataDir(dataDir)
-	return k, dataDir
+	_, projBase := TestSetupDataDir(t, k)
+	return k, projBase
 }
 
 // suspendDiskInfo describes the JSON we want a synthetic .rnix/data/steps/
@@ -87,7 +86,7 @@ func writeSuspendProcInfoFixture(t *testing.T, baseDir string, info suspendDiskI
 	if info.UUID == "" {
 		t.Fatal("writeSuspendProcInfoFixture: empty UUID")
 	}
-	dir := filepath.Join(baseDir, "data", "steps", info.UUID)
+	dir := filepath.Join(baseDir, "steps", info.UUID)
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		t.Fatalf("mkdir %s: %v", dir, err)
 	}
@@ -129,7 +128,7 @@ func writeSuspendProcInfoFixture(t *testing.T, baseDir string, info suspendDiskI
 // — different return type, different purpose.
 func readProcInfoFromDisk44_3(t *testing.T, baseDir, uuid string) map[string]any {
 	t.Helper()
-	path := filepath.Join(baseDir, "data", "steps", uuid, "proc-info.json")
+	path := filepath.Join(baseDir, "steps", uuid, "proc-info.json")
 	data, err := os.ReadFile(path)
 	if err != nil {
 		t.Fatalf("read %s: %v", path, err)

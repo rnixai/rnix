@@ -1,8 +1,12 @@
 package config
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"os"
 	"path/filepath"
+	"regexp"
+	"strings"
 )
 
 // GlobalDir returns the global configuration directory path.
@@ -74,4 +78,57 @@ func ResolvePath(scope Scope, projectDir, filename string) string {
 // For ScopeProject, it resolves under <projectDir>/.rnix/.
 func ResolveDir(scope Scope, projectDir, dirname string) string {
 	return ResolvePath(scope, projectDir, dirname)
+}
+
+// DataDir returns the global data directory for rnix session data.
+// Resolution order: RNIX_DATA_DIR > XDG_DATA_HOME/rnix > ~/.local/share/rnix.
+func DataDir() (string, error) {
+	if v := os.Getenv("RNIX_DATA_DIR"); v != "" {
+		return v, nil
+	}
+	if xdg := os.Getenv("XDG_DATA_HOME"); xdg != "" {
+		return filepath.Join(xdg, "rnix"), nil
+	}
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(home, ".local", "share", "rnix"), nil
+}
+
+var unsafeChars = regexp.MustCompile(`[^a-zA-Z0-9._-]`)
+var multiDash = regexp.MustCompile(`-{2,}`)
+
+// SanitizeBasename converts an arbitrary directory name into a safe filesystem
+// component. Only ASCII alphanumeric, dot, underscore, and hyphen survive;
+// everything else (spaces, CJK, symbols) is replaced with a hyphen.
+func SanitizeBasename(name string) string {
+	s := unsafeChars.ReplaceAllString(name, "-")
+	s = multiDash.ReplaceAllString(s, "-")
+	s = strings.Trim(s, "-.")
+	if len(s) > 50 {
+		s = s[:50]
+		s = strings.TrimRight(s, "-.")
+	}
+	if s == "" {
+		return "project"
+	}
+	return s
+}
+
+// ProjectDataID computes a deterministic, human-readable directory name for a
+// project's data storage: <sanitized-basename>-<hash8>.
+func ProjectDataID(projectPath string) string {
+	base := SanitizeBasename(filepath.Base(projectPath))
+	hash := sha256.Sum256([]byte(projectPath))
+	return base + "-" + hex.EncodeToString(hash[:4])
+}
+
+// ProjectDataDir returns the per-project data directory under dataDir.
+// Returns "" when projectPath is empty (no project = no data storage).
+func ProjectDataDir(dataDir, projectPath string) string {
+	if dataDir == "" || projectPath == "" {
+		return ""
+	}
+	return filepath.Join(dataDir, "projects", ProjectDataID(projectPath))
 }

@@ -22,6 +22,7 @@ import (
 	"time"
 
 	rnixctx "github.com/rnixai/rnix/context"
+	"github.com/rnixai/rnix/internal/config"
 	"github.com/rnixai/rnix/internal/types"
 	"github.com/rnixai/rnix/vfs"
 )
@@ -31,8 +32,6 @@ import (
 // ---------------------------------------------------------------------------
 
 func TestATDD28_2_AC1_Integration_StepDir_UsesUUID(t *testing.T) {
-	baseDir := t.TempDir()
-
 	reg := vfs.NewDeviceRegistry()
 	seqFile := &sequenceLLMFile{
 		responses: [][]byte{
@@ -48,9 +47,11 @@ func TestATDD28_2_AC1_Integration_StepDir_UsesUUID(t *testing.T) {
 	k := NewKernel(v, ctxMgr, nil)
 	defer k.Shutdown()
 
-	k.SetStepDataDir(baseDir)
+	_, projBaseDir := TestSetupDataDir(t, k)
 
-	pid, err := k.Spawn("uuid dir test", nil, SpawnOpts{})
+	pid, err := k.Spawn("uuid dir test", nil, SpawnOpts{
+		ProjectConfig: &config.ProjectConfig{ProjectDir: testProjectDir},
+	})
 	if err != nil {
 		t.Fatalf("Spawn: %v", err)
 	}
@@ -65,21 +66,19 @@ func TestATDD28_2_AC1_Integration_StepDir_UsesUUID(t *testing.T) {
 		t.Fatal("timeout")
 	}
 
-	// AC-1: steps.jsonl should be under data/steps/<uuid>/ NOT data/steps/<pid>/
-	uuidPath := filepath.Join(baseDir, "data", "steps", proc.UUID, "steps.jsonl")
+	// AC-1: steps.jsonl should be under steps/<uuid>/ NOT steps/<pid>/
+	uuidPath := filepath.Join(projBaseDir, "steps", proc.UUID, "steps.jsonl")
 	if _, err := os.Stat(uuidPath); err != nil {
 		t.Fatalf("AC-1: UUID path %q should exist: %v", uuidPath, err)
 	}
 
-	pidPath := filepath.Join(baseDir, "data", "steps", fmt.Sprintf("%d", pid), "steps.jsonl")
+	pidPath := filepath.Join(projBaseDir, "steps", fmt.Sprintf("%d", pid), "steps.jsonl")
 	if _, err := os.Stat(pidPath); err == nil {
 		t.Fatalf("AC-1: PID path %q should NOT exist after UUID migration", pidPath)
 	}
 }
 
 func TestATDD28_2_AC1_StepDir_FileName_StillStepsJSONL(t *testing.T) {
-	baseDir := t.TempDir()
-
 	reg := vfs.NewDeviceRegistry()
 	seqFile := &sequenceLLMFile{
 		responses: [][]byte{
@@ -99,9 +98,11 @@ func TestATDD28_2_AC1_StepDir_FileName_StillStepsJSONL(t *testing.T) {
 	k := NewKernel(v, ctxMgr, nil)
 	defer k.Shutdown()
 
-	k.SetStepDataDir(baseDir)
+	_, projBaseDir := TestSetupDataDir(t, k)
 
-	pid, err := k.Spawn("filename test", nil, SpawnOpts{})
+	pid, err := k.Spawn("filename test", nil, SpawnOpts{
+		ProjectConfig: &config.ProjectConfig{ProjectDir: testProjectDir},
+	})
 	if err != nil {
 		t.Fatalf("Spawn: %v", err)
 	}
@@ -116,7 +117,7 @@ func TestATDD28_2_AC1_StepDir_FileName_StillStepsJSONL(t *testing.T) {
 		t.Fatal("timeout")
 	}
 
-	uuidDir := filepath.Join(baseDir, "data", "steps", proc.UUID)
+	uuidDir := filepath.Join(projBaseDir, "steps", proc.UUID)
 	entries, err := os.ReadDir(uuidDir)
 	if err != nil {
 		t.Fatalf("AC-1: ReadDir UUID dir: %v", err)
@@ -133,8 +134,6 @@ func TestATDD28_2_AC1_StepDir_FileName_StillStepsJSONL(t *testing.T) {
 }
 
 func TestATDD28_2_AC1_StepRecords_Readable_AtUUIDPath(t *testing.T) {
-	baseDir := t.TempDir()
-
 	reg := vfs.NewDeviceRegistry()
 	seqFile := &sequenceLLMFile{
 		responses: [][]byte{
@@ -154,9 +153,11 @@ func TestATDD28_2_AC1_StepRecords_Readable_AtUUIDPath(t *testing.T) {
 	k := NewKernel(v, ctxMgr, nil)
 	defer k.Shutdown()
 
-	k.SetStepDataDir(baseDir)
+	_, projBaseDir := TestSetupDataDir(t, k)
 
-	pid, err := k.Spawn("uuid read test", nil, SpawnOpts{})
+	pid, err := k.Spawn("uuid read test", nil, SpawnOpts{
+		ProjectConfig: &config.ProjectConfig{ProjectDir: testProjectDir},
+	})
 	if err != nil {
 		t.Fatalf("Spawn: %v", err)
 	}
@@ -171,7 +172,7 @@ func TestATDD28_2_AC1_StepRecords_Readable_AtUUIDPath(t *testing.T) {
 		t.Fatal("timeout")
 	}
 
-	stepsFile := filepath.Join(baseDir, "data", "steps", proc.UUID, "steps.jsonl")
+	stepsFile := filepath.Join(projBaseDir, "steps", proc.UUID, "steps.jsonl")
 	rec, err := ReadStep(stepsFile, 1)
 	if err != nil {
 		t.Fatalf("AC-1: ReadStep from UUID path: %v", err)
@@ -189,8 +190,6 @@ func TestATDD28_2_AC1_StepRecords_Readable_AtUUIDPath(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 func TestATDD28_2_AC2_ProcessMeta_AtUUIDPath(t *testing.T) {
-	baseDir := t.TempDir()
-
 	reg := vfs.NewDeviceRegistry()
 	seqFile := &sequenceLLMFile{
 		responses: [][]byte{
@@ -206,9 +205,11 @@ func TestATDD28_2_AC2_ProcessMeta_AtUUIDPath(t *testing.T) {
 	k := NewKernel(v, ctxMgr, nil)
 	defer k.Shutdown()
 
-	k.SetStepDataDir(baseDir)
+	_, projBaseDir := TestSetupDataDir(t, k)
 
-	pid, err := k.Spawn("meta uuid path test", nil, SpawnOpts{})
+	pid, err := k.Spawn("meta uuid path test", nil, SpawnOpts{
+		ProjectConfig: &config.ProjectConfig{ProjectDir: testProjectDir},
+	})
 	if err != nil {
 		t.Fatalf("Spawn: %v", err)
 	}
@@ -222,7 +223,7 @@ func TestATDD28_2_AC2_ProcessMeta_AtUUIDPath(t *testing.T) {
 		t.Fatalf("exit code %d: %s", exit.Code, exit.Reason)
 	}
 
-	metaFile := filepath.Join(baseDir, "data", "steps", proc.UUID, "process-meta.json")
+	metaFile := filepath.Join(projBaseDir, "steps", proc.UUID, "process-meta.json")
 	data, err := os.ReadFile(metaFile)
 	if err != nil {
 		t.Fatalf("AC-2: process-meta.json not found at UUID path %q: %v", metaFile, err)
@@ -233,8 +234,6 @@ func TestATDD28_2_AC2_ProcessMeta_AtUUIDPath(t *testing.T) {
 }
 
 func TestATDD28_2_AC2_ProcessMeta_ContainsPIDField(t *testing.T) {
-	baseDir := t.TempDir()
-
 	reg := vfs.NewDeviceRegistry()
 	seqFile := &sequenceLLMFile{
 		responses: [][]byte{
@@ -250,9 +249,11 @@ func TestATDD28_2_AC2_ProcessMeta_ContainsPIDField(t *testing.T) {
 	k := NewKernel(v, ctxMgr, nil)
 	defer k.Shutdown()
 
-	k.SetStepDataDir(baseDir)
+	_, projBaseDir := TestSetupDataDir(t, k)
 
-	pid, err := k.Spawn("pid field test", nil, SpawnOpts{})
+	pid, err := k.Spawn("pid field test", nil, SpawnOpts{
+		ProjectConfig: &config.ProjectConfig{ProjectDir: testProjectDir},
+	})
 	if err != nil {
 		t.Fatalf("Spawn: %v", err)
 	}
@@ -267,11 +268,11 @@ func TestATDD28_2_AC2_ProcessMeta_ContainsPIDField(t *testing.T) {
 	}
 
 	// Read from UUID path (AC-1 establishes this); fallback to PID path for current code
-	metaPath := filepath.Join(baseDir, "data", "steps", proc.UUID, "process-meta.json")
+	metaPath := filepath.Join(projBaseDir, "steps", proc.UUID, "process-meta.json")
 	data, err := os.ReadFile(metaPath)
 	if err != nil {
 		// Fallback: try PID path (current behavior) — test still fails on PID field assertion
-		metaPath = filepath.Join(baseDir, "data", "steps", fmt.Sprintf("%d", pid), "process-meta.json")
+		metaPath = filepath.Join(projBaseDir, "steps", fmt.Sprintf("%d", pid), "process-meta.json")
 		data, err = os.ReadFile(metaPath)
 		if err != nil {
 			t.Fatalf("AC-2: process-meta.json not found at either UUID or PID path: %v", err)
@@ -295,8 +296,6 @@ func TestATDD28_2_AC2_ProcessMeta_ContainsPIDField(t *testing.T) {
 }
 
 func TestATDD28_2_AC2_ProcessMeta_NotAtPIDPath(t *testing.T) {
-	baseDir := t.TempDir()
-
 	reg := vfs.NewDeviceRegistry()
 	seqFile := &sequenceLLMFile{
 		responses: [][]byte{
@@ -312,9 +311,11 @@ func TestATDD28_2_AC2_ProcessMeta_NotAtPIDPath(t *testing.T) {
 	k := NewKernel(v, ctxMgr, nil)
 	defer k.Shutdown()
 
-	k.SetStepDataDir(baseDir)
+	_, projBaseDir := TestSetupDataDir(t, k)
 
-	pid, err := k.Spawn("meta not at pid path", nil, SpawnOpts{})
+	pid, err := k.Spawn("meta not at pid path", nil, SpawnOpts{
+		ProjectConfig: &config.ProjectConfig{ProjectDir: testProjectDir},
+	})
 	if err != nil {
 		t.Fatalf("Spawn: %v", err)
 	}
@@ -327,7 +328,7 @@ func TestATDD28_2_AC2_ProcessMeta_NotAtPIDPath(t *testing.T) {
 		t.Fatalf("exit code %d: %s", exit.Code, exit.Reason)
 	}
 
-	pidMetaFile := filepath.Join(baseDir, "data", "steps", fmt.Sprintf("%d", pid), "process-meta.json")
+	pidMetaFile := filepath.Join(projBaseDir, "steps", fmt.Sprintf("%d", pid), "process-meta.json")
 	if _, err := os.Stat(pidMetaFile); err == nil {
 		t.Fatalf("AC-2: process-meta.json should NOT exist at PID path %q after UUID migration", pidMetaFile)
 	}

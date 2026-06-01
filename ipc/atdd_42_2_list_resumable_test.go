@@ -22,9 +22,9 @@ import (
 // writeResumableSnapshot writes proc-info.json + checkpoint.json that should
 // be picked up by ListResumable, populated with realistic wire-mapped fields
 // so INT-001 can assert the full ResumableProcessWire schema.
-func writeResumableSnapshot(t *testing.T, baseDir, uuid string, lastStep int) {
+func writeResumableSnapshot(t *testing.T, projBase, uuid string, lastStep int) {
 	t.Helper()
-	dir := filepath.Join(baseDir, "data", "steps", uuid)
+	dir := filepath.Join(projBase, "steps", uuid)
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		t.Fatalf("mkdir: %v", err)
 	}

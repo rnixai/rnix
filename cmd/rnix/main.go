@@ -1571,9 +1571,20 @@ func runDaemon(cmd *cobra.Command, args []string) error {
 		}
 	}
 
+	// Resolve global data directory (session persistence).
+	// Priority: RNIX_DATA_DIR env > config.yaml data_dir > XDG_DATA_HOME/rnix > ~/.local/share/rnix
+	dataDir, dataDirErr := config.DataDir()
+	if dataDirErr != nil {
+		return fmt.Errorf("resolve data dir: %w", dataDirErr)
+	}
+	if err := os.MkdirAll(dataDir, 0o755); err != nil {
+		return fmt.Errorf("create data dir %s: %w", dataDir, err)
+	}
+
 	// Assemble GlobalConfig
 	globalConfig := &config.GlobalConfig{
 		Dir:       globalDir,
+		DataDir:   dataDir,
 		Providers: providersCfg,
 		MCP:       mcpCfg,
 		AgentsDir: filepath.Join(globalDir, "agents"),
@@ -1676,21 +1687,19 @@ func runDaemon(cmd *cobra.Command, args []string) error {
 		k.SetWritebackWorker(wbWorker)
 	}
 
-	// Initialize execution recording (Story 14.1)
+	// cwd is still needed for project-level config files (.rnix/config.yaml, skills, etc.)
 	cwd, _ := os.Getwd()
 
-	// Set step data dir and load process history from disk
-	k.SetStepDataDir(filepath.Join(cwd, ".rnix"))
+	// Set global data dir and load process history from disk
+	k.SetDataDir(dataDir)
 	k.SetCheckpointConfig(checkpointCfg)
 	k.SetGcConfig(gcCfg)
-	// Seed pidCounter from disk BEFORE LoadHistory / LoadSuspendedFromDisk so
-	// any NewProcess invoked during reload (e.g. Suspended placeholder
-	// creation) draws a PID strictly larger than every persisted PID.
-	// Without this, daemon restart resets the counter to 0 and the next
-	// Spawn collides with reloaded placeholder PIDs — EchoMatrix 2026-05-26
-	// "child PID < parent PID" dashboard symptom.
-	if err := kernel.SeedPIDCounterFromDisk(filepath.Join(cwd, ".rnix")); err != nil {
-		fmt.Fprintf(os.Stderr, "[kernel] warn: seed pid counter: %v\n", err)
+	// Seed pidCounter from all per-project data dirs BEFORE LoadHistory /
+	// LoadSuspendedFromDisk so NewProcess draws unique PIDs after restart.
+	for _, projDir := range kernel.AllProjectBaseDirs(dataDir) {
+		if err := kernel.SeedPIDCounterFromDisk(projDir); err != nil {
+			fmt.Fprintf(os.Stderr, "[kernel] warn: seed pid counter from %s: %v\n", projDir, err)
+		}
 	}
 	if err := k.LoadHistory(); err != nil {
 		fmt.Fprintf(os.Stderr, "[kernel] warn: load process history: %v\n", err)
@@ -1721,9 +1730,10 @@ func runDaemon(cmd *cobra.Command, args []string) error {
 		recallIdx := kernelmemory.NewRecallIndex()
 		k.SetRecallIndex(recallIdx)
 
-		// Start background index build — stepsDir is .rnix/data/steps/
-		stepsDir := filepath.Join(cwd, ".rnix", "data", "steps")
-		recallIdx.BuildFromDiskAsync(stepsDir)
+		// Start background index build from all project step directories
+		for _, projBaseDir := range kernel.AllProjectBaseDirs(dataDir) {
+			recallIdx.BuildFromDiskAsync(filepath.Join(projBaseDir, "steps"))
+		}
 
 		// Inject recall index into writeback worker for incremental updates
 		if k.WritebackWorker() != nil {
@@ -1762,7 +1772,7 @@ func runDaemon(cmd *cobra.Command, args []string) error {
 		}
 	}
 
-	recordBaseDir := resolveDataDir(cwd, "records")
+	recordBaseDir := filepath.Join(dataDir, "records")
 	recordMgr := debug.NewRecordManager(recordBaseDir)
 	k.SetRecordManager(recordMgr)
 
@@ -1789,7 +1799,7 @@ func runDaemon(cmd *cobra.Command, args []string) error {
 	}
 
 	// Initialize reputation and synergy matrix (Story 21.3, 21.5)
-	reputationDir := resolveDataDir(cwd, "reputation")
+	reputationDir := filepath.Join(dataDir, "reputation")
 	reputationStore := kernel.NewReputationStore(reputationDir)
 	synergyMatrix := kernel.NewSynergyMatrix(reputationDir)
 
@@ -1808,12 +1818,12 @@ func runDaemon(cmd *cobra.Command, args []string) error {
 	// stem-matcher assembly above) because resolveDataDir needs `cwd`. On load
 	// failure, fall back to pure in-memory — never panic or block daemon startup.
 	// Logic lives in assembleDiffMemory so AC7 has direct regression coverage.
-	k.SetDiffMemory(assembleDiffMemory(cwd))
+	k.SetDiffMemory(assembleDiffMemory(dataDir))
 
 	// Initialize immune daemon (Story 22.1) — conditional on config
 	var immuneDaemon *kernel.ImmuneDaemon
 	if immuneCfg.Enabled {
-		immuneDir := resolveDataDir(cwd, "immune")
+		immuneDir := filepath.Join(dataDir, "immune")
 		immuneStore := kernel.NewImmuneStore(immuneDir)
 		immuneDaemon = kernel.NewImmuneDaemon(immuneStore, immuneCfg)
 
@@ -1848,7 +1858,7 @@ func runDaemon(cmd *cobra.Command, args []string) error {
 	}
 
 	// Initialize span persistence (Story 15.1)
-	traceBaseDir := resolveDataDir(cwd, "traces")
+	traceBaseDir := filepath.Join(dataDir, "traces")
 	k.SetSpanWriter(debug.NewSpanWriter(traceBaseDir))
 
 	// Initialize heartbeat monitor (Story 30.6)
@@ -1944,7 +1954,7 @@ func runDaemon(cmd *cobra.Command, args []string) error {
 	_ = devReg.RegisterWithDriver("/dev/tty", tty.FileFactory(ttyDriver), ttyDriver)
 
 	// /dev/cron (Story 33-2) — scheduled recurring jobs
-	cronDataDir := resolveDataDir(cwd, "cron")
+	cronDataDir := filepath.Join(dataDir, "cron")
 	cronDriver := cron.NewDriver(cronDataDir, func(intent, agent string) (types.PID, error) {
 		agentInfo, err := agentLoader.Load(agent)
 		if err != nil {
@@ -2056,8 +2066,8 @@ const diffMemoryMaxEntries = 256
 // On load failure it warns to stderr and falls back to a pure in-memory store: a
 // corrupt or unreadable persistence file must never panic or block daemon
 // startup. The returned store is always non-nil and ready to use.
-func assembleDiffMemory(cwd string) *kernel.DiffMemory {
-	diffMemoryPath := filepath.Join(resolveDataDir(cwd, "diffmemory"), "diffmemory.json")
+func assembleDiffMemory(dataDir string) *kernel.DiffMemory {
+	diffMemoryPath := filepath.Join(dataDir, "diffmemory", "diffmemory.json")
 	diffMemory, err := kernel.NewDiffMemoryWithPersistence(diffMemoryMaxEntries, diffMemoryPath)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "[kernel] warn: load diff memory persistence: %v; falling back to in-memory\n", err)

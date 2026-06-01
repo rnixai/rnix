@@ -180,9 +180,9 @@ func TestATDD_44_4_061_EndToEnd_CLIvsDashboardResumeEquivalence(t *testing.T) {
 // writeSuspendedPairFixture writes a Suspended parent + Suspended child pair to
 // disk (with steps + meta) so LoadSuspendedFromDisk pulls them back as
 // placeholders. suspend_reason "user_paused" matches the 44.1 main-path value.
-func writeSuspendedPairFixture(t *testing.T, tmpDir, parentUUID, childUUID string, parentPID, childPID uint64) {
+func writeSuspendedPairFixture(t *testing.T, projBase, parentUUID, childUUID string, parentPID, childPID uint64) {
 	t.Helper()
-	writeIPCSuspendFixture(t, tmpDir, ipcSuspendDiskInfo{
+	writeIPCSuspendFixture(t, projBase, ipcSuspendDiskInfo{
 		PID:           parentPID,
 		UUID:          parentUUID,
 		State:         "suspended",
@@ -195,7 +195,7 @@ func writeSuspendedPairFixture(t *testing.T, tmpDir, parentUUID, childUUID strin
 		SuspendReason: "user_paused",
 		IsPaused:      true,
 	}, true, true)
-	writeIPCSuspendFixture(t, tmpDir, ipcSuspendDiskInfo{
+	writeIPCSuspendFixture(t, projBase, ipcSuspendDiskInfo{
 		PID:           childPID,
 		UUID:          childUUID,
 		PPID:          parentPID,

@@ -34,7 +34,7 @@ func newResumeAfterGcKernel(t *testing.T) *KernelImpl {
 	ctxMgr := rnixctx.NewManager()
 	k := NewKernel(v, ctxMgr, nil)
 	t.Cleanup(k.Shutdown)
-	k.SetStepDataDir(t.TempDir())
+	TestSetupDataDir(t, k)
 	return k
 }
 

@@ -50,7 +50,7 @@ type EventWriter struct {
 
 // NewEventWriter creates an EventWriter that writes to .rnix/data/steps/<uuid>/events.jsonl.
 func NewEventWriter(baseDir string, procUUID string) (*EventWriter, error) {
-	dir := filepath.Join(baseDir, "data", "steps", procUUID)
+	dir := filepath.Join(baseDir, "steps", procUUID)
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return nil, err
 	}

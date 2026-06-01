@@ -32,7 +32,7 @@ import (
 // writeProcInfoOnly helper (42.2) omits dead_at.
 func writeProcInfoWithDeadAt(t *testing.T, baseDir, uuid, state, deadAt string) {
 	t.Helper()
-	dir := filepath.Join(baseDir, "data", "steps", uuid)
+	dir := filepath.Join(baseDir, "steps", uuid)
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		t.Fatalf("mkdir %s: %v", dir, err)
 	}
@@ -63,14 +63,14 @@ func TestATDD_42_5_010_RetentionDays_Cleanup(t *testing.T) {
 
 	k := newThrottleTestKernel(t)
 	k.SetGcConfig(GcConfig{RetentionDays: 30, MaxEntries: 0, IntervalSeconds: 3600})
-	baseDir := k.GetStepDataDir()
+	projBase := TestProjectBaseDir(k.GetDataDir())
 
 	now := time.Now().UTC()
 	staleDeadAt := now.Add(-31 * 24 * time.Hour).Format(time.RFC3339Nano)
 	freshDeadAt := now.Add(-1 * 24 * time.Hour).Format(time.RFC3339Nano)
 
-	writeProcInfoWithDeadAt(t, baseDir, "stale-uuid-aaaaaaaa-bbbb-cccc-dddd-000000000001", "dead", staleDeadAt)
-	writeProcInfoWithDeadAt(t, baseDir, "fresh-uuid-aaaaaaaa-bbbb-cccc-dddd-000000000002", "dead", freshDeadAt)
+	writeProcInfoWithDeadAt(t, projBase, "stale-uuid-aaaaaaaa-bbbb-cccc-dddd-000000000001", "dead", staleDeadAt)
+	writeProcInfoWithDeadAt(t, projBase, "fresh-uuid-aaaaaaaa-bbbb-cccc-dddd-000000000002", "dead", freshDeadAt)
 
 	result, err := k.RunGc(false, true)
 	if err != nil {
@@ -81,11 +81,11 @@ func TestATDD_42_5_010_RetentionDays_Cleanup(t *testing.T) {
 	}
 
 	// Stale directory should be gone.
-	if _, statErr := os.Stat(filepath.Join(baseDir, "data", "steps", "stale-uuid-aaaaaaaa-bbbb-cccc-dddd-000000000001")); !os.IsNotExist(statErr) {
+	if _, statErr := os.Stat(filepath.Join(projBase, "steps", "stale-uuid-aaaaaaaa-bbbb-cccc-dddd-000000000001")); !os.IsNotExist(statErr) {
 		t.Errorf("stale directory must be deleted; statErr=%v", statErr)
 	}
 	// Fresh directory should remain.
-	if _, statErr := os.Stat(filepath.Join(baseDir, "data", "steps", "fresh-uuid-aaaaaaaa-bbbb-cccc-dddd-000000000002")); statErr != nil {
+	if _, statErr := os.Stat(filepath.Join(projBase, "steps", "fresh-uuid-aaaaaaaa-bbbb-cccc-dddd-000000000002")); statErr != nil {
 		t.Errorf("fresh directory must remain; statErr=%v", statErr)
 	}
 }
@@ -98,14 +98,14 @@ func TestATDD_42_5_011_MaxEntries_Cleanup(t *testing.T) {
 
 	k := newThrottleTestKernel(t)
 	k.SetGcConfig(GcConfig{RetentionDays: 0, MaxEntries: 5, IntervalSeconds: 3600})
-	baseDir := k.GetStepDataDir()
+	projBase := TestProjectBaseDir(k.GetDataDir())
 
 	// Write 8 dead entries with linearly older dead_at — gc should reap the
 	// oldest 3 (8 - max_entries).
 	for i := range 8 {
 		uuid := timestampedUUID(i)
 		deadAt := time.Now().UTC().Add(-time.Duration(i+1) * time.Hour).Format(time.RFC3339Nano)
-		writeProcInfoWithDeadAt(t, baseDir, uuid, "dead", deadAt)
+		writeProcInfoWithDeadAt(t, projBase, uuid, "dead", deadAt)
 	}
 
 	result, err := k.RunGc(false, true)
@@ -117,7 +117,7 @@ func TestATDD_42_5_011_MaxEntries_Cleanup(t *testing.T) {
 	}
 
 	// Count remaining entries directly from disk.
-	remaining, _ := os.ReadDir(filepath.Join(baseDir, "data", "steps"))
+	remaining, _ := os.ReadDir(filepath.Join(projBase, "steps"))
 	if len(remaining) != 5 {
 		t.Errorf("remaining entries on disk = %d, want 5", len(remaining))
 	}
@@ -131,17 +131,17 @@ func TestATDD_42_5_012_RunningSuspended_Exempt(t *testing.T) {
 
 	k := newThrottleTestKernel(t)
 	k.SetGcConfig(GcConfig{RetentionDays: 1, MaxEntries: 0, IntervalSeconds: 3600})
-	baseDir := k.GetStepDataDir()
+	projBase := TestProjectBaseDir(k.GetDataDir())
 
 	staleDeadAt := time.Now().UTC().Add(-365 * 24 * time.Hour).Format(time.RFC3339Nano)
 
 	// Running snapshot — exempt regardless of dead_at being old.
-	writeProcInfoWithDeadAt(t, baseDir, "running-aaaaaaaa-bbbb-cccc-dddd-000000000001", "running", staleDeadAt)
+	writeProcInfoWithDeadAt(t, projBase, "running-aaaaaaaa-bbbb-cccc-dddd-000000000001", "running", staleDeadAt)
 	// Suspended-like snapshot (state=running + checkpoint.json present implies suspended in
 	// the 42-2 ListResumable parlance; gc must NOT touch it.)
-	writeProcInfoWithDeadAt(t, baseDir, "suspended-aaaaaaaa-bbbb-cccc-dddd-000000000002", "running", staleDeadAt)
+	writeProcInfoWithDeadAt(t, projBase, "suspended-aaaaaaaa-bbbb-cccc-dddd-000000000002", "running", staleDeadAt)
 	// Dead — eligible.
-	writeProcInfoWithDeadAt(t, baseDir, "dead-aaaaaaaa-bbbb-cccc-dddd-000000000003", "dead", staleDeadAt)
+	writeProcInfoWithDeadAt(t, projBase, "dead-aaaaaaaa-bbbb-cccc-dddd-000000000003", "dead", staleDeadAt)
 
 	result, err := k.RunGc(false, true)
 	if err != nil {
@@ -156,7 +156,7 @@ func TestATDD_42_5_012_RunningSuspended_Exempt(t *testing.T) {
 		"running-aaaaaaaa-bbbb-cccc-dddd-000000000001",
 		"suspended-aaaaaaaa-bbbb-cccc-dddd-000000000002",
 	} {
-		if _, statErr := os.Stat(filepath.Join(baseDir, "data", "steps", uuid)); statErr != nil {
+		if _, statErr := os.Stat(filepath.Join(projBase, "steps", uuid)); statErr != nil {
 			t.Errorf("AC#3 violation: gc deleted exempt process %s (%v)", uuid, statErr)
 		}
 	}
@@ -171,10 +171,10 @@ func TestATDD_42_5_013_StartGcDaemon_RunsWhenEnabled(t *testing.T) {
 	k := newThrottleTestKernel(t)
 	// 1-second interval so the test does not block for long.
 	k.SetGcConfig(GcConfig{RetentionDays: 1, MaxEntries: 0, IntervalSeconds: 60})
-	baseDir := k.GetStepDataDir()
+	projBase := TestProjectBaseDir(k.GetDataDir())
 
 	staleDeadAt := time.Now().UTC().Add(-365 * 24 * time.Hour).Format(time.RFC3339Nano)
-	writeProcInfoWithDeadAt(t, baseDir, "stale-daemon-aaaaaaaa-bbbb-cccc-dddd-000000000001", "dead", staleDeadAt)
+	writeProcInfoWithDeadAt(t, projBase, "stale-daemon-aaaaaaaa-bbbb-cccc-dddd-000000000001", "dead", staleDeadAt)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
@@ -183,7 +183,7 @@ func TestATDD_42_5_013_StartGcDaemon_RunsWhenEnabled(t *testing.T) {
 	// Wait for the first immediate gc pass to delete the stale entry.
 	deadline := time.Now().Add(2 * time.Second)
 	for time.Now().Before(deadline) {
-		if _, statErr := os.Stat(filepath.Join(baseDir, "data", "steps", "stale-daemon-aaaaaaaa-bbbb-cccc-dddd-000000000001")); os.IsNotExist(statErr) {
+		if _, statErr := os.Stat(filepath.Join(projBase, "steps", "stale-daemon-aaaaaaaa-bbbb-cccc-dddd-000000000001")); os.IsNotExist(statErr) {
 			return // pass
 		}
 		time.Sleep(50 * time.Millisecond)
@@ -200,10 +200,10 @@ func TestATDD_42_5_014_StartGcDaemon_NoopWhenDisabled(t *testing.T) {
 	k := newThrottleTestKernel(t)
 	// All-zero retention = disabled (AC#8).
 	k.SetGcConfig(GcConfig{RetentionDays: 0, MaxEntries: 0, IntervalSeconds: 3600})
-	baseDir := k.GetStepDataDir()
+	projBase := TestProjectBaseDir(k.GetDataDir())
 
 	staleDeadAt := time.Now().UTC().Add(-365 * 24 * time.Hour).Format(time.RFC3339Nano)
-	writeProcInfoWithDeadAt(t, baseDir, "stale-disabled-aaaaaaaa-bbbb-cccc-dddd-000000000001", "dead", staleDeadAt)
+	writeProcInfoWithDeadAt(t, projBase, "stale-disabled-aaaaaaaa-bbbb-cccc-dddd-000000000001", "dead", staleDeadAt)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
 	defer cancel()
@@ -222,7 +222,7 @@ func TestATDD_42_5_014_StartGcDaemon_NoopWhenDisabled(t *testing.T) {
 	}
 
 	// Stale entry must remain untouched (AC#8: 现有进程数据不被触碰).
-	if _, statErr := os.Stat(filepath.Join(baseDir, "data", "steps", "stale-disabled-aaaaaaaa-bbbb-cccc-dddd-000000000001")); statErr != nil {
+	if _, statErr := os.Stat(filepath.Join(projBase, "steps", "stale-disabled-aaaaaaaa-bbbb-cccc-dddd-000000000001")); statErr != nil {
 		t.Errorf("disabled gc must NOT delete entries; statErr=%v", statErr)
 	}
 }
@@ -235,11 +235,11 @@ func TestATDD_42_5_015_RunGc_SyncsProcHistory(t *testing.T) {
 
 	k := newThrottleTestKernel(t)
 	k.SetGcConfig(GcConfig{RetentionDays: 1, MaxEntries: 0, IntervalSeconds: 3600})
-	baseDir := k.GetStepDataDir()
+	projBase := TestProjectBaseDir(k.GetDataDir())
 
 	uuid := "sync-aaaaaaaa-bbbb-cccc-dddd-000000000001"
 	staleDeadAt := time.Now().UTC().Add(-365 * 24 * time.Hour).Format(time.RFC3339Nano)
-	writeProcInfoWithDeadAt(t, baseDir, uuid, "dead", staleDeadAt)
+	writeProcInfoWithDeadAt(t, projBase, uuid, "dead", staleDeadAt)
 
 	if err := k.LoadHistory(); err != nil {
 		t.Fatalf("LoadHistory: %v", err)
@@ -268,11 +268,11 @@ func TestATDD_42_5_016_RunGc_DryRun_DoesNotDelete(t *testing.T) {
 
 	k := newThrottleTestKernel(t)
 	k.SetGcConfig(GcConfig{RetentionDays: 1, MaxEntries: 0, IntervalSeconds: 3600})
-	baseDir := k.GetStepDataDir()
+	projBase := TestProjectBaseDir(k.GetDataDir())
 
 	uuid := "dryrun-aaaaaaaa-bbbb-cccc-dddd-000000000001"
 	staleDeadAt := time.Now().UTC().Add(-365 * 24 * time.Hour).Format(time.RFC3339Nano)
-	writeProcInfoWithDeadAt(t, baseDir, uuid, "dead", staleDeadAt)
+	writeProcInfoWithDeadAt(t, projBase, uuid, "dead", staleDeadAt)
 
 	result, err := k.RunGc(true, false) // dryRun=true
 	if err != nil {
@@ -286,7 +286,7 @@ func TestATDD_42_5_016_RunGc_DryRun_DoesNotDelete(t *testing.T) {
 	}
 
 	// Directory must still exist.
-	if _, statErr := os.Stat(filepath.Join(baseDir, "data", "steps", uuid)); statErr != nil {
+	if _, statErr := os.Stat(filepath.Join(projBase, "steps", uuid)); statErr != nil {
 		t.Errorf("dry-run must NOT delete directory; statErr=%v", statErr)
 	}
 }

@@ -114,7 +114,7 @@ func TestATDD_44_3_071_Gc_DoesNotCleanSuspendedDirectory(t *testing.T) {
 		t.Errorf("RemovedCount = %d, want 0 (no Suspended dir should be reaped)", result.RemovedCount)
 	}
 	// And the directory must still exist.
-	dir := filepath.Join(dataDir, "data", "steps", uuid)
+	dir := filepath.Join(dataDir, "steps", uuid)
 	if _, statErr := os.Stat(dir); statErr != nil {
 		t.Errorf("Suspended directory %s was removed by gc: %v", dir, statErr)
 	}

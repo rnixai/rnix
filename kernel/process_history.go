@@ -412,7 +412,7 @@ func SeedPIDCounterFromDisk(baseDir string) error {
 	if baseDir == "" {
 		return nil
 	}
-	stepsDir := filepath.Join(baseDir, "data", "steps")
+	stepsDir := filepath.Join(baseDir, "steps")
 	entries, err := os.ReadDir(stepsDir)
 	if err != nil {
 		if os.IsNotExist(err) {
@@ -455,7 +455,7 @@ func SaveProcInfo(baseDir string, info vfs.ProcInfo) error {
 	if baseDir == "" || info.UUID == "" {
 		return nil
 	}
-	dir := filepath.Join(baseDir, "data", "steps", info.UUID)
+	dir := filepath.Join(baseDir, "steps", info.UUID)
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return fmt.Errorf("mkdir %s: %w", dir, err)
 	}
@@ -485,7 +485,7 @@ func LoadProcHistory(baseDir string, maxSize int) (*ProcessHistory, error) {
 		return NewProcessHistory(maxSize), nil
 	}
 
-	stepsDir := filepath.Join(baseDir, "data", "steps")
+	stepsDir := filepath.Join(baseDir, "steps")
 	entries, err := os.ReadDir(stepsDir)
 	if err != nil {
 		if os.IsNotExist(err) {
@@ -547,7 +547,7 @@ func ListResumable(baseDir string) ([]vfs.ProcInfo, error) {
 	if baseDir == "" {
 		return nil, nil
 	}
-	stepsDir := filepath.Join(baseDir, "data", "steps")
+	stepsDir := filepath.Join(baseDir, "steps")
 	entries, err := os.ReadDir(stepsDir)
 	if err != nil {
 		if os.IsNotExist(err) {

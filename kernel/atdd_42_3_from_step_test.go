@@ -36,7 +36,7 @@ import (
 // for parseStepsJSONL unit tests.
 func writeStepsJSONLOnly(t *testing.T, baseDir, uuid string, totalSteps int) {
 	t.Helper()
-	stepsDir := filepath.Join(baseDir, "data", "steps", uuid)
+	stepsDir := filepath.Join(baseDir, "steps", uuid)
 	if err := os.MkdirAll(stepsDir, 0o755); err != nil {
 		t.Fatalf("mkdir: %v", err)
 	}
@@ -104,7 +104,7 @@ func TestATDD_42_3_002_ParseStepsJSONL_MaxStepTruncation(t *testing.T) {
 	uuid := "parse-maxstep-aaaaaaaa-bbbb-cccc-dddd-000000000001"
 	writeStepsJSONLOnly(t, baseDir, uuid, 50)
 
-	stepsPath := filepath.Join(baseDir, "data", "steps", uuid, "steps.jsonl")
+	stepsPath := filepath.Join(baseDir, "steps", uuid, "steps.jsonl")
 
 	// Extended signature: parseStepsJSONL(path string, maxStep int) (lastStep int, messages []Message, totalSteps int, err error)
 	// NOTE: 当前签名仅返回 3 值；本测试在签名扩展后才能编译。
@@ -130,7 +130,7 @@ func TestATDD_42_3_003_ParseStepsJSONL_MaxStepZero_FullHistory(t *testing.T) {
 	uuid := "parse-zero-aaaaaaaa-bbbb-cccc-dddd-000000000001"
 	writeStepsJSONLOnly(t, baseDir, uuid, 20)
 
-	stepsPath := filepath.Join(baseDir, "data", "steps", uuid, "steps.jsonl")
+	stepsPath := filepath.Join(baseDir, "steps", uuid, "steps.jsonl")
 	lastStep, _, totalSteps, err := callParseStepsJSONLForTest(t, k, stepsPath, 0)
 	if err != nil {
 		t.Fatalf("parseStepsJSONL: %v", err)
@@ -160,7 +160,7 @@ func TestATDD_42_3_004_ResumedProcInfo_PersistsOriginAndStep(t *testing.T) {
 	}
 
 	// Wait for SaveProcInfo to flush (typically synchronous in resume path).
-	newProcInfoPath := filepath.Join(baseDir, "data", "steps", result.UUID, "proc-info.json")
+	newProcInfoPath := filepath.Join(baseDir, "steps", result.UUID, "proc-info.json")
 	data, err := os.ReadFile(newProcInfoPath)
 	if err != nil {
 		t.Fatalf("read new proc-info.json: %v", err)

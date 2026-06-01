@@ -26,7 +26,7 @@ import (
 // requires a live Process snapshot).
 func writeProcInfoOnly(t *testing.T, baseDir, uuid, state, intent string) {
 	t.Helper()
-	dir := filepath.Join(baseDir, "data", "steps", uuid)
+	dir := filepath.Join(baseDir, "steps", uuid)
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		t.Fatalf("mkdir %s: %v", dir, err)
 	}
@@ -116,7 +116,7 @@ func TestATDD_42_2_007_ListResumable_SkipsCorruptAndMissing(t *testing.T) {
 	// Corrupt JSON file should be skipped (logged), not abort the scan.
 	baseDir := t.TempDir()
 	writeProcInfoOnly(t, baseDir, "good-uuid-0000-0000-000000000001", "running", "good")
-	corruptDir := filepath.Join(baseDir, "data", "steps", "bad-uuid-0000-0000-000000000002")
+	corruptDir := filepath.Join(baseDir, "steps", "bad-uuid-0000-0000-000000000002")
 	_ = os.MkdirAll(corruptDir, 0o755)
 	_ = os.WriteFile(filepath.Join(corruptDir, "proc-info.json"), []byte("{not json"), 0o600)
 
@@ -143,12 +143,12 @@ func TestATDD_42_2_008_KernelListResumable_FiltersProcTable(t *testing.T) {
 
 
 	k := newThrottleTestKernel(t)
-	baseDir := k.GetStepDataDir()
+	projBase := TestProjectBaseDir(k.GetDataDir())
 
 	uuidActive := "active-uuid-0000-0000-000000000001"
 	uuidOrphan := "orphan-uuid-0000-0000-000000000002"
-	writeProcInfoOnly(t, baseDir, uuidActive, "running", "active in procTable")
-	writeProcInfoOnly(t, baseDir, uuidOrphan, "running", "orphan crash leftover")
+	writeProcInfoOnly(t, projBase, uuidActive, "running", "active in procTable")
+	writeProcInfoOnly(t, projBase, uuidOrphan, "running", "orphan crash leftover")
 
 	// Put uuidActive into procTable so it should be filtered.
 	active := NewProcess(0, "active proc", nil)

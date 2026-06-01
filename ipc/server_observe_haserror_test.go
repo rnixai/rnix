@@ -83,8 +83,8 @@ func TestHandleListSteps_HasError_AggregatesFromToolCalls(t *testing.T) {
 	proc := kernel.NewProcess(0, "haserror aggregation test", nil)
 	_ = proc.Start()
 
-	tmpDir := t.TempDir()
-	srv.kern.SetStepDataDir(tmpDir)
+	_, projBase := kernel.TestSetupDataDir(t, srv.kern)
+	kernel.TestSetProjectConfig(proc)
 
 	rec := testStepRecord(1)
 	rec.ToolError = "" // last call succeeded
@@ -92,7 +92,7 @@ func TestHandleListSteps_HasError_AggregatesFromToolCalls(t *testing.T) {
 		{Name: "Agent", Path: "spawn", Error: "Agent error: agent \"general-purpose\" load failed"},
 		{Name: "Read", Path: "/dev/fs", Result: "ok"},
 	}
-	writeTestStepsUUID(t, tmpDir, proc.UUID, []types.StepRecord{rec})
+	writeTestStepsUUID(t, projBase, proc.UUID, []types.StepRecord{rec})
 	srv.kern.AddProcess(proc)
 
 	conn := dial(t, sockPath)
@@ -122,8 +122,8 @@ func TestHandleListSteps_HasError_BothSources(t *testing.T) {
 	proc := kernel.NewProcess(0, "haserror both test", nil)
 	_ = proc.Start()
 
-	tmpDir := t.TempDir()
-	srv.kern.SetStepDataDir(tmpDir)
+	_, projBase := kernel.TestSetupDataDir(t, srv.kern)
+	kernel.TestSetProjectConfig(proc)
 
 	rec := testStepRecord(1)
 	rec.ToolError = "last call failed"
@@ -131,7 +131,7 @@ func TestHandleListSteps_HasError_BothSources(t *testing.T) {
 		{Name: "Bash", Path: "/dev/shell", Error: "exit 1"},
 		{Name: "Bash", Path: "/dev/shell", Error: "last call failed"},
 	}
-	writeTestStepsUUID(t, tmpDir, proc.UUID, []types.StepRecord{rec})
+	writeTestStepsUUID(t, projBase, proc.UUID, []types.StepRecord{rec})
 	srv.kern.AddProcess(proc)
 
 	conn := dial(t, sockPath)
@@ -158,8 +158,8 @@ func TestHandleListSteps_HasError_NoneWhenAllSucceed(t *testing.T) {
 	proc := kernel.NewProcess(0, "haserror none test", nil)
 	_ = proc.Start()
 
-	tmpDir := t.TempDir()
-	srv.kern.SetStepDataDir(tmpDir)
+	_, projBase := kernel.TestSetupDataDir(t, srv.kern)
+	kernel.TestSetProjectConfig(proc)
 
 	rec := testStepRecord(1)
 	rec.ToolError = ""
@@ -167,7 +167,7 @@ func TestHandleListSteps_HasError_NoneWhenAllSucceed(t *testing.T) {
 		{Name: "Read", Path: "/dev/fs", Result: "file contents"},
 		{Name: "Edit", Path: "/dev/fs", Result: "edited"},
 	}
-	writeTestStepsUUID(t, tmpDir, proc.UUID, []types.StepRecord{rec})
+	writeTestStepsUUID(t, projBase, proc.UUID, []types.StepRecord{rec})
 	srv.kern.AddProcess(proc)
 
 	conn := dial(t, sockPath)

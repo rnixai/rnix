@@ -12,8 +12,10 @@ import (
 	"github.com/rnixai/rnix/vfs"
 )
 
-// setupResumeKernel creates a kernel with stepDataDir set and a mock LLM device
+// setupResumeKernel creates a kernel with dataDir set and a mock LLM device
 // that returns a "complete" action so resumed processes terminate immediately.
+// Returns (kernel, projBaseDir) where projBaseDir is the per-project data
+// directory for test data writing (e.g. projBaseDir/steps/<uuid>/).
 func setupResumeKernel(t *testing.T) (*KernelImpl, string) {
 	t.Helper()
 	completeResp := makeCompleteResponse("resumed and done", 10)
@@ -27,16 +29,16 @@ func setupResumeKernel(t *testing.T) (*KernelImpl, string) {
 	k := NewKernel(v, ctxMgr, nil)
 	t.Cleanup(k.Shutdown)
 
-	baseDir := t.TempDir()
-	k.SetStepDataDir(baseDir)
+	_, projBaseDir := TestSetupDataDir(t, k)
 
-	return k, baseDir
+	return k, projBaseDir
 }
 
 // writeTestCheckpoint writes a valid checkpoint to disk for the given UUID and step.
+// baseDir should be the per-project base directory (projBaseDir from setupResumeKernel).
 func writeTestCheckpoint(t *testing.T, baseDir, uuid string, step int) {
 	t.Helper()
-	stepsDir := filepath.Join(baseDir, "data", "steps", uuid)
+	stepsDir := filepath.Join(baseDir, "steps", uuid)
 	if err := os.MkdirAll(stepsDir, 0o755); err != nil {
 		t.Fatalf("mkdir steps dir: %v", err)
 	}
@@ -171,7 +173,7 @@ func TestResume_CheckpointCorrupted(t *testing.T) {
 	k, baseDir := setupResumeKernel(t)
 	uuid := "corrupt0-0000-0000-0000-000000000000"
 
-	stepsDir := filepath.Join(baseDir, "data", "steps", uuid)
+	stepsDir := filepath.Join(baseDir, "steps", uuid)
 	if err := os.MkdirAll(stepsDir, 0o755); err != nil {
 		t.Fatalf("mkdir: %v", err)
 	}
@@ -232,8 +234,7 @@ func TestResume_ProviderNotAvailable(t *testing.T) {
 	k := NewKernel(v, ctxMgr, nil)
 	t.Cleanup(k.Shutdown)
 
-	baseDir := t.TempDir()
-	k.SetStepDataDir(baseDir)
+	_, projBase := TestSetupDataDir(t, k)
 
 	// Set up provider validation that rejects "claude"
 	k.SetProviderResolver(
@@ -242,7 +243,7 @@ func TestResume_ProviderNotAvailable(t *testing.T) {
 	)
 
 	uuid := "provider-fail-0000-0000-000000000001"
-	writeTestCheckpoint(t, baseDir, uuid, 5) // checkpoint has provider="claude"
+	writeTestCheckpoint(t, projBase, uuid, 5) // checkpoint has provider="claude"
 
 	_, err := k.Resume(uuid)
 	if err == nil {
@@ -351,7 +352,7 @@ func TestResume_UUIDMismatch(t *testing.T) {
 	checkpointUUID := "mismatch-real-0000-0000-000000000001"
 	queryUUID := "mismatch-fake-0000-0000-000000000002"
 
-	stepsDir := filepath.Join(baseDir, "data", "steps", queryUUID)
+	stepsDir := filepath.Join(baseDir, "steps", queryUUID)
 	if err := os.MkdirAll(stepsDir, 0o755); err != nil {
 		t.Fatalf("mkdir: %v", err)
 	}
@@ -441,18 +442,18 @@ func TestResume_NoStepDataDir(t *testing.T) {
 	ctxMgr := rnixctx.NewManager()
 	k := NewKernel(v, ctxMgr, nil)
 	t.Cleanup(k.Shutdown)
-	// stepDataDir not set
+	// dataDir not set
 
 	_, err := k.Resume("some-uuid-0000-0000-000000000001")
 	if err == nil {
-		t.Fatal("expected error when stepDataDir not configured")
+		t.Fatal("expected error when dataDir not configured")
 	}
 	se, ok := err.(*SyscallError)
 	if !ok {
 		t.Fatalf("expected *SyscallError, got %T", err)
 	}
-	if se.Code != types.ErrInternal {
-		t.Errorf("error code = %q, want %q", se.Code, types.ErrInternal)
+	if se.Code != types.ErrNotFound {
+		t.Errorf("error code = %q, want %q", se.Code, types.ErrNotFound)
 	}
 }
 
@@ -503,7 +504,7 @@ func TestResume_ContextDeserialized(t *testing.T) {
 	uuid := "ctxdeser-0000-0000-0000-000000000001"
 
 	// Write checkpoint with specific context content
-	stepsDir := filepath.Join(baseDir, "data", "steps", uuid)
+	stepsDir := filepath.Join(baseDir, "steps", uuid)
 	if err := os.MkdirAll(stepsDir, 0o755); err != nil {
 		t.Fatalf("mkdir: %v", err)
 	}
@@ -594,7 +595,7 @@ func TestResume_MaxStepsBoundary(t *testing.T) {
 	uuid := "aabb0000-0000-0000-0000-000000000001"
 
 	// Write checkpoint where LastStep == MaxSteps (budget exhausted)
-	stepsDir := filepath.Join(baseDir, "data", "steps", uuid)
+	stepsDir := filepath.Join(baseDir, "steps", uuid)
 	if err := os.MkdirAll(stepsDir, 0o755); err != nil {
 		t.Fatalf("mkdir: %v", err)
 	}

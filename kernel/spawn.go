@@ -866,14 +866,15 @@ func (k *KernelImpl) Spawn(intent string, agent *agents.AgentInfo, opts SpawnOpt
 // Errors are logged but never propagated — spawn must not fail due to a stale
 // disk snapshot, and the next checkpoint / reap will rewrite the file anyway.
 func (k *KernelImpl) persistInitialProcInfo(proc *Process) {
-	if k.stepDataDir == "" {
+	baseDir := k.ResolveStepBaseDir(proc)
+	if baseDir == "" {
 		return
 	}
 	info, err := k.GetProcInfo(proc.PID)
 	if err != nil || info == nil {
 		return
 	}
-	if saveErr := SaveProcInfo(k.stepDataDir, *info); saveErr != nil {
+	if saveErr := SaveProcInfo(baseDir, *info); saveErr != nil {
 		log.Printf("[spawn] pid=%d persistInitialProcInfo failed: %v", proc.PID, saveErr)
 	}
 }

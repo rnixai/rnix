@@ -184,7 +184,7 @@ type procMountFixture struct {
 func writeProcInfoWithMCPMounts(t *testing.T, baseDir, uuid string, pid uint64,
 	state, exitReason string, allowedDevices []string, mounts []procMountFixture) {
 	t.Helper()
-	stepsDir := filepath.Join(baseDir, "data", "steps", uuid)
+	stepsDir := filepath.Join(baseDir, "steps", uuid)
 	if err := os.MkdirAll(stepsDir, 0o755); err != nil {
 		t.Fatalf("mkdir steps dir: %v", err)
 	}

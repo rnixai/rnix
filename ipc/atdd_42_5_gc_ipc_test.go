@@ -24,9 +24,9 @@ import (
 // Kept local to this file so we don't depend on cross-test helpers that may
 // move around. Mirrors the kernel-side writeProcInfoOnly + writeProcInfoWithDeadAt
 // shape.
-func writeProcInfoForGcTest(t *testing.T, baseDir, uuid, state, deadAt string) {
+func writeProcInfoForGcTest(t *testing.T, projBase, uuid, state, deadAt string) {
 	t.Helper()
-	dir := filepath.Join(baseDir, "data", "steps", uuid)
+	dir := filepath.Join(projBase, "steps", uuid)
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		t.Fatalf("mkdir %s: %v", dir, err)
 	}

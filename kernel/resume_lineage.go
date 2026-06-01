@@ -137,18 +137,20 @@ func lookupAnyHistory(uuid string, history *ProcessHistory, stepDataDir string) 
 	return readProcInfoFromDisk(stepDataDir, uuid)
 }
 
-// readProcInfoFromDisk 读取单个 UUID 对应的 proc-info.json，文件缺失或解析失败返回 nil。
-func readProcInfoFromDisk(stepDataDir, uuid string) *vfs.ProcInfo {
-	if stepDataDir == "" || uuid == "" {
+// readProcInfoFromDisk reads proc-info.json for a UUID. The dataDir parameter
+// is the global data directory; the function searches all project subdirectories.
+func readProcInfoFromDisk(dataDir, uuid string) *vfs.ProcInfo {
+	if dataDir == "" || uuid == "" {
 		return nil
 	}
-	// Path-traversal guard: only safe alphabet allowed. Without this, an
-	// `OriginUUID` like "../../etc" on disk or an IPC request UUID could probe
-	// arbitrary files outside data/steps.
 	if !isValidUUIDFormat(uuid) {
 		return nil
 	}
-	path := filepath.Join(stepDataDir, "data", "steps", uuid, procInfoFilename)
+	baseDir := FindBaseDirByUUID(dataDir, uuid)
+	if baseDir == "" {
+		return nil
+	}
+	path := filepath.Join(baseDir, "steps", uuid, procInfoFilename)
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return nil
@@ -188,10 +190,13 @@ func findDescendantsByOrigin(uuid string, history *ProcessHistory, stepDataDir s
 
 	// 磁盘扫描兜底（procHistory evicted 的旧 fork）。
 	if stepDataDir != "" {
-		stepsDir := filepath.Join(stepDataDir, "data", "steps")
-		entries, err := os.ReadDir(stepsDir)
-		if err == nil {
-			scanned := 0
+		scanned := 0
+		for _, baseDir := range AllProjectBaseDirs(stepDataDir) {
+			stepsDir := filepath.Join(baseDir, "steps")
+			entries, err := os.ReadDir(stepsDir)
+			if err != nil {
+				continue
+			}
 			for _, e := range entries {
 				if !e.IsDir() {
 					continue
@@ -222,7 +227,7 @@ func findDescendantsByOrigin(uuid string, history *ProcessHistory, stepDataDir s
 // method. It delegates to BuildResumeLineage using the kernel's procHistory and
 // stepDataDir.
 func (k *KernelImpl) GetResumeLineage(uuid string) (*ResumeLineageData, error) {
-	return BuildResumeLineage(uuid, k.procHistory, k.stepDataDir)
+	return BuildResumeLineage(uuid, k.procHistory, k.dataDir)
 }
 
 // ProcHistory exposes the kernel's in-memory procHistory for test injection

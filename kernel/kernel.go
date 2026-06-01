@@ -4,7 +4,6 @@ import (
 	gocontext "context"
 	"encoding/json"
 	"fmt"
-	"path/filepath"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -250,8 +249,9 @@ type KernelImpl struct {
 	// Immune daemon (Story 22.1)
 	immuneDaemon *ImmuneDaemon
 
-	// Step data directory override for testing (Story 27.1)
-	stepDataDir string
+	// Global data directory for session persistence (~/.local/share/rnix).
+	// Per-project data is stored under <dataDir>/projects/<project-id>/.
+	dataDir string
 
 	// Checkpoint policy (Story 42.2) — periodic best-effort checkpoint thresholds
 	checkpointCfg CheckpointConfig
@@ -297,37 +297,42 @@ func NewKernel(v *vfs.VFS, ctxMgr *rnixctx.Manager, cb KernelCallbacks) *KernelI
 	return k
 }
 
-// SetStepDataDir overrides the base directory for StepWriter output.
+// SetDataDir sets the global data directory for session persistence.
+func (k *KernelImpl) SetDataDir(dir string) {
+	k.dataDir = dir
+}
+
+// SetStepDataDir is a deprecated alias for SetDataDir.
 func (k *KernelImpl) SetStepDataDir(dir string) {
-	k.stepDataDir = dir
+	k.dataDir = dir
 }
 
-// GetStepDataDir returns the base directory for step data output.
+// GetDataDir returns the global data directory.
+func (k *KernelImpl) GetDataDir() string {
+	return k.dataDir
+}
+
+// GetStepDataDir is a deprecated alias for GetDataDir.
 func (k *KernelImpl) GetStepDataDir() string {
-	return k.stepDataDir
+	return k.dataDir
 }
 
-// resolveBaseDir returns the base .rnix directory for persistence data.
+// resolveBaseDir returns the per-project data directory for persistence.
 func (k *KernelImpl) resolveBaseDir(proc *Process) string {
 	return k.ResolveStepBaseDir(proc)
 }
 
-// ResolveStepBaseDir resolves the base .rnix directory used for step /
-// event / checkpoint persistence for the given process. Returns the
-// kernel-wide override if set, otherwise the per-project `.rnix` directory,
-// otherwise "" (caller must skip writer initialisation).
-//
-// Exposed for handleExecScript (Story 43.2 OBS-1) so the script-runner can
-// initialise its EventWriter using the same resolution chain that
-// reasonStep already uses, avoiding two ad-hoc copies that could drift.
+// ResolveStepBaseDir resolves the per-project data directory used for step /
+// event / checkpoint persistence. Returns "" when the process has no
+// ProjectDir (caller must skip writer initialisation).
 func (k *KernelImpl) ResolveStepBaseDir(proc *Process) string {
-	if k.stepDataDir != "" {
-		return k.stepDataDir
+	if k.dataDir == "" {
+		return ""
 	}
-	if proc != nil && proc.ProjectConfig != nil && proc.ProjectConfig.ProjectDir != "" {
-		return filepath.Join(proc.ProjectConfig.ProjectDir, ".rnix")
+	if proc == nil || proc.ProjectConfig == nil || proc.ProjectConfig.ProjectDir == "" {
+		return ""
 	}
-	return ""
+	return config.ProjectDataDir(k.dataDir, proc.ProjectConfig.ProjectDir)
 }
 
 // SetMountManager sets the MCP mount manager on the kernel.

@@ -49,15 +49,15 @@ func readPersistedDiffEntries(t *testing.T, path string) []kernel.DiffMemoryEntr
 // AC7（路径约定 + 落盘）：装配后的 store Record 必须落盘到
 // resolveDataDir(cwd,"diffmemory")/diffmemory.json，且为合法 JSONL。
 func TestATDD_51_1_AC7_AssembleUsesPersistencePath(t *testing.T) {
-	cwd := t.TempDir()
+	dataDir := t.TempDir()
 
-	dm := assembleDiffMemory(cwd)
+	dm := assembleDiffMemory(dataDir)
 	if dm == nil {
 		t.Fatal("assembleDiffMemory returned nil")
 	}
 	dm.Record("build rest api", []string{"go-coder", "api-designer"})
 
-	wantPath := filepath.Join(cwd, ".rnix", "data", "diffmemory", "diffmemory.json")
+	wantPath := filepath.Join(dataDir, "diffmemory", "diffmemory.json")
 	if _, err := os.Stat(wantPath); err != nil {
 		t.Fatalf("expected persistence file at convention path %s: %v", wantPath, err)
 	}
@@ -79,14 +79,14 @@ func TestATDD_51_1_AC7_AssembleUsesPersistencePath(t *testing.T) {
 // 这是 AC3「跨重启存活」在生产装配层的复现：若装配点退化为纯内存或路径不一致，
 // 第二次 assemble 将 Lookup miss。
 func TestATDD_51_1_AC7_PathsSurviveSimulatedRestart(t *testing.T) {
-	cwd := t.TempDir()
+	dataDir := t.TempDir()
 
-	d1 := assembleDiffMemory(cwd)
+	d1 := assembleDiffMemory(dataDir)
 	d1.Record("analyze system logs", []string{"log-analyst"})
 	d1.Record("write integration tests", []string{"tester", "qa"})
 
-	// 模拟 daemon 重启：同一 cwd 重新装配。
-	d2 := assembleDiffMemory(cwd)
+	// 模拟 daemon 重启：同一 dataDir 重新装配。
+	d2 := assembleDiffMemory(dataDir)
 	if skills, ok := d2.Lookup("analyze system logs"); !ok || len(skills) != 1 || skills[0] != "log-analyst" {
 		t.Fatalf("path 1 did not survive simulated restart via assembly: skills=%v ok=%v", skills, ok)
 	}
@@ -103,13 +103,9 @@ func TestATDD_51_1_AC7_PathsSurviveSimulatedRestart(t *testing.T) {
 // 这样 os.Open(".rnix/data/diffmemory/diffmemory.json") 会返回 ENOTDIR（非
 // os.IsNotExist），使 NewDiffMemoryWithPersistence 的 load() 返回错误，进入回退分支。
 func TestATDD_51_1_AC7_LoadFailureFallsBackToInMemory(t *testing.T) {
-	cwd := t.TempDir()
+	dataDir := t.TempDir()
 
 	// 让约定路径的父目录段成为文件，制造 ENOTDIR。
-	dataDir := filepath.Join(cwd, ".rnix", "data")
-	if err := os.MkdirAll(dataDir, 0o755); err != nil {
-		t.Fatalf("mkdir data dir: %v", err)
-	}
 	blocker := filepath.Join(dataDir, "diffmemory") // 期望是目录，这里占成文件
 	if err := os.WriteFile(blocker, []byte("not a directory"), 0o644); err != nil {
 		t.Fatalf("write blocker file: %v", err)
@@ -122,7 +118,7 @@ func TestATDD_51_1_AC7_LoadFailureFallsBackToInMemory(t *testing.T) {
 				t.Fatalf("assembleDiffMemory must not panic on load failure, panic: %v", r)
 			}
 		}()
-		dm = assembleDiffMemory(cwd)
+		dm = assembleDiffMemory(dataDir)
 	}()
 
 	if dm == nil {

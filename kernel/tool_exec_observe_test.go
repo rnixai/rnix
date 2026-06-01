@@ -71,7 +71,7 @@ func newObserveTestKernel(t *testing.T) *observeTestKernel {
 
 func (tk *observeTestKernel) readSteps(t *testing.T) []types.StepRecord {
 	t.Helper()
-	path := filepath.Join(tk.baseDir, "data", "steps", tk.proc.UUID, "steps.jsonl")
+	path := filepath.Join(tk.baseDir, "steps", tk.proc.UUID, "steps.jsonl")
 	f, err := os.Open(path)
 	if err != nil {
 		t.Fatalf("open steps.jsonl: %v", err)
@@ -93,7 +93,7 @@ func (tk *observeTestKernel) readSteps(t *testing.T) []types.StepRecord {
 
 func (tk *observeTestKernel) readEvents(t *testing.T) []SyscallEventDisk {
 	t.Helper()
-	path := filepath.Join(tk.baseDir, "data", "steps", tk.proc.UUID, "events.jsonl")
+	path := filepath.Join(tk.baseDir, "steps", tk.proc.UUID, "events.jsonl")
 	events, err := ReadAllEvents(path)
 	if err != nil {
 		t.Fatalf("ReadAllEvents: %v", err)

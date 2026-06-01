@@ -73,7 +73,7 @@ func writeProcessMeta(baseDir string, proc *Process) error {
 		return fmt.Errorf("marshal process-meta: %w", err)
 	}
 
-	dir := filepath.Join(baseDir, "data", "steps", proc.UUID)
+	dir := filepath.Join(baseDir, "steps", proc.UUID)
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return fmt.Errorf("mkdir process-meta target: %w", err)
 	}

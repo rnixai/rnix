@@ -58,10 +58,10 @@ func (k *KernelImpl) attachStepObservation(proc *Process) {
 		}
 	}
 	if proc.stepsDir == "" {
-		proc.stepsDir = filepath.Join(stepBaseDir, "data", "steps", proc.UUID)
+		proc.stepsDir = filepath.Join(stepBaseDir, "steps", proc.UUID)
 	}
 	if proc.scratchDir == "" {
-		proc.scratchDir = filepath.Join(stepBaseDir, "data", "scratch", proc.UUID)
+		proc.scratchDir = filepath.Join(stepBaseDir, "scratch", proc.UUID)
 	}
 	if proc.checkpointErrCh == nil {
 		proc.checkpointErrCh = make(chan error, 1)
@@ -920,7 +920,7 @@ func (k *KernelImpl) asyncWriteCheckpoint(proc *Process, step int, consecutiveTo
 		// it as resumable. We can read state without the lock because GetState
 		// is atomic.
 		if procInfo != nil && proc.GetState() == types.StateRunning {
-			if err := SaveProcInfo(k.stepDataDir, *procInfo); err != nil {
+			if err := SaveProcInfo(k.ResolveStepBaseDir(proc), *procInfo); err != nil {
 				log.Printf("[checkpoint] pid=%d SaveProcInfo failed: %v", proc.PID, err)
 			}
 		}

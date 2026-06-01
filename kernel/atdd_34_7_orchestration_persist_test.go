@@ -116,7 +116,7 @@ func TestSaveProcInfo_WithOrchestration(t *testing.T) {
 		t.Fatalf("SaveProcInfo: %v", err)
 	}
 
-	path := filepath.Join(dir, "data", "steps", info.UUID, procInfoFilename)
+	path := filepath.Join(dir, "steps", info.UUID, procInfoFilename)
 	data, err := os.ReadFile(path)
 	if err != nil {
 		t.Fatalf("ReadFile: %v", err)

@@ -98,10 +98,9 @@ func findRepoRelativePathForATDD45_4(rel string) (string, error) {
 // 返回 stepDataDir 让调用方拼接 events.jsonl 路径做断言。
 func newSkipReasonLoopProcForATDD45_4(t *testing.T) (*kernel.KernelImpl, *kernel.Process, string) {
 	t.Helper()
-	stepDataDir := t.TempDir()
 
 	kern := kernel.NewKernel(nil, rnixctx.NewManager(), nil)
-	kern.SetStepDataDir(stepDataDir)
+	_, projBase := kernel.TestSetupDataDir(t, kern)
 	t.Cleanup(func() { kern.Shutdown() })
 
 	pid, err := kern.Spawn("run: atdd-45-4.ash", nil, kernel.SpawnOpts{SkipReasonLoop: true})
@@ -112,7 +111,7 @@ func newSkipReasonLoopProcForATDD45_4(t *testing.T) (*kernel.KernelImpl, *kernel
 	if !ok {
 		t.Fatalf("Story 45.4 AC3: GetProcess(%d) vanished after Spawn", pid)
 	}
-	return kern, proc, stepDataDir
+	return kern, proc, projBase
 }
 
 // -----------------------------------------------------------------------------
@@ -173,7 +172,7 @@ func TestATDD_45_4_43_1_001_ScriptRunnerActivityViaEventsJSONLOnly(t *testing.T)
 	time.Sleep(50 * time.Millisecond)
 
 	// (1) events.jsonl 必须存在且包含此事件
-	eventsPath := filepath.Join(stepDataDir, "data", "steps", proc.UUID, "events.jsonl")
+	eventsPath := filepath.Join(stepDataDir, "steps", proc.UUID, "events.jsonl")
 	rows, err := kernel.ReadAllEvents(eventsPath)
 	if err != nil {
 		t.Fatalf("Story 45.4 AC3.001: ReadAllEvents(%s): %v (P4 下 events.jsonl 是 script-runner 活性信号源)", eventsPath, err)
@@ -219,9 +218,8 @@ func TestATDD_45_4_43_1_001_ScriptRunnerActivityViaEventsJSONLOnly(t *testing.T)
 func TestATDD_45_4_43_1_002_GenuineDeadlockNoLongerMaskedByFakeHeartbeat(t *testing.T) {
 	// 自构 spawn 流程：需要设置 StepTimeout=100ms 启用 stall 检测，
 	// 与 helper 默认 spawn 不同（helper 不设 StepTimeout）。
-	stepDataDir := t.TempDir()
 	kern := kernel.NewKernel(nil, rnixctx.NewManager(), nil)
-	kern.SetStepDataDir(stepDataDir)
+	kernel.TestSetupDataDir(t, kern)
 	t.Cleanup(func() { kern.Shutdown() })
 
 	// StepTimeout=100ms — 让 sleep 300ms 后 stalledDuration (~300ms) > 100ms。
@@ -316,9 +314,8 @@ func TestATDD_45_4_43_1_003_StepTimeoutFieldStillUsedForDashboard(t *testing.T) 
 	// (1) Spawn — 验证 SpawnOpts.StepTimeout 透传完成（30.5 AC#3 沿用）。
 	// 这里仅用于编译契约：若 SpawnOpts.StepTimeout 字段被错误删除，Spawn 调用
 	// 失败 → 本测试不能编译 → CI 立即可见。
-	stepDataDir := t.TempDir()
 	kern := kernel.NewKernel(nil, rnixctx.NewManager(), nil)
-	kern.SetStepDataDir(stepDataDir)
+	kernel.TestSetupDataDir(t, kern)
 	t.Cleanup(func() { kern.Shutdown() })
 
 	pid, err := kern.Spawn("run: atdd-45-4-43-1-003.ash", nil, kernel.SpawnOpts{

@@ -104,7 +104,7 @@ func TestATDD_48_2_007_UnmountEvent_ForcedKill_AnnotatesArgs(t *testing.T) {
 		t.Fatalf("Flush: %v", err)
 	}
 
-	eventsPath := filepath.Join(baseDir, "data", "steps", proc.UUID, "events.jsonl")
+	eventsPath := filepath.Join(baseDir, "steps", proc.UUID, "events.jsonl")
 	if _, err := os.Stat(eventsPath); err != nil {
 		t.Fatalf("events.jsonl not created at %s: %v", eventsPath, err)
 	}
@@ -213,7 +213,7 @@ func TestATDD_48_2_007b_UnmountEvent_GracefulPath_NoForcedFlag(t *testing.T) {
 		t.Fatalf("Flush: %v", err)
 	}
 
-	rows, err := ReadAllEvents(filepath.Join(baseDir, "data", "steps", proc.UUID, "events.jsonl"))
+	rows, err := ReadAllEvents(filepath.Join(baseDir, "steps", proc.UUID, "events.jsonl"))
 	if err != nil {
 		t.Fatalf("ReadAllEvents: %v", err)
 	}

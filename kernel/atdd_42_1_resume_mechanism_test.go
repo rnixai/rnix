@@ -157,7 +157,7 @@ func TestATDD_42_1_004_ForkMode_NewUUID_OriginTracked(t *testing.T) {
 		t.Error("Fork UUID should not be empty")
 	}
 
-	newStepsDir := filepath.Join(baseDir, "data", "steps", result.UUID)
+	newStepsDir := filepath.Join(baseDir, "steps", result.UUID)
 	infoPath := filepath.Join(newStepsDir, "proc-info.json")
 
 	// AC#4 verification: origin_uuid must be set in memory on the new process.
@@ -238,7 +238,7 @@ func TestATDD_42_1_007_CorruptedSteps_ReturnsError(t *testing.T) {
 	k, baseDir := setupResumeKernel(t)
 	uuid := "corrupt-steps-0000-0000-000000000001"
 
-	stepsDir := filepath.Join(baseDir, "data", "steps", uuid)
+	stepsDir := filepath.Join(baseDir, "steps", uuid)
 	if err := os.MkdirAll(stepsDir, 0o755); err != nil {
 		t.Fatalf("mkdir: %v", err)
 	}

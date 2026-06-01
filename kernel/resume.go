@@ -168,7 +168,7 @@ func checkpointExists(baseDir, uuid string) bool {
 	if baseDir == "" || uuid == "" {
 		return false
 	}
-	cpPath := filepath.Join(baseDir, "data", "steps", uuid, "checkpoint.json")
+	cpPath := filepath.Join(baseDir, "steps", uuid, "checkpoint.json")
 	_, err := os.Stat(cpPath)
 	return err == nil
 }
@@ -249,9 +249,18 @@ func (k *KernelImpl) ResumeWithOpts(uuid string, opts ResumeOpts) (*ResumeResult
 		log.Printf("[resume-trace] ResumeWithOpts exit uuid=%s elapsed=%s", uuid, time.Since(start))
 	}()
 
-	baseDir := k.stepDataDir
+	baseDir := FindBaseDirByUUID(k.dataDir, uuid)
 	if baseDir == "" {
-		return nil, NewSyscallError("Resume", 0, "", fmt.Errorf("step data directory not configured"), types.ErrInternal)
+		// Story 42.5 AC#6 — distinguish "garbage collected" from
+		// "never spawned" using procHistory.HasEverSeen.
+		if k.procHistory != nil && k.procHistory.HasEverSeen(uuid) {
+			return nil, NewSyscallError("Resume", 0, "",
+				fmt.Errorf("process data has been garbage collected (UUID %s)", uuid),
+				types.ErrNotFound)
+		}
+		return nil, NewSyscallError("Resume", 0, "",
+			fmt.Errorf("no data found for UUID %s: never spawned or never persisted", uuid),
+			types.ErrNotFound)
 	}
 
 	// Route based on process state in procTable
@@ -291,7 +300,7 @@ func (k *KernelImpl) ResumeWithOpts(uuid string, opts ResumeOpts) (*ResumeResult
 	}
 
 	// Not in procTable — check disk
-	stepsDir := filepath.Join(baseDir, "data", "steps", uuid)
+	stepsDir := filepath.Join(baseDir, "steps", uuid)
 	if _, err := os.Stat(stepsDir); err != nil {
 		if os.IsNotExist(err) {
 			// Story 42.5 AC#6 — distinguish "garbage collected" from
@@ -321,8 +330,11 @@ func (k *KernelImpl) ResumeWithOpts(uuid string, opts ResumeOpts) (*ResumeResult
 
 // resumeFromCheckpoint handles the checkpoint-based resume path (original 30-4 logic).
 func (k *KernelImpl) resumeFromCheckpoint(uuid string, opts ResumeOpts, start time.Time) (*ResumeResult, error) {
-	baseDir := k.stepDataDir
-	stepsDir := filepath.Join(baseDir, "data", "steps", uuid)
+	baseDir := FindBaseDirByUUID(k.dataDir, uuid)
+	if baseDir == "" {
+		return nil, NewSyscallError("Resume", 0, "", fmt.Errorf("no on-disk data for UUID %s", uuid), types.ErrNotFound)
+	}
+	stepsDir := filepath.Join(baseDir, "steps", uuid)
 
 	// Story 42.3 — reject negative FromStep on this path too (defensive symmetry).
 	if opts.FromStep < 0 {
@@ -535,8 +547,11 @@ func (k *KernelImpl) resumeFromCheckpoint(uuid string, opts ResumeOpts, start ti
 // resumeFromHistory handles resume for Dead/Zombie processes using disk data
 // (steps.jsonl + process-meta.json + proc-info.json).
 func (k *KernelImpl) resumeFromHistory(uuid string, opts ResumeOpts, start time.Time) (*ResumeResult, error) {
-	baseDir := k.stepDataDir
-	stepsDir := filepath.Join(baseDir, "data", "steps", uuid)
+	baseDir := FindBaseDirByUUID(k.dataDir, uuid)
+	if baseDir == "" {
+		return nil, NewSyscallError("Resume", 0, "", fmt.Errorf("no on-disk data for UUID %s", uuid), types.ErrNotFound)
+	}
+	stepsDir := filepath.Join(baseDir, "steps", uuid)
 
 	// Story 42.3 — reject negative FromStep up-front (AC#2). Zero is valid (=
 	// "no truncation"); positive values get range-checked after we read steps.jsonl.

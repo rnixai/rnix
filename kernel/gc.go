@@ -75,29 +75,30 @@ func (k *KernelImpl) RunGc(dryRun bool, force bool) (GcResult, error) {
 	k.gcMu.Lock()
 	defer k.gcMu.Unlock()
 
-	stepsDir := filepath.Join(k.stepDataDir, "data", "steps")
-
-	candidates, err := scanGcCandidates(stepsDir, cfg)
-	if err != nil {
-		return GcResult{}, err
-	}
-
-	// Filter out UUIDs that currently have a live Process in the procTable.
-	// Defends against the gc vs active-resume race: a resumed process AddProcess'es
-	// + SaveProcInfo's its new state while a stale Dead snapshot for the same UUID
-	// still sits on disk. Without this check, gc would os.RemoveAll the directory
-	// underneath the running process, silently dropping its persistence trace
-	// (Linux unlink-while-open lets the in-memory process keep running, but
-	// daemon restart sees nothing). See review finding [Decision #1].
-	if k.procTable != nil && len(candidates) > 0 {
-		live := make(map[string]bool)
+	// Collect live UUIDs from procTable to protect running processes.
+	live := make(map[string]bool)
+	if k.procTable != nil {
 		k.procTable.Range(func(_ types.PID, p *Process) bool {
 			if p != nil && p.UUID != "" {
 				live[p.UUID] = true
 			}
 			return true
 		})
-		if len(live) > 0 {
+	}
+
+	var result GcResult
+
+	// GC each per-project data directory independently.
+	for _, baseDir := range AllProjectBaseDirs(k.dataDir) {
+		stepsDir := filepath.Join(baseDir, "steps")
+		candidates, err := scanGcCandidates(stepsDir, cfg)
+		if err != nil {
+			log.Printf("[gc] warn: scan %s: %v", stepsDir, err)
+			continue
+		}
+
+		// Filter live processes.
+		if len(live) > 0 && len(candidates) > 0 {
 			filtered := candidates[:0]
 			for _, c := range candidates {
 				if live[c.UUID] {
@@ -108,32 +109,28 @@ func (k *KernelImpl) RunGc(dryRun bool, force bool) (GcResult, error) {
 			}
 			candidates = filtered
 		}
-	}
 
-	result := GcResult{Candidates: candidates}
-	if dryRun {
-		return result, nil
-	}
-
-	for _, c := range candidates {
-		freed, removeErr := removeGcCandidate(stepsDir, c.UUID)
-		if removeErr != nil {
-			// AC#1 robustness: do not abort whole gc on one bad directory.
-			log.Printf("[gc] warn: remove %s: %v", c.UUID, removeErr)
+		result.Candidates = append(result.Candidates, candidates...)
+		if dryRun {
 			continue
 		}
-		if k.procHistory != nil {
-			k.procHistory.RemoveByUUID(c.UUID)
+
+		for _, c := range candidates {
+			freed, removeErr := removeGcCandidate(stepsDir, c.UUID)
+			if removeErr != nil {
+				log.Printf("[gc] warn: remove %s: %v", c.UUID, removeErr)
+				continue
+			}
+			if k.procHistory != nil {
+				k.procHistory.RemoveByUUID(c.UUID)
+			}
+			if appendErr := appendGcRemovedUUID(baseDir, c.UUID); appendErr != nil {
+				log.Printf("[gc] warn: persist removed uuid %s: %v", c.UUID, appendErr)
+			}
+			result.RemovedCount++
+			result.FreedBytes += freed
+			result.RemovedUUIDs = append(result.RemovedUUIDs, c.UUID)
 		}
-		// Persist the removed UUID so HasEverSeen still returns true across
-		// daemon restarts (AC#6 cross-restart correctness, review Decision #2).
-		// Best-effort: log on failure but do not roll back the deletion.
-		if appendErr := appendGcRemovedUUID(k.stepDataDir, c.UUID); appendErr != nil {
-			log.Printf("[gc] warn: persist removed uuid %s: %v", c.UUID, appendErr)
-		}
-		result.RemovedCount++
-		result.FreedBytes += freed
-		result.RemovedUUIDs = append(result.RemovedUUIDs, c.UUID)
 	}
 	return result, nil
 }
@@ -356,11 +353,10 @@ func appendGcRemovedUUID(baseDir, uuid string) error {
 	if baseDir == "" || uuid == "" {
 		return nil
 	}
-	dataDir := filepath.Join(baseDir, "data")
-	if err := os.MkdirAll(dataDir, 0o755); err != nil {
-		return fmt.Errorf("mkdir %s: %w", dataDir, err)
+	if err := os.MkdirAll(baseDir, 0o755); err != nil {
+		return fmt.Errorf("mkdir %s: %w", baseDir, err)
 	}
-	path := filepath.Join(dataDir, gcRemovedFilename)
+	path := filepath.Join(baseDir, gcRemovedFilename)
 	rec := gcRemovedRecord{UUID: uuid, RemovedAt: time.Now().UTC().Format(time.RFC3339Nano)}
 	line, err := json.Marshal(rec)
 	if err != nil {
@@ -384,7 +380,7 @@ func LoadGcRemovedUUIDs(baseDir string) (map[string]struct{}, error) {
 	if baseDir == "" {
 		return nil, nil
 	}
-	path := filepath.Join(baseDir, "data", gcRemovedFilename)
+	path := filepath.Join(baseDir, gcRemovedFilename)
 	data, err := os.ReadFile(path)
 	if err != nil {
 		if os.IsNotExist(err) {

@@ -21,7 +21,7 @@ type StepWriter struct {
 
 // NewStepWriter creates a StepWriter that writes to .rnix/data/steps/<uuid>/steps.jsonl.
 func NewStepWriter(baseDir string, procUUID string) (*StepWriter, error) {
-	dir := filepath.Join(baseDir, "data", "steps", procUUID)
+	dir := filepath.Join(baseDir, "steps", procUUID)
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return nil, err
 	}

@@ -205,45 +205,45 @@ type stepSession struct {
 }
 
 func listStepSessions() []stepSession {
-	cwd, _ := os.Getwd()
-	stepsDir := resolveDataDir(cwd, "steps")
-	entries, err := os.ReadDir(stepsDir)
-	if err != nil {
-		return nil
-	}
-
 	var sessions []stepSession
-	for _, e := range entries {
-		if !e.IsDir() {
+	for _, stepsDir := range allStepsDirs() {
+		entries, err := os.ReadDir(stepsDir)
+		if err != nil {
 			continue
 		}
-		name := e.Name()
-		info, _ := e.Info()
-		modified := time.Time{}
-		if info != nil {
-			modified = info.ModTime()
-		}
 
-		stepsPath := filepath.Join(stepsDir, name, "steps.jsonl")
-		stepCount := countJSONLLines(stepsPath)
+		for _, e := range entries {
+			if !e.IsDir() {
+				continue
+			}
+			name := e.Name()
+			info, _ := e.Info()
+			modified := time.Time{}
+			if info != nil {
+				modified = info.ModTime()
+			}
 
-		if _, err := uuid.Parse(name); err == nil {
-			pid := readMetaPID(filepath.Join(stepsDir, name, "process-meta.json"))
-			sessions = append(sessions, stepSession{
-				UUID:     name,
-				PID:      pid,
-				Steps:    stepCount,
-				Modified: modified,
-			})
-		} else if _, err := strconv.Atoi(name); err == nil {
-			pidNum, _ := strconv.ParseUint(name, 10, 64)
-			sessions = append(sessions, stepSession{
-				UUID:     name,
-				PID:      types.PID(pidNum),
-				Steps:    stepCount,
-				Modified: modified,
-				Legacy:   true,
-			})
+			stepsPath := filepath.Join(stepsDir, name, "steps.jsonl")
+			stepCount := countJSONLLines(stepsPath)
+
+			if _, err := uuid.Parse(name); err == nil {
+				pid := readMetaPID(filepath.Join(stepsDir, name, "process-meta.json"))
+				sessions = append(sessions, stepSession{
+					UUID:     name,
+					PID:      pid,
+					Steps:    stepCount,
+					Modified: modified,
+				})
+			} else if _, err := strconv.Atoi(name); err == nil {
+				pidNum, _ := strconv.ParseUint(name, 10, 64)
+				sessions = append(sessions, stepSession{
+					UUID:     name,
+					PID:      types.PID(pidNum),
+					Steps:    stepCount,
+					Modified: modified,
+					Legacy:   true,
+				})
+			}
 		}
 	}
 	return sessions

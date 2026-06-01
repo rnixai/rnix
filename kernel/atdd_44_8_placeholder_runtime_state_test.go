@@ -47,7 +47,7 @@ import (
 // rehydrateRuntimeStateFromDisk's "system_prompt must be non-empty" check.
 func writeProcessMetaFixture(t *testing.T, baseDir, uuid, systemPrompt string) {
 	t.Helper()
-	dir := filepath.Join(baseDir, "data", "steps", uuid)
+	dir := filepath.Join(baseDir, "steps", uuid)
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		t.Fatalf("mkdir %s: %v", dir, err)
 	}
@@ -67,7 +67,7 @@ func writeProcessMetaFixture(t *testing.T, baseDir, uuid, systemPrompt string) {
 // non-empty Messages slice — Deserialize must accept that without crashing.
 func writeStepsJSONLFixture(t *testing.T, baseDir, uuid string, steps int) {
 	t.Helper()
-	dir := filepath.Join(baseDir, "data", "steps", uuid)
+	dir := filepath.Join(baseDir, "steps", uuid)
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		t.Fatalf("mkdir %s: %v", dir, err)
 	}
@@ -135,7 +135,7 @@ func TestATDD_44_8_010_PrimaryDeviceDiskRoundTrip(t *testing.T) {
 		PrimaryDevice: "/dev/llm/claude",
 		CreatedAt:     staticTime(t, -time.Hour).Format(time.RFC3339Nano),
 	}
-	stepsDir := filepath.Join(dataDir, "data", "steps", uuid)
+	stepsDir := filepath.Join(dataDir, "steps", uuid)
 	if err := os.MkdirAll(stepsDir, 0o755); err != nil {
 		t.Fatalf("mkdir: %v", err)
 	}
@@ -272,7 +272,7 @@ func TestATDD_44_8_020_LoadSuspendedRehydratesPlaceholder(t *testing.T) {
 // helper) to keep 44.3 fixtures stable.
 func overwriteProcInfoPrimaryDevice(t *testing.T, baseDir, uuid, primaryDevice string) {
 	t.Helper()
-	path := filepath.Join(baseDir, "data", "steps", uuid, "proc-info.json")
+	path := filepath.Join(baseDir, "steps", uuid, "proc-info.json")
 	data, err := os.ReadFile(path)
 	if err != nil {
 		t.Fatalf("read proc-info.json: %v", err)
@@ -376,7 +376,7 @@ func TestATDD_44_8_040_RehydrateFailureSkipsPlaceholder(t *testing.T) {
 	writeStepsJSONLFixture(t, dataDir, badUUID, 1)
 	// Write a deliberately malformed process-meta.json so rehydrate hits
 	// json.Unmarshal error (not the missing-file fallback path).
-	corruptMetaPath := filepath.Join(dataDir, "data", "steps", badUUID, "process-meta.json")
+	corruptMetaPath := filepath.Join(dataDir, "steps", badUUID, "process-meta.json")
 	if err := os.WriteFile(corruptMetaPath, []byte("{not valid json"), 0o644); err != nil {
 		t.Fatalf("write corrupt meta: %v", err)
 	}
@@ -436,6 +436,7 @@ func TestATDD_44_8_050_SuspendWritesProcessMetaToDisk(t *testing.T) {
 	proc.PrimaryDevice = "/dev/llm/claude"
 	proc.AllowedDevices = []string{"/dev/fs", "/dev/llm/claude"}
 	proc.FinalSystemPrompt = "You are a 44.8 test agent."
+	TestSetProjectConfig(proc)
 	// Synthetic nativeToolDefs — production code only requires this to be
 	// JSON-marshallable; the exact shape is opaque to writeProcessMeta.
 	proc.nativeToolDefs = []vfs.ToolDef{
@@ -450,7 +451,7 @@ func TestATDD_44_8_050_SuspendWritesProcessMetaToDisk(t *testing.T) {
 		t.Fatalf("suspendProcess: %v", err)
 	}
 
-	metaPath := filepath.Join(dataDir, "data", "steps", uuid, "process-meta.json")
+	metaPath := filepath.Join(dataDir, "steps", uuid, "process-meta.json")
 	data, err := os.ReadFile(metaPath)
 	if err != nil {
 		t.Fatalf("process-meta.json missing after suspend: %v", err)
@@ -472,7 +473,7 @@ func TestATDD_44_8_050_SuspendWritesProcessMetaToDisk(t *testing.T) {
 	// proc-info.json must also reflect state=suspended at this point — both
 	// snapshots are written together by suspendProcess, and the next-daemon
 	// LoadSuspendedFromDisk needs both to be sibling-fresh.
-	procInfoPath := filepath.Join(dataDir, "data", "steps", uuid, "proc-info.json")
+	procInfoPath := filepath.Join(dataDir, "steps", uuid, "proc-info.json")
 	procData, err := os.ReadFile(procInfoPath)
 	if err != nil {
 		t.Fatalf("proc-info.json missing: %v", err)
@@ -505,11 +506,15 @@ func TestATDD_44_8_050_SuspendWritesProcessMetaToDisk(t *testing.T) {
 // persist a new ProcInfo field, or regressing the rehydrate fallback) trips
 // this test immediately.
 func TestATDD_44_8_051_SuspendThenRestartThenLoadProducesArmedPlaceholder(t *testing.T) {
-	baseDir := t.TempDir()
+	dataDir := t.TempDir()
 
 	// ===== kernel1: spawn-like setup + suspend =====
 	kern1 := newSimpleKernel(t)
-	kern1.SetStepDataDir(baseDir)
+	kern1.SetDataDir(dataDir)
+	projBase := TestProjectBaseDir(dataDir)
+	if err := os.MkdirAll(projBase, 0o755); err != nil {
+		t.Fatal(err)
+	}
 
 	uuid := uuidForTest("e2e8051")
 	proc := NewProcess(0, "suspend-restart-resume", []string{"bmad-help"})
@@ -519,6 +524,7 @@ func TestATDD_44_8_051_SuspendThenRestartThenLoadProducesArmedPlaceholder(t *tes
 	proc.PrimaryDevice = "/dev/llm/claude"
 	proc.AllowedDevices = []string{"/dev/fs", "/dev/llm/claude"}
 	proc.FinalSystemPrompt = "You are the 44.8 e2e test agent."
+	TestSetProjectConfig(proc)
 	proc.nativeToolDefs = []vfs.ToolDef{
 		{Name: "fs", Description: "filesystem"},
 	}
@@ -531,7 +537,7 @@ func TestATDD_44_8_051_SuspendThenRestartThenLoadProducesArmedPlaceholder(t *tes
 	// Write a synthetic steps.jsonl so rehydrate has something to replay.
 	// suspendProcess does not write this — production reasonStep does — so
 	// the test must seed it explicitly.
-	writeStepsJSONLFixture(t, baseDir, uuid, 2)
+	writeStepsJSONLFixture(t, projBase, uuid, 2)
 
 	if err := kern1.suspendProcess(proc, "user_paused", ExitSuspended); err != nil {
 		t.Fatalf("kern1.suspendProcess: %v", err)
@@ -539,7 +545,7 @@ func TestATDD_44_8_051_SuspendThenRestartThenLoadProducesArmedPlaceholder(t *tes
 
 	// ===== "daemon restart": kernel2 on the same on-disk state =====
 	kern2 := newSimpleKernel(t)
-	kern2.SetStepDataDir(baseDir)
+	kern2.SetDataDir(dataDir)
 
 	loaded, err := kern2.LoadSuspendedFromDisk()
 	if err != nil {
@@ -597,7 +603,7 @@ func TestATDD_44_8_060_ProjectDirRoundTrip(t *testing.T) {
 		ProjectDir:    "/abs/path/to/EchoMatrix",
 		CreatedAt:     staticTime(t, -time.Hour).Format(time.RFC3339Nano),
 	}
-	stepsDir := filepath.Join(dataDir, "data", "steps", uuid)
+	stepsDir := filepath.Join(dataDir, "steps", uuid)
 	if err := os.MkdirAll(stepsDir, 0o755); err != nil {
 		t.Fatalf("mkdir: %v", err)
 	}
@@ -755,7 +761,7 @@ func TestATDD_44_8_080_LoadSuspendedHandlesProjectLoaderFailure(t *testing.T) {
 // project_dir fields. Defined once here to keep 44.3 fixtures stable.
 func overwriteProcInfoFields(t *testing.T, baseDir, uuid string, fields map[string]any) {
 	t.Helper()
-	path := filepath.Join(baseDir, "data", "steps", uuid, "proc-info.json")
+	path := filepath.Join(baseDir, "steps", uuid, "proc-info.json")
 	data, err := os.ReadFile(path)
 	if err != nil {
 		t.Fatalf("read proc-info.json: %v", err)

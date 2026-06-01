@@ -80,8 +80,7 @@ func TestATDD_40_3_AC1_GetProcDetail_DriverMeta_LiveProcess(t *testing.T) {
 func TestATDD_40_3_AC1_GetProcDetail_DriverMeta_ReapedProcess(t *testing.T) {
 	srv, sockPath, _ := setupTestServer(t)
 
-	tmpDir := t.TempDir()
-	srv.kern.SetStepDataDir(tmpDir)
+	_, projBase := kernel.TestSetupDataDir(t, srv.kern)
 
 	reapedUUID := "40300000-0000-7000-0000-deadbeef0001"
 	pid := types.PID(40301)
@@ -105,12 +104,12 @@ func TestATDD_40_3_AC1_GetProcDetail_DriverMeta_ReapedProcess(t *testing.T) {
 		},
 	}
 
-	if err := kernel.SaveProcInfo(tmpDir, procInfo); err != nil {
+	if err := kernel.SaveProcInfo(projBase, procInfo); err != nil {
 		t.Fatalf("SaveProcInfo: %v", err)
 	}
 
 	// Also need process-meta.json for server_detail handler
-	metaDir := filepath.Join(tmpDir, "data", "steps", reapedUUID)
+	metaDir := filepath.Join(projBase, "steps", reapedUUID)
 	if err := os.MkdirAll(metaDir, 0o755); err != nil {
 		t.Fatalf("mkdir meta: %v", err)
 	}

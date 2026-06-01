@@ -44,7 +44,7 @@ func TestATDD_42_Fix_002_ListResumable_RequiresHistoryOrCheckpoint(t *testing.T)
 
 	// Entry A: proc-info.json only — no history, should be skipped.
 	uuidA := "fix-no-history-aaaa-bbbb-cccc-dddd-000000000010"
-	dirA := filepath.Join(baseDir, "data", "steps", uuidA)
+	dirA := filepath.Join(baseDir, "steps", uuidA)
 	if err := os.MkdirAll(dirA, 0o755); err != nil {
 		t.Fatalf("mkdir: %v", err)
 	}
@@ -60,7 +60,7 @@ func TestATDD_42_Fix_002_ListResumable_RequiresHistoryOrCheckpoint(t *testing.T)
 
 	// Entry B: proc-info.json + checkpoint.json (no steps.jsonl) → resumable.
 	uuidB := "fix-cp-only-aaaa-bbbb-cccc-dddd-000000000020"
-	dirB := filepath.Join(baseDir, "data", "steps", uuidB)
+	dirB := filepath.Join(baseDir, "steps", uuidB)
 	if err := os.MkdirAll(dirB, 0o755); err != nil {
 		t.Fatalf("mkdir: %v", err)
 	}
@@ -97,12 +97,12 @@ func TestATDD_42_Fix_002_ListResumable_RequiresHistoryOrCheckpoint(t *testing.T)
 
 func TestATDD_42_Fix_003_KernelListResumable_KeepsDeadInProcTable(t *testing.T) {
 	k := newThrottleTestKernel(t)
-	baseDir := k.GetStepDataDir()
+	projBase := TestProjectBaseDir(k.GetDataDir())
 
 	uuidDead := "fix-dead-in-table-aaaa-bbbb-cccc-dddd-000000000001"
 	uuidRunning := "fix-running-in-table-aaaa-bbbb-cccc-dddd-000000000002"
-	writeProcInfoOnly(t, baseDir, uuidDead, "dead", "dead in procTable")
-	writeProcInfoOnly(t, baseDir, uuidRunning, "running", "running in procTable")
+	writeProcInfoOnly(t, projBase, uuidDead, "dead", "dead in procTable")
+	writeProcInfoOnly(t, projBase, uuidRunning, "running", "running in procTable")
 
 	// Add Running process — should be filtered.
 	running := NewProcess(0, "running proc", nil)

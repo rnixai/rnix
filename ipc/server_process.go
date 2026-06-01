@@ -490,10 +490,10 @@ func (s *Server) handleListResumable(conn net.Conn) {
 		writeResponse(conn, Response{OK: false, Error: &ErrorPayload{Code: "internal", Message: fmt.Sprintf("list_resumable: %v", err)}})
 		return
 	}
-	baseDir := s.kern.GetStepDataDir()
+	globalDataDir := s.kern.GetDataDir()
 	wires := make([]ResumableProcessWire, 0, len(infos))
 	for _, info := range infos {
-		wires = append(wires, resumableInfoToWire(info, baseDir))
+		wires = append(wires, resumableInfoToWire(info, globalDataDir))
 	}
 	payload, err := json.Marshal(ListResumableResponse{Processes: wires})
 	if err != nil {
@@ -554,7 +554,7 @@ func (s *Server) handleGcDryRun(conn net.Conn, _ json.RawMessage) {
 
 // resumableInfoToWire builds a ResumableProcessWire from a proc-info snapshot,
 // preferring checkpoint.json for LastStep/LastActive when available.
-func resumableInfoToWire(info vfs.ProcInfo, baseDir string) ResumableProcessWire {
+func resumableInfoToWire(info vfs.ProcInfo, globalDataDir string) ResumableProcessWire {
 	w := ResumableProcessWire{
 		UUID:     info.UUID,
 		Intent:   info.Intent,
@@ -565,12 +565,14 @@ func resumableInfoToWire(info vfs.ProcInfo, baseDir string) ResumableProcessWire
 
 	// LastStep / LastActive: prefer checkpoint.json when present (most accurate
 	// snapshot of in-flight progress); fall back to proc-info timestamps.
-	if baseDir != "" && info.UUID != "" {
-		cpPath := filepath.Join(baseDir, "data", "steps", info.UUID)
-		if cp, err := kernel.ReadCheckpointPublic(cpPath); err == nil {
-			w.LastStep = cp.LastStep
-			if !cp.Timestamp.IsZero() {
-				w.LastActive = cp.Timestamp.UnixMilli()
+	if globalDataDir != "" && info.UUID != "" {
+		if projBaseDir := kernel.FindBaseDirByUUID(globalDataDir, info.UUID); projBaseDir != "" {
+			cpPath := filepath.Join(projBaseDir, "steps", info.UUID)
+			if cp, err := kernel.ReadCheckpointPublic(cpPath); err == nil {
+				w.LastStep = cp.LastStep
+				if !cp.Timestamp.IsZero() {
+					w.LastActive = cp.Timestamp.UnixMilli()
+				}
 			}
 		}
 	}

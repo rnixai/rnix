@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -327,6 +328,153 @@ func BenchmarkProjectDir_20Layers(b *testing.B) {
 		if got != root {
 			b.Fatalf("got %q, want %q", got, root)
 		}
+	}
+}
+
+// ============================================================
+// DataDir tests
+// ============================================================
+
+func TestDataDir_Default(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("RNIX_DATA_DIR", "")
+	t.Setenv("XDG_DATA_HOME", "")
+
+	got, err := DataDir()
+	if err != nil {
+		t.Fatalf("DataDir() error = %v", err)
+	}
+	want := filepath.Join(home, ".local", "share", "rnix")
+	if got != want {
+		t.Errorf("DataDir() = %q, want %q", got, want)
+	}
+}
+
+func TestDataDir_XDGDataHome(t *testing.T) {
+	custom := t.TempDir()
+	t.Setenv("RNIX_DATA_DIR", "")
+	t.Setenv("XDG_DATA_HOME", custom)
+
+	got, err := DataDir()
+	if err != nil {
+		t.Fatalf("DataDir() error = %v", err)
+	}
+	want := filepath.Join(custom, "rnix")
+	if got != want {
+		t.Errorf("DataDir() = %q, want %q", got, want)
+	}
+}
+
+func TestDataDir_EnvOverride(t *testing.T) {
+	custom := t.TempDir()
+	t.Setenv("RNIX_DATA_DIR", custom)
+	t.Setenv("XDG_DATA_HOME", "/should/not/use")
+
+	got, err := DataDir()
+	if err != nil {
+		t.Fatalf("DataDir() error = %v", err)
+	}
+	if got != custom {
+		t.Errorf("DataDir() = %q, want %q", got, custom)
+	}
+}
+
+// ============================================================
+// SanitizeBasename tests
+// ============================================================
+
+func TestSanitizeBasename(t *testing.T) {
+	tests := []struct {
+		input string
+		want  string
+	}{
+		{"echomatrix", "echomatrix"},
+		{"my-project", "my-project"},
+		{"my_project.v2", "my_project.v2"},
+		{"my project", "my-project"},
+		{"项目测试", "project"},             // pure CJK → fallback
+		{"rnix-项目", "rnix"},               // mixed: CJK stripped
+		{".hidden", "hidden"},               // leading dot stripped
+		{"..dotdot", "dotdot"},              // leading dots stripped
+		{"a b  c", "a-b-c"},                 // spaces → single dash
+		{"foo@bar#baz$qux", "foo-bar-baz-qux"},
+		{"", "project"},                     // empty → fallback
+		{"---", "project"},                  // only dashes → trimmed → fallback
+		{strings.Repeat("a", 100), strings.Repeat("a", 50)}, // truncation
+	}
+	for _, tt := range tests {
+		t.Run(fmt.Sprintf("%q", tt.input), func(t *testing.T) {
+			got := SanitizeBasename(tt.input)
+			if got != tt.want {
+				t.Errorf("SanitizeBasename(%q) = %q, want %q", tt.input, got, tt.want)
+			}
+		})
+	}
+}
+
+// ============================================================
+// ProjectDataID tests
+// ============================================================
+
+func TestProjectDataID_Stable(t *testing.T) {
+	path := "/home/user/echomatrix"
+	id1 := ProjectDataID(path)
+	id2 := ProjectDataID(path)
+	if id1 != id2 {
+		t.Errorf("ProjectDataID not stable: %q != %q", id1, id2)
+	}
+	if !strings.HasPrefix(id1, "echomatrix-") {
+		t.Errorf("ProjectDataID(%q) = %q, want prefix 'echomatrix-'", path, id1)
+	}
+	// basename + "-" + 8 hex chars
+	parts := strings.SplitN(id1, "-", 2)
+	if len(parts) != 2 || len(parts[1]) != 8 {
+		t.Errorf("ProjectDataID(%q) = %q, want format <base>-<8hex>", path, id1)
+	}
+}
+
+func TestProjectDataID_DifferentPaths_DifferentIDs(t *testing.T) {
+	id1 := ProjectDataID("/home/alice/myproject")
+	id2 := ProjectDataID("/home/bob/myproject")
+	if id1 == id2 {
+		t.Errorf("different paths should produce different IDs: %q == %q", id1, id2)
+	}
+	// Both should have same basename prefix
+	if !strings.HasPrefix(id1, "myproject-") || !strings.HasPrefix(id2, "myproject-") {
+		t.Errorf("both should start with 'myproject-': %q, %q", id1, id2)
+	}
+}
+
+func TestProjectDataID_CJKBasename(t *testing.T) {
+	id := ProjectDataID("/home/user/我的项目")
+	if !strings.HasPrefix(id, "project-") {
+		t.Errorf("CJK basename should fallback: got %q", id)
+	}
+}
+
+// ============================================================
+// ProjectDataDir tests
+// ============================================================
+
+func TestProjectDataDir_WithProject(t *testing.T) {
+	got := ProjectDataDir("/data/rnix", "/home/user/echomatrix")
+	if !strings.HasPrefix(got, "/data/rnix/projects/echomatrix-") {
+		t.Errorf("ProjectDataDir() = %q, want prefix /data/rnix/projects/echomatrix-", got)
+	}
+}
+
+func TestProjectDataDir_EmptyProject(t *testing.T) {
+	got := ProjectDataDir("/data/rnix", "")
+	if got != "" {
+		t.Errorf("ProjectDataDir with empty project = %q, want empty", got)
+	}
+}
+
+func TestProjectDataDir_EmptyDataDir(t *testing.T) {
+	got := ProjectDataDir("", "/home/user/foo")
+	if got != "" {
+		t.Errorf("ProjectDataDir with empty dataDir = %q, want empty", got)
 	}
 }
 

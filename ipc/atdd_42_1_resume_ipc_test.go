@@ -130,8 +130,7 @@ func setupResumeIPCTest(t *testing.T) (*Client, *kernel.KernelImpl, string, *moc
 	kern := kernel.NewKernel(vfsInst, ctxMgr, srv.CallbackMux())
 	srv.kern = kern
 
-	baseDir := t.TempDir()
-	kern.SetStepDataDir(baseDir)
+	_, projBase := kernel.TestSetupDataDir(t, kern)
 
 	sockDir := t.TempDir()
 	sockPath := filepath.Join(sockDir, "test.sock")
@@ -150,12 +149,12 @@ func setupResumeIPCTest(t *testing.T) (*Client, *kernel.KernelImpl, string, *moc
 	}
 	t.Cleanup(func() { client.Close() })
 
-	return client, kern, baseDir, llmFile
+	return client, kern, projBase, llmFile
 }
 
-func writeIPCTestData(t *testing.T, baseDir, uuid string, lastStep int) {
+func writeIPCTestData(t *testing.T, projBase, uuid string, lastStep int) {
 	t.Helper()
-	stepsDir := filepath.Join(baseDir, "data", "steps", uuid)
+	stepsDir := filepath.Join(projBase, "steps", uuid)
 	if err := os.MkdirAll(stepsDir, 0o755); err != nil {
 		t.Fatalf("mkdir: %v", err)
 	}

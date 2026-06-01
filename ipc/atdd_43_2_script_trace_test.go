@@ -135,7 +135,7 @@ spawn "done"
 		t.Fatalf("Execute: %v", err)
 	}
 
-	path := filepath.Join(stepBaseDir, "data", "steps", proc.UUID, "events.jsonl")
+	path := filepath.Join(stepBaseDir, "steps", proc.UUID, "events.jsonl")
 	if _, statErr := os.Stat(path); statErr != nil {
 		t.Fatalf("events.jsonl missing for script-runner UUID=%s: %v", proc.UUID, statErr)
 	}
@@ -206,7 +206,7 @@ spawn "hello"
 		t.Fatalf("Execute: %v", err)
 	}
 
-	path := filepath.Join(stepBaseDir, "data", "steps", proc.UUID, "events.jsonl")
+	path := filepath.Join(stepBaseDir, "steps", proc.UUID, "events.jsonl")
 	raw, err := os.ReadFile(path)
 	if err != nil {
 		t.Fatalf("read events.jsonl: %v", err)

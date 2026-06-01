@@ -178,9 +178,9 @@ func TestATDD_27_2_AC2_RunningProcess(t *testing.T) {
 	})
 
 	// Write steps to disk (UUID path since Story 28-2)
-	tmpDir := t.TempDir()
-	srv.kern.SetStepDataDir(tmpDir)
-	writeTestStepsUUID(t, tmpDir, proc.UUID, []types.StepRecord{
+	_, projBase := kernel.TestSetupDataDir(t, srv.kern)
+	kernel.TestSetProjectConfig(proc)
+	writeTestStepsUUID(t, projBase, proc.UUID, []types.StepRecord{
 		testStepRecord(1),
 		testStepRecord(2),
 		testStepRecord(3),
@@ -233,9 +233,9 @@ func TestATDD_27_2_AC3_ZombieProcess(t *testing.T) {
 	proc.SetFinalSystemPrompt("Zombie prompt")
 	proc.SetNativeToolDefs(nil)
 
-	tmpDir := t.TempDir()
-	srv.kern.SetStepDataDir(tmpDir)
-	writeTestStepsUUID(t, tmpDir, proc.UUID, []types.StepRecord{
+	_, projBase := kernel.TestSetupDataDir(t, srv.kern)
+	kernel.TestSetProjectConfig(proc)
+	writeTestStepsUUID(t, projBase, proc.UUID, []types.StepRecord{
 		testStepRecord(1),
 	})
 
@@ -269,8 +269,7 @@ func TestATDD_27_2_AC3_ZombieProcess(t *testing.T) {
 func TestATDD_27_2_AC4_ReapedProcess(t *testing.T) {
 	srv, sockPath, _ := setupTestServer(t)
 
-	tmpDir := t.TempDir()
-	srv.kern.SetStepDataDir(tmpDir)
+	_, projBase := kernel.TestSetupDataDir(t, srv.kern)
 
 	// Story 28-3: PID-only query for reaped process returns NOT_FOUND.
 	// Use UUID to query reaped process data from disk.
@@ -278,7 +277,7 @@ func TestATDD_27_2_AC4_ReapedProcess(t *testing.T) {
 	pid := types.PID(9999)
 
 	// Write process-meta.json and steps.jsonl under UUID directory
-	uuidDir := filepath.Join(tmpDir, "data", "steps", procUUID)
+	uuidDir := filepath.Join(projBase, "steps", procUUID)
 	if err := os.MkdirAll(uuidDir, 0o755); err != nil {
 		t.Fatalf("AC-4: mkdir: %v", err)
 	}
@@ -299,7 +298,7 @@ func TestATDD_27_2_AC4_ReapedProcess(t *testing.T) {
 		t.Fatalf("AC-4: write meta: %v", err)
 	}
 
-	writeTestStepsUUID(t, tmpDir, procUUID, []types.StepRecord{
+	writeTestStepsUUID(t, projBase, procUUID, []types.StepRecord{
 		testStepRecord(1),
 		testStepRecord(2),
 		testStepRecord(3),
@@ -360,9 +359,9 @@ func TestATDD_27_2_AC6_StepNotFound(t *testing.T) {
 	_ = proc.Start()
 	proc.SetFinalSystemPrompt("test prompt")
 
-	tmpDir := t.TempDir()
-	srv.kern.SetStepDataDir(tmpDir)
-	writeTestStepsUUID(t, tmpDir, proc.UUID, []types.StepRecord{
+	_, projBase := kernel.TestSetupDataDir(t, srv.kern)
+	kernel.TestSetProjectConfig(proc)
+	writeTestStepsUUID(t, projBase, proc.UUID, []types.StepRecord{
 		testStepRecord(1),
 		testStepRecord(2),
 	})
@@ -396,9 +395,9 @@ func TestATDD_27_2_AC7_ClientMethod(t *testing.T) {
 		{Name: "fs", Description: "Filesystem access"},
 	})
 
-	tmpDir := t.TempDir()
-	srv.kern.SetStepDataDir(tmpDir)
-	writeTestStepsUUID(t, tmpDir, proc.UUID, []types.StepRecord{
+	_, projBase := kernel.TestSetupDataDir(t, srv.kern)
+	kernel.TestSetProjectConfig(proc)
+	writeTestStepsUUID(t, projBase, proc.UUID, []types.StepRecord{
 		testStepRecord(1),
 	})
 	srv.kern.AddProcess(proc)
@@ -435,15 +434,15 @@ func TestATDD_27_2_AC8_Performance(t *testing.T) {
 	_ = proc.Start()
 	proc.SetFinalSystemPrompt("perf prompt")
 
-	tmpDir := t.TempDir()
-	srv.kern.SetStepDataDir(tmpDir)
+	_, projBase := kernel.TestSetupDataDir(t, srv.kern)
+	kernel.TestSetProjectConfig(proc)
 
 	// Write 30 steps to simulate typical usage
 	steps := make([]types.StepRecord, 30)
 	for i := range steps {
 		steps[i] = testStepRecord(i + 1)
 	}
-	writeTestStepsUUID(t, tmpDir, proc.UUID, steps)
+	writeTestStepsUUID(t, projBase, proc.UUID, steps)
 	srv.kern.AddProcess(proc)
 
 	client, err := DialTimeout(sockPath, 3*time.Second)
@@ -478,8 +477,8 @@ func TestATDD_27_2_AC2_MessagesConversion(t *testing.T) {
 	_ = proc.Start()
 	proc.SetFinalSystemPrompt("conversion prompt")
 
-	tmpDir := t.TempDir()
-	srv.kern.SetStepDataDir(tmpDir)
+	_, projBase := kernel.TestSetupDataDir(t, srv.kern)
+	kernel.TestSetProjectConfig(proc)
 
 	// Build a step with rich message content
 	msgs := []rnixctx.Message{
@@ -511,7 +510,7 @@ func TestATDD_27_2_AC2_MessagesConversion(t *testing.T) {
 		RequestTokens:  300,
 		ResponseTokens: 200,
 	}
-	writeTestStepsUUID(t, tmpDir, proc.UUID, []types.StepRecord{rec})
+	writeTestStepsUUID(t, projBase, proc.UUID, []types.StepRecord{rec})
 	srv.kern.AddProcess(proc)
 
 	conn := dial(t, sockPath)
@@ -580,9 +579,9 @@ func testStepRecord(step int) types.StepRecord {
 }
 
 // writeTestSteps writes StepRecords as NDJSON to the expected directory structure.
-func writeTestSteps(t *testing.T, baseDir string, pid types.PID, records []types.StepRecord) {
+func writeTestSteps(t *testing.T, projBaseDir string, pid types.PID, records []types.StepRecord) {
 	t.Helper()
-	dir := filepath.Join(baseDir, "data", "steps", fmt.Sprintf("%d", pid))
+	dir := filepath.Join(projBaseDir, "steps", fmt.Sprintf("%d", pid))
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		t.Fatalf("writeTestSteps mkdir: %v", err)
 	}

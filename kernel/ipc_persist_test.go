@@ -38,7 +38,7 @@ func TestIPCPersist_WriteAndLoad(t *testing.T) {
 	}
 
 	// Verify persist file exists
-	persistPath := filepath.Join(tmpDir, "data", "ipc", proc.UUID, "inbox.jsonl")
+	persistPath := filepath.Join(tmpDir, "ipc", proc.UUID, "inbox.jsonl")
 	if _, err := os.Stat(persistPath); err != nil {
 		t.Fatalf("persist file not created: %v", err)
 	}
@@ -65,7 +65,7 @@ func TestIPCPersist_Cleanup(t *testing.T) {
 	uuid := "cleanup-test-uuid"
 
 	// Create a persist dir with a file
-	dir := filepath.Join(tmpDir, "data", "ipc", uuid)
+	dir := filepath.Join(tmpDir, "ipc", uuid)
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -108,7 +108,7 @@ func TestIPCPersist_TransientNoFile(t *testing.T) {
 	}
 
 	// No IPC persist directory should exist
-	ipcDir := filepath.Join(tmpDir, "data", "ipc")
+	ipcDir := filepath.Join(tmpDir, "ipc")
 	if _, err := os.Stat(ipcDir); err == nil {
 		t.Error("IPC persist directory should not exist for transient process")
 	}
@@ -155,7 +155,7 @@ func TestIPCPersist_Recovery(t *testing.T) {
 	oldUUID := "old-process-uuid"
 
 	// Simulate persisted messages from a previous incarnation
-	dir := filepath.Join(tmpDir, "data", "ipc", oldUUID)
+	dir := filepath.Join(tmpDir, "ipc", oldUUID)
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -209,15 +209,15 @@ func TestIPCPersist_Recovery(t *testing.T) {
 // TestIPCPersist_ReapCleanup verifies that reapProcess removes persist files on normal exit.
 func TestIPCPersist_ReapCleanup(t *testing.T) {
 	k := newSimpleKernel(t)
-	tmpDir := t.TempDir()
-	k.SetStepDataDir(tmpDir)
+	_, projBase := TestSetupDataDir(t, k)
 
 	proc := newIPCTestProcess(t, k)
 	proc.UUID = "reap-cleanup-uuid"
 	proc.IPCPersist = true
+	TestSetProjectConfig(proc)
 
 	queue, _ := k.msgQueues.Load(proc.PID)
-	if err := enablePersistence(queue, tmpDir, proc.UUID); err != nil {
+	if err := enablePersistence(queue, projBase, proc.UUID); err != nil {
 		t.Fatalf("enablePersistence failed: %v", err)
 	}
 
@@ -239,7 +239,7 @@ func TestIPCPersist_ReapCleanup(t *testing.T) {
 	k.reapProcess(proc)
 
 	// Persist directory should be removed (normal exit)
-	persistDir := filepath.Join(tmpDir, "data", "ipc", proc.UUID)
+	persistDir := filepath.Join(projBase, "ipc", proc.UUID)
 	if _, err := os.Stat(persistDir); !os.IsNotExist(err) {
 		t.Error("persist dir should be removed on normal exit")
 	}

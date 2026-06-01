@@ -9,6 +9,7 @@ import (
 	"time"
 
 	rnixctx "github.com/rnixai/rnix/context"
+	"github.com/rnixai/rnix/internal/config"
 	"github.com/rnixai/rnix/internal/types"
 	"github.com/rnixai/rnix/vfs"
 )
@@ -41,8 +42,6 @@ func makeParallelToolCallsResponse(toolName string, inputs []map[string]any, tok
 // 修复前：toolLoop 内每个 call 都调 writeStepRecord,产生 N 行 step=K 记录;ReadStep
 // 去重保留最后一条 → ToolIO lens 只能看到末尾 1 个工具。
 func TestATDD_ParallelToolCallsSingleRecord(t *testing.T) {
-	baseDir := t.TempDir()
-
 	reg := vfs.NewDeviceRegistry()
 	// step 1: LLM 返回 3 个并行 tool_call;step 2: complete。
 	seqFile := &sequenceLLMFile{
@@ -67,9 +66,12 @@ func TestATDD_ParallelToolCallsSingleRecord(t *testing.T) {
 	ctxMgr := rnixctx.NewManager()
 	k := NewKernel(v, ctxMgr, nil)
 	defer k.Shutdown()
-	k.SetStepDataDir(baseDir)
 
-	pid, err := k.Spawn("parallel echo test", nil, SpawnOpts{})
+	_, projBaseDir := TestSetupDataDir(t, k)
+
+	pid, err := k.Spawn("parallel echo test", nil, SpawnOpts{
+		ProjectConfig: &config.ProjectConfig{ProjectDir: testProjectDir},
+	})
 	if err != nil {
 		t.Fatalf("Spawn: %v", err)
 	}
@@ -84,7 +86,7 @@ func TestATDD_ParallelToolCallsSingleRecord(t *testing.T) {
 		t.Fatal("timeout")
 	}
 
-	stepsFile := filepath.Join(baseDir, "data", "steps", proc.UUID, "steps.jsonl")
+	stepsFile := filepath.Join(projBaseDir, "steps", proc.UUID, "steps.jsonl")
 	data, err := os.ReadFile(stepsFile)
 	if err != nil {
 		t.Fatalf("ReadFile: %v", err)
@@ -135,8 +137,6 @@ func TestATDD_ParallelToolCallsSingleRecord(t *testing.T) {
 // 期望：单个 tool call 路径下旧字段 (ToolPath/ToolInput/ToolResult/ToolDuration) 仍被填充,
 // 兼容旧 dashboard 客户端读新 daemon。
 func TestATDD_ParallelToolCallsBackwardCompat(t *testing.T) {
-	baseDir := t.TempDir()
-
 	reg := vfs.NewDeviceRegistry()
 	seqFile := &sequenceLLMFile{
 		responses: [][]byte{
@@ -155,9 +155,12 @@ func TestATDD_ParallelToolCallsBackwardCompat(t *testing.T) {
 	ctxMgr := rnixctx.NewManager()
 	k := NewKernel(v, ctxMgr, nil)
 	defer k.Shutdown()
-	k.SetStepDataDir(baseDir)
 
-	pid, err := k.Spawn("solo test", nil, SpawnOpts{})
+	_, projBaseDir := TestSetupDataDir(t, k)
+
+	pid, err := k.Spawn("solo test", nil, SpawnOpts{
+		ProjectConfig: &config.ProjectConfig{ProjectDir: testProjectDir},
+	})
 	if err != nil {
 		t.Fatalf("Spawn: %v", err)
 	}
@@ -168,7 +171,7 @@ func TestATDD_ParallelToolCallsBackwardCompat(t *testing.T) {
 		t.Fatal("timeout")
 	}
 
-	stepsFile := filepath.Join(baseDir, "data", "steps", proc.UUID, "steps.jsonl")
+	stepsFile := filepath.Join(projBaseDir, "steps", proc.UUID, "steps.jsonl")
 	data, _ := os.ReadFile(stepsFile)
 	for ln := range strings.SplitSeq(strings.TrimSpace(string(data)), "\n") {
 		var rec types.StepRecord

@@ -119,7 +119,7 @@ func setupMCPEventKernel(t *testing.T, server string, tr vfs.MCPTransport) (*Ker
 
 func countEventsBySyscall(t *testing.T, baseDir, uuid, syscall string) int {
 	t.Helper()
-	rows, err := ReadAllEvents(filepath.Join(baseDir, "data", "steps", uuid, "events.jsonl"))
+	rows, err := ReadAllEvents(filepath.Join(baseDir, "steps", uuid, "events.jsonl"))
 	if err != nil {
 		t.Fatalf("ReadAllEvents: %v", err)
 	}
@@ -163,7 +163,7 @@ func TestATDD_48_5_070_McpError_EmittedOnDeviceDisconnected(t *testing.T) {
 		t.Fatalf("Flush: %v", err)
 	}
 
-	rows, err := ReadAllEvents(filepath.Join(baseDir, "data", "steps", proc.UUID, "events.jsonl"))
+	rows, err := ReadAllEvents(filepath.Join(baseDir, "steps", proc.UUID, "events.jsonl"))
 	if err != nil {
 		t.Fatalf("ReadAllEvents: %v", err)
 	}

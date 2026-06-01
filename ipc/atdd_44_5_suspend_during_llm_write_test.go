@@ -151,7 +151,7 @@ func TestATDD_44_5_011_PauseDuringLLMWrite_EventsLogContainsSuspendNoWriteFailed
 	reached, release := llmFile.parkOnWrite()
 	defer close(release)
 
-	pid, err := kern.Spawn("atdd 44.5 — events log shape", nil, kernel.SpawnOpts{})
+	pid, err := kern.Spawn("atdd 44.5 — events log shape", nil, kernel.SpawnOpts{ProjectConfig: kernel.TestProjectConfig()})
 	if err != nil {
 		t.Fatalf("Spawn: %v", err)
 	}
@@ -165,7 +165,7 @@ func TestATDD_44_5_011_PauseDuringLLMWrite_EventsLogContainsSuspendNoWriteFailed
 		t.Fatalf("process pid=%d vanished after SignalTree", pid)
 	}
 
-	eventsPath := filepath.Join(baseDir, "data", "steps", proc.UUID, "events.jsonl")
+	eventsPath := filepath.Join(baseDir, "steps", proc.UUID, "events.jsonl")
 	events, err := kernel.ReadAllEvents(eventsPath)
 	if err != nil {
 		t.Fatalf("ReadAllEvents(%s): %v", eventsPath, err)
@@ -219,7 +219,7 @@ func TestATDD_44_5_012_PauseDuringLLMWrite_ProcInfoDiskFieldsConsistent(t *testi
 	reached, release := llmFile.parkOnWrite()
 	defer close(release)
 
-	pid, err := kern.Spawn("atdd 44.5 — proc-info consistency", nil, kernel.SpawnOpts{})
+	pid, err := kern.Spawn("atdd 44.5 — proc-info consistency", nil, kernel.SpawnOpts{ProjectConfig: kernel.TestProjectConfig()})
 	if err != nil {
 		t.Fatalf("Spawn: %v", err)
 	}
@@ -233,7 +233,7 @@ func TestATDD_44_5_012_PauseDuringLLMWrite_ProcInfoDiskFieldsConsistent(t *testi
 		t.Fatalf("process pid=%d vanished after SignalTree", pid)
 	}
 
-	infoPath := filepath.Join(baseDir, "data", "steps", proc.UUID, "proc-info.json")
+	infoPath := filepath.Join(baseDir, "steps", proc.UUID, "proc-info.json")
 	data, err := os.ReadFile(infoPath)
 	if err != nil {
 		t.Fatalf("read proc-info.json at %s: %v", infoPath, err)
