@@ -116,8 +116,9 @@ func (m dashboardModel) renderHeatmapPane(width, height int) string {
 	innerW := max(width-2, 1)
 
 	content := heatmap.Render(m.heatmap, heatmap.RenderContext{
-		IsActive:    isActive,
-		SelectedPID: m.selectedPID,
+		IsActive:     isActive,
+		SelectedPID:  m.selectedPID,
+		SelectedUUID: m.selectedUUID,
 	}, innerW, height)
 
 	return renderFixedPanel(content, width, height, borderColor)

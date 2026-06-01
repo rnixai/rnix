@@ -88,17 +88,27 @@ func TestATDD_28_4_AC1_SelectProcessSetsUUID(t *testing.T) {
 }
 
 func TestATDD_28_4_AC1_ClearSelectionClearsUUID(t *testing.T) {
-	m := newPIDValidityModel()
-	m.selectedPID = 3
-	m.selectedUUID = "uuid-bbb-333"
-
-	// When selectedPID is cleared to 0, handlePIDChange should clear selectedUUID
-	m.selectedPID = 0
-	m2, _ := m.handlePIDChange()
-
-	if m2.selectedUUID != "" {
-		t.Errorf("AC-1: after clearing selectedPID, selectedUUID = %q, want empty", m2.selectedUUID)
-	}
+	t.Run("both_zero", func(t *testing.T) {
+		m := newPIDValidityModel()
+		m.selectedPID = 0
+		m.selectedUUID = ""
+		m2, _ := m.handlePIDChange()
+		if m2.selectedUUID != "" {
+			t.Errorf("AC-1: after clearing both PID and UUID, selectedUUID = %q, want empty", m2.selectedUUID)
+		}
+	})
+	t.Run("historical_process_preserves_uuid", func(t *testing.T) {
+		m := newPIDValidityModel()
+		m.selectedPID = 0
+		m.selectedUUID = "uuid-bbb-333"
+		m2, cmd := m.handlePIDChange()
+		if m2.selectedUUID != "uuid-bbb-333" {
+			t.Errorf("AC-1: historical process (PID=0+UUID) should preserve UUID, got %q", m2.selectedUUID)
+		}
+		if cmd == nil {
+			t.Error("AC-1: historical process (PID=0+UUID) should trigger step fetch cmd")
+		}
+	})
 }
 
 // ---------------------------------------------------------------------------

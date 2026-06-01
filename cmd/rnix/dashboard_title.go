@@ -51,9 +51,15 @@ func (m dashboardModel) renderDashboardTitle() string {
 
 	// Selected process
 	var selectedProc *vfs.ProcInfo
-	if m.selectedPID > 0 {
+	if m.hasProcessSelected() {
 		for i := range m.processes {
-			if m.processes[i].PID == m.selectedPID {
+			match := false
+			if m.selectedPID > 0 {
+				match = m.processes[i].PID == m.selectedPID
+			} else if m.selectedUUID != "" {
+				match = m.processes[i].UUID == m.selectedUUID
+			}
+			if match {
 				selectedProc = &m.processes[i]
 				break
 			}

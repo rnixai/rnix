@@ -185,7 +185,7 @@ func (m *TimelineModel) OnTick(ctx dashboardmodel.OnTickContext) tea.Cmd {
 	if m == nil {
 		return nil
 	}
-	if !ctx.Connected || ctx.SelectedPID <= 0 {
+	if !ctx.Connected || (ctx.SelectedPID <= 0 && ctx.SelectedUUID == "") {
 		return nil
 	}
 	return FetchStepsCmd(ctx.SocketPath, ctx.SelectedUUID, ctx.SelectedPID, m.state.LastFetchedStep)

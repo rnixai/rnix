@@ -432,7 +432,7 @@ func (m dashboardModel) renderStepTimeline(width, height int) string {
 	}
 	b.WriteString("\n")
 
-	if m.selectedPID == 0 {
+	if m.selectedPID == 0 && m.selectedUUID == "" {
 		b.WriteString("\n    Select an agent to view timeline")
 		return b.String()
 	}
@@ -441,7 +441,13 @@ func (m dashboardModel) renderStepTimeline(width, height int) string {
 		if m.isSelectedProcessDead() {
 			b.WriteString("\n    No steps recorded.")
 			for _, p := range m.processes {
-				if p.PID == m.selectedPID && (m.selectedUUID == "" || p.UUID == m.selectedUUID) {
+				match := false
+				if m.selectedPID > 0 {
+					match = p.PID == m.selectedPID && (m.selectedUUID == "" || p.UUID == m.selectedUUID)
+				} else if m.selectedUUID != "" {
+					match = p.UUID == m.selectedUUID
+				}
+				if match {
 					if p.Result != "" {
 						b.WriteString("\n    Exit: " + p.Result)
 					}
@@ -1141,11 +1147,15 @@ func (m dashboardModel) applyNewSteps(steps []ipc.StepSummaryWire) dashboardMode
 
 // isSelectedProcessDead returns true if the currently selected process is in Dead state.
 func (m dashboardModel) isSelectedProcessDead() bool {
-	if m.selectedPID == 0 {
+	if m.selectedPID == 0 && m.selectedUUID == "" {
 		return false
 	}
 	for _, p := range m.processes {
-		if p.PID == m.selectedPID && (m.selectedUUID == "" || p.UUID == m.selectedUUID) {
+		if m.selectedPID > 0 {
+			if p.PID == m.selectedPID && (m.selectedUUID == "" || p.UUID == m.selectedUUID) {
+				return p.State == types.StateDead
+			}
+		} else if m.selectedUUID != "" && p.UUID == m.selectedUUID {
 			return p.State == types.StateDead
 		}
 	}
@@ -1169,7 +1179,7 @@ func (m dashboardModel) isSelectedProcessDead() bool {
 // byte-for-byte 等价）。cmd/rnix wrapper 仅保留 IPC fetch 副作用 +
 // fetching/PID guards + filtered StepEntry 解包.
 func (m dashboardModel) fetchNextExpandedDetail() tea.Cmd {
-	if m.timeline.FetchingDetail || m.selectedPID == 0 {
+	if m.timeline.FetchingDetail || !m.hasProcessSelected() {
 		return nil
 	}
 	filteredEvs := m.filteredUnifiedEvents()

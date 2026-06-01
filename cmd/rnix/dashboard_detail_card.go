@@ -28,7 +28,7 @@ func renderDetailCardLeft(m *dashboardModel, width, height int) string {
 		Foreground(lipgloss.Color(ui.ColorMuted)).
 		Render(safeRepeat("─", width))
 
-	if m.selectedPID == 0 || m.detail.Detail == nil {
+	if !m.hasProcessSelected() || m.detail.Detail == nil {
 		placeholder := lipgloss.NewStyle().
 			Width(width).Height(height).
 			Foreground(lipgloss.Color(ui.ColorMuted)).
@@ -88,7 +88,7 @@ func renderDetailCardRight(m *dashboardModel, width, height int) string {
 		Foreground(lipgloss.Color(ui.ColorMuted)).
 		Render(safeRepeat("─", width))
 
-	if m.selectedPID == 0 || m.detail.Detail == nil {
+	if !m.hasProcessSelected() || m.detail.Detail == nil {
 		placeholder := lipgloss.NewStyle().
 			Width(width).Height(height).
 			Foreground(lipgloss.Color(ui.ColorMuted)).
@@ -201,11 +201,17 @@ type selectedProcRef struct {
 
 // findSelectedProcess returns a reference to the selected process, or nil.
 func findSelectedProcess(m *dashboardModel) *selectedProcRef {
-	if m.selectedPID == 0 {
+	if !m.hasProcessSelected() {
 		return nil
 	}
 	for i := range m.processes {
-		if m.processes[i].PID == m.selectedPID && (m.selectedUUID == "" || m.processes[i].UUID == m.selectedUUID) {
+		match := false
+		if m.selectedPID > 0 {
+			match = m.processes[i].PID == m.selectedPID && (m.selectedUUID == "" || m.processes[i].UUID == m.selectedUUID)
+		} else if m.selectedUUID != "" {
+			match = m.processes[i].UUID == m.selectedUUID
+		}
+		if match {
 			return &selectedProcRef{
 				State:       m.processes[i].State,
 				Intent:      m.processes[i].Intent,

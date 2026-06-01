@@ -286,10 +286,22 @@ func RenderUnifiedStepHeader(ctx HeaderContext, maxW, totalSteps, filteredCount,
 	b.WriteString(" Timeline")
 	if ctx.SelectedPID > 0 {
 		fmt.Fprintf(&b, " │ PID %d", ctx.SelectedPID)
+	} else if ctx.SelectedUUID != "" {
+		uuidLabel := ctx.SelectedUUID
+		if len(uuidLabel) > 8 {
+			uuidLabel = uuidLabel[:8]
+		}
+		fmt.Fprintf(&b, " │ %s", uuidLabel)
 	}
 	// Wall-clock start time for selected process
 	for _, p := range ctx.Processes {
-		if p.PID == ctx.SelectedPID && (ctx.SelectedUUID == "" || p.UUID == ctx.SelectedUUID) {
+		match := false
+		if ctx.SelectedPID > 0 {
+			match = p.PID == ctx.SelectedPID && (ctx.SelectedUUID == "" || p.UUID == ctx.SelectedUUID)
+		} else if ctx.SelectedUUID != "" {
+			match = p.UUID == ctx.SelectedUUID
+		}
+		if match {
 			if !p.CreatedAt.IsZero() {
 				fmt.Fprintf(&b, " │ %s", ui.FormatWallClock(p.CreatedAt))
 			}

@@ -71,10 +71,16 @@ func Render(state DetailState, ctx RenderContext, innerW int) string {
 	b.WriteString(" Detail")
 	if ctx.SelectedPID > 0 {
 		fmt.Fprintf(&b, " | PID %d", ctx.SelectedPID)
+	} else if ctx.SelectedUUID != "" {
+		uuidLabel := ctx.SelectedUUID
+		if len(uuidLabel) > 8 {
+			uuidLabel = uuidLabel[:8]
+		}
+		fmt.Fprintf(&b, " | %s", uuidLabel)
 	}
 	b.WriteString("\n")
 
-	if ctx.SelectedPID == 0 {
+	if ctx.SelectedPID == 0 && ctx.SelectedUUID == "" {
 		b.WriteString("\n    Select a process to view detail")
 		return b.String()
 	}

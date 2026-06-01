@@ -409,7 +409,7 @@ func (m dashboardModel) handleDebugPIDChange() (dashboardModel, tea.Cmd) {
 	// Story 38-5 PR11 Step 4(b) Phase 2: 9 字段状态重置一行委托·迁至 internal/dashboard/debug
 	m.debugState = dashboarddebug.HandlePIDChange(m.debugState, m.selectedPID)
 
-	if m.selectedPID == 0 {
+	if !m.hasProcessSelected() {
 		return m, nil
 	}
 	if m.isSelectedProcessDead() {
@@ -480,7 +480,7 @@ func (m dashboardModel) renderDebugTimelineContent(width, height int) string {
 	b.WriteString(truncateAnsi(header, truncW))
 	b.WriteString("\n")
 
-	if m.selectedPID == 0 {
+	if !m.hasProcessSelected() {
 		b.WriteString("\n    Select a process first")
 		return b.String()
 	}

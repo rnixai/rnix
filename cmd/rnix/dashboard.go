@@ -245,6 +245,12 @@ func selectProcess(m dashboardModel, row flatRow) dashboardModel {
 	return m
 }
 
+// hasProcessSelected reports whether any process is currently selected.
+// Historical (reaped) processes have PID=0 but a valid UUID.
+func (m dashboardModel) hasProcessSelected() bool {
+	return m.selectedPID > 0 || m.selectedUUID != ""
+}
+
 // TreeState returns the embedded tree state.
 //
 // Story 38-5 PR11 Step 4(b) Code Review (G2-6): originally tagged "Deprecated:
@@ -664,6 +670,18 @@ func (m dashboardModel) dashboardTick() (tea.Model, tea.Cmd) {
 				break
 			}
 		}
+		// UUID fallback: after reap, ListAllProcs returns historical entries with
+		// PID=0. Match by UUID so the selection survives the active→historical
+		// transition instead of resetting to "no process selected".
+		if !found && m.selectedUUID != "" {
+			for _, p := range m.processes {
+				if p.UUID == m.selectedUUID {
+					found = true
+					m.selectedPID = p.PID // 0 for historical
+					break
+				}
+			}
+		}
 		if !found {
 			// In debug mode, preserve selection for dead processes with loaded events.
 			// The process list may briefly omit a reaped process during TTL cleanup
@@ -688,13 +706,25 @@ func (m dashboardModel) dashboardTick() (tea.Model, tea.Cmd) {
 	// the UUID validation above resets selectedPID to 0 (which happens when the
 	// daemon's process list briefly omits a recently reaped process).
 	anchorPID := m.selectedPID
+	anchorUUID := m.selectedUUID
 	if m.debugState.Mode && anchorPID == 0 && m.debugState.AttachedPID > 0 {
 		anchorPID = m.debugState.AttachedPID
 	}
-	if anchorPID > 0 && m.tree.Cursor < len(m.tree.Rows) {
-		if m.tree.Rows[m.tree.Cursor].Proc.PID != anchorPID {
+	if m.tree.Cursor < len(m.tree.Rows) {
+		curRow := m.tree.Rows[m.tree.Cursor]
+		needRelocate := false
+		if anchorPID > 0 && curRow.Proc.PID != anchorPID {
+			needRelocate = true
+		} else if anchorPID == 0 && anchorUUID != "" && curRow.Proc.UUID != anchorUUID {
+			needRelocate = true
+		}
+		if needRelocate {
 			for i, row := range m.tree.Rows {
-				if row.Proc.PID == anchorPID {
+				if anchorPID > 0 && row.Proc.PID == anchorPID {
+					m.tree.Cursor = i
+					break
+				}
+				if anchorPID == 0 && anchorUUID != "" && row.Proc.UUID == anchorUUID {
 					m.tree.Cursor = i
 					break
 				}
@@ -894,7 +924,7 @@ func (m dashboardModel) dashboardTick() (tea.Model, tea.Cmd) {
 	}
 
 	// Fetch compact events for selected process (Story 34.1)
-	if m.selectedPID > 0 && m.connected && !m.fetchingCompact && m.heatmap.TickCount%3 == 0 {
+	if m.hasProcessSelected() && m.connected && !m.fetchingCompact && m.heatmap.TickCount%3 == 0 {
 		m.fetchingCompact = true
 		cmds = append(cmds, fetchCompactEventsCmd(m.selectedPID, m.selectedUUID))
 	}
@@ -1116,8 +1146,7 @@ func toggleRecordCmd(pid types.PID, uuid string, currentRecordID string) tea.Cmd
 func (m dashboardModel) handlePIDChange() (dashboardModel, tea.Cmd) {
 	m.lastUnreadEventKeys = nil // patch P2: first post-switch tick syncs without flooding red dots
 	m.lastScriptEventMs = 0     // Story 43-3: reset Script* watermark on every PID change
-	if m.selectedPID == 0 {
-		m.selectedUUID = ""
+	if m.selectedPID == 0 && m.selectedUUID == "" {
 		// Story 38-5 PR11 Step 4(b) Phase 2: handleTimelinePIDChange wrapper 删除·迁至 timeline 包
 		m.timeline = timeline.HandlePIDUUIDChangeWithSearch(m.timeline, &m.search, m.selectedPID, m.selectedUUID)
 		// Story 38-5 PR11 Step 4(b) Phase 2: handleHeatmapPIDChange wrapper 删除·inline 调用·行为零变化
@@ -1145,7 +1174,15 @@ func (m dashboardModel) handlePIDChange() (dashboardModel, tea.Cmd) {
 	}
 	m.sysEvents = filtered
 
-	m.statusMsg = fmt.Sprintf("Switched to PID %d, fetching steps...", m.selectedPID)
+	if m.selectedPID > 0 {
+		m.statusMsg = fmt.Sprintf("Switched to PID %d, fetching steps...", m.selectedPID)
+	} else {
+		uuidLabel := m.selectedUUID
+		if len(uuidLabel) > 8 {
+			uuidLabel = uuidLabel[:8]
+		}
+		m.statusMsg = fmt.Sprintf("Switched to %s, fetching steps...", uuidLabel)
+	}
 	m.statusMsgTTL = statusMsgDefaultTTL
 
 	// Detail pane: cache 命中复用 / 否则清空（Story 28-4 AC-4 PID 复用契约）

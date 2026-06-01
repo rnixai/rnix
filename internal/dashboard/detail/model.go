@@ -184,7 +184,7 @@ func (m *DetailModel) OnTick(ctx dashboardmodel.OnTickContext) tea.Cmd {
 	if !ctx.Active && ctx.ViewMode != ViewDefault {
 		return nil
 	}
-	if ctx.SelectedPID <= 0 || !ctx.Connected {
+	if (ctx.SelectedPID <= 0 && ctx.SelectedUUID == "") || !ctx.Connected {
 		return nil
 	}
 

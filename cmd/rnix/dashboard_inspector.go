@@ -43,7 +43,7 @@ type searchMatchPos = inspector.SearchMatchPos
 
 // enterStepInspector enters the unified Step Inspector overlay.
 func (m dashboardModel) enterStepInspector() (tea.Model, tea.Cmd) {
-	if m.selectedPID == 0 {
+	if m.selectedPID == 0 && m.selectedUUID == "" {
 		m.statusMsg = "No process selected"
 		m.statusMsgTTL = statusMsgDefaultTTL
 		return m, nil

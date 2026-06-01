@@ -22,8 +22,9 @@ import (
 
 // RenderContext 注入 cmd/rnix 端运行时数据，避免本包反向依赖 cmd/rnix。
 type RenderContext struct {
-	IsActive    bool      // 当前是否为 activePane（决定 border 颜色）
-	SelectedPID types.PID // 当前 attached 进程
+	IsActive     bool      // 当前是否为 activePane（决定 border 颜色）
+	SelectedPID  types.PID // 当前 attached 进程
+	SelectedUUID string    // 当前 attached UUID（historical 进程 PID=0 时用于标识）
 }
 
 // Render 渲染 Heatmap pane 主体（不含外层 fixed-panel border 包裹 · cmd/rnix 端 wrapper 负责）。
@@ -48,8 +49,16 @@ func Render(state HeatmapState, ctx RenderContext, innerW, innerH int) string {
 	var b strings.Builder
 
 	b.WriteString(" Heatmap")
-	if ctx.SelectedPID > 0 && state.Profile != nil {
-		fmt.Fprintf(&b, " | PID %d", ctx.SelectedPID)
+	if (ctx.SelectedPID > 0 || ctx.SelectedUUID != "") && state.Profile != nil {
+		if ctx.SelectedPID > 0 {
+			fmt.Fprintf(&b, " | PID %d", ctx.SelectedPID)
+		} else {
+			uuidLabel := ctx.SelectedUUID
+			if len(uuidLabel) > 8 {
+				uuidLabel = uuidLabel[:8]
+			}
+			fmt.Fprintf(&b, " | %s", uuidLabel)
+		}
 		pct := 0
 		if state.Profile.ContextBudget > 0 {
 			pct = state.Profile.TotalTokens * 100 / state.Profile.ContextBudget
@@ -59,7 +68,7 @@ func Render(state HeatmapState, ctx RenderContext, innerW, innerH int) string {
 	}
 	b.WriteString("\n")
 
-	if ctx.SelectedPID == 0 {
+	if ctx.SelectedPID == 0 && ctx.SelectedUUID == "" {
 		b.WriteString("\n    Select an agent to view heatmap")
 		return b.String()
 	}

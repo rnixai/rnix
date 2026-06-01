@@ -122,7 +122,7 @@ func registerLayer0(d *ui.Dispatcher) {
 		if m.viewMode != viewDefault {
 			return false, m, nil
 		}
-		if m.selectedPID == 0 {
+		if !m.hasProcessSelected() {
 			m.statusMsg = "Select a process first"
 			m.statusMsgTTL = statusMsgDefaultTTL
 			return true, m, nil
