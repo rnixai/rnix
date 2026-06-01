@@ -121,7 +121,7 @@ func runApply(cmd *cobra.Command, args []string) error {
 	})
 
 	if spawnErr != nil {
-		outputError(renderer, mode, "apply", spawnErr.Error(), "orchestrator agent failed to start", "check that LLM CLI is installed")
+		outputError(renderer, mode, "apply", spawnErr.Error(), "orchestrator agent failed to start", spawnHint(spawnErr.Error()))
 		exitCode = 1
 		return nil
 	}

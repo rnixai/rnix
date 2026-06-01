@@ -554,7 +554,7 @@ func runRoot(cmd *cobra.Command, args []string) error {
 		pid, spawnErr := client.SpawnDetached(req)
 		client.Close()
 		if spawnErr != nil {
-			outputError(renderer, mode, "/dev/llm", spawnErr.Error(), "agent failed to start", "check that LLM CLI is installed")
+			outputError(renderer, mode, "/dev/llm", spawnErr.Error(), "agent failed to start", spawnHint(spawnErr.Error()))
 			exitCode = 1
 			return nil
 		}
@@ -636,7 +636,7 @@ func runRoot(cmd *cobra.Command, args []string) error {
 	spawnedPID.Store(uint64(pid))
 
 	if spawnErr != nil {
-		outputError(renderer, mode, "/dev/llm", spawnErr.Error(), "agent failed to start", "check that LLM CLI is installed (claude or agent)")
+		outputError(renderer, mode, "/dev/llm", spawnErr.Error(), "agent failed to start", spawnHint(spawnErr.Error()))
 		exitCode = 1
 		return nil
 	}
@@ -928,6 +928,20 @@ func outputError(renderer *ui.Renderer, mode ui.OutputMode, device string, reaso
 	}
 
 	ui.RenderError(renderer, device, reason, impact, suggestion)
+}
+
+func spawnHint(errMsg string) string {
+	switch {
+	case strings.Contains(errMsg, "yaml parse error"):
+		return "fix the YAML syntax in the referenced SKILL.md file"
+	case strings.Contains(errMsg, "failed to load skill"):
+		return "check that the skill directory exists and contains a valid SKILL.md"
+	case strings.Contains(errMsg, "agent directory not found") ||
+		(strings.Contains(errMsg, "not found") && !strings.Contains(errMsg, "skill")):
+		return "check that the agent directory exists under .rnix/agents/ or lib/agents/"
+	default:
+		return "check that LLM CLI is installed (claude or agent)"
+	}
 }
 
 // handleAskUserEvent processes a StreamAskUser event from the daemon during spawn.
