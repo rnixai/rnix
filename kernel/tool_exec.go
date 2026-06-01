@@ -670,10 +670,11 @@ func (k *KernelImpl) executeMetaAction(proc *Process, tc llmToolCall, mapping to
 		agentStr, _ := tc.Input["agent"].(string)
 		modelStr, _ := tc.Input["model"].(string)
 		childOpts := SpawnOpts{
-			Model:         modelStr,
-			ParentPID:     proc.PID,
-			TraceID:       proc.TraceID,
-			ProjectConfig: proc.ProjectConfig,
+			Model:          modelStr,
+			ParentPID:      proc.PID,
+			TraceID:        proc.TraceID,
+			ProjectConfig:  proc.ProjectConfig,
+			AllowedDevices: append([]string(nil), proc.AllowedDevices...),
 		}
 		if proc.TraceID != "" {
 			childOpts.ParentSpanID = proc.SpanID

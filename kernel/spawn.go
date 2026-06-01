@@ -213,7 +213,19 @@ func (k *KernelImpl) Spawn(intent string, agent *agents.AgentInfo, opts SpawnOpt
 		proc.SkillDirs = skillDirs
 
 		// Aggregate AllowedTools from all Skills
-		proc.AllowedDevices = agent.AllowedTools()
+		agentAllowed := agent.AllowedTools()
+		if len(opts.AllowedDevices) > 0 && len(agentAllowed) > 0 {
+			inter := intersectDevices(opts.AllowedDevices, agentAllowed)
+			if len(inter) == 0 {
+				return 0, fmt.Errorf("spawn: agent %q allowed devices %v have no overlap with parent constraint %v",
+					agent.Manifest.Name, agentAllowed, opts.AllowedDevices)
+			}
+			proc.AllowedDevices = inter
+		} else if len(opts.AllowedDevices) > 0 {
+			proc.AllowedDevices = append([]string(nil), opts.AllowedDevices...)
+		} else {
+			proc.AllowedDevices = agentAllowed
+		}
 
 		// Populate deferred skill metadata for discover_skill scoring
 		if len(agent.DeferredSkills) > 0 {
@@ -326,6 +338,11 @@ func (k *KernelImpl) Spawn(intent string, agent *agents.AgentInfo, opts SpawnOpt
 				"agent_fallback_p": agent.Manifest.Models.FallbackProvider,
 			}, nil, nil, 0)
 		}
+	}
+
+	// Inherit parent AllowedDevices when no agent is set
+	if agent == nil && len(opts.AllowedDevices) > 0 {
+		proc.AllowedDevices = append([]string(nil), opts.AllowedDevices...)
 	}
 
 	// System prompt = caller-provided prompt + agent instructions (skill bodies handled by loaded_skills section per AC4)
@@ -859,4 +876,19 @@ func (k *KernelImpl) persistInitialProcInfo(proc *Process) {
 	if saveErr := SaveProcInfo(k.stepDataDir, *info); saveErr != nil {
 		log.Printf("[spawn] pid=%d persistInitialProcInfo failed: %v", proc.PID, saveErr)
 	}
+}
+
+// intersectDevices returns devices present in both parent and child lists.
+func intersectDevices(parent, child []string) []string {
+	set := make(map[string]struct{}, len(parent))
+	for _, d := range parent {
+		set[d] = struct{}{}
+	}
+	var result []string
+	for _, d := range child {
+		if _, ok := set[d]; ok {
+			result = append(result, d)
+		}
+	}
+	return result
 }
