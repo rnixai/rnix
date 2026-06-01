@@ -138,7 +138,7 @@ func RenderProcessTable(r *Renderer, procs []vfs.ProcInfo, verbose, showUUID boo
 	fmt.Fprintln(r.Writer, sepLine.String())
 
 	// Render rows
-	var active, zombie, suspended, total int
+	var active, zombie, suspended, dead, total int
 	for _, proc := range procs {
 		total++
 		switch proc.State {
@@ -148,10 +148,16 @@ func RenderProcessTable(r *Renderer, procs []vfs.ProcInfo, verbose, showUUID boo
 			zombie++
 		case types.StateSuspended:
 			suspended++
+		case types.StateDead:
+			dead++
 		}
 
 		var row strings.Builder
-		fmt.Fprintf(&row, "%*d", colWidthPID, proc.PID)
+		if proc.PID == 0 {
+			fmt.Fprintf(&row, "%*s", colWidthPID, dash)
+		} else {
+			fmt.Fprintf(&row, "%*d", colWidthPID, proc.PID)
+		}
 		if showUUID {
 			row.WriteString(gap)
 			uuidDisplay := truncateUUID(proc.UUID, colWidthUUID)
@@ -196,7 +202,12 @@ func RenderProcessTable(r *Renderer, procs []vfs.ProcInfo, verbose, showUUID boo
 			}
 			fmt.Fprintf(&row, "%-*s", colWidthActive, activeStr)
 			row.WriteString(gap)
-			elapsed := time.Since(proc.CreatedAt)
+			var elapsed time.Duration
+			if proc.State == types.StateDead && !proc.DeadAt.IsZero() {
+				elapsed = proc.DeadAt.Sub(proc.CreatedAt)
+			} else {
+				elapsed = time.Since(proc.CreatedAt)
+			}
 			fmt.Fprintf(&row, "%*s", colWidthElapsed, FormatDuration(elapsed))
 		}
 		if showIntent {
@@ -212,13 +223,19 @@ func RenderProcessTable(r *Renderer, procs []vfs.ProcInfo, verbose, showUUID boo
 	}
 
 	// Footer
-	var footer string
+	var parts []string
+	parts = append(parts, fmt.Sprintf("%d active", active))
 	if suspended > 0 {
-		footer = fmt.Sprintf("\n%d active, %d suspended, %d zombie, %d total\n", active, suspended, zombie, total)
-	} else {
-		footer = fmt.Sprintf("\n%d active, %d zombie, %d total\n", active, zombie, total)
+		parts = append(parts, fmt.Sprintf("%d suspended", suspended))
 	}
-	fmt.Fprint(r.Writer, footer)
+	if zombie > 0 {
+		parts = append(parts, fmt.Sprintf("%d zombie", zombie))
+	}
+	if dead > 0 {
+		parts = append(parts, fmt.Sprintf("%d dead", dead))
+	}
+	parts = append(parts, fmt.Sprintf("%d total", total))
+	fmt.Fprintf(r.Writer, "\n%s\n", strings.Join(parts, ", "))
 }
 
 // renderState renders a state string with color coding and left-aligned padding.

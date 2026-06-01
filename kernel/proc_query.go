@@ -353,6 +353,7 @@ func (k *KernelImpl) GetProcInfo(pid types.PID) (*vfs.ProcInfo, error) {
 		Intent:          proc.Intent,
 		Skills:          append([]string(nil), proc.Skills...),
 		TokensUsed:      proc.TokensUsed,
+		LastInputTokens: proc.LastInputTokens,
 		ContextBudget:   proc.ContextBudget,
 		MaxTokens:       proc.Budget.MaxTokens,
 		MaxCost:         proc.Budget.MaxCost,
@@ -428,6 +429,7 @@ func (k *KernelImpl) ListProcs() []vfs.ProcInfo {
 			Intent:          proc.Intent,
 			Skills:          append([]string(nil), proc.Skills...),
 			TokensUsed:      proc.TokensUsed,
+			LastInputTokens: proc.LastInputTokens,
 			ContextBudget:   proc.ContextBudget,
 			MaxTokens:       proc.Budget.MaxTokens,
 			MaxCost:         proc.Budget.MaxCost,
@@ -501,6 +503,7 @@ func (k *KernelImpl) ListAllProcs() []vfs.ProcInfo {
 			}
 			seen[p.UUID] = true
 		}
+		p.PID = 0 // historical process — PID no longer valid after reap
 		result = append(result, p)
 	}
 
@@ -510,35 +513,29 @@ func (k *KernelImpl) ListAllProcs() []vfs.ProcInfo {
 	return result
 }
 
-// checkBudgetWarning emits warning/critical log and event when context budget
-// is nearing exhaustion.
-func (k *KernelImpl) checkBudgetWarning(proc *Process, step, tokens, budget int) {
-	if budget <= 0 || tokens >= budget {
+// checkBudgetWarning emits warning/critical log when per-step input tokens
+// are approaching the context budget (context window guard).
+func (k *KernelImpl) checkBudgetWarning(proc *Process, step, inputTokens, budget int) {
+	if budget <= 0 || inputTokens >= budget {
 		return
 	}
-	remainPct := float64(budget-tokens) / float64(budget) * 100
-	if remainPct >= 20 {
+	usagePct := float64(inputTokens) / float64(budget) * 100
+	if usagePct < 80 {
 		return
-	}
-	avgRate := float64(tokens) / float64(step)
-	estRemain := 0
-	if avgRate > 0 {
-		estRemain = int(float64(budget-tokens) / avgRate)
 	}
 	level := "warning"
-	if remainPct < 10 {
+	if usagePct >= 90 {
 		level = "critical"
 	}
 	k.emitLog(proc, step, types.LogWarning,
-		fmt.Sprintf("Budget %s: %d/%d (%.0f%% remaining, ~%d steps left)",
-			level, tokens, budget, remainPct, estRemain), "")
+		fmt.Sprintf("Context %s: %d/%d input tokens (%.0f%% of budget)",
+			level, inputTokens, budget, usagePct), "")
 	k.emitEvent(proc, "ReasonStep", map[string]any{
-		"step":          step,
-		"action":        "budget_warning",
-		"tokens":        tokens,
-		"budget":        budget,
-		"remaining_pct": remainPct,
-		"est_remaining": estRemain,
-		"alert_level":   level,
+		"step":        step,
+		"action":      "budget_warning",
+		"input_tokens": inputTokens,
+		"budget":      budget,
+		"usage_pct":   usagePct,
+		"alert_level": level,
 	}, nil, nil, 0)
 }

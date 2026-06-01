@@ -114,6 +114,7 @@ func TestATDD_29_4_AC2_Reaper_Saves_History_Before_Remove(t *testing.T) {
 
 	proc := NewProcess(0, "history test", nil)
 	pid := proc.PID
+	uuid := proc.UUID
 	k.AddProcess(proc)
 
 	proc.mu.Lock()
@@ -134,8 +135,11 @@ func TestATDD_29_4_AC2_Reaper_Saves_History_Before_Remove(t *testing.T) {
 	allProcs := k.ListAllProcs()
 	found := false
 	for _, p := range allProcs {
-		if p.PID == pid {
+		if p.UUID == uuid {
 			found = true
+			if p.PID != 0 {
+				t.Errorf("AC-2: historical process PID should be 0, got %d", p.PID)
+			}
 			break
 		}
 	}
@@ -151,7 +155,7 @@ func TestATDD_29_4_AC2_History_Snapshot_Has_Complete_Fields(t *testing.T) {
 	proc := NewProcess(0, "field check", []string{"skill-a"})
 	proc.Provider = "test-provider"
 	proc.Model = "test-model"
-	pid := proc.PID
+	uuid := proc.UUID
 	k.AddProcess(proc)
 
 	proc.mu.Lock()
@@ -165,7 +169,7 @@ func TestATDD_29_4_AC2_History_Snapshot_Has_Complete_Fields(t *testing.T) {
 
 	allProcs := k.ListAllProcs()
 	for _, p := range allProcs {
-		if p.PID == pid {
+		if p.UUID == uuid {
 			if p.Intent != "field check" {
 				t.Errorf("AC-2: Intent mismatch: got %q", p.Intent)
 			}
@@ -205,7 +209,7 @@ func TestATDD_29_4_AC3_ListAllProcs_Merges_Active_And_History(t *testing.T) {
 
 	// Add a historical process via cleanup
 	historical := NewProcess(0, "historical proc", nil)
-	historicalPID := historical.PID
+	historicalUUID := historical.UUID
 	k.AddProcess(historical)
 	historical.mu.Lock()
 	historical.State = types.StateDead
@@ -221,8 +225,11 @@ func TestATDD_29_4_AC3_ListAllProcs_Merges_Active_And_History(t *testing.T) {
 		if p.PID == activePID {
 			foundActive = true
 		}
-		if p.PID == historicalPID {
+		if p.UUID == historicalUUID {
 			foundHistorical = true
+			if p.PID != 0 {
+				t.Errorf("AC-3: historical process PID should be 0, got %d", p.PID)
+			}
 		}
 	}
 	if !foundActive {

@@ -62,6 +62,7 @@ var (
 	flagVerbose          bool
 	flagQuiet            bool
 	flagUUID             bool
+	flagAll              bool
 	flagModel            string
 	flagMaxSteps         int
 	flagAgent            string
@@ -290,7 +291,7 @@ func init() {
 	rootCmd.AddCommand(versionCmd)
 	rootCmd.AddCommand(straceCmd)
 	psCmd.Flags().BoolVar(&flagUUID, "uuid", false, "Show UUID column in process table")
-	psCmd.Flags().BoolVar(&flagResumable, "resumable", false, "Show processes recoverable from disk (Story 42.2)")
+	psCmd.Flags().BoolVarP(&flagAll, "all", "a", false, "Show all processes including completed")
 	rootCmd.AddCommand(psCmd)
 	rootCmd.AddCommand(killCmd)
 	rootCmd.AddCommand(suspendCmd)
@@ -1055,10 +1056,6 @@ func runPs(cmd *cobra.Command, args []string) error {
 	renderer := ui.NewRenderer(os.Stdout, mode)
 	ui.InitStyles(renderer.Profile)
 
-	if flagResumable {
-		return runPsResumable(renderer, mode)
-	}
-
 	client, err := ipc.Dial(ipc.SocketPath())
 	if err != nil {
 		if mode == ui.ModeJSON {
@@ -1072,7 +1069,12 @@ func runPs(cmd *cobra.Command, args []string) error {
 	}
 	defer client.Close()
 
-	procs, err := client.ListProcs()
+	var procs []vfs.ProcInfo
+	if flagAll {
+		procs, err = client.ListAllProcs()
+	} else {
+		procs, err = client.ListProcs()
+	}
 	if err != nil {
 		if mode != ui.ModeQuiet {
 			fmt.Fprintf(os.Stderr, "✗ failed to list processes: %v\n", err)
@@ -1085,18 +1087,35 @@ func runPs(cmd *cobra.Command, args []string) error {
 		return procs[i].PID < procs[j].PID
 	})
 
+	showUUID := flagUUID || flagAll
+
 	switch mode {
 	case ui.ModeJSON:
 		renderPsJSON(renderer, procs)
 	case ui.ModeQuiet:
 		renderPsQuiet(renderer, procs)
 	case ui.ModeVerbose:
-		ui.RenderProcessTable(renderer, procs, true, flagUUID)
+		ui.RenderProcessTable(renderer, procs, true, showUUID)
 	default:
-		ui.RenderProcessTable(renderer, procs, false, flagUUID)
+		ui.RenderProcessTable(renderer, procs, false, showUUID)
 	}
 
 	return nil
+}
+
+func toInt(v any) (int, bool) {
+	switch x := v.(type) {
+	case int:
+		return x, true
+	case int64:
+		return int(x), true
+	case float64:
+		if x != float64(int(x)) {
+			return 0, false
+		}
+		return int(x), true
+	}
+	return 0, false
 }
 
 // jsonProcess is the JSON representation of a single process for rnix ps --json.
@@ -1687,7 +1706,7 @@ func runDaemon(cmd *cobra.Command, args []string) error {
 	if resumable, rerr := k.ListResumable(); rerr != nil {
 		fmt.Fprintf(os.Stderr, "[kernel] warn: list resumable: %v\n", rerr)
 	} else if n := len(resumable); n > 0 {
-		fmt.Fprintf(os.Stderr, "[kernel] Found %d resumable process(es), run 'rnix ps --resumable'\n", n)
+		fmt.Fprintf(os.Stderr, "[kernel] Found %d resumable process(es), run 'rnix ps -a'\n", n)
 	}
 
 	// Story 42.5 — disk gc background loop. Lives for the daemon lifetime;
