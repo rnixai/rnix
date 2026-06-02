@@ -109,7 +109,7 @@ func ResolveFeatures(configPath string) (FeatureFlags, FeatureProfile, []string)
 	}
 
 	if env := os.Getenv("RNIX_FEATURE_PROFILE"); env != "" {
-		profileStr = env
+		profileStr = strings.TrimSpace(env)
 	}
 
 	profile := FeatureProfile(profileStr)
@@ -145,6 +145,8 @@ func ResolveFeatures(configPath string) (FeatureFlags, FeatureProfile, []string)
 			flags.Immune = val
 		case "compaction":
 			flags.Compaction = val
+		default:
+			warnings = append(warnings, fmt.Sprintf("features.custom: unknown key %q ignored", key))
 		}
 	}
 
