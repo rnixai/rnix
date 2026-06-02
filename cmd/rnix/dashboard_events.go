@@ -93,6 +93,11 @@ func detectSpawnExitEvents(prev map[types.PID]vfs.ProcInfo, curr []vfs.ProcInfo)
 	for pid, prevProc := range prev {
 		currProc, stillExists := currMap[pid]
 		if !stillExists {
+			// Already-Dead process removed by TTL cleanup — EXIT was emitted
+			// when it transitioned to Dead; skip to avoid duplicate.
+			if prevProc.State == types.StateDead {
+				continue
+			}
 			// Process disappeared entirely from the procTable (e.g. reaped between
 			// ticks). Apply the same authoritative ExitCode judgement as the
 			// state-change branch so a failed reap path doesn't render green here

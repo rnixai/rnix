@@ -272,10 +272,9 @@ func TestDetectSpawnExitEvents(t *testing.T) {
 		}
 	})
 
-	// Disappearance branch must apply the same authoritative ExitCode judgement
-	// as the state-change branch, otherwise a reap-between-ticks for a failed
-	// process would render green in Timeline while Agent Tree shows it red.
-	t.Run("disappearance with authoritative ExitCode=0 stays SevInfo", func(t *testing.T) {
+	// Already-Dead process disappearing is TTL cleanup, not a new exit —
+	// the EXIT event was already emitted when the process transitioned to Dead.
+	t.Run("already Dead disappearance does not emit duplicate EXIT", func(t *testing.T) {
 		prev := map[types.PID]vfs.ProcInfo{
 			2: {
 				PID: 2, State: types.StateDead, Intent: "review", CreatedAt: now, DeadAt: now,
@@ -289,21 +288,17 @@ func TestDetectSpawnExitEvents(t *testing.T) {
 			{PID: 3, State: types.StateRunning, Intent: "anchor", CreatedAt: now},
 		}
 		events := detectSpawnExitEvents(prev, curr)
-		if len(events) != 1 {
-			t.Fatalf("expected 1 exit event, got %d", len(events))
-		}
-		if events[0].PID != 2 {
-			t.Fatalf("expected PID 2, got %d", events[0].PID)
-		}
-		if events[0].Severity != SevInfo {
-			t.Errorf("disappearance of ExitCode=0 process must be SevInfo; got %d", events[0].Severity)
+		if len(events) != 0 {
+			t.Fatalf("expected 0 events for already-Dead disappearance, got %d", len(events))
 		}
 	})
 
-	t.Run("disappearance with authoritative ExitCode=1 is SevError", func(t *testing.T) {
+	// Non-Dead process disappearing (e.g. Running process reaped between ticks
+	// without transitioning through Dead in view) still emits EXIT with correct severity.
+	t.Run("disappearance of non-Dead process with ExitCode=1 is SevError", func(t *testing.T) {
 		prev := map[types.PID]vfs.ProcInfo{
 			2: {
-				PID: 2, State: types.StateDead, Intent: "build", CreatedAt: now, DeadAt: now,
+				PID: 2, State: types.StateRunning, Intent: "build", CreatedAt: now,
 				Result: "compile failed", ExitCode: 1, ExitCodeSet: true,
 			},
 			3: {PID: 3, State: types.StateRunning, Intent: "anchor", CreatedAt: now},
