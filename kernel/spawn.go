@@ -132,11 +132,8 @@ func (k *KernelImpl) Spawn(intent string, agent *agents.AgentInfo, opts SpawnOpt
 			var matchErr error
 			var fromMemory bool
 			var availableSkillCount int
-			if ac, acErr := effectiveMatcher.AvailableCount(); acErr == nil {
-				availableSkillCount = ac
-			}
 			if k.diffMemory != nil {
-				if remembered, ok := k.diffMemory.Lookup(intent, availableSkillCount); ok {
+				if remembered, ok := k.diffMemory.Lookup(intent, 0); ok {
 					matchedNames = remembered
 					for _, name := range remembered {
 						matchResults = append(matchResults, StemMatchResult{Name: name, Score: -1})
@@ -148,6 +145,9 @@ func (k *KernelImpl) Spawn(intent string, agent *agents.AgentInfo, opts SpawnOpt
 			}
 			// Fallback to keyword matching if no memory hit
 			if !fromMemory {
+				if ac, acErr := effectiveMatcher.AvailableCount(); acErr == nil {
+					availableSkillCount = ac
+				}
 				matchResults, matchErr = effectiveMatcher.MatchWithScores(intent)
 				if matchErr != nil {
 					k.emitLog(proc, 0, types.LogOutput, fmt.Sprintf("differentiating: match error: %v", matchErr), "")
@@ -222,7 +222,7 @@ func (k *KernelImpl) Spawn(intent string, agent *agents.AgentInfo, opts SpawnOpt
 					})
 				}
 
-				if k.diffMemory != nil && len(loadedNames) > 0 {
+				if k.diffMemory != nil && len(loadedNames) > 0 && !fromMemory {
 					k.diffMemory.Record(intent, loadedNames, availableSkillCount)
 				}
 			}

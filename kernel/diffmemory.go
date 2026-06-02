@@ -215,7 +215,7 @@ func (dm *DiffMemory) Lookup(intent string, currentAvailableCount int) ([]string
 		return nil, false
 	}
 
-	if currentAvailableCount > 0 && currentAvailableCount != entry.AvailableCount {
+	if currentAvailableCount > 0 && entry.AvailableCount > 0 && currentAvailableCount != entry.AvailableCount {
 		return nil, false
 	}
 
