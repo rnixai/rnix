@@ -205,13 +205,28 @@ func (c *ProvidersConfig) ResolveDefaultProvider() string {
 	return "claude"
 }
 
-// DefaultProvidersConfig returns a built-in config with claude-cli and cursor-cli providers.
+// DefaultProvidersConfig returns a built-in config with deepseek (default),
+// claude-cli, and cursor-cli providers. DeepSeek is the default provider so the
+// built-in agents reason on deepseek-v4 out of the box; it requires the
+// DEEPSEEK_API_KEY environment variable at call time.
 func DefaultProvidersConfig() *ProvidersConfig {
 	return &ProvidersConfig{
-		Version: "1",
+		Version:         "1",
+		DefaultProvider: "deepseek",
 		Providers: []ProviderConfig{
 			{Name: "claude", Driver: DriverClaudeCLI, DefaultModel: "haiku"},
 			{Name: "cursor", Driver: DriverCursorCLI},
+			{
+				Name:         "deepseek",
+				Driver:       DriverOpenAICompat,
+				BaseURL:      "https://api.deepseek.com/v1",
+				APIKeyEnv:    "DEEPSEEK_API_KEY",
+				DefaultModel: "deepseek-v4-flash",
+				Models: map[string]ModelConfig{
+					"deepseek-v4-flash": {ContextWindow: 1_000_000},
+					"deepseek-v4-pro":   {ContextWindow: 1_000_000},
+				},
+			},
 		},
 	}
 }

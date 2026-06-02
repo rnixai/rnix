@@ -96,7 +96,7 @@ func runInit(cmd *cobra.Command, args []string) error {
 		globalDir = resolved
 	}
 
-	if _, err := os.Stat(globalDir); os.IsNotExist(err) {
+	if globalNeedsInit(globalDir) {
 		if err := initGlobal(globalDir); err != nil {
 			return fmt.Errorf("global init failed: %w", err)
 		}
@@ -155,6 +155,21 @@ func runInit(cmd *cobra.Command, args []string) error {
 	}
 
 	return nil
+}
+
+// globalNeedsInit returns true when the global config directory is missing or
+// lacks key artifacts (providers.yaml, agents/). The directory itself may exist
+// (e.g. recreated by ui-state.json writes) while the actual config is absent.
+func globalNeedsInit(globalDir string) bool {
+	for _, sub := range []string{
+		"providers.yaml",
+		"agents",
+	} {
+		if _, err := os.Stat(filepath.Join(globalDir, sub)); os.IsNotExist(err) {
+			return true
+		}
+	}
+	return false
 }
 
 func initGlobal(globalDir string) error {

@@ -1,10 +1,9 @@
 name: playwright-demo
 description: "Playwright MCP 演示智能体 — 通过浏览器自动化完成 navigate / screenshot / report 工作流"
 models:
-  provider: claude
-  preferred: sonnet
-  fallback: haiku
-context_budget: 16384
+  provider: deepseek
+  preferred: deepseek-v4-flash
+  fallback: deepseek-v4-pro
 skills: []
 mcp:
   - playwright

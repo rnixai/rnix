@@ -215,17 +215,19 @@ func TestAgentLoader_Load_RealCodeAnalyst(t *testing.T) {
 	if info.Manifest.Name != "code-analyst" {
 		t.Errorf("Name = %q, want %q", info.Manifest.Name, "code-analyst")
 	}
-	if info.Manifest.Models.Provider != "claude" {
-		t.Errorf("Models.Provider = %q, want %q", info.Manifest.Models.Provider, "claude")
+	if info.Manifest.Models.Provider != "deepseek" {
+		t.Errorf("Models.Provider = %q, want %q", info.Manifest.Models.Provider, "deepseek")
 	}
-	if info.Manifest.Models.Preferred != "sonnet" {
-		t.Errorf("Models.Preferred = %q, want %q", info.Manifest.Models.Preferred, "sonnet")
+	if info.Manifest.Models.Preferred != "deepseek-v4-flash" {
+		t.Errorf("Models.Preferred = %q, want %q", info.Manifest.Models.Preferred, "deepseek-v4-flash")
 	}
-	if info.Manifest.Models.Fallback != "haiku" {
-		t.Errorf("Models.Fallback = %q, want %q", info.Manifest.Models.Fallback, "haiku")
+	if info.Manifest.Models.Fallback != "deepseek-v4-pro" {
+		t.Errorf("Models.Fallback = %q, want %q", info.Manifest.Models.Fallback, "deepseek-v4-pro")
 	}
-	if info.Manifest.ContextBudget != 8192 {
-		t.Errorf("ContextBudget = %d, want %d", info.Manifest.ContextBudget, 8192)
+	// context_budget is intentionally unset: at spawn it auto-derives to 90% of
+	// the resolved model's context window (deepseek-v4 → 1M).
+	if info.Manifest.ContextBudget != 0 {
+		t.Errorf("ContextBudget = %d, want 0 (unset, auto-derived at spawn)", info.Manifest.ContextBudget)
 	}
 
 	// Verify skills loaded
@@ -549,10 +551,10 @@ func TestAgentLoader_Load_RealOrchestrator(t *testing.T) {
 		t.Errorf("Name = %q, want %q", info.Manifest.Name, "orchestrator")
 	}
 	if info.Manifest.Models.Provider != "" {
-		t.Errorf("Models.Provider = %q, want empty (follows CLI --provider)", info.Manifest.Models.Provider)
+		t.Errorf("Models.Provider = %q, want empty (follows CLI --provider / default_provider)", info.Manifest.Models.Provider)
 	}
-	if info.Manifest.Models.Preferred != "sonnet" {
-		t.Errorf("Models.Preferred = %q, want %q", info.Manifest.Models.Preferred, "sonnet")
+	if info.Manifest.Models.Preferred != "deepseek-v4-flash" {
+		t.Errorf("Models.Preferred = %q, want %q", info.Manifest.Models.Preferred, "deepseek-v4-flash")
 	}
 
 	if len(info.Skills) != 1 {

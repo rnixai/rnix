@@ -155,11 +155,11 @@ func TestRegisterProviders_DefaultConfig(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	if driverReg.Len() != 2 {
-		t.Errorf("expected 2 drivers registered, got %d", driverReg.Len())
+	if driverReg.Len() != 3 {
+		t.Errorf("expected 3 drivers registered, got %d", driverReg.Len())
 	}
-	if len(devReg.registered) != 2 {
-		t.Errorf("expected 2 device paths registered, got %d", len(devReg.registered))
+	if len(devReg.registered) != 3 {
+		t.Errorf("expected 3 device paths registered, got %d", len(devReg.registered))
 	}
 
 	if _, ok := driverReg.Get("claude"); !ok {
@@ -167,6 +167,9 @@ func TestRegisterProviders_DefaultConfig(t *testing.T) {
 	}
 	if _, ok := driverReg.Get("cursor"); !ok {
 		t.Error("expected 'cursor' in driver registry")
+	}
+	if _, ok := driverReg.Get("deepseek"); !ok {
+		t.Error("expected 'deepseek' in driver registry")
 	}
 }
 

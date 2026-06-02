@@ -452,8 +452,11 @@ func TestDefaultProvidersConfig(t *testing.T) {
 	if cfg.Version != "1" {
 		t.Errorf("Version = %q, want %q", cfg.Version, "1")
 	}
-	if len(cfg.Providers) != 2 {
-		t.Fatalf("len(Providers) = %d, want 2", len(cfg.Providers))
+	if len(cfg.Providers) != 3 {
+		t.Fatalf("len(Providers) = %d, want 3", len(cfg.Providers))
+	}
+	if cfg.DefaultProvider != "deepseek" {
+		t.Errorf("DefaultProvider = %q, want %q", cfg.DefaultProvider, "deepseek")
 	}
 
 	claude := cfg.Providers[0]
@@ -474,6 +477,23 @@ func TestDefaultProvidersConfig(t *testing.T) {
 	if cursor.Driver != DriverCursorCLI {
 		t.Errorf("Providers[1].Driver = %q, want %q", cursor.Driver, DriverCursorCLI)
 	}
+
+	deepseek := cfg.Providers[2]
+	if deepseek.Name != "deepseek" {
+		t.Errorf("Providers[2].Name = %q, want %q", deepseek.Name, "deepseek")
+	}
+	if deepseek.Driver != DriverOpenAICompat {
+		t.Errorf("Providers[2].Driver = %q, want %q", deepseek.Driver, DriverOpenAICompat)
+	}
+	if deepseek.DefaultModel != "deepseek-v4-flash" {
+		t.Errorf("Providers[2].DefaultModel = %q, want %q", deepseek.DefaultModel, "deepseek-v4-flash")
+	}
+	if deepseek.APIKeyEnv != "DEEPSEEK_API_KEY" {
+		t.Errorf("Providers[2].APIKeyEnv = %q, want %q", deepseek.APIKeyEnv, "DEEPSEEK_API_KEY")
+	}
+	if got := deepseek.Models["deepseek-v4-flash"].ContextWindow; got != 1_000_000 {
+		t.Errorf("deepseek-v4-flash ContextWindow = %d, want %d", got, 1_000_000)
+	}
 }
 
 func TestLoadOrDefault_NoFile(t *testing.T) {
@@ -489,8 +509,8 @@ func TestLoadOrDefault_NoFile(t *testing.T) {
 	if cfg == nil {
 		t.Fatal("expected non-nil config")
 	}
-	if len(cfg.Providers) != 2 {
-		t.Errorf("expected default 2 providers, got %d", len(cfg.Providers))
+	if len(cfg.Providers) != 3 {
+		t.Errorf("expected default 3 providers, got %d", len(cfg.Providers))
 	}
 	if cfg.Providers[0].Name != "claude" {
 		t.Errorf("Providers[0].Name = %q, want %q", cfg.Providers[0].Name, "claude")
@@ -788,8 +808,8 @@ func TestResolveDefaultProvider_FallsBackToFirstProvider(t *testing.T) {
 func TestResolveDefaultProvider_BuiltinDefault(t *testing.T) {
 	t.Parallel()
 	cfg := DefaultProvidersConfig()
-	if got := cfg.ResolveDefaultProvider(); got != "claude" {
-		t.Errorf("DefaultProvidersConfig().ResolveDefaultProvider() = %q, want %q", got, "claude")
+	if got := cfg.ResolveDefaultProvider(); got != "deepseek" {
+		t.Errorf("DefaultProvidersConfig().ResolveDefaultProvider() = %q, want %q", got, "deepseek")
 	}
 }
 

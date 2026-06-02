@@ -720,7 +720,8 @@ func TestE2E_CodeAnalystAgent(t *testing.T) {
 
 	devReg := vfs.NewDeviceRegistry()
 	vfsInst := vfs.NewVFS(devReg)
-	_ = devReg.Register("/dev/llm/claude", llm.FileFactory(driver, "/dev/llm/claude", ""))
+	// code-analyst pins provider: deepseek, so spawn opens /dev/llm/deepseek.
+	_ = devReg.Register("/dev/llm/deepseek", llm.FileFactory(driver, "/dev/llm/deepseek", ""))
 	ctxMgr := rnixctx.NewManager()
 	kern := kernel.NewKernel(vfsInst, ctxMgr, cb)
 
@@ -771,8 +772,8 @@ func TestE2E_CodeAnalystAgent(t *testing.T) {
 		t.Errorf("AllowedDevices[1] = %q, want %q", proc.AllowedDevices[1], "/dev/shell")
 	}
 
-	if lastReq.Model != "sonnet" {
-		t.Errorf("Model = %q, want %q", lastReq.Model, "sonnet")
+	if lastReq.Model != "deepseek-v4-flash" {
+		t.Errorf("Model = %q, want %q", lastReq.Model, "deepseek-v4-flash")
 	}
 
 	output := w.String()

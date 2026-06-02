@@ -82,12 +82,12 @@ func TestATDD_48_4_006_PlaywrightDemoAgent_ManifestParses(t *testing.T) {
 	if strings.TrimSpace(manifest.Description) == "" {
 		t.Error("Description must be non-empty")
 	}
-	if manifest.Models.Provider != "claude" {
+	if manifest.Models.Provider != "deepseek" {
 		t.Errorf("Models.Provider=%q, want %q (与 code-analyst 一致)",
-			manifest.Models.Provider, "claude")
+			manifest.Models.Provider, "deepseek")
 	}
 	if manifest.Models.Preferred == "" {
-		t.Error("Models.Preferred required (建议 sonnet)")
+		t.Error("Models.Preferred required (建议 deepseek-v4-flash)")
 	}
 
 	// MCP 字段 = ["playwright"] (大小写敏感,key 必须与 mcp.yaml 中 server name 匹配)
@@ -101,9 +101,10 @@ func TestATDD_48_4_006_PlaywrightDemoAgent_ManifestParses(t *testing.T) {
 			manifest.Skills)
 	}
 
-	// context_budget 合理范围 (8192-16384)
-	if manifest.ContextBudget < 8192 || manifest.ContextBudget > 16384 {
-		t.Errorf("ContextBudget=%d, want in [8192, 16384]", manifest.ContextBudget)
+	// context_budget 故意不设：spawn 时自动取 provider 配置的模型 context_window 的 90%
+	// (deepseek-v4 → 1M)。0 = 未设，交由 kernel 推导。
+	if manifest.ContextBudget != 0 {
+		t.Errorf("ContextBudget=%d, want 0 (unset, auto-derived at spawn)", manifest.ContextBudget)
 	}
 
 	// max_steps 不应过大 (demo 不应消耗过多 step)

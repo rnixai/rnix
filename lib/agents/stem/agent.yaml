@@ -1,4 +1,3 @@
 name: stem
 description: "通用基底智能体 -- 根据意图自动匹配 Skill 完成分化"
-context_budget: 16384
 skills: []
