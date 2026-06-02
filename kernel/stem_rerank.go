@@ -25,17 +25,17 @@ func DefaultStemReRankWeights() StemReRankWeights {
 
 // reRankSkills reorders matchedSkills using synergy history and reputation data.
 // Skills are assumed pre-sorted by keyword overlap score (descending) from
-// StemMatcher.Match. Positional scores are derived: first skill = 1.0,
-// last skill = 1/n (where n = len(matchedSkills)), linearly interpolated.
+// StemMatcher.MatchWithScores. The original match scores are used as the
+// match factor (normalized to [0,1] by dividing by the top score).
 // agentName is the stem agent template name for reputation lookup.
 // Returns a new slice in reranked order. Original slice is not modified.
 func reRankSkills(
-	matchedSkills []string,
+	matchedSkills []StemMatchResult,
 	agentName string,
 	synergyMatrix *SynergyMatrix,
 	reputationStore *ReputationStore,
 	weights *StemReRankWeights,
-) []string {
+) []StemMatchResult {
 	if len(matchedSkills) <= 1 {
 		return matchedSkills
 	}
@@ -63,7 +63,6 @@ func reRankSkills(
 		}
 	}
 
-	// Get reputation score for the agent
 	reputationBoost := 0.5
 	if reputationStore != nil && agentName != "" {
 		if summary, err := reputationStore.GetSummary(agentName); err == nil && summary != nil {
@@ -72,16 +71,15 @@ func reRankSkills(
 	}
 
 	type scored struct {
-		name  string
-		score float64
+		result StemMatchResult
+		rank   float64
 	}
 	entries := make([]scored, len(matchedSkills))
 	for i, skill := range matchedSkills {
-		// Positional match score: first=1.0, last=1/n, linear interpolation
 		matchNorm := 1.0 - float64(i)/(n)
 
 		synergyBoost := 0.5
-		if cs, ok := synergyLookup[skill]; ok {
+		if cs, ok := synergyLookup[skill.Name]; ok {
 			synergyBoost = cs.SuccessRate
 			if cs.Recommended {
 				synergyBoost += 0.1
@@ -95,16 +93,16 @@ func reRankSkills(
 		}
 
 		total := matchNorm*w.MatchWeight + synergyBoost*w.SynergyWeight + reputationBoost*w.ReputationWeight
-		entries[i] = scored{name: skill, score: total}
+		entries[i] = scored{result: skill, rank: total}
 	}
 
 	sort.SliceStable(entries, func(i, j int) bool {
-		return entries[i].score > entries[j].score
+		return entries[i].rank > entries[j].rank
 	})
 
-	result := make([]string, len(entries))
+	result := make([]StemMatchResult, len(entries))
 	for i, e := range entries {
-		result[i] = e.name
+		result[i] = e.result
 	}
 	return result
 }

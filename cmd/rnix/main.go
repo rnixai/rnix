@@ -142,6 +142,23 @@ func (c *cliCallbacks) OnAskUser(pid types.PID, requestID string, questions []by
 	return nil, fmt.Errorf("ask_user not supported in embedded mode")
 }
 
+func (c *cliCallbacks) OnStemDiff(pid types.PID, matches []kernel.StemMatchResult, selected []string, fromMemory bool) {
+	if fromMemory {
+		c.progress.StemMessage("memory recall: [%s]", strings.Join(selected, ", "))
+		return
+	}
+	if len(matches) > 0 {
+		var parts []string
+		for _, m := range matches {
+			parts = append(parts, fmt.Sprintf("%s (%.2f)", m.Name, m.Score))
+		}
+		c.progress.StemMessage("intent match: %s", strings.Join(parts, ", "))
+	}
+	if len(selected) > 0 {
+		c.progress.StemMessage("selected: [%s]", strings.Join(selected, ", "))
+	}
+}
+
 // extractAskUserPID resolves the PID from the per-process ctx that VFS passes
 // to /dev/tty Write. Returns a descriptive error when ctx lacks the kernel PID
 // key — surfacing a clear "kernel bug" signal to operators and an actionable
@@ -629,6 +646,21 @@ func runRoot(cmd *cobra.Command, args []string) error {
 				fmt.Fprintf(os.Stdout, "%s\n", jsonLine)
 			} else {
 				progress.AgentStepComplete(pp.PID, pp.Step, pp.Action, pp.Summary)
+			}
+		case "stem_diff":
+			if pp.FromMemory {
+				progress.StemMessage("memory recall: [%s]", strings.Join(pp.StemSelected, ", "))
+			} else {
+				if len(pp.StemMatches) > 0 {
+					var parts []string
+					for _, m := range pp.StemMatches {
+						parts = append(parts, fmt.Sprintf("%s (%.2f)", m.Name, m.Score))
+					}
+					progress.StemMessage("intent match: %s", strings.Join(parts, ", "))
+				}
+				if len(pp.StemSelected) > 0 {
+					progress.StemMessage("selected: [%s]", strings.Join(pp.StemSelected, ", "))
+				}
 			}
 		case "error":
 			// handled in final

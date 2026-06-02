@@ -116,12 +116,16 @@ func (k *KernelImpl) Spawn(intent string, agent *agents.AgentInfo, opts SpawnOpt
 			k.emitLog(proc, 0, types.LogOutput, fmt.Sprintf("differentiating: matching skills for intent %q", intent), "")
 
 			// Check differentiation memory first (Story 20.4)
-			var matchedSkills []string
+			var matchResults []StemMatchResult
+			var matchedNames []string
 			var matchErr error
 			var fromMemory bool
 			if k.diffMemory != nil {
 				if remembered, ok := k.diffMemory.Lookup(intent); ok {
-					matchedSkills = remembered
+					matchedNames = remembered
+					for _, name := range remembered {
+						matchResults = append(matchResults, StemMatchResult{Name: name, Score: -1})
+					}
 					fromMemory = true
 					k.emitLog(proc, 0, types.LogOutput, fmt.Sprintf(
 						"differentiating: reusing remembered path for intent %q: %v", intent, remembered), "")
@@ -129,34 +133,41 @@ func (k *KernelImpl) Spawn(intent string, agent *agents.AgentInfo, opts SpawnOpt
 			}
 			// Fallback to keyword matching if no memory hit
 			if !fromMemory {
-				matchedSkills, matchErr = k.stemMatcher.Match(intent)
+				matchResults, matchErr = k.stemMatcher.MatchWithScores(intent)
 				if matchErr != nil {
 					k.emitLog(proc, 0, types.LogOutput, fmt.Sprintf("differentiating: match error: %v", matchErr), "")
+				}
+				matchedNames = make([]string, len(matchResults))
+				for i, mr := range matchResults {
+					matchedNames[i] = mr.Name
 				}
 			}
 
 			// Story 51.4 AR-1+EM-1: rerank matched skills using synergy/reputation data.
-			// ε exploration: with probability ε, skip rerank (preserve original keyword order).
-			if matchErr == nil && len(matchedSkills) > 1 && !fromMemory &&
+			if matchErr == nil && len(matchResults) > 1 && !fromMemory &&
 				(k.synergyMatrixForStem != nil || k.reputationStoreForStem != nil) {
 				skipReRank := k.stemEpsilon >= 1.0
 				if !skipReRank && k.stemEpsilon > 0 {
 					skipReRank = rand.Float64() < k.stemEpsilon
 				}
 				if !skipReRank {
-					matchedSkills = reRankSkills(
-						matchedSkills,
+					matchResults = reRankSkills(
+						matchResults,
 						agent.Manifest.Name,
 						k.synergyMatrixForStem,
 						k.reputationStoreForStem,
 						k.stemReRankWeights,
 					)
+					matchedNames = make([]string, len(matchResults))
+					for i, mr := range matchResults {
+						matchedNames[i] = mr.Name
+					}
 				}
 			}
 
-			if matchErr == nil && len(matchedSkills) > 0 && k.skillLoader != nil {
+			if matchErr == nil && len(matchedNames) > 0 && k.skillLoader != nil {
 				var loadedNames []string
-				for _, skillName := range matchedSkills {
+				for _, skillName := range matchedNames {
 					skillInfo, loadErr := k.skillLoader(skillName)
 					if loadErr == nil {
 						agent.Skills = append(agent.Skills, skillInfo)
@@ -165,10 +176,10 @@ func (k *KernelImpl) Spawn(intent string, agent *agents.AgentInfo, opts SpawnOpt
 				}
 				if len(loadedNames) > 0 {
 					k.emitLog(proc, 0, types.LogOutput, fmt.Sprintf("differentiating: loading skills %v", loadedNames), "")
-					// Update proc.Skills so ps/ProcInfo reflects differentiated skills
 					proc.Skills = loadedNames
+					proc.StemMatches = matchResults
+					proc.StemSelected = loadedNames
 
-					// Record initial differentiation lineage (Story 20.5)
 					if proc.lineage == nil {
 						proc.lineage = NewLineage()
 					}
@@ -181,14 +192,13 @@ func (k *KernelImpl) Spawn(intent string, agent *agents.AgentInfo, opts SpawnOpt
 					})
 				}
 
-				// Record differentiation path to memory (Story 20.4)
 				if k.diffMemory != nil && len(loadedNames) > 0 {
 					k.diffMemory.Record(intent, loadedNames)
 				}
 			}
 			diffDuration := time.Since(diffStart)
 			eventArgs := map[string]any{
-				"matched_skills": matchedSkills,
+				"matched_skills": matchedNames,
 				"duration_ms":    diffDuration.Milliseconds(),
 				"from_memory":    fromMemory,
 			}
@@ -197,6 +207,11 @@ func (k *KernelImpl) Spawn(intent string, agent *agents.AgentInfo, opts SpawnOpt
 				eventErr = matchErr
 			}
 			k.emitEvent(proc, "StemDifferentiate", eventArgs, nil, eventErr, diffDuration)
+
+			// Fire callback for CLI progress display
+			if k.callbacks != nil && len(proc.StemMatches) > 0 {
+				k.callbacks.OnStemDiff(proc.PID, proc.StemMatches, proc.StemSelected, fromMemory)
+			}
 		}
 
 		// Populate skill body + dir maps for loaded_skills section and bundle drivers

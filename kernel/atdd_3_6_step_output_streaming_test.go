@@ -46,6 +46,7 @@ func (c *atdd36Callbacks) OnError(_ types.PID, _ error)                   {}
 func (c *atdd36Callbacks) OnAskUser(_ types.PID, _ string, _ []byte) ([]byte, error) {
 	return nil, nil
 }
+func (c *atdd36Callbacks) OnStemDiff(_ types.PID, _ []StemMatchResult, _ []string, _ bool) {}
 
 func (c *atdd36Callbacks) OnStepComplete(pid types.PID, step int, action string, summary string, hasError bool, durationMs float64) {
 	c.mu.Lock()

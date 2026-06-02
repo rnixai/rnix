@@ -8,6 +8,7 @@ import (
 const (
 	ColorKernel    = "#888888"
 	ColorAgent     = "#5B9BD5"
+	ColorStem      = "#C586C0" // purple — stem differentiation prefix
 	ColorSuccess   = "#6BCB77"
 	ColorWarning   = "#FFD93D"
 	ColorError     = "#FF6B6B"
@@ -21,6 +22,7 @@ var (
 	KernelStyle    lipgloss.Style
 	AgentStyle     lipgloss.Style
 	AgentBoldStyle lipgloss.Style // AgentStyle + Bold, pre-computed for FormatTraceLine
+	StemStyle      lipgloss.Style // Stem differentiation prefix
 	SuccessStyle   lipgloss.Style
 	ErrorStyle     lipgloss.Style
 	WarningStyle   lipgloss.Style
@@ -36,6 +38,7 @@ func InitStyles(profile TerminalProfile) {
 		KernelStyle = lipgloss.NewStyle()
 		AgentStyle = lipgloss.NewStyle()
 		AgentBoldStyle = lipgloss.NewStyle()
+		StemStyle = lipgloss.NewStyle()
 		SuccessStyle = lipgloss.NewStyle()
 		ErrorStyle = lipgloss.NewStyle()
 		WarningStyle = lipgloss.NewStyle()
@@ -48,6 +51,7 @@ func InitStyles(profile TerminalProfile) {
 	KernelStyle = lipgloss.NewStyle().Foreground(lipgloss.Color(ColorKernel))
 	AgentStyle = lipgloss.NewStyle().Foreground(lipgloss.Color(ColorAgent))
 	AgentBoldStyle = AgentStyle.Bold(true)
+	StemStyle = lipgloss.NewStyle().Foreground(lipgloss.Color(ColorStem))
 	SuccessStyle = lipgloss.NewStyle().Foreground(lipgloss.Color(ColorSuccess))
 	ErrorStyle = lipgloss.NewStyle().Foreground(lipgloss.Color(ColorError))
 	WarningStyle = lipgloss.NewStyle().Foreground(lipgloss.Color(ColorWarning))

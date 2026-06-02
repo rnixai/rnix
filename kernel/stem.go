@@ -8,6 +8,12 @@ import (
 	"github.com/rnixai/rnix/skills"
 )
 
+// StemMatchResult pairs a skill name with its keyword overlap score.
+type StemMatchResult struct {
+	Name  string
+	Score float64
+}
+
 // StemMatcher matches intents to skill combinations using keyword analysis.
 type StemMatcher struct {
 	discoverAll func() ([]skills.SkillInfo, error)
@@ -23,9 +29,10 @@ func NewStemMatcherFromFunc(discoverFn func() ([]skills.SkillInfo, error)) *Stem
 	return &StemMatcher{discoverAll: discoverFn}
 }
 
-// Match analyzes the intent and returns skill names ordered by relevance (descending score).
+// MatchWithScores analyzes the intent and returns skill matches with scores,
+// ordered by relevance (descending score).
 // Returns an empty list (not an error) if no skills match.
-func (m *StemMatcher) Match(intent string) ([]string, error) {
+func (m *StemMatcher) MatchWithScores(intent string) ([]StemMatchResult, error) {
 	if intent == "" {
 		return nil, nil
 	}
@@ -44,30 +51,35 @@ func (m *StemMatcher) Match(intent string) ([]string, error) {
 		return nil, nil
 	}
 
-	type scored struct {
-		name  string
-		score float64
-	}
-
-	var matches []scored
+	var matches []StemMatchResult
 	for _, skill := range allSkills {
 		skillKeywords := tokenize(skill.Manifest.Name + " " + skill.Manifest.Description)
 		score := overlapScore(intentKeywords, skillKeywords)
 		if score > 0 {
-			matches = append(matches, scored{name: skill.Manifest.Name, score: score})
+			matches = append(matches, StemMatchResult{Name: skill.Manifest.Name, Score: score})
 		}
 	}
 
 	sort.Slice(matches, func(i, j int) bool {
-		if matches[i].score != matches[j].score {
-			return matches[i].score > matches[j].score
+		if matches[i].Score != matches[j].Score {
+			return matches[i].Score > matches[j].Score
 		}
-		return matches[i].name < matches[j].name
+		return matches[i].Name < matches[j].Name
 	})
 
+	return matches, nil
+}
+
+// Match analyzes the intent and returns skill names ordered by relevance (descending score).
+// Returns an empty list (not an error) if no skills match.
+func (m *StemMatcher) Match(intent string) ([]string, error) {
+	matches, err := m.MatchWithScores(intent)
+	if err != nil {
+		return nil, err
+	}
 	result := make([]string, len(matches))
-	for i, m := range matches {
-		result[i] = m.name
+	for i, mr := range matches {
+		result[i] = mr.Name
 	}
 	return result, nil
 }

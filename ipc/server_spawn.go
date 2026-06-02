@@ -35,12 +35,20 @@ func (s *Server) handleSpawn(conn net.Conn, rawPayload json.RawMessage) {
 	}
 
 	var agentInfo *agents.AgentInfo
-	if req.Agent != "" && agentLoaderFn != nil {
-		var err error
-		agentInfo, err = agentLoaderFn(req.Agent)
-		if err != nil {
-			writeResponse(conn, Response{OK: false, Error: &ErrorPayload{Code: "NOT_FOUND", Message: fmt.Sprintf("agent %q not found: %v", req.Agent, err)}})
-			return
+	agentName := req.Agent
+	if agentName == "" {
+		agentName = "stem"
+	}
+	if agentLoaderFn != nil {
+		info, loadErr := agentLoaderFn(agentName)
+		if loadErr != nil {
+			if req.Agent != "" {
+				writeResponse(conn, Response{OK: false, Error: &ErrorPayload{Code: "NOT_FOUND", Message: fmt.Sprintf("agent %q not found: %v", req.Agent, loadErr)}})
+				return
+			}
+			// Implicit stem default failed: proceed without agent
+		} else {
+			agentInfo = info
 		}
 	}
 
@@ -84,6 +92,20 @@ func (s *Server) handleSpawn(conn net.Conn, rawPayload json.RawMessage) {
 	select {
 	case eventCh <- StreamEvent{Type: StreamProgress, Payload: spawnPayload}:
 	default:
+	}
+
+	// Compensate for OnStemDiff event lost during kern.Spawn (fires before register)
+	if len(proc.StemMatches) > 0 {
+		wireMatches := make([]StemMatchWire, len(proc.StemMatches))
+		for i, mr := range proc.StemMatches {
+			wireMatches[i] = StemMatchWire{Name: mr.Name, Score: mr.Score}
+		}
+		stemPP := ProgressPayload{Event: "stem_diff", PID: pid, StemMatches: wireMatches, StemSelected: proc.StemSelected}
+		stemPayload, _ := json.Marshal(stemPP)
+		select {
+		case eventCh <- StreamEvent{Type: StreamProgress, Payload: stemPayload}:
+		default:
+		}
 	}
 
 	payload, _ := json.Marshal(SpawnResponse{PID: pid, UUID: proc.UUID})

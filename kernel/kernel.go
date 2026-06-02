@@ -126,6 +126,7 @@ type KernelCallbacks interface {
 	OnComplete(pid types.PID, result string, exit ExitStatus)
 	OnError(pid types.PID, err error)
 	OnAskUser(pid types.PID, requestID string, questions []byte) ([]byte, error)
+	OnStemDiff(pid types.PID, matches []StemMatchResult, selected []string, fromMemory bool)
 }
 
 // ProcessManager defines the kernel's process management interface.

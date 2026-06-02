@@ -26,6 +26,16 @@ func (p *ProgressReporter) KernelMessage(format string, args ...any) {
 	fmt.Fprintf(p.renderer.Writer, "%s %s\n", prefix, msg)
 }
 
+// StemMessage outputs a stem-prefixed message: [stem] {message}
+func (p *ProgressReporter) StemMessage(format string, args ...any) {
+	if p.renderer.OutputMode == ModeQuiet || p.renderer.OutputMode == ModeJSON {
+		return
+	}
+	msg := fmt.Sprintf(format, args...)
+	prefix := StemStyle.Render("[stem]")
+	fmt.Fprintf(p.renderer.Writer, "%s   %s\n", prefix, msg)
+}
+
 // AgentMessage outputs an agent-prefixed message: [agent/{pid}] {message}
 func (p *ProgressReporter) AgentMessage(pid types.PID, format string, args ...any) {
 	if p.renderer.OutputMode == ModeQuiet || p.renderer.OutputMode == ModeJSON {

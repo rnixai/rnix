@@ -215,6 +215,7 @@ func (m *mockCallbacksWithUUID) OnError(pid types.PID, err error)               
 func (m *mockCallbacksWithUUID) OnAskUser(pid types.PID, requestID string, questions []byte) ([]byte, error) {
 	return nil, nil
 }
+func (m *mockCallbacksWithUUID) OnStemDiff(_ types.PID, _ []StemMatchResult, _ []string, _ bool) {}
 
 func TestATDD_28_1_AC5_OnSpawn_ReceivesUUID(t *testing.T) {
 	// This test verifies KernelCallbacks.OnSpawn signature includes uuid.

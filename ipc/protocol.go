@@ -701,6 +701,17 @@ type ProgressPayload struct {
 
 	// OnError
 	ErrorMessage string `json:"error_message,omitempty"`
+
+	// OnStemDiff
+	StemMatches  []StemMatchWire `json:"stem_matches,omitempty"`
+	StemSelected []string        `json:"stem_selected,omitempty"`
+	FromMemory   bool            `json:"from_memory,omitempty"`
+}
+
+// StemMatchWire is the wire format for a single stem matcher result.
+type StemMatchWire struct {
+	Name  string  `json:"name"`
+	Score float64 `json:"score"`
 }
 
 // SyscallEventWire is the wire representation of types.SyscallEvent.

@@ -131,12 +131,19 @@ type ipcKernelSpawner struct {
 }
 
 func (s *ipcKernelSpawner) SpawnAndWait(ctx context.Context, intent, agentName, model string) (string, int, int, error) {
+	resolvedAgent := agentName
+	if resolvedAgent == "" {
+		resolvedAgent = "stem"
+	}
 	var agentInfo *agents.AgentInfo
-	if agentName != "" && s.agentLoader != nil {
-		var err error
-		agentInfo, err = s.agentLoader(agentName)
-		if err != nil {
-			return "", 1, 0, fmt.Errorf("agent %q not found: %v", agentName, err)
+	if s.agentLoader != nil {
+		info, loadErr := s.agentLoader(resolvedAgent)
+		if loadErr != nil {
+			if agentName != "" {
+				return "", 1, 0, fmt.Errorf("agent %q not found: %v", agentName, loadErr)
+			}
+		} else {
+			agentInfo = info
 		}
 	}
 

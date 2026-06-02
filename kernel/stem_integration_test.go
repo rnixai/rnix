@@ -238,3 +238,5 @@ func (tc *testCallbacks) OnAskUser(pid types.PID, requestID string, questions []
 	return nil, fmt.Errorf("ask_user not supported in test")
 }
 
+func (tc *testCallbacks) OnStemDiff(_ types.PID, _ []StemMatchResult, _ []string, _ bool) {}
+

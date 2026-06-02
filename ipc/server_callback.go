@@ -127,5 +127,15 @@ func (m *callbackMux) deliverAnswer(requestID string, answers []byte) error {
 	}
 }
 
+func (m *callbackMux) OnStemDiff(pid types.PID, matches []kernel.StemMatchResult, selected []string, fromMemory bool) {
+	wireMatches := make([]StemMatchWire, len(matches))
+	for i, mr := range matches {
+		wireMatches[i] = StemMatchWire{Name: mr.Name, Score: mr.Score}
+	}
+	pp := ProgressPayload{Event: "stem_diff", PID: pid, StemMatches: wireMatches, StemSelected: selected, FromMemory: fromMemory}
+	payload, _ := json.Marshal(pp)
+	m.send(pid, StreamEvent{Type: StreamProgress, Payload: payload})
+}
+
 // Compile-time check that callbackMux implements KernelCallbacks.
 var _ kernel.KernelCallbacks = (*callbackMux)(nil)
