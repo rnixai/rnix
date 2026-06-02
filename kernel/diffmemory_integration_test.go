@@ -60,7 +60,7 @@ func TestSpawn_StemAgentDifferentiationMemory_RecordAndReuse(t *testing.T) {
 	}
 
 	// Verify memory was recorded
-	rememberedSkills, ok := dm.Lookup("analyze code")
+	rememberedSkills, ok := dm.Lookup("analyze code", 0)
 	if !ok {
 		t.Fatal("expected DiffMemory to have recorded the differentiation path")
 	}
@@ -137,7 +137,7 @@ func TestSpawn_StemAgentDifferentiationMemory_FallbackToMatch(t *testing.T) {
 	}
 
 	// Should now be recorded in memory for next time
-	_, ok := dm.Lookup("analyze code quality")
+	_, ok := dm.Lookup("analyze code quality", 0)
 	if !ok {
 		t.Error("expected differentiation path to be recorded to memory after fallback match")
 	}
@@ -152,7 +152,7 @@ func TestSpawn_StemAgentDifferentiationMemory_EventFromMemory(t *testing.T) {
 
 	// Pre-populate memory
 	dm := NewDiffMemory(256)
-	dm.Record("analyze code", []string{"code-analysis"})
+	dm.Record("analyze code", []string{"code-analysis"}, 0)
 	k.SetDiffMemory(dm)
 
 	// Configure skill loader for the remembered skills
@@ -243,7 +243,7 @@ func TestE2E_StemDifferentiation_MemoryReuse(t *testing.T) {
 	}
 
 	// Verify memory was populated
-	if _, ok := dm.Lookup("analyze code"); !ok {
+	if _, ok := dm.Lookup("analyze code", 0); !ok {
 		t.Fatal("expected memory to be populated after first spawn")
 	}
 

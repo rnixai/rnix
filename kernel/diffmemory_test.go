@@ -28,9 +28,9 @@ func TestDiffMemory_RecordAndLookup(t *testing.T) {
 	// Then: looking up the same intent returns the recorded skills
 	dm := NewDiffMemory(10)
 
-	dm.Record("analyze code", []string{"code-analysis", "git-tools"})
+	dm.Record("analyze code", []string{"code-analysis", "git-tools"}, 0)
 
-	skills, ok := dm.Lookup("analyze code")
+	skills, ok := dm.Lookup("analyze code", 0)
 	if !ok {
 		t.Fatal("expected Lookup to find recorded intent")
 	}
@@ -48,10 +48,10 @@ func TestDiffMemory_NormalizedIntent(t *testing.T) {
 	// Then: it matches the same entry because normalizeIntent sorts tokens
 	dm := NewDiffMemory(10)
 
-	dm.Record("analyze code", []string{"code-analysis"})
+	dm.Record("analyze code", []string{"code-analysis"}, 0)
 
 	// Same tokens reordered should match
-	skills, ok := dm.Lookup("code analyze")
+	skills, ok := dm.Lookup("code analyze", 0)
 	if !ok {
 		t.Fatal("expected Lookup to find normalized intent (reordered tokens)")
 	}
@@ -66,9 +66,9 @@ func TestDiffMemory_NormalizedIntent_CaseInsensitive(t *testing.T) {
 	// Then: it matches because normalizeIntent lowercases tokens
 	dm := NewDiffMemory(10)
 
-	dm.Record("Analyze Code", []string{"code-analysis"})
+	dm.Record("Analyze Code", []string{"code-analysis"}, 0)
 
-	skills, ok := dm.Lookup("analyze code")
+	skills, ok := dm.Lookup("analyze code", 0)
 	if !ok {
 		t.Fatal("expected case-insensitive match")
 	}
@@ -83,11 +83,11 @@ func TestDiffMemory_UpdateExisting_SameSkills(t *testing.T) {
 	// Then: Timestamp updates, skills unchanged (Record does not increment HitCount)
 	dm := NewDiffMemory(10)
 
-	dm.Record("analyze code", []string{"code-analysis"})
+	dm.Record("analyze code", []string{"code-analysis"}, 0)
 	time.Sleep(10 * time.Millisecond) // ensure timestamp difference
-	dm.Record("analyze code", []string{"code-analysis"})
+	dm.Record("analyze code", []string{"code-analysis"}, 0)
 
-	skills, ok := dm.Lookup("analyze code")
+	skills, ok := dm.Lookup("analyze code", 0)
 	if !ok {
 		t.Fatal("expected Lookup to find recorded intent")
 	}
@@ -102,10 +102,10 @@ func TestDiffMemory_UpdateExisting_DifferentSkills(t *testing.T) {
 	// Then: skill list is replaced with the new one (latest wins)
 	dm := NewDiffMemory(10)
 
-	dm.Record("analyze code", []string{"code-analysis"})
-	dm.Record("analyze code", []string{"code-analysis", "git-tools"})
+	dm.Record("analyze code", []string{"code-analysis"}, 0)
+	dm.Record("analyze code", []string{"code-analysis", "git-tools"}, 0)
 
-	skills, ok := dm.Lookup("analyze code")
+	skills, ok := dm.Lookup("analyze code", 0)
 	if !ok {
 		t.Fatal("expected Lookup to find updated intent")
 	}
@@ -124,31 +124,31 @@ func TestDiffMemory_EvictionPolicy(t *testing.T) {
 	dm := NewDiffMemory(3)
 
 	// Record 3 entries
-	dm.Record("intent-a", []string{"skill-a"})
-	dm.Record("intent-b", []string{"skill-b"})
-	dm.Record("intent-c", []string{"skill-c"})
+	dm.Record("intent-a", []string{"skill-a"}, 0)
+	dm.Record("intent-b", []string{"skill-b"}, 0)
+	dm.Record("intent-c", []string{"skill-c"}, 0)
 
 	// Boost intent-a and intent-c hit counts via Lookup
-	dm.Lookup("intent-a")
-	dm.Lookup("intent-c")
+	dm.Lookup("intent-a", 0)
+	dm.Lookup("intent-c", 0)
 
 	// Record a 4th entry - should evict intent-b (lowest hit count)
-	dm.Record("intent-d", []string{"skill-d"})
+	dm.Record("intent-d", []string{"skill-d"}, 0)
 
 	// intent-b should be evicted
-	_, ok := dm.Lookup("intent-b")
+	_, ok := dm.Lookup("intent-b", 0)
 	if ok {
 		t.Fatal("expected intent-b to be evicted (lowest HitCount)")
 	}
 
 	// Others should still exist
-	if _, ok := dm.Lookup("intent-a"); !ok {
+	if _, ok := dm.Lookup("intent-a", 0); !ok {
 		t.Fatal("expected intent-a to still exist")
 	}
-	if _, ok := dm.Lookup("intent-c"); !ok {
+	if _, ok := dm.Lookup("intent-c", 0); !ok {
 		t.Fatal("expected intent-c to still exist")
 	}
-	if _, ok := dm.Lookup("intent-d"); !ok {
+	if _, ok := dm.Lookup("intent-d", 0); !ok {
 		t.Fatal("expected intent-d to exist (just added)")
 	}
 }
@@ -159,7 +159,7 @@ func TestDiffMemory_LookupNotFound(t *testing.T) {
 	// Then: returns nil, false
 	dm := NewDiffMemory(10)
 
-	skills, ok := dm.Lookup("nonexistent intent")
+	skills, ok := dm.Lookup("nonexistent intent", 0)
 	if ok {
 		t.Fatal("expected Lookup to return false for nonexistent intent")
 	}
@@ -174,10 +174,10 @@ func TestDiffMemory_LookupNotFound_AfterEviction(t *testing.T) {
 	// Then: "intent-a" is evicted
 	dm := NewDiffMemory(1)
 
-	dm.Record("intent-a", []string{"skill-a"})
-	dm.Record("intent-b", []string{"skill-b"})
+	dm.Record("intent-a", []string{"skill-a"}, 0)
+	dm.Record("intent-b", []string{"skill-b"}, 0)
 
-	_, ok := dm.Lookup("intent-a")
+	_, ok := dm.Lookup("intent-a", 0)
 	if ok {
 		t.Fatal("expected intent-a to be evicted when maxSize=1")
 	}
@@ -198,7 +198,7 @@ func TestDiffMemory_ConcurrentAccess(t *testing.T) {
 		go func(n int) {
 			defer wg.Done()
 			intent := strings.Repeat("word", n%5+1)
-			dm.Record(intent, []string{"skill-" + strings.Repeat("x", n%3+1)})
+			dm.Record(intent, []string{"skill-" + strings.Repeat("x", n%3+1)}, 0)
 		}(i)
 	}
 
@@ -208,7 +208,7 @@ func TestDiffMemory_ConcurrentAccess(t *testing.T) {
 		go func(n int) {
 			defer wg.Done()
 			intent := strings.Repeat("word", n%5+1)
-			dm.Lookup(intent)
+			dm.Lookup(intent, 0)
 		}(i)
 	}
 
@@ -222,10 +222,10 @@ func TestDiffMemory_EmptyIntent(t *testing.T) {
 	// Then: it should handle gracefully (record with empty normalized key)
 	dm := NewDiffMemory(10)
 
-	dm.Record("", []string{"skill-a"})
+	dm.Record("", []string{"skill-a"}, 0)
 
 	// Empty intent should still be findable (or gracefully handled)
-	skills, ok := dm.Lookup("")
+	skills, ok := dm.Lookup("", 0)
 	if !ok {
 		t.Fatal("expected empty intent to be recorded and found")
 	}
@@ -240,9 +240,9 @@ func TestDiffMemory_EmptySkillList(t *testing.T) {
 	// Then: Lookup returns empty list, true (entry exists but no skills)
 	dm := NewDiffMemory(10)
 
-	dm.Record("some intent", []string{})
+	dm.Record("some intent", []string{}, 0)
 
-	skills, ok := dm.Lookup("some intent")
+	skills, ok := dm.Lookup("some intent", 0)
 	if !ok {
 		t.Fatal("expected Lookup to find intent with empty skills")
 	}

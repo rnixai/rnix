@@ -441,7 +441,7 @@ func TestReasonStep_Specialize_DiffMemoryRecorded(t *testing.T) {
 	}
 
 	// DiffMemory should have a record for the process's intent
-	dmSkills, found := dm.Lookup("analyze code for bugs")
+	dmSkills, found := dm.Lookup("analyze code for bugs", 0)
 	if !found {
 		t.Fatal("expected DiffMemory to have a record after specialize")
 	}
@@ -886,7 +886,7 @@ func TestReasonStep_Specialize_DiffMemoryFullSnapshot(t *testing.T) {
 		t.Fatal("timed out")
 	}
 
-	dmSkills, found := dm.Lookup("multi-skill task")
+	dmSkills, found := dm.Lookup("multi-skill task", 0)
 	if !found {
 		t.Fatal("expected DiffMemory to have a record")
 	}

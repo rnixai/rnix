@@ -70,6 +70,15 @@ func (m *StemMatcher) MatchWithScores(intent string) ([]StemMatchResult, error) 
 	return matches, nil
 }
 
+// AvailableCount returns the number of currently discoverable skills.
+func (m *StemMatcher) AvailableCount() (int, error) {
+	allSkills, err := m.discoverAll()
+	if err != nil {
+		return 0, err
+	}
+	return len(allSkills), nil
+}
+
 // Match analyzes the intent and returns skill names ordered by relevance (descending score).
 // Returns an empty list (not an error) if no skills match.
 func (m *StemMatcher) Match(intent string) ([]string, error) {

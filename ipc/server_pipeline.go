@@ -98,6 +98,16 @@ func (s *Server) handleSpawnPipeline(conn net.Conn, rawPayload json.RawMessage) 
 		return
 	}
 
+	// Record cooperation edges between consecutive pipeline stages (Story 51.2).
+	if s.immuneDaemon != nil && len(spawner.agentTemplates) > 1 {
+		for i := 1; i < len(spawner.agentTemplates); i++ {
+			prev, curr := spawner.agentTemplates[i-1], spawner.agentTemplates[i]
+			if prev != "" && curr != "" {
+				s.immuneDaemon.RecordCooperationTyped(prev, curr, "spawn")
+			}
+		}
+	}
+
 	resp := SpawnPipelineResponse{
 		Stages: make([]PipelineStageWire, len(result.Stages)),
 	}
@@ -122,12 +132,13 @@ func (s *Server) handleSpawnPipeline(conn net.Conn, rawPayload json.RawMessage) 
 
 // ipcKernelSpawner adapts the real kernel to the shell.KernelSpawner interface.
 type ipcKernelSpawner struct {
-	kernel        *kernel.KernelImpl
-	agentLoader   AgentLoaderFunc
-	projectConfig *config.ProjectConfig // per-spawn project config snapshot (nil = global only)
-	pids          []types.PID
-	pipelineTotal int       // total stages in pipeline (set before Execute)
-	parentPID     types.PID // script runner PID; 0 if not in a script context
+	kernel         *kernel.KernelImpl
+	agentLoader    AgentLoaderFunc
+	projectConfig  *config.ProjectConfig // per-spawn project config snapshot (nil = global only)
+	pids           []types.PID
+	agentTemplates []string  // resolved agent template per stage (for cooperation recording)
+	pipelineTotal  int       // total stages in pipeline (set before Execute)
+	parentPID      types.PID // script runner PID; 0 if not in a script context
 }
 
 func (s *ipcKernelSpawner) SpawnAndWait(ctx context.Context, intent, agentName, model string) (string, int, int, error) {
@@ -158,6 +169,7 @@ func (s *ipcKernelSpawner) SpawnAndWait(ctx context.Context, intent, agentName, 
 		return "", 1, 0, err
 	}
 	s.pids = append(s.pids, pid)
+	s.agentTemplates = append(s.agentTemplates, resolvedAgent)
 
 	proc, ok := s.kernel.GetProcess(pid)
 	if !ok {

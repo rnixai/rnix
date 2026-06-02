@@ -55,7 +55,7 @@ func TestATDD_51_1_AC7_AssembleUsesPersistencePath(t *testing.T) {
 	if dm == nil {
 		t.Fatal("assembleDiffMemory returned nil")
 	}
-	dm.Record("build rest api", []string{"go-coder", "api-designer"})
+	dm.Record("build rest api", []string{"go-coder", "api-designer"}, 0)
 
 	wantPath := filepath.Join(dataDir, "diffmemory", "diffmemory.json")
 	if _, err := os.Stat(wantPath); err != nil {
@@ -82,15 +82,15 @@ func TestATDD_51_1_AC7_PathsSurviveSimulatedRestart(t *testing.T) {
 	dataDir := t.TempDir()
 
 	d1 := assembleDiffMemory(dataDir)
-	d1.Record("analyze system logs", []string{"log-analyst"})
-	d1.Record("write integration tests", []string{"tester", "qa"})
+	d1.Record("analyze system logs", []string{"log-analyst"}, 0)
+	d1.Record("write integration tests", []string{"tester", "qa"}, 0)
 
 	// 模拟 daemon 重启：同一 dataDir 重新装配。
 	d2 := assembleDiffMemory(dataDir)
-	if skills, ok := d2.Lookup("analyze system logs"); !ok || len(skills) != 1 || skills[0] != "log-analyst" {
+	if skills, ok := d2.Lookup("analyze system logs", 0); !ok || len(skills) != 1 || skills[0] != "log-analyst" {
 		t.Fatalf("path 1 did not survive simulated restart via assembly: skills=%v ok=%v", skills, ok)
 	}
-	if skills, ok := d2.Lookup("write integration tests"); !ok || len(skills) != 2 || skills[0] != "tester" {
+	if skills, ok := d2.Lookup("write integration tests", 0); !ok || len(skills) != 2 || skills[0] != "tester" {
 		t.Fatalf("path 2 did not survive simulated restart via assembly: skills=%v ok=%v", skills, ok)
 	}
 }
@@ -125,8 +125,8 @@ func TestATDD_51_1_AC7_LoadFailureFallsBackToInMemory(t *testing.T) {
 		t.Fatal("assembleDiffMemory returned nil on load failure (expected in-memory fallback)")
 	}
 	// 回退后仍是可用的纯内存 store：Record + Lookup 正常工作。
-	dm.Record("fallback intent", []string{"mem-skill"})
-	if skills, ok := dm.Lookup("fallback intent"); !ok || len(skills) != 1 || skills[0] != "mem-skill" {
+	dm.Record("fallback intent", []string{"mem-skill"}, 0)
+	if skills, ok := dm.Lookup("fallback intent", 0); !ok || len(skills) != 1 || skills[0] != "mem-skill" {
 		t.Fatalf("in-memory fallback store not usable: skills=%v ok=%v", skills, ok)
 	}
 }

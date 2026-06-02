@@ -122,7 +122,7 @@ func TestSpawn_StemAgent_LineageFromMemory(t *testing.T) {
 
 	// Pre-populate differentiation memory
 	dm := NewDiffMemory(10)
-	dm.Record("analyze code", []string{"code-analysis"})
+	dm.Record("analyze code", []string{"code-analysis"}, 0)
 	k.SetDiffMemory(dm)
 
 	llmFile.mu.Lock()
@@ -333,7 +333,7 @@ func TestE2E_Lineage_MemoryReuse(t *testing.T) {
 	})
 
 	dm := NewDiffMemory(10)
-	dm.Record("analyze code", []string{"code-analysis"})
+	dm.Record("analyze code", []string{"code-analysis"}, 0)
 	k.SetDiffMemory(dm)
 
 	llmFile.mu.Lock()

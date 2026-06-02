@@ -14,10 +14,11 @@ import (
 
 // DiffMemoryEntry records a single differentiation path for later reuse.
 type DiffMemoryEntry struct {
-	Intent    string    `json:"intent"`
-	Skills    []string  `json:"skills"`
-	Timestamp time.Time `json:"timestamp"`
-	HitCount  int       `json:"hit_count"`
+	Intent         string    `json:"intent"`
+	Skills         []string  `json:"skills"`
+	Timestamp      time.Time `json:"timestamp"`
+	HitCount       int       `json:"hit_count"`
+	AvailableCount int       `json:"available_count,omitempty"`
 }
 
 // DiffMemory stores and retrieves differentiation paths keyed by intent signatures.
@@ -124,8 +125,11 @@ func (dm *DiffMemory) load() error {
 // If the entry already exists with the same skills, only Timestamp is updated.
 // If the entry exists with different skills, the skill list is replaced (latest wins).
 // HitCount is only incremented by Lookup (actual reuse), not by Record.
+// availableCount is the number of skills discoverable at record time; Lookup
+// returns a miss when the current count differs, so adding or removing a skill
+// invalidates stale entries automatically.
 // When maxSize is exceeded, the entry with the lowest HitCount (and oldest Timestamp as tiebreaker) is evicted.
-func (dm *DiffMemory) Record(intent string, skills []string) {
+func (dm *DiffMemory) Record(intent string, skills []string, availableCount int) {
 	sig := normalizeIntent(intent)
 
 	dm.mu.Lock()
@@ -139,6 +143,7 @@ func (dm *DiffMemory) Record(intent string, skills []string) {
 			entry.Skills = copied
 		}
 		entry.Timestamp = time.Now()
+		entry.AvailableCount = availableCount
 	} else {
 		// Evict if at capacity
 		if len(dm.entries) >= dm.maxSize {
@@ -147,10 +152,11 @@ func (dm *DiffMemory) Record(intent string, skills []string) {
 		copied := make([]string, len(skills))
 		copy(copied, skills)
 		entry = &DiffMemoryEntry{
-			Intent:    intent,
-			Skills:    copied,
-			Timestamp: time.Now(),
-			HitCount:  1,
+			Intent:         intent,
+			Skills:         copied,
+			Timestamp:      time.Now(),
+			HitCount:       1,
+			AvailableCount: availableCount,
 		}
 		dm.entries[sig] = entry
 	}
@@ -193,7 +199,12 @@ func (dm *DiffMemory) appendEntry(e *DiffMemoryEntry) error {
 // Lookup retrieves the skill list for a given intent.
 // Returns the skills and true if found, or nil and false if not found.
 // A successful lookup increments the entry's HitCount.
-func (dm *DiffMemory) Lookup(intent string) ([]string, bool) {
+// currentAvailableCount is the number of currently discoverable skills; when it
+// differs from the count stored at record time (i.e. skills were added or
+// removed), the entry is treated as a miss so a fresh keyword scan runs.
+// Pass 0 to skip the staleness check (backward-compatible with legacy entries
+// that have AvailableCount == 0).
+func (dm *DiffMemory) Lookup(intent string, currentAvailableCount int) ([]string, bool) {
 	sig := normalizeIntent(intent)
 
 	dm.mu.Lock()
@@ -201,6 +212,10 @@ func (dm *DiffMemory) Lookup(intent string) ([]string, bool) {
 
 	entry, ok := dm.entries[sig]
 	if !ok {
+		return nil, false
+	}
+
+	if currentAvailableCount > 0 && currentAvailableCount != entry.AvailableCount {
 		return nil, false
 	}
 

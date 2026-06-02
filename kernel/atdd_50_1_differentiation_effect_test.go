@@ -275,7 +275,7 @@ func TestATDD_50_1_DiffMemory_ReuseFasterThanMatch(t *testing.T) {
 	}
 
 	// Verify DiffMemory recorded the first match
-	remembered, memHit := k.diffMemory.Lookup(intent)
+	remembered, memHit := k.diffMemory.Lookup(intent, 0)
 	if !memHit {
 		t.Fatal("DiffMemory should have recorded the first match")
 	}
@@ -477,7 +477,7 @@ func TestATDD_50_1_E2E_DifferentiatedAgent_ExitSuccess(t *testing.T) {
 	}
 
 	// DiffMemory should have recorded the differentiation path
-	_, memHit := k.diffMemory.Lookup("analyze code quality")
+	_, memHit := k.diffMemory.Lookup("analyze code quality", 0)
 	if !memHit {
 		t.Error("DiffMemory should have recorded the differentiation path")
 	}

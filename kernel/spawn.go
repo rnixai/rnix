@@ -13,6 +13,7 @@ import (
 	rnixctx "github.com/rnixai/rnix/context"
 	"github.com/rnixai/rnix/debug"
 	"github.com/rnixai/rnix/internal/types"
+	"github.com/rnixai/rnix/skills"
 	"github.com/rnixai/rnix/vfs"
 )
 
@@ -115,13 +116,27 @@ func (k *KernelImpl) Spawn(intent string, agent *agents.AgentInfo, opts SpawnOpt
 			diffStart := time.Now()
 			k.emitLog(proc, 0, types.LogOutput, fmt.Sprintf("differentiating: matching skills for intent %q", intent), "")
 
+			// Build a project-aware stem matcher when project skill dirs are available.
+			// The kernel-level stemMatcher only scans global dirs (~/.config/rnix/skills);
+			// per-spawn project dirs (.rnix/skills/) require a temporary matcher.
+			effectiveMatcher := k.stemMatcher
+			if opts.ProjectConfig != nil && len(opts.ProjectConfig.SkillDirs) > 0 {
+				projLoader := skills.NewSkillLoader(opts.ProjectConfig.SkillDirs)
+				projDiscovery := skills.NewSkillDiscovery(projLoader, opts.ProjectConfig.SkillDirs)
+				effectiveMatcher = NewStemMatcher(projDiscovery)
+			}
+
 			// Check differentiation memory first (Story 20.4)
 			var matchResults []StemMatchResult
 			var matchedNames []string
 			var matchErr error
 			var fromMemory bool
+			var availableSkillCount int
+			if ac, acErr := effectiveMatcher.AvailableCount(); acErr == nil {
+				availableSkillCount = ac
+			}
 			if k.diffMemory != nil {
-				if remembered, ok := k.diffMemory.Lookup(intent); ok {
+				if remembered, ok := k.diffMemory.Lookup(intent, availableSkillCount); ok {
 					matchedNames = remembered
 					for _, name := range remembered {
 						matchResults = append(matchResults, StemMatchResult{Name: name, Score: -1})
@@ -133,7 +148,7 @@ func (k *KernelImpl) Spawn(intent string, agent *agents.AgentInfo, opts SpawnOpt
 			}
 			// Fallback to keyword matching if no memory hit
 			if !fromMemory {
-				matchResults, matchErr = k.stemMatcher.MatchWithScores(intent)
+				matchResults, matchErr = effectiveMatcher.MatchWithScores(intent)
 				if matchErr != nil {
 					k.emitLog(proc, 0, types.LogOutput, fmt.Sprintf("differentiating: match error: %v", matchErr), "")
 				}
@@ -165,10 +180,24 @@ func (k *KernelImpl) Spawn(intent string, agent *agents.AgentInfo, opts SpawnOpt
 				}
 			}
 
-			if matchErr == nil && len(matchedNames) > 0 && k.skillLoader != nil {
+			effectiveSkillLoader := k.skillLoader
+			if opts.ProjectConfig != nil && opts.ProjectConfig.SkillLoader != nil {
+				effectiveSkillLoader = func(name string) (*skills.SkillInfo, error) {
+					result, err := opts.ProjectConfig.SkillLoader(name)
+					if err != nil {
+						return nil, err
+					}
+					si, ok := result.(*skills.SkillInfo)
+					if !ok {
+						return nil, fmt.Errorf("skill loader returned unexpected type")
+					}
+					return si, nil
+				}
+			}
+			if matchErr == nil && len(matchedNames) > 0 && effectiveSkillLoader != nil {
 				var loadedNames []string
 				for _, skillName := range matchedNames {
-					skillInfo, loadErr := k.skillLoader(skillName)
+					skillInfo, loadErr := effectiveSkillLoader(skillName)
 					if loadErr == nil {
 						agent.Skills = append(agent.Skills, skillInfo)
 						loadedNames = append(loadedNames, skillName)
@@ -194,7 +223,7 @@ func (k *KernelImpl) Spawn(intent string, agent *agents.AgentInfo, opts SpawnOpt
 				}
 
 				if k.diffMemory != nil && len(loadedNames) > 0 {
-					k.diffMemory.Record(intent, loadedNames)
+					k.diffMemory.Record(intent, loadedNames, availableSkillCount)
 				}
 			}
 			diffDuration := time.Since(diffStart)

@@ -921,7 +921,11 @@ func (k *KernelImpl) executeMetaAction(proc *Process, tc llmToolCall, mapping to
 		k.emitEvent(proc, "StemSpecialize", map[string]any{"skill": skillName, "total_skills": totalSkills}, nil, nil, 0)
 
 		if k.diffMemory != nil {
-			k.diffMemory.Record(proc.Intent, allSkills)
+			var ac int
+			if k.stemMatcher != nil {
+				ac, _ = k.stemMatcher.AvailableCount()
+			}
+			k.diffMemory.Record(proc.Intent, allSkills, ac)
 		}
 
 		if proc.lineage != nil {

@@ -106,7 +106,7 @@ func TestATDD_51_1_AC1_RecordPersistsJSONL(t *testing.T) {
 		t.Fatalf("NewDiffMemoryWithPersistence: %v", err)
 	}
 
-	d.Record("build rest api", []string{"go-coder", "api-designer"})
+	d.Record("build rest api", []string{"go-coder", "api-designer"}, 0)
 
 	if _, err := os.Stat(path); err != nil {
 		t.Fatalf("expected persistence file at %s: %v", path, err)
@@ -135,7 +135,7 @@ func TestATDD_51_1_AC1_NilSkillsPersistedAsEmptyArray(t *testing.T) {
 		t.Fatalf("NewDiffMemoryWithPersistence: %v", err)
 	}
 
-	d.Record("empty skills intent", nil)
+	d.Record("empty skills intent", nil, 0)
 
 	data, err := os.ReadFile(path)
 	if err != nil {
@@ -161,18 +161,18 @@ func TestATDD_51_1_AC3_PathsSurviveRestart(t *testing.T) {
 	if err != nil {
 		t.Fatalf("first instance: %v", err)
 	}
-	d1.Record("analyze system logs", []string{"log-analyst"})
-	d1.Record("write integration tests", []string{"tester", "qa"})
+	d1.Record("analyze system logs", []string{"log-analyst"}, 0)
+	d1.Record("write integration tests", []string{"tester", "qa"}, 0)
 
 	// 模拟 daemon 重启：同路径新建实例
 	d2, err := NewDiffMemoryWithPersistence(128, path)
 	if err != nil {
 		t.Fatalf("second instance (simulated restart): %v", err)
 	}
-	if skills, ok := d2.Lookup("analyze system logs"); !ok || len(skills) != 1 || skills[0] != "log-analyst" {
+	if skills, ok := d2.Lookup("analyze system logs", 0); !ok || len(skills) != 1 || skills[0] != "log-analyst" {
 		t.Fatalf("path 1 did not survive restart: skills=%v ok=%v", skills, ok)
 	}
-	if skills, ok := d2.Lookup("write integration tests"); !ok || len(skills) != 2 || skills[0] != "tester" {
+	if skills, ok := d2.Lookup("write integration tests", 0); !ok || len(skills) != 2 || skills[0] != "tester" {
 		t.Fatalf("path 2 did not survive restart: skills=%v ok=%v", skills, ok)
 	}
 }
@@ -185,12 +185,12 @@ func TestATDD_51_1_AC2_MissingFileNoError(t *testing.T) {
 	if err != nil {
 		t.Fatalf("missing file must not error, got: %v", err)
 	}
-	if _, ok := d.Lookup("anything"); ok {
+	if _, ok := d.Lookup("anything", 0); ok {
 		t.Fatalf("expected empty store on missing file")
 	}
 	// 仍可正常写入
-	d.Record("new path", []string{"s"})
-	if _, ok := d.Lookup("new path"); !ok {
+	d.Record("new path", []string{"s"}, 0)
+	if _, ok := d.Lookup("new path", 0); !ok {
 		t.Fatalf("record after empty construct failed")
 	}
 }
@@ -203,14 +203,14 @@ func TestATDD_51_1_AC2_LastWinsOnReload(t *testing.T) {
 	if err != nil {
 		t.Fatalf("first instance: %v", err)
 	}
-	d1.Record("optimize query", []string{"old-skill"})
-	d1.Record("optimize query", []string{"new-skill-a", "new-skill-b"})
+	d1.Record("optimize query", []string{"old-skill"}, 0)
+	d1.Record("optimize query", []string{"new-skill-a", "new-skill-b"}, 0)
 
 	d2, err := NewDiffMemoryWithPersistence(128, path)
 	if err != nil {
 		t.Fatalf("reload instance: %v", err)
 	}
-	skills, ok := d2.Lookup("optimize query")
+	skills, ok := d2.Lookup("optimize query", 0)
 	if !ok {
 		t.Fatalf("expected hit after reload")
 	}
@@ -241,7 +241,7 @@ func TestATDD_51_1_AC4_HitCountRestoredAndUsedInEviction(t *testing.T) {
 		t.Fatalf("load: %v", err)
 	}
 
-	if _, ok := d.Lookup("keepme"); !ok {
+	if _, ok := d.Lookup("keepme", 0); !ok {
 		t.Fatalf("high-hit-count entry was evicted on load — hit_count not restored before eviction (AC4 violated)")
 	}
 }
@@ -272,12 +272,12 @@ func TestATDD_51_1_AC5_LoadTrimsToMaxSize(t *testing.T) {
 	}
 
 	for _, kept := range []string{"charlie", "delta", "echo"} {
-		if _, ok := d.Lookup(kept); !ok {
+		if _, ok := d.Lookup(kept, 0); !ok {
 			t.Errorf("expected %q to survive maxSize trim, but missing", kept)
 		}
 	}
 	for _, evicted := range []string{"alpha", "bravo"} {
-		if _, ok := d.Lookup(evicted); ok {
+		if _, ok := d.Lookup(evicted, 0); ok {
 			t.Errorf("expected %q to be evicted by maxSize trim, but present", evicted)
 		}
 	}
@@ -292,12 +292,12 @@ func TestATDD_51_1_AC6_PureMemoryWritesNoFile(t *testing.T) {
 	probe := filepath.Join(tmp, ".rnix", "data", "diffmemory", "diffmemory.json")
 
 	d := NewDiffMemory(128) // 纯内存构造
-	d.Record("in memory only", []string{"mem"})
+	d.Record("in memory only", []string{"mem"}, 0)
 
 	if _, err := os.Stat(probe); !os.IsNotExist(err) {
 		t.Fatalf("pure-memory DiffMemory must not create persistence file, stat err=%v", err)
 	}
-	if skills, ok := d.Lookup("in memory only"); !ok || skills[0] != "mem" {
+	if skills, ok := d.Lookup("in memory only", 0); !ok || skills[0] != "mem" {
 		t.Fatalf("in-memory lookup failed: skills=%v ok=%v", skills, ok)
 	}
 }
@@ -333,10 +333,10 @@ func TestATDD_51_1_AC8_CorruptAndEmptyLinesSkipped(t *testing.T) {
 		t.Fatalf("corrupt line must not fail load (AC8), got error: %v", err)
 	}
 
-	if _, ok := d.Lookup("first valid"); !ok {
+	if _, ok := d.Lookup("first valid", 0); !ok {
 		t.Errorf("valid entry before corrupt line not loaded")
 	}
-	if _, ok := d.Lookup("second valid"); !ok {
+	if _, ok := d.Lookup("second valid", 0); !ok {
 		t.Errorf("valid entry not loaded despite corrupt line present")
 	}
 }
@@ -360,8 +360,8 @@ func TestATDD_51_1_AC9_ConcurrentRecordWithPersistence(t *testing.T) {
 		go func(k int) {
 			defer wg.Done()
 			intent := fmt.Sprintf("concurrent intent %d", k)
-			d.Record(intent, []string{"skill"})
-			d.Lookup(intent)
+			d.Record(intent, []string{"skill"}, 0)
+			d.Lookup(intent, 0)
 		}(i)
 	}
 	wg.Wait()
@@ -379,7 +379,7 @@ func TestATDD_51_1_AC9_ConcurrentRecordWithPersistence(t *testing.T) {
 	}
 	for i := range n {
 		intent := fmt.Sprintf("concurrent intent %d", i)
-		if _, ok := d2.Lookup(intent); !ok {
+		if _, ok := d2.Lookup(intent, 0); !ok {
 			t.Fatalf("intent %q lost after concurrent persist + reload", intent)
 		}
 	}
@@ -415,8 +415,8 @@ func TestATDD_51_1_AC9_ConcurrentSameIntentNoCorruption(t *testing.T) {
 			defer wg.Done()
 			skill := fmt.Sprintf("skill-%d", id)
 			for range rounds {
-				d.Record(intent, []string{skill})
-				if _, ok := d.Lookup(intent); !ok {
+				d.Record(intent, []string{skill}, 0)
+				if _, ok := d.Lookup(intent, 0); !ok {
 					t.Errorf("concurrent Lookup miss on shared intent")
 					return
 				}
@@ -442,7 +442,7 @@ func TestATDD_51_1_AC9_ConcurrentSameIntentNoCorruption(t *testing.T) {
 	if err != nil {
 		t.Fatalf("reload after concurrent same-intent writes: %v", err)
 	}
-	skills, ok := d2.Lookup(intent)
+	skills, ok := d2.Lookup(intent, 0)
 	if !ok {
 		t.Fatalf("shared intent lost after concurrent persist + reload")
 	}
