@@ -27,10 +27,10 @@ import (
 //
 // 返回值通过 ClampPercent 钳到 [0, 999] · 防御 ContextBudget 计算溢出 / 上游 API
 // 异常值（同 ClampPercent godoc 描述的防御边界）.
-func ComputeCtxPercent(selectedPID types.PID, processes []vfs.ProcInfo) int {
-	if selectedPID > 0 {
+func ComputeCtxPercent(selectedPID types.PID, selectedUUID string, processes []vfs.ProcInfo) int {
+	if selectedPID > 0 || selectedUUID != "" {
 		for _, p := range processes {
-			if p.PID == selectedPID {
+			if (selectedPID > 0 && p.PID == selectedPID) || (selectedUUID != "" && p.UUID == selectedUUID) {
 				if p.ContextBudget > 0 && p.LastInputTokens > 0 {
 					return ClampPercent(int(int64(p.LastInputTokens) * 100 / int64(p.ContextBudget)))
 				}
@@ -69,12 +69,12 @@ func ComputeCtxPercent(selectedPID types.PID, processes []vfs.ProcInfo) int {
 //   - 未命中（PID 已被 reaper 回收）→ 0
 //
 // 返回值通过 ClampPercent 钳到 [0, 999].
-func ComputeBudgetPercent(selectedPID types.PID, processes []vfs.ProcInfo) int {
-	if selectedPID <= 0 {
+func ComputeBudgetPercent(selectedPID types.PID, selectedUUID string, processes []vfs.ProcInfo) int {
+	if selectedPID == 0 && selectedUUID == "" {
 		return 0
 	}
 	for _, p := range processes {
-		if p.PID == selectedPID {
+		if (selectedPID > 0 && p.PID == selectedPID) || (selectedUUID != "" && p.UUID == selectedUUID) {
 			if p.MaxCost > 0 {
 				return ClampPercent(int(p.UsedCost * 100 / p.MaxCost))
 			}

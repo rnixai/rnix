@@ -66,8 +66,8 @@ func buildHeatmapSegments(profile *debug.CtxProfileResult) []heatmapSegment {
 //
 // heatmapProfileMsg 是 heatmap.ProfileMsg 的 type alias（dashboard_types.go 中定义）·
 // Update 路由零修改。
-func fetchHeatmapCmd(pid types.PID) tea.Cmd {
-	return heatmap.FetchProfileCmd(ipc.SocketPath(), pid)
+func fetchHeatmapCmd(pid types.PID, uuid string) tea.Cmd {
+	return heatmap.FetchProfileCmd(ipc.SocketPath(), pid, uuid)
 }
 
 // handleHeatmapPIDChange wrapper 已于 Story 38-5 PR11 Step 4(b) Phase 2 删除。

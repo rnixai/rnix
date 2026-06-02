@@ -147,8 +147,9 @@ type Process struct {
 	lineage *Lineage
 
 	// Stem differentiation results (set once during Spawn, read-only after)
-	StemMatches  []StemMatchResult // all candidates with scores
-	StemSelected []string          // skills actually loaded
+	StemMatches    []StemMatchResult // all candidates with scores
+	StemSelected   []string          // skills actually loaded
+	StemFromMemory bool              // true if skills came from DiffMemory lookup
 
 	// GDB breakpoint system (mu protected)
 	breakpoints      []*Breakpoint

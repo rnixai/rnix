@@ -1191,7 +1191,7 @@ func (m dashboardModel) handlePIDChange() (dashboardModel, tea.Cmd) {
 
 	var cmds []tea.Cmd
 	if m.connected {
-		cmds = append(cmds, fetchHeatmapCmd(m.selectedPID))
+		cmds = append(cmds, fetchHeatmapCmd(m.selectedPID, m.selectedUUID))
 		cmds = append(cmds, fetchStepsCmd(m.selectedUUID, m.selectedPID, 0))
 		if m.activePane == paneDetail && m.detail.Detail == nil {
 			cmds = append(cmds, fetchProcDetailCmd(m.selectedPID, m.selectedUUID))

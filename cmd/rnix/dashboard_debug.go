@@ -776,9 +776,9 @@ func (m dashboardModel) handleDebugKey(key string) (dashboardModel, tea.Cmd, boo
 				entry := ev.StepEntry
 				if entry.Level == levelSummary {
 					entry.Level = levelExpanded
-					if m.timeline.StepDetailCache[entry.Summary.Step] == nil && !m.timeline.FetchingDetail && m.selectedPID > 0 {
+					if m.timeline.StepDetailCache[entry.Summary.Step] == nil && !m.timeline.FetchingDetail && m.hasProcessSelected() {
 						m.timeline.FetchingDetail = true
-						return m, fetchStepDetailCmd(m.selectedPID, entry.Summary.Step), true
+						return m, fetchStepDetailCmd(m.selectedPID, m.selectedUUID, entry.Summary.Step), true
 					}
 				} else {
 					entry.Level = levelSummary

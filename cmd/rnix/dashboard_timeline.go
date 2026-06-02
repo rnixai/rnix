@@ -1197,7 +1197,7 @@ func (m dashboardModel) fetchNextExpandedDetail() tea.Cmd {
 	if step < 0 {
 		return nil
 	}
-	return fetchStepDetailCmd(m.selectedPID, step)
+	return fetchStepDetailCmd(m.selectedPID, m.selectedUUID, step)
 }
 
 // --- Fetch commands ---
@@ -1222,14 +1222,19 @@ func fetchStepsCmd(uuid string, pid types.PID, afterStep int) tea.Cmd {
 	}
 }
 
-func fetchStepDetailCmd(pid types.PID, step int) tea.Cmd {
+func fetchStepDetailCmd(pid types.PID, uuid string, step int) tea.Cmd {
 	return func() tea.Msg {
 		client, err := ipc.Dial(ipc.SocketPath())
 		if err != nil {
 			return stepDetailResultMsg{step: step, err: err}
 		}
 		defer client.Close()
-		detail, err := client.GetStepDetail(pid, step)
+		var detail *ipc.GetStepDetailResponse
+		if uuid != "" {
+			detail, err = client.GetStepDetailByUUID(uuid, step)
+		} else {
+			detail, err = client.GetStepDetail(pid, step)
+		}
 		return stepDetailResultMsg{step: step, detail: detail, err: err}
 	}
 }

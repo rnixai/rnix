@@ -112,10 +112,10 @@ func (m dashboardModel) dispatchPaneKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd
 				switch entry.Level {
 				case levelSummary, levelExpanded:
 					entry.Level = levelDebug
-					if m.timeline.StepDetailCache[entry.Summary.Step] == nil && !m.timeline.FetchingDetail && m.selectedPID > 0 {
+					if m.timeline.StepDetailCache[entry.Summary.Step] == nil && !m.timeline.FetchingDetail && m.hasProcessSelected() {
 						m.timeline.FetchingDetail = true
 						m.ensureStepCursorVisible(max(m.dashboardVisibleLines()-4, 1))
-						return m, fetchStepDetailCmd(m.selectedPID, entry.Summary.Step)
+						return m, fetchStepDetailCmd(m.selectedPID, m.selectedUUID, entry.Summary.Step)
 					}
 				case levelDebug:
 					entry.Level = levelExpanded
@@ -134,10 +134,10 @@ func (m dashboardModel) dispatchPaneKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd
 						return m, nil
 					}
 					entry.Level = levelExpanded
-					if m.timeline.StepDetailCache[entry.Summary.Step] == nil && !m.timeline.FetchingDetail && m.selectedPID > 0 {
+					if m.timeline.StepDetailCache[entry.Summary.Step] == nil && !m.timeline.FetchingDetail && m.hasProcessSelected() {
 						m.timeline.FetchingDetail = true
 						m.ensureStepCursorVisible(max(m.dashboardVisibleLines()-4, 1))
-						return m, fetchStepDetailCmd(m.selectedPID, entry.Summary.Step)
+						return m, fetchStepDetailCmd(m.selectedPID, m.selectedUUID, entry.Summary.Step)
 					}
 				} else {
 					entry.Level = levelSummary

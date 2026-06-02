@@ -41,15 +41,14 @@ type ProfileMsg struct {
 //   - cmd/rnix.fetchHeatmapCmd（thin wrapper · 调本函数）
 //   - HeatmapModel.OnTick（PaneModel 真实化路径 · 接受 ctx.SocketPath + selectedPID 触发）
 //
-// 行为契约（与 cmd/rnix.fetchHeatmapCmd 完全等价）：
-//   - socketPath 为空字符串或 pid <= 0 时 · 返回 nil cmd（不发 IPC · 防御性）；
+// 行为契约：
+//   - socketPath 为空或 (pid == 0 且 uuid 为空) 时返回 nil cmd（防御性）；
 //   - 否则返回 closure · 调用时 ipc.Dial(socketPath) 新建临时 client · 执行
-//     client.CtxProfile(pid) · defer client.Close()；
+//     client.CtxProfile(pid, uuid) · defer client.Close()；
 //   - 错误时填 Err（包括 Dial 失败）；
-//   - 「每次 fetch 新建 + 关闭 client」是与 cmd/rnix 端 fetchHeatmapCmd 字面等价的设计 ·
-//     避免共享 client 引用在 closure 异步执行时的 race condition.
-func FetchProfileCmd(socketPath string, pid types.PID) tea.Cmd {
-	if socketPath == "" || pid <= 0 {
+//   - 「每次 fetch 新建 + 关闭 client」避免共享 client 引用在 closure 异步执行时的 race condition.
+func FetchProfileCmd(socketPath string, pid types.PID, uuid string) tea.Cmd {
+	if socketPath == "" || (pid == 0 && uuid == "") {
 		return nil
 	}
 	return func() tea.Msg {
@@ -58,7 +57,7 @@ func FetchProfileCmd(socketPath string, pid types.PID) tea.Cmd {
 			return ProfileMsg{Err: err}
 		}
 		defer client.Close()
-		profile, err := client.CtxProfile(pid)
+		profile, err := client.CtxProfile(pid, uuid)
 		return ProfileMsg{Profile: profile, Err: err}
 	}
 }

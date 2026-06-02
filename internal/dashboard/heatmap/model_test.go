@@ -10,6 +10,7 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 
+	"github.com/rnixai/rnix/debug"
 	dashboardmodel "github.com/rnixai/rnix/internal/dashboard/model"
 	"github.com/rnixai/rnix/internal/types"
 )
@@ -184,11 +185,11 @@ func TestOnTick_NoFetch_WhenDisconnected(t *testing.T) {
 	}
 }
 
-// TestOnTick_NoFetch_WhenSelectedProcessIsDead — Story 38-5 PR11 Step 4(b) Phase 3:
-// 选中进程已 dead 时不发 fetch（与 cmd/rnix.isSelectedProcessDead 守卫等价）.
-func TestOnTick_NoFetch_WhenSelectedProcessIsDead(t *testing.T) {
+// TestOnTick_NoFetch_WhenDeadAndProfileLoaded — dead 进程 Profile 已加载时不再重复 fetch.
+func TestOnTick_NoFetch_WhenDeadAndProfileLoaded(t *testing.T) {
 	t.Parallel()
 	m := NewModel()
+	m.state.Profile = &debug.CtxProfileResult{}
 	cmd := m.OnTick(dashboardmodel.OnTickContext{
 		Now:                   time.Now(),
 		Connected:             true,
@@ -198,7 +199,25 @@ func TestOnTick_NoFetch_WhenSelectedProcessIsDead(t *testing.T) {
 		TickCount:             5,
 	})
 	if cmd != nil {
-		t.Errorf("OnTick(dead process) should return nil cmd")
+		t.Errorf("OnTick(dead process with loaded profile) should return nil cmd")
+	}
+}
+
+// TestOnTick_Fetch_WhenDeadAndProfileNil — dead 进程首次查看时（Profile==nil）应发 fetch.
+func TestOnTick_Fetch_WhenDeadAndProfileNil(t *testing.T) {
+	t.Parallel()
+	m := NewModel()
+	cmd := m.OnTick(dashboardmodel.OnTickContext{
+		Now:                   time.Now(),
+		Connected:             true,
+		SocketPath:            "/tmp/rnix.sock",
+		SelectedPID:           100,
+		SelectedUUID:          "test-uuid",
+		SelectedProcessIsDead: true,
+		TickCount:             5,
+	})
+	if cmd == nil {
+		t.Errorf("OnTick(dead process without profile) should return a fetch cmd")
 	}
 }
 

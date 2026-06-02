@@ -100,7 +100,7 @@ func (s *Server) handleSpawn(conn net.Conn, rawPayload json.RawMessage) {
 		for i, mr := range proc.StemMatches {
 			wireMatches[i] = StemMatchWire{Name: mr.Name, Score: mr.Score}
 		}
-		stemPP := ProgressPayload{Event: "stem_diff", PID: pid, StemMatches: wireMatches, StemSelected: proc.StemSelected}
+		stemPP := ProgressPayload{Event: "stem_diff", PID: pid, StemMatches: wireMatches, StemSelected: proc.StemSelected, FromMemory: proc.StemFromMemory}
 		stemPayload, _ := json.Marshal(stemPP)
 		select {
 		case eventCh <- StreamEvent{Type: StreamProgress, Payload: stemPayload}:

@@ -88,12 +88,12 @@ func (m dashboardModel) renderDashboardTitle() string {
 	countPlain := fmt.Sprintf("%dP %dE %dW", active, m.errorCount, m.warnCount)
 
 	// ctx% segment
-	ctxPct := computeCtxPercent(m.selectedPID, m.processes)
+	ctxPct := computeCtxPercent(m.selectedPID, m.selectedUUID, m.processes)
 	ctxPlain := fmt.Sprintf("ctx %d%%", ctxPct)
 	ctxSeg := pctColorStyle(ctxPct).Render(ctxPlain)
 
 	// budget% segment
-	budgetPct := computeBudgetPercent(m.selectedPID, m.processes)
+	budgetPct := computeBudgetPercent(m.selectedPID, m.selectedUUID, m.processes)
 	budgetPlain := fmt.Sprintf("budget %d%%", budgetPct)
 	budgetSeg := pctColorStyle(budgetPct).Render(budgetPlain)
 
@@ -300,8 +300,8 @@ func computeHealthCounts(processes []vfs.ProcInfo, events []UnifiedEvent, heartb
 // ctxPct 计算) + 测试 callsite (dashboard_test.go::TestComputeCtxPercent_*
 // ATDD 34.2-UNIT-009) + atdd_29_1 line 197 grep 字符串 ("computeCtxPercent")
 // 零修改通过.
-func computeCtxPercent(selectedPID types.PID, processes []vfs.ProcInfo) int {
-	return title.ComputeCtxPercent(selectedPID, processes)
+func computeCtxPercent(selectedPID types.PID, selectedUUID string, processes []vfs.ProcInfo) int {
+	return title.ComputeCtxPercent(selectedPID, selectedUUID, processes)
 }
 
 // computeBudgetPercent — thin wrapper · 见 internal/dashboard/title.ComputeBudgetPercent.
@@ -313,8 +313,8 @@ func computeCtxPercent(selectedPID types.PID, processes []vfs.ProcInfo) int {
 // budgetPct 计算) + 测试 callsite (dashboard_test.go::TestComputeBudgetPercent_*
 // ATDD 34.2-UNIT-010) + atdd_29_1 line 197 grep 字符串 ("computeBudgetPercent")
 // 零修改通过.
-func computeBudgetPercent(selectedPID types.PID, processes []vfs.ProcInfo) int {
-	return title.ComputeBudgetPercent(selectedPID, processes)
+func computeBudgetPercent(selectedPID types.PID, selectedUUID string, processes []vfs.ProcInfo) int {
+	return title.ComputeBudgetPercent(selectedPID, selectedUUID, processes)
 }
 
 // styleProviderName — thin wrapper · 见 internal/dashboard/title.StyleProviderName.

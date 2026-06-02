@@ -30,12 +30,12 @@ type StepListMsg struct {
 // FetchStepsCmd 构造 step list fetch 的 tea.Cmd。
 //
 // 行为契约（与 cmd/rnix.fetchStepsCmd 完全等价）：
-//   - socketPath 为空或 pid <= 0 时返回 nil cmd（防御性）；
+//   - socketPath 为空或 (pid == 0 且 uuid 为空) 时返回 nil cmd（防御性）；
 //   - uuid 非空时调用 ListStepsByUUID(uuid, afterStep)；
 //   - uuid 为空时调用 ListSteps(pid, afterStep)；
 //   - 错误时填 Err（包括 Dial 失败）。
 func FetchStepsCmd(socketPath string, uuid string, pid types.PID, afterStep int) tea.Cmd {
-	if socketPath == "" || pid <= 0 {
+	if socketPath == "" || (pid == 0 && uuid == "") {
 		return nil
 	}
 	return func() tea.Msg {

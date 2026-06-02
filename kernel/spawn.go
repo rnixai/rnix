@@ -179,6 +179,7 @@ func (k *KernelImpl) Spawn(intent string, agent *agents.AgentInfo, opts SpawnOpt
 					proc.Skills = loadedNames
 					proc.StemMatches = matchResults
 					proc.StemSelected = loadedNames
+					proc.StemFromMemory = fromMemory
 
 					if proc.lineage == nil {
 						proc.lineage = NewLineage()

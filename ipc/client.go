@@ -111,8 +111,13 @@ func (c *Client) ListAllProcs() ([]vfs.ProcInfo, error) {
 }
 
 // CtxProfile returns context profiling results for the given PID.
-func (c *Client) CtxProfile(pid types.PID) (*debug.CtxProfileResult, error) {
-	resp, err := c.call(MethodCtxProfile, CtxProfileRequest{PID: pid})
+// An optional UUID enables lookup for historical (reaped) processes where PID is 0.
+func (c *Client) CtxProfile(pid types.PID, uuid ...string) (*debug.CtxProfileResult, error) {
+	req := CtxProfileRequest{PID: pid}
+	if len(uuid) > 0 {
+		req.UUID = uuid[0]
+	}
+	resp, err := c.call(MethodCtxProfile, req)
 	if err != nil {
 		return nil, err
 	}

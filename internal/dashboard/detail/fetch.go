@@ -40,12 +40,12 @@ type DetailResultMsg struct {
 //   - cmd/rnix.fetchProcDetailCmd（thin wrapper · 保留旧名让现有 callsite 零修改）
 //
 // 行为契约（与 cmd/rnix.fetchProcDetailCmd 完全等价）：
-//   - socketPath 为空或 pid <= 0 时返回 nil cmd（防御性）；
+//   - socketPath 为空或 (pid == 0 且 uuid 为空) 时返回 nil cmd（防御性）；
 //   - 否则返回 closure · 调用时 ipc.Dial(socketPath) 新建临时 client ·
 //     执行 client.GetProcDetail(pid, uuid) · defer client.Close()；
 //   - 错误时填 Err（包括 Dial 失败）。
 func FetchDetailCmd(socketPath string, pid types.PID, uuid string) tea.Cmd {
-	if socketPath == "" || pid <= 0 {
+	if socketPath == "" || (pid == 0 && uuid == "") {
 		return nil
 	}
 	return func() tea.Msg {

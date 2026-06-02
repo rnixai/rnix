@@ -2368,17 +2368,17 @@ func TestComputeCtxPercent(t *testing.T) {
 		{PID: 2, State: types.StateRunning, LastInputTokens: 800, ContextBudget: 1000},
 	}
 	// Selected process
-	pct := computeCtxPercent(1, procs)
+	pct := computeCtxPercent(1, "", procs)
 	if pct != 62 {
 		t.Errorf("expected ctx 62%% for PID 1, got %d%%", pct)
 	}
 	// No selection → max across running processes
-	pct = computeCtxPercent(0, procs)
+	pct = computeCtxPercent(0, "", procs)
 	if pct != 80 { // max(620/1000, 800/1000) = 80%
 		t.Errorf("expected ctx max 80%%, got %d%%", pct)
 	}
 	// Selected PID not found → 0
-	pct = computeCtxPercent(999, procs)
+	pct = computeCtxPercent(999, "", procs)
 	if pct != 0 {
 		t.Errorf("expected ctx 0%% for missing PID, got %d%%", pct)
 	}
@@ -2390,7 +2390,7 @@ func TestComputeBudgetPercent(t *testing.T) {
 	procs := []vfs.ProcInfo{
 		{PID: 1, State: types.StateRunning, UsedCost: 0.45, MaxCost: 1.0},
 	}
-	pct := computeBudgetPercent(1, procs)
+	pct := computeBudgetPercent(1, "", procs)
 	if pct != 45 {
 		t.Errorf("expected budget 45%%, got %d%%", pct)
 	}
@@ -2398,7 +2398,7 @@ func TestComputeBudgetPercent(t *testing.T) {
 	procs2 := []vfs.ProcInfo{
 		{PID: 1, State: types.StateRunning, TokensUsed: 5000, MaxTokens: 10000},
 	}
-	pct = computeBudgetPercent(1, procs2)
+	pct = computeBudgetPercent(1, "", procs2)
 	if pct != 50 {
 		t.Errorf("expected budget 50%%, got %d%%", pct)
 	}
