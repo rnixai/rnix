@@ -256,6 +256,10 @@ type KernelImpl struct {
 	// Process history (Story 29.4)
 	procHistory *ProcessHistory
 
+	// Feature flags (Story 52.2): controls which emergent subsystems are active.
+	// Set once at daemon startup via SetFeatureFlags; copied to each spawned Process.
+	featureFlags FeatureFlags
+
 	// Immune daemon (Story 22.1)
 	immuneDaemon *ImmuneDaemon
 
@@ -302,12 +306,17 @@ func NewKernel(v *vfs.VFS, ctxMgr *rnixctx.Manager, cb KernelCallbacks) *KernelI
 		procHistory:  NewProcessHistory(1000),
 		budgetPools:  xsync.NewSyncMap[types.PGID, *BudgetPool](),
 		slaResults:   xsync.NewSyncMap[types.PGID, []*SLAResult](),
+		featureFlags: FullFeatureFlags(),
 	}
 	k.startReaper()
 	return k
 }
 
 // SetDataDir sets the global data directory for session persistence.
+func (k *KernelImpl) SetFeatureFlags(f FeatureFlags) {
+	k.featureFlags = f
+}
+
 func (k *KernelImpl) SetDataDir(dir string) {
 	k.dataDir = dir
 }

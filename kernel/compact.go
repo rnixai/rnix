@@ -18,6 +18,9 @@ import (
 // compact threshold and triggers automatic compaction if so. Best-effort:
 // failures are logged but do not terminate the process.
 func (k *KernelImpl) autoCompactIfNeeded(proc *Process, step int) {
+	if proc.CompactionDisabled {
+		return
+	}
 	// Prevent concurrent compact (auto + manual IPC)
 	if !proc.compactMu.TryLock() {
 		return

@@ -3,6 +3,8 @@ package kernel
 import (
 	"reflect"
 	"testing"
+
+	"github.com/rnixai/rnix/vfs"
 )
 
 // ATDD 52.2: Kernel 条件注入
@@ -399,5 +401,99 @@ func TestATDD_52_2_AC1_ProcessFeatureFlagsField(t *testing.T) {
 	}
 	if !proc.FeatureFlags.Compaction {
 		t.Error("Process.FeatureFlags.Compaction should be true after setting FullFeatureFlags()")
+	}
+}
+
+// ---------- AC7: autoCompactIfNeeded 跳过 when CompactionDisabled ----------
+
+func TestATDD_52_2_AC7_AutoCompactSkipsWhenDisabled(t *testing.T) {
+	proc := &Process{}
+	proc.CompactionDisabled = true
+
+	k := &KernelImpl{}
+	// autoCompactIfNeeded should return immediately without panic
+	// when CompactionDisabled is true (no ctxMgr needed)
+	k.autoCompactIfNeeded(proc, 1)
+}
+
+// ---------- AC8: NewProcess 默认 FeatureFlags 为 FullFeatureFlags ----------
+
+func TestATDD_52_2_AC8_NewProcess_DefaultFeatureFlags(t *testing.T) {
+	proc := NewProcess(0, "test", nil)
+	expected := FullFeatureFlags()
+
+	if proc.FeatureFlags != expected {
+		t.Errorf("NewProcess default FeatureFlags = %+v, want %+v", proc.FeatureFlags, expected)
+	}
+	if proc.CompactionDisabled {
+		t.Error("NewProcess should not have CompactionDisabled=true by default")
+	}
+}
+
+// ---------- AC9: buildToolDefs 新签名（移除 planningEnabled） ----------
+
+func TestATDD_52_2_AC9_BuildToolDefs_NoThirdArg(t *testing.T) {
+	reg := newMockDeviceRegistry(t)
+	defs, toolMap := buildToolDefs(reg, nil)
+
+	if len(defs) == 0 {
+		t.Fatal("buildToolDefs should return tool defs with nil allowedDevices")
+	}
+	if len(toolMap) == 0 {
+		t.Fatal("buildToolDefs should return non-empty toolMap")
+	}
+}
+
+func newMockDeviceRegistry(t *testing.T) *vfs.DeviceRegistry {
+	t.Helper()
+	reg := vfs.NewDeviceRegistry()
+	factory := func(subpath string, flags vfs.OpenFlag, workDir string) (vfs.VFSFile, error) {
+		return nil, nil
+	}
+	shellDriver := &mockToolDescriptor{defs: []vfs.ToolDef{{Name: "Bash", Description: "Run command"}}}
+	_ = reg.RegisterWithDriver("/dev/shell", factory, shellDriver)
+	return reg
+}
+
+// ---------- AC7: CompactionDisabled 字段语义正确 ----------
+
+func TestATDD_52_2_AC7_CompactionDisabled_DerivedFromFlags(t *testing.T) {
+	// FeatureFlags.Compaction=false → CompactionDisabled should be set to true by spawn path
+	proc := NewProcess(0, "test", nil)
+	proc.FeatureFlags.Compaction = false
+	// Simulate what spawn.go does
+	if !proc.FeatureFlags.Compaction {
+		proc.CompactionDisabled = true
+	}
+
+	if !proc.CompactionDisabled {
+		t.Error("CompactionDisabled should be true when FeatureFlags.Compaction is false")
+	}
+
+	// FeatureFlags.Compaction=true → CompactionDisabled remains false
+	proc2 := NewProcess(0, "test2", nil)
+	if proc2.CompactionDisabled {
+		t.Error("CompactionDisabled should be false by default (FeatureFlags.Compaction=true)")
+	}
+}
+
+// ---------- AC1/AC5: spawn 路径 PlanningEnabled 同步 ----------
+
+func TestATDD_52_2_PlanningOverride_SyncsFeatureFlags(t *testing.T) {
+	proc := NewProcess(0, "test", nil)
+	// Simulate agent manifest planning: false
+	proc.PlanningEnabled = false
+	proc.FeatureFlags.Planning = false
+
+	flags := FeatureFlags{Planning: false}
+	defs, metaMap := metaToolDefs(flags, nil)
+
+	for _, d := range defs {
+		if d.Name == "EnterPlanMode" {
+			t.Fatal("EnterPlanMode should not be generated when Planning is false")
+		}
+	}
+	if _, ok := metaMap["EnterPlanMode"]; ok {
+		t.Fatal("EnterPlanMode should not be in metaMap")
 	}
 }

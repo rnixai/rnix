@@ -169,8 +169,10 @@ type Process struct {
 	DriverMeta       map[string]string // runtime metadata from DriverMetaProvider (immutable after spawn)
 	AgentTemplate    string // agent manifest name (immutable after spawn; Story 51.4)
 	ContextWindow    int    // per-model context window size (immutable after spawn); 0 = use fallback
-	PlanningEnabled  bool   // true = inject planProtocol; derived from agent manifest Planning field
-	Language         string // preferred response language (from agent manifest); empty = no preference
+	PlanningEnabled    bool         // deprecated: use FeatureFlags.Planning; kept for agent manifest override compat
+	FeatureFlags       FeatureFlags // per-process feature flags; copied from kernel at spawn time
+	CompactionDisabled bool         // true = skip autoCompactIfNeeded (derived from FeatureFlags.Compaction==false)
+	Language           string       // preferred response language (from agent manifest); empty = no preference
 
 	// Observation system (Story 27.1)
 	FinalSystemPrompt string       // Full system prompt captured on first reasonStep (mu protected)
@@ -282,6 +284,7 @@ func NewProcess(ppid types.PID, intent string, skills []string) *Process {
 		Intent:          intent,
 		Skills:          skills,
 		PlanningEnabled: true,
+		FeatureFlags:    FullFeatureFlags(),
 		Children:        []types.PID{},
 		FDTable:         make(map[types.FD]vfs.VFSFile),
 		DebugChan:       make(chan types.SyscallEvent, 256),

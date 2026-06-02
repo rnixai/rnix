@@ -33,7 +33,7 @@ func TestBuildToolDefs_ShellAndFS(t *testing.T) {
 	_ = reg.RegisterWithDriver("/dev/shell", factory, shellDriver)
 	_ = reg.RegisterWithDriver("/dev/fs", factory, fsDriver)
 
-	defs, toolMap := buildToolDefs(reg, nil, true)
+	defs, toolMap := buildToolDefs(reg, nil)
 
 	if len(defs) != 4 {
 		t.Fatalf("expected 4 tool defs, got %d", len(defs))
@@ -67,7 +67,7 @@ func TestBuildToolDefs_AllowedDevicesFilter(t *testing.T) {
 	_ = reg.RegisterWithDriver("/dev/fs", factory, fsDriver)
 
 	// Only allow /dev/shell
-	defs, toolMap := buildToolDefs(reg, []string{"/dev/shell"}, true)
+	defs, toolMap := buildToolDefs(reg, []string{"/dev/shell"})
 
 	if len(defs) != 1 {
 		t.Fatalf("expected 1 tool def (shell only), got %d", len(defs))
@@ -96,7 +96,7 @@ func TestBuildToolDefs_NilAllowedDevices_SkipsLLMDevices(t *testing.T) {
 	_ = reg.RegisterWithDriver("/dev/shell", factory, shellDriver)
 	_ = reg.RegisterWithDriver("/dev/llm/claude", factory, llmDriver)
 
-	defs, _ := buildToolDefs(reg, nil, true)
+	defs, _ := buildToolDefs(reg, nil)
 
 	for _, d := range defs {
 		if d.Name == "llm_call" {
@@ -112,7 +112,7 @@ func TestBuildToolDefs_UnknownPath_SkipsSilently(t *testing.T) {
 	reg := vfs.NewDeviceRegistry()
 
 	// No drivers registered but allowedDevices references unknown paths
-	defs, toolMap := buildToolDefs(reg, []string{"/dev/unknown", "/dev/mcp/server"}, true)
+	defs, toolMap := buildToolDefs(reg, []string{"/dev/unknown", "/dev/mcp/server"})
 
 	if len(defs) != 0 {
 		t.Fatalf("expected 0 tool defs, got %d", len(defs))
@@ -138,7 +138,7 @@ func TestBuildToolDefs_MCPOnly_ExposesBaseDevices(t *testing.T) {
 	_ = reg.RegisterWithDriver("/dev/fs", factory, fsDriver)
 
 	// AllowedDevices has only an MCP mount path → base whitelist inactive.
-	defs, toolMap := buildToolDefs(reg, []string{"/mnt/mcp/5-playwright"}, true)
+	defs, toolMap := buildToolDefs(reg, []string{"/mnt/mcp/5-playwright"})
 
 	if _, ok := toolMap["Bash"]; !ok {
 		t.Error("expected base device tool 'Bash' to be exposed when only MCP paths are allowed")
@@ -198,7 +198,7 @@ func TestBuildToolDefs_SubpathRouting(t *testing.T) {
 	_ = reg.RegisterWithDriver("/dev/intent", factory, intentDriver)
 	_ = reg.RegisterWithDriver("/dev/shell", factory, shellDriver)
 
-	_, toolMap := buildToolDefs(reg, nil, true)
+	_, toolMap := buildToolDefs(reg, nil)
 
 	wantPaths := map[string]string{
 		"intent_decompose": "/dev/intent/decompose",
@@ -220,7 +220,7 @@ func TestBuildToolDefs_SubpathRouting(t *testing.T) {
 }
 
 func TestMetaToolDefs(t *testing.T) {
-	defs, metaMap := metaToolDefs(true, nil)
+	defs, metaMap := metaToolDefs(FullFeatureFlags(), nil)
 
 	expectedNames := map[string]bool{
 		"complete": false, "Agent": false, "replan": false, "Skill": false, "ToolSearch": false, "EnterPlanMode": false,
@@ -245,7 +245,9 @@ func TestMetaToolDefs(t *testing.T) {
 }
 
 func TestMetaToolDefs_PlanningDisabled(t *testing.T) {
-	defs, metaMap := metaToolDefs(false, nil)
+	flags := FullFeatureFlags()
+	flags.Planning = false
+	defs, metaMap := metaToolDefs(flags, nil)
 
 	for _, d := range defs {
 		if d.Name == "EnterPlanMode" {
@@ -258,7 +260,7 @@ func TestMetaToolDefs_PlanningDisabled(t *testing.T) {
 }
 
 func TestMetaToolDefs_JSONSchemaComplete(t *testing.T) {
-	defs, _ := metaToolDefs(true, nil)
+	defs, _ := metaToolDefs(FullFeatureFlags(), nil)
 
 	for _, d := range defs {
 		if d.Parameters == nil {

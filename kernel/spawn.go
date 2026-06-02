@@ -70,6 +70,12 @@ func (k *KernelImpl) Spawn(intent string, agent *agents.AgentInfo, opts SpawnOpt
 	proc := NewProcess(opts.ParentPID, intent, skillNames)
 	// Note: proc.Skills may be updated below after stem differentiation (Story 20.3)
 
+	// Copy kernel-level feature flags to process (Story 52.2)
+	proc.FeatureFlags = k.featureFlags
+	if !proc.FeatureFlags.Compaction {
+		proc.CompactionDisabled = true
+	}
+
 	// Spawn-recursion guard depth: inherited from opts. Only ActionSpawn sets
 	// it to parent.Depth+1; all other spawn paths leave opts.Depth=0, so those
 	// processes are top-level (Depth=0) and never trip MaxSpawnDepth.
@@ -291,6 +297,7 @@ func (k *KernelImpl) Spawn(intent string, agent *agents.AgentInfo, opts SpawnOpt
 		// Planning configuration: nil (default) = true, explicit false = disabled
 		if agent.Manifest.Planning != nil && !*agent.Manifest.Planning {
 			proc.PlanningEnabled = false
+			proc.FeatureFlags.Planning = false
 		}
 
 		// Language preference from agent manifest

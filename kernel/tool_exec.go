@@ -1042,7 +1042,7 @@ func (k *KernelImpl) executeMetaAction(proc *Process, tc llmToolCall, mapping to
 			}
 		}
 
-		if !proc.PlanningEnabled {
+		if !proc.FeatureFlags.Planning {
 			// Planning disabled: treat as text output and finish
 			content := fmt.Sprintf("Plan (%s): %v", reasonStr, steps)
 			k.emitLog(proc, step, types.LogOutput, content, "")

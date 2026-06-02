@@ -1689,11 +1689,35 @@ func runDaemon(cmd *cobra.Command, args []string) error {
 	})
 	k.SetAgentLoader(agentLoader.Load)
 
-	// Stem agent differentiation (Story 20.3)
-	discovery := skills.NewSkillDiscovery(skillLoader, []string{filepath.Join(globalDir, "skills")})
-	stemMatcher := kernel.NewStemMatcher(discovery)
-	k.SetStemMatcher(stemMatcher)
+	// Feature profile resolution (Story 52.2) — resolve before subsystem
+	// assembly so flags can gate StemMatcher, DiffMemory, and ImmuneDaemon.
+	featureFlags, featureProfile, featureWarnings := config.ResolveFeatures(globalConfigPath)
+	for _, w := range featureWarnings {
+		fmt.Fprintf(os.Stderr, "[config] warn: %s\n", w)
+	}
+	kFlags := kernel.FeatureFlags{
+		Planning:      featureFlags.Planning,
+		Replan:        featureFlags.Replan,
+		Specialize:    featureFlags.Specialize,
+		DiscoverSkill: featureFlags.DiscoverSkill,
+		Spawn:         featureFlags.Spawn,
+		DiffMemory:    featureFlags.DiffMemory,
+		StemMatcher:   featureFlags.StemMatcher,
+		Immune:        featureFlags.Immune,
+		Compaction:    featureFlags.Compaction,
+	}
+	k.SetFeatureFlags(kFlags)
+	if featureProfile != config.ProfileFull {
+		fmt.Fprintf(os.Stderr, "[config] feature profile: %s\n", featureProfile)
+	}
+
+	// Stem agent differentiation (Story 20.3) — gated by FeatureFlags.StemMatcher
 	k.SetSkillLoader(skillLoader.LoadFull)
+	if kFlags.StemMatcher {
+		discovery := skills.NewSkillDiscovery(skillLoader, []string{filepath.Join(globalDir, "skills")})
+		stemMatcher := kernel.NewStemMatcher(discovery)
+		k.SetStemMatcher(stemMatcher)
+	}
 
 	// Differentiation memory (Story 20.4): persistence assembly relocated to the
 	// data-store init section below (Story 51.1), where `cwd` is available for
@@ -1850,11 +1874,13 @@ func runDaemon(cmd *cobra.Command, args []string) error {
 	// stem-matcher assembly above) because resolveDataDir needs `cwd`. On load
 	// failure, fall back to pure in-memory — never panic or block daemon startup.
 	// Logic lives in assembleDiffMemory so AC7 has direct regression coverage.
-	k.SetDiffMemory(assembleDiffMemory(dataDir))
+	if kFlags.DiffMemory {
+		k.SetDiffMemory(assembleDiffMemory(dataDir))
+	}
 
-	// Initialize immune daemon (Story 22.1) — conditional on config
+	// Initialize immune daemon (Story 22.1) — conditional on config + feature flags
 	var immuneDaemon *kernel.ImmuneDaemon
-	if immuneCfg.Enabled {
+	if immuneCfg.Enabled && kFlags.Immune {
 		immuneDir := filepath.Join(dataDir, "immune")
 		immuneStore := kernel.NewImmuneStore(immuneDir)
 		immuneDaemon = kernel.NewImmuneDaemon(immuneStore, immuneCfg)

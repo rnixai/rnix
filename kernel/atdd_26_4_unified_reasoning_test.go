@@ -199,6 +199,7 @@ func TestUnified_Plan_PlanningDisabled_TreatsAsText(t *testing.T) {
 	proc, _ := k.GetProcess(pid)
 	proc.mu.Lock()
 	proc.PlanningEnabled = false
+	proc.FeatureFlags.Planning = false
 	proc.mu.Unlock()
 	close(gate)
 

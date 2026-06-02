@@ -19,7 +19,7 @@ type toolMapping struct {
 // buildToolDefs collects ToolDefs from registered VFS device drivers.
 // Skips /dev/llm/ prefixed devices (LLM is not a user-invocable tool).
 // Returns the collected ToolDefs and a toolMap for name→mapping resolution.
-func buildToolDefs(devReg *vfs.DeviceRegistry, allowedDevices []string, planningEnabled bool) ([]vfs.ToolDef, map[string]toolMapping) {
+func buildToolDefs(devReg *vfs.DeviceRegistry, allowedDevices []string) ([]vfs.ToolDef, map[string]toolMapping) {
 	var defs []vfs.ToolDef
 	toolMap := make(map[string]toolMapping)
 
@@ -88,14 +88,15 @@ func baseDeviceWhitelistActive(allowedDevices []string) bool {
 	return false
 }
 
-// metaToolDefs returns ToolDefs for kernel meta actions (complete, Agent, replan, Skill, EnterPlanMode).
+// metaToolDefs returns ToolDefs for kernel meta actions, conditionally based on FeatureFlags.
+// complete is always generated; other meta tools are gated by their respective flag.
 // Tool names follow Claude Code canonical form to match LLM training distribution anchors.
-func metaToolDefs(planningEnabled bool, deferredSkills []DeferredSkillMeta) ([]vfs.ToolDef, map[string]toolMapping) {
+func metaToolDefs(flags FeatureFlags, deferredSkills []DeferredSkillMeta) ([]vfs.ToolDef, map[string]toolMapping) {
 	defs := []vfs.ToolDef{
 		{
 			Name:            "complete",
 			Description:     "Finish the task with a final result.",
-			MaxResultTokens: 0, // unlimited — meta action, no VFS result
+			MaxResultTokens: 0,
 			Parameters: map[string]any{
 				"type": "object",
 				"properties": map[string]any{
@@ -107,10 +108,16 @@ func metaToolDefs(planningEnabled bool, deferredSkills []DeferredSkillMeta) ([]v
 				"required": []string{"result"},
 			},
 		},
-		{
+	}
+	metaMap := map[string]toolMapping{
+		"complete": {Type: "meta", Action: ActionComplete},
+	}
+
+	if flags.Spawn {
+		defs = append(defs, vfs.ToolDef{
 			Name:            "Agent",
 			Description:     "Spawn a child process (sub-agent) to handle a sub-task. Returns the agent's report when it completes.",
-			MaxResultTokens: 0, // unlimited — meta action
+			MaxResultTokens: 0,
 			Parameters: map[string]any{
 				"type": "object",
 				"properties": map[string]any{
@@ -129,11 +136,15 @@ func metaToolDefs(planningEnabled bool, deferredSkills []DeferredSkillMeta) ([]v
 				},
 				"required": []string{"intent"},
 			},
-		},
-		{
+		})
+		metaMap["Agent"] = toolMapping{Type: "meta", Action: ActionSpawn}
+	}
+
+	if flags.Replan {
+		defs = append(defs, vfs.ToolDef{
 			Name:            "replan",
 			Description:     "Revise the current approach with a new plan.",
-			MaxResultTokens: 0, // unlimited — meta action
+			MaxResultTokens: 0,
 			Parameters: map[string]any{
 				"type": "object",
 				"properties": map[string]any{
@@ -144,11 +155,15 @@ func metaToolDefs(planningEnabled bool, deferredSkills []DeferredSkillMeta) ([]v
 				},
 				"required": []string{"reason"},
 			},
-		},
-		{
+		})
+		metaMap["replan"] = toolMapping{Type: "meta", Action: ActionReplan}
+	}
+
+	if flags.Specialize {
+		defs = append(defs, vfs.ToolDef{
 			Name:            "Skill",
 			Description:     "Dynamically load a skill to gain new capabilities.",
-			MaxResultTokens: 0, // unlimited — meta action
+			MaxResultTokens: 0,
 			Parameters: map[string]any{
 				"type": "object",
 				"properties": map[string]any{
@@ -163,8 +178,12 @@ func metaToolDefs(planningEnabled bool, deferredSkills []DeferredSkillMeta) ([]v
 				},
 				"required": []string{"skill"},
 			},
-		},
-		{
+		})
+		metaMap["Skill"] = toolMapping{Type: "meta", Action: ActionSpecialize}
+	}
+
+	if flags.DiscoverSkill {
+		defs = append(defs, vfs.ToolDef{
 			Name:            "ToolSearch",
 			Description:     "Search deferred tools by keyword to find relevant capabilities without loading them. Returns matching tool names with descriptions and relevance scores.",
 			MaxResultTokens: 0,
@@ -182,22 +201,30 @@ func metaToolDefs(planningEnabled bool, deferredSkills []DeferredSkillMeta) ([]v
 				},
 				"required": []string{"query"},
 			},
-		},
+		})
+		metaMap["ToolSearch"] = toolMapping{Type: "meta", Action: ActionDiscoverSkill}
+
+		// Deferred skill placeholders depend on ToolSearch being available
+		for _, ds := range deferredSkills {
+			toolName := "skill_" + ds.Name
+			defs = append(defs, vfs.ToolDef{
+				Name:        toolName,
+				Description: fmt.Sprintf("[Deferred Skill] %s — %s. Use ToolSearch to search, then Skill to load.", ds.Name, ds.Description),
+				ShouldDefer: true,
+				Parameters: map[string]any{
+					"type":       "object",
+					"properties": map[string]any{},
+				},
+			})
+			metaMap[toolName] = toolMapping{Type: "meta", Action: ActionDeferredSkillPlaceholder}
+		}
 	}
 
-	metaMap := map[string]toolMapping{
-		"complete":   {Type: "meta", Action: ActionComplete},
-		"Agent":      {Type: "meta", Action: ActionSpawn},
-		"replan":     {Type: "meta", Action: ActionReplan},
-		"Skill":      {Type: "meta", Action: ActionSpecialize},
-		"ToolSearch": {Type: "meta", Action: ActionDiscoverSkill},
-	}
-
-	if planningEnabled {
+	if flags.Planning {
 		defs = append(defs, vfs.ToolDef{
 			Name:            "EnterPlanMode",
 			Description:     "Create an execution plan before acting. Use when the task requires multiple coordinated steps.",
-			MaxResultTokens: 0, // unlimited — meta action
+			MaxResultTokens: 0,
 			Parameters: map[string]any{
 				"type": "object",
 				"properties": map[string]any{
@@ -215,21 +242,6 @@ func metaToolDefs(planningEnabled bool, deferredSkills []DeferredSkillMeta) ([]v
 			},
 		})
 		metaMap["EnterPlanMode"] = toolMapping{Type: "meta", Action: ActionPlan}
-	}
-
-	// Add placeholder ToolDefs for each deferred skill (D6: ShouldDefer on individual ToolDefs)
-	for _, ds := range deferredSkills {
-		toolName := "skill_" + ds.Name
-		defs = append(defs, vfs.ToolDef{
-			Name:        toolName,
-			Description: fmt.Sprintf("[Deferred Skill] %s — %s. Use ToolSearch to search, then Skill to load.", ds.Name, ds.Description),
-			ShouldDefer: true,
-			Parameters: map[string]any{
-				"type":       "object",
-				"properties": map[string]any{},
-			},
-		})
-		metaMap[toolName] = toolMapping{Type: "meta", Action: ActionDeferredSkillPlaceholder}
 	}
 
 	return defs, metaMap

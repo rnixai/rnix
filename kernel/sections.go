@@ -86,6 +86,9 @@ The scratchpad directory is process-specific, isolated from the user's project, 
 
 	// frc: Function Result Clearing guidance (CC-aligned)
 	reg.Register("frc", func() string {
+		if proc.CompactionDisabled {
+			return ""
+		}
 		return `# Function Result Clearing
 
 Old device results may be automatically cleared from context to free up space. When working with device results, write down any important information you might need later in your response, as the original result may be cleared later.`
@@ -93,7 +96,7 @@ Old device results may be automatically cleared from context to free up space. W
 
 	// spawn_guidance: guidance on when/how to spawn child processes
 	reg.Register("spawn_guidance", func() string {
-		if !proc.PlanningEnabled {
+		if !proc.FeatureFlags.Planning {
 			return ""
 		}
 		return `# Spawning Sub-Processes

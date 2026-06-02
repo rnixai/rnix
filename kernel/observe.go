@@ -734,8 +734,8 @@ func (k *KernelImpl) setupDriverStreamHandler(proc *Process, llmFD types.FD) {
 	}
 
 	if tc, ok := file.(vfs.ToolCapable); ok && tc.SupportsToolCalling() {
-		vfsDefs, vfsMap := buildToolDefs(k.vfs.DeviceRegistry(), proc.AllowedDevices, proc.PlanningEnabled)
-		metaDefs, metaMap := metaToolDefs(proc.PlanningEnabled, proc.DeferredSkills)
+		vfsDefs, vfsMap := buildToolDefs(k.vfs.DeviceRegistry(), proc.AllowedDevices)
+		metaDefs, metaMap := metaToolDefs(proc.FeatureFlags, proc.DeferredSkills)
 		allDefs := make([]vfs.ToolDef, 0, len(vfsDefs)+len(metaDefs))
 		allDefs = append(allDefs, vfsDefs...)
 		allDefs = append(allDefs, metaDefs...)

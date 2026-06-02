@@ -105,8 +105,8 @@ func (k *KernelImpl) rehydrateRuntimeStateFromDisk(proc *Process, stepsDir strin
 	//    AllowedDevices. Without this, the resumed/revived process has nil
 	//    tool definitions and cannot perform any tool calls (LLM gets
 	//    req.Tools = nil). Mirrors observe.go:682-690.
-	vfsDefs, vfsMap := buildToolDefs(k.vfs.DeviceRegistry(), proc.AllowedDevices, proc.PlanningEnabled)
-	metaDefs, metaMap := metaToolDefs(proc.PlanningEnabled, proc.DeferredSkills)
+	vfsDefs, vfsMap := buildToolDefs(k.vfs.DeviceRegistry(), proc.AllowedDevices)
+	metaDefs, metaMap := metaToolDefs(proc.FeatureFlags, proc.DeferredSkills)
 	allDefs := make([]vfs.ToolDef, 0, len(vfsDefs)+len(metaDefs))
 	allDefs = append(allDefs, vfsDefs...)
 	allDefs = append(allDefs, metaDefs...)
