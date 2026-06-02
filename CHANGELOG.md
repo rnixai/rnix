@@ -7,6 +7,34 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.9.3] - 2026-06-02
+
+Theme: **Claude CLI Compatibility & Adaptive Intelligence (Epics 40, 50, 51)** — Claude CLI driver gains version-adaptive capability probing and fallback binaries; adaptive immune system ships enabled by default; stem agents accumulate differentiation memory across restarts and use reputation-driven skill ranking.
+
+### Added
+
+- **Claude CLI driver capability probing (Epic 40)**: the driver now probes the installed CLI at spawn time to detect supported features (`--include-partial-messages`, `--add-dir`, `--permission-mode`) and adapts its behavior accordingly; incompatible flags are silently omitted instead of causing errors
+- **Fallback binary resolution**: when `claude` is not found on PATH, the driver automatically searches for alternative binaries (e.g. `openclaude`) across common install locations (`~/.local/bin`, nvm, bun); the resolved binary path is visible in Dashboard and strace
+- **Prompt context injection**: Claude CLI processes receive project working directory, skill paths, and user attachments in the initial prompt, reducing unnecessary tool calls during startup
+- **Driver metadata in Dashboard**: process detail view now displays the resolved binary path, active permission mode, and detected CLI capabilities for Claude CLI processes
+- **Differentiation memory persistence**: stem agent differentiation paths (intent-to-skill mappings learned at runtime) are now persisted to disk and restored on daemon restart, so agents retain accumulated specialization across sessions
+- **Reputation-driven skill reranking**: stem agents now factor in historical reputation scores and synergy data when selecting skills at spawn time, with configurable exploration probability to prevent lock-in
+- **Capability-based task migration**: when a process exhausts its retry budget, the kernel can migrate the task to a similar agent based on a capability similarity matrix, improving fault tolerance
+- **Immune system enabled by default**: the adaptive immune system now ships enabled in warn-only mode — it observes and logs anomalies without suspending processes, graduating to enforcement when the operator sets `warn_only: false`
+- **Spawn recursion guard**: a configurable depth limit prevents runaway recursive spawning; processes that exceed the limit are rejected with a clear error
+- **Global data directory management**: centralized data directory resolution with project registry support
+- **Unified context budget**: `context_budget` is now enforced as a per-step context window guard, providing consistent resource control across all process types
+- **`rnix ps --all`**: new `-a`/`--all` flag shows both active and historical processes in a single listing
+
+### Changed
+
+- **Immune system mode**: anomaly detection defaults to warn-only — stall and deviation events are recorded for observability but do not trigger process suspension unless explicitly configured
+
+### Fixed
+
+- Spawn no longer inherits parent's full device permissions, preventing unintended privilege escalation in child processes
+- Improved error messages when orchestrator agent startup fails
+
 ## [0.9.2] - 2026-05-29
 
 Theme: **MCP Subsystem Production Hardening (Epic 48)** — MCP server tools surface as first-class agent capabilities, survive process resume, shut down cleanly, and gain operational tooling for inspection, health checks, and per-server tuning.
@@ -418,6 +446,8 @@ Theme: **Process lifecycle reshape** — resume from history, unified subtree pa
 - **IPC Protocol**: NDJSON over Unix socket request/response protocol
 - **VFS Devices**: `/dev/llm/claude`, `/dev/fs`, `/dev/shell` device implementations
 
+[0.9.3]: https://github.com/rnixai/rnix/compare/v0.9.2...v0.9.3
+[0.9.2]: https://github.com/rnixai/rnix/compare/v0.9.1...v0.9.2
 [0.9.1]: https://github.com/rnixai/rnix/compare/v0.9.0...v0.9.1
 [0.9.0]: https://github.com/rnixai/rnix/compare/v0.8.0...v0.9.0
 [0.8.0]: https://github.com/rnixai/rnix/compare/v0.7.3...v0.8.0
