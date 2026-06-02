@@ -840,6 +840,19 @@ func (k *KernelImpl) Spawn(intent string, agent *agents.AgentInfo, opts SpawnOpt
 		k.emitEvent(proc, "claude_cli.capabilities", capArgs, nil, nil, 0)
 	}
 
+	k.emitEvent(proc, "feature_profile", map[string]any{
+		"profile":        proc.FeatureFlags.ProfileName,
+		"planning":       proc.FeatureFlags.Planning,
+		"replan":         proc.FeatureFlags.Replan,
+		"specialize":     proc.FeatureFlags.Specialize,
+		"discover_skill": proc.FeatureFlags.DiscoverSkill,
+		"spawn":          proc.FeatureFlags.Spawn,
+		"diff_memory":    proc.FeatureFlags.DiffMemory,
+		"stem_matcher":   proc.FeatureFlags.StemMatcher,
+		"immune":         proc.FeatureFlags.Immune,
+		"compaction":     proc.FeatureFlags.Compaction,
+	}, nil, nil, 0)
+
 	// Capture FinalSystemPrompt eagerly at spawn time so process-meta.json
 	// (written at reap) always has a non-empty `system_prompt` field —
 	// independent of whether the reasonStep goroutine reaches the

@@ -4,6 +4,7 @@ package kernel
 // kernel package does not import internal/config; cmd/rnix bridges the two
 // via value copy at daemon startup.
 type FeatureFlags struct {
+	ProfileName   string // "baseline" | "core" | "adaptive" | "full" | "custom"
 	Planning      bool
 	Replan        bool
 	Specialize    bool
@@ -18,6 +19,7 @@ type FeatureFlags struct {
 // FullFeatureFlags returns a FeatureFlags with all flags enabled (equivalent to ProfileFull).
 func FullFeatureFlags() FeatureFlags {
 	return FeatureFlags{
+		ProfileName:   "full",
 		Planning:      true,
 		Replan:        true,
 		Specialize:    true,

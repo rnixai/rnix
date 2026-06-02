@@ -329,6 +329,7 @@ func init() {
 	rootCmd.AddCommand(initCmd)
 	rootCmd.AddCommand(mcpCmd)
 	rootCmd.AddCommand(checkCmd)
+	rootCmd.AddCommand(configCmd)
 }
 
 // levenshtein computes the standard Levenshtein distance between two strings
@@ -1696,6 +1697,7 @@ func runDaemon(cmd *cobra.Command, args []string) error {
 		fmt.Fprintf(os.Stderr, "[config] warn: %s\n", w)
 	}
 	kFlags := kernel.FeatureFlags{
+		ProfileName:   string(featureProfile),
 		Planning:      featureFlags.Planning,
 		Replan:        featureFlags.Replan,
 		Specialize:    featureFlags.Specialize,
@@ -1932,6 +1934,17 @@ func runDaemon(cmd *cobra.Command, args []string) error {
 	srv.SetImmuneDaemon(immuneDaemon)
 	srv.SetGlobalConfig(globalConfig)
 	srv.SetGlobalProvidersRaw(globalProvidersRaw)
+	srv.SetFeatureProfile(string(featureProfile), map[string]bool{
+		"planning":       featureFlags.Planning,
+		"replan":         featureFlags.Replan,
+		"specialize":     featureFlags.Specialize,
+		"discover_skill": featureFlags.DiscoverSkill,
+		"spawn":          featureFlags.Spawn,
+		"diff_memory":    featureFlags.DiffMemory,
+		"stem_matcher":   featureFlags.StemMatcher,
+		"immune":         featureFlags.Immune,
+		"compaction":     featureFlags.Compaction,
+	})
 	srv.SetProviderStatusFunc(func() []ipc.ProviderStatusWire {
 		statuses := driverReg.HealthStatuses()
 		wires := make([]ipc.ProviderStatusWire, len(statuses))

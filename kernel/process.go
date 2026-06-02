@@ -419,6 +419,7 @@ type DetailSnapshot struct {
 	OriginUUID      string
 	ResumedFromStep int
 	DriverMeta      map[string]string
+	FeatureProfile  string
 }
 
 // GetDetailSnapshot returns a thread-safe copy of process detail fields.
@@ -452,6 +453,7 @@ func (p *Process) GetDetailSnapshot() DetailSnapshot {
 		OriginUUID:      p.OriginUUID,
 		ResumedFromStep: p.ResumedFromStep,
 		DriverMeta:      p.DriverMeta,
+		FeatureProfile:  p.FeatureFlags.ProfileName,
 	}
 }
 

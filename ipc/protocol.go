@@ -246,7 +246,8 @@ type ProcInfoWire struct {
 	ExitCode    int  `json:"exit_code,omitempty"`
 	ExitCodeSet bool `json:"exit_code_set,omitempty"`
 
-	DriverMeta map[string]string `json:"driver_meta,omitempty"`
+	DriverMeta     map[string]string `json:"driver_meta,omitempty"`
+	FeatureProfile string            `json:"feature_profile,omitempty"`
 
 	// Story 48.1 / code-review P7 — vfs.ProcInfo.MCPMounts is INTENTIONALLY
 	// not mirrored onto this wire type. The field is consumed only by the
@@ -297,9 +298,10 @@ func ProcInfoToWire(p vfs.ProcInfo) ProcInfoWire {
 		ComposeDeps:   append([]string(nil), p.ComposeDeps...),
 		PipelineIndex: p.PipelineIndex,
 		PipelineTotal: p.PipelineTotal,
-		ExitCode:      p.ExitCode,
-		ExitCodeSet:   p.ExitCodeSet,
-		DriverMeta:    p.DriverMeta,
+		ExitCode:       p.ExitCode,
+		ExitCodeSet:    p.ExitCodeSet,
+		DriverMeta:     p.DriverMeta,
+		FeatureProfile: p.FeatureProfile,
 	}
 	if !p.DeadAt.IsZero() {
 		w.DeadAt = p.DeadAt.UnixMilli()
@@ -349,9 +351,10 @@ func WireToProcInfo(w ProcInfoWire) vfs.ProcInfo {
 		ComposeDeps:   w.ComposeDeps,
 		PipelineIndex: w.PipelineIndex,
 		PipelineTotal: w.PipelineTotal,
-		ExitCode:      w.ExitCode,
-		ExitCodeSet:   w.ExitCodeSet,
-		DriverMeta:    w.DriverMeta,
+		ExitCode:       w.ExitCode,
+		ExitCodeSet:    w.ExitCodeSet,
+		DriverMeta:     w.DriverMeta,
+		FeatureProfile: w.FeatureProfile,
 	}
 	if w.DeadAt != 0 {
 		p.DeadAt = unixMilliToTime(w.DeadAt)
@@ -761,11 +764,13 @@ type PingResponse struct {
 //
 // Wire field naming follows project convention: JSON snake_case + Go PascalCase.
 type DaemonStatusResponse struct {
-	Version         string `json:"version"`                   // SemVer (e.g. "0.8.0")
-	DaemonCommit    string `json:"daemon_commit"`             // short SHA (e.g. "abc1234" or "abc1234+dirty")
-	DaemonBuildDate string `json:"daemon_build_date"`         // RFC3339 (e.g. "2026-05-23T10:00:00Z") or ""
-	DaemonPID      int    `json:"daemon_pid,omitempty"`      // daemon's OS PID (informational)
-	StartedAt      int64  `json:"started_at_ms,omitempty"`   // daemon start time (UnixMilli)
+	Version         string          `json:"version"`                   // SemVer (e.g. "0.8.0")
+	DaemonCommit    string          `json:"daemon_commit"`             // short SHA (e.g. "abc1234" or "abc1234+dirty")
+	DaemonBuildDate string          `json:"daemon_build_date"`         // RFC3339 (e.g. "2026-05-23T10:00:00Z") or ""
+	DaemonPID       int             `json:"daemon_pid,omitempty"`      // daemon's OS PID (informational)
+	StartedAt       int64           `json:"started_at_ms,omitempty"`   // daemon start time (UnixMilli)
+	FeatureProfile  string          `json:"feature_profile"`           // active feature profile name
+	FeatureFlags    map[string]bool `json:"feature_flags,omitempty"`   // per-flag status map for CLI rendering
 }
 
 // --- Spawn Pipeline ---
@@ -1349,6 +1354,7 @@ type GetProcDetailResponse struct {
 	OriginUUID      string            `json:"origin_uuid,omitempty"`
 	ResumedFromStep int               `json:"resumed_from_step,omitempty"`
 	DriverMeta      map[string]string `json:"driver_meta,omitempty"`
+	FeatureProfile  string            `json:"feature_profile,omitempty"`
 }
 
 // SkillInfoWire is the wire-format representation of a loaded skill with its allowed tools.

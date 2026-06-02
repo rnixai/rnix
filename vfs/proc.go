@@ -120,7 +120,8 @@ type ProcInfo struct {
 	// resolved binary path, permission mode, capability flags). Populated at
 	// spawn time via DriverMetaProvider interface; nil for drivers that don't
 	// implement it.
-	DriverMeta map[string]string `json:"driver_meta,omitempty"`
+	DriverMeta      map[string]string `json:"driver_meta,omitempty"`
+	FeatureProfile  string            `json:"feature_profile,omitempty"`
 }
 
 // ProcFS implements a read-only /proc filesystem that exposes process runtime state.

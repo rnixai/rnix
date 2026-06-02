@@ -237,8 +237,9 @@ type procInfoDisk struct {
 	// `omitempty` ensures legacy snapshots without this field re-marshal
 	// cleanly (TestProcInfoDisk_MCPMounts_BackwardCompat) and the AC6
 	// zero-overhead path stays branch-free in JSON.
-	MCPMounts  []mcpMountDisk  `json:"mcp_mounts,omitempty"`
-	DriverMeta map[string]string `json:"driver_meta,omitempty"`
+	MCPMounts      []mcpMountDisk    `json:"mcp_mounts,omitempty"`
+	DriverMeta     map[string]string `json:"driver_meta,omitempty"`
+	FeatureProfile string            `json:"feature_profile,omitempty"`
 }
 
 // mcpMountDisk mirrors vfs.MCPMountSnapshot on disk. Defined here (instead of
@@ -286,9 +287,10 @@ func procInfoToDisk(info vfs.ProcInfo) procInfoDisk {
 		// reload Suspended placeholders into procTable.
 		SuspendReason: info.SuspendReason,
 		IsPaused:      info.IsPaused,
-		ExitCode:      info.ExitCode,
-		ExitCodeSet:   info.ExitCodeSet,
-		DriverMeta:    info.DriverMeta,
+		ExitCode:       info.ExitCode,
+		ExitCodeSet:    info.ExitCodeSet,
+		DriverMeta:     info.DriverMeta,
+		FeatureProfile: info.FeatureProfile,
 	}
 	if !info.DeadAt.IsZero() {
 		d.DeadAt = info.DeadAt.Format(time.RFC3339Nano)
@@ -345,9 +347,10 @@ func procInfoFromDisk(d procInfoDisk) vfs.ProcInfo {
 		// stays zero on parse failure.
 		SuspendReason: d.SuspendReason,
 		IsPaused:      d.IsPaused,
-		ExitCode:      d.ExitCode,
-		ExitCodeSet:   d.ExitCodeSet,
-		DriverMeta:    d.DriverMeta,
+		ExitCode:       d.ExitCode,
+		ExitCodeSet:    d.ExitCodeSet,
+		DriverMeta:     d.DriverMeta,
+		FeatureProfile: d.FeatureProfile,
 	}
 	if d.CreatedAt != "" {
 		info.CreatedAt, _ = time.Parse(time.RFC3339Nano, d.CreatedAt)

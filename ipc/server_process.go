@@ -323,6 +323,7 @@ func (s *Server) handleGetProcDetail(conn net.Conn, rawPayload json.RawMessage) 
 		OriginUUID:      snap.OriginUUID,
 		ResumedFromStep: snap.ResumedFromStep,
 		DriverMeta:      snap.DriverMeta,
+		FeatureProfile:  snap.FeatureProfile,
 	}
 	if !snap.DeadAt.IsZero() {
 		resp.DeadAtMs = snap.DeadAt.UnixMilli()
@@ -441,6 +442,7 @@ func (s *Server) handleGetProcDetailFromHistory(conn net.Conn, pid types.PID, uu
 		OriginUUID:      info.OriginUUID,
 		ResumedFromStep: info.ResumedFromStep,
 		DriverMeta:      info.DriverMeta,
+		FeatureProfile:  info.FeatureProfile,
 	}
 	if !info.DeadAt.IsZero() {
 		resp.DeadAtMs = info.DeadAt.UnixMilli()

@@ -391,6 +391,7 @@ func (k *KernelImpl) GetProcInfo(pid types.PID) (*vfs.ProcInfo, error) {
 		ExitCodeSet:     exitCodeSet,
 		MCPMounts:       buildMCPMountSnapshots(proc),
 		DriverMeta:      proc.DriverMeta,
+		FeatureProfile:  proc.FeatureFlags.ProfileName,
 	}
 	if proc.ProjectConfig != nil {
 		info.ProjectDir = proc.ProjectConfig.ProjectDir

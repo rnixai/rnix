@@ -116,6 +116,9 @@ type Server struct {
 	// with correct driver-specific formula).
 	providerDriverCache     map[string]string
 	providerDriverCacheOnce sync.Once
+
+	featureProfile string
+	featureFlags   map[string]bool
 }
 
 // NewServer creates an IPC server backed by the given kernel.
@@ -443,8 +446,18 @@ func (s *Server) handleDaemonStatus(conn net.Conn) {
 		DaemonBuildDate: s.buildDate,
 		DaemonPID:       os.Getpid(),
 		StartedAt:       s.startedAt.UnixMilli(),
+		FeatureProfile:  s.featureProfile,
+		FeatureFlags:    s.featureFlags,
 	})
 	writeResponse(conn, Response{OK: true, Payload: payload})
+}
+
+// SetFeatureProfile injects the active feature profile name and per-flag map
+// into the server so handleDaemonStatus can surface them. Called once at daemon
+// startup after config.ResolveFeatures.
+func (s *Server) SetFeatureProfile(profile string, flags map[string]bool) {
+	s.featureProfile = profile
+	s.featureFlags = flags
 }
 
 func (s *Server) handleShutdown(conn net.Conn) {

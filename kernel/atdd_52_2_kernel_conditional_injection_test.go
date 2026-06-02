@@ -38,21 +38,22 @@ import (
 // 这是 Go ATDD 的标准红灯形态，与 52-1 ATDD 测试一致。
 // ======================================================================
 
-// ---------- AC1: kernel.FeatureFlags 类型有 9 个 bool 字段 ----------
+// ---------- AC1: kernel.FeatureFlags 类型有 9 个 bool 字段 + ProfileName string ----------
 
 func TestATDD_52_2_AC1_FeatureFlags_StructShape(t *testing.T) {
 	rt := reflect.TypeFor[FeatureFlags]()
 
-	expectedFields := []string{
+	expectedBoolFields := []string{
 		"Planning", "Replan", "Specialize", "DiscoverSkill", "Spawn",
 		"DiffMemory", "StemMatcher", "Immune", "Compaction",
 	}
 
-	if rt.NumField() != len(expectedFields) {
-		t.Fatalf("FeatureFlags has %d fields, want %d", rt.NumField(), len(expectedFields))
+	// 9 bool fields + ProfileName string = 10 total (Story 52.3 added ProfileName)
+	if rt.NumField() != len(expectedBoolFields)+1 {
+		t.Fatalf("FeatureFlags has %d fields, want %d", rt.NumField(), len(expectedBoolFields)+1)
 	}
 
-	for _, name := range expectedFields {
+	for _, name := range expectedBoolFields {
 		f, ok := rt.FieldByName(name)
 		if !ok {
 			t.Errorf("FeatureFlags missing field %q", name)
