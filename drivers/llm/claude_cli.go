@@ -81,6 +81,7 @@ type ClaudeCliDriver struct {
 	resolvedBinOnce sync.Once
 	resolvedBinErr  error
 	fallbackBins    []string
+	skipBinResolve  bool
 }
 
 // ClaudeCliOption configures a ClaudeCliDriver.
@@ -116,9 +117,12 @@ func WithCommand(cmd string) ClaudeCliOption {
 }
 
 // WithCommandBuilder sets a custom CommandBuilder for the driver.
+// When a custom builder is provided, binary resolution via exec.LookPath
+// is skipped — the builder is assumed to handle binary dispatch itself.
 func WithCommandBuilder(cb CommandBuilder) ClaudeCliOption {
 	return func(d *ClaudeCliDriver) {
 		d.cmdBuilder = cb
+		d.skipBinResolve = true
 	}
 }
 
@@ -885,6 +889,9 @@ func (d *ClaudeCliDriver) resolveClaudeBinary() (string, error) {
 // resolveBinaryIfNeeded runs resolveClaudeBinary exactly once (via sync.Once)
 // and caches the result. Returns the cached error (nil on success).
 func (d *ClaudeCliDriver) resolveBinaryIfNeeded() error {
+	if d.skipBinResolve {
+		return nil
+	}
 	d.resolvedBinOnce.Do(func() {
 		d.resolvedBin, d.resolvedBinErr = d.resolveClaudeBinary()
 	})

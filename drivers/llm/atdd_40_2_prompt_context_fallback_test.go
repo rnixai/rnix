@@ -294,7 +294,7 @@ func TestATDD_40_2_AC3_ResolvedBinOnce_SingleExecution(t *testing.T) {
 
 	t.Setenv("PATH", tmpDir)
 
-	d := NewClaudeCliDriver(WithCommandBuilder(mockCmdBuilder("success")))
+	d := NewClaudeCliDriver()
 
 	// Call resolve multiple times concurrently
 	errs := make(chan error, 10)
