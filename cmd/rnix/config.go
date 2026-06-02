@@ -76,6 +76,6 @@ func printFlags(w io.Writer, flags map[string]bool) {
 	}
 	sort.Strings(keys)
 	for _, k := range keys {
-		fmt.Fprintf(w, "  %-14s %v\n", k+":", flags[k])
+		fmt.Fprintf(w, "  %-15s %v\n", k+":", flags[k])
 	}
 }
