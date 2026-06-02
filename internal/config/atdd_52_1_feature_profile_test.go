@@ -55,8 +55,7 @@ func writeConfigYAML(t *testing.T, tmpDir, content string) string {
 // ---------- AC1: FeatureFlags struct 有 9 个 bool 字段 ----------
 
 func TestATDD_52_1_AC1_FeatureFlags_StructShape(t *testing.T) {
-	var ff FeatureFlags
-	rt := reflect.TypeOf(ff)
+	rt := reflect.TypeFor[FeatureFlags]()
 
 	expectedFields := []string{
 		"Planning", "Replan", "Specialize", "DiscoverSkill", "Spawn",
