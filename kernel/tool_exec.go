@@ -613,6 +613,9 @@ func (k *KernelImpl) executeVFSTool(proc *Process, tc llmToolCall, mapping toolM
 			if cpa, ok := file.(vfs.CallerProviderAware); ok {
 				cpa.SetCallerProvider(proc.Provider)
 			}
+			if loa, ok := file.(vfs.LLMOpenerAware); ok {
+				loa.SetLLMOpener(k.buildLLMOpener(proc))
+			}
 		}
 		if !isEmpty || targetIsMCP {
 			writeData := inputData
@@ -630,6 +633,22 @@ func (k *KernelImpl) executeVFSTool(proc *Process, tc llmToolCall, mapping toolM
 			return "", fmt.Errorf("read failed: %w", err)
 		}
 		return string(data), nil
+	}
+}
+
+// buildLLMOpener returns an LLM file opener that tries the process's project-level
+// LLMFileOpener first, then falls back to the global VFS device registry.
+func (k *KernelImpl) buildLLMOpener(proc *Process) func(provider string) (vfs.VFSFile, error) {
+	return func(provider string) (vfs.VFSFile, error) {
+		if proc.ProjectConfig != nil && proc.ProjectConfig.LLMFileOpener != nil {
+			f, err := proc.ProjectConfig.LLMFileOpener(provider, int(vfs.O_RDWR))
+			if err == nil {
+				if vf, ok := f.(vfs.VFSFile); ok {
+					return vf, nil
+				}
+			}
+		}
+		return k.vfs.DeviceRegistry().Open("/dev/llm/"+provider, vfs.O_RDWR, "")
 	}
 }
 

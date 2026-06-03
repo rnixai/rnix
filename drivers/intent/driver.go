@@ -127,7 +127,8 @@ type IntentFile struct {
 	driver         *IntentDriver
 	subpath        string
 	devicePath     string
-	callerProvider string // injected by kernel via CallerProviderAware
+	callerProvider string         // injected by kernel via CallerProviderAware
+	llmOpener      LLMFileOpener  // injected by kernel via LLMOpenerAware
 	response       []byte
 	offset         int
 	closed         bool
@@ -136,6 +137,11 @@ type IntentFile struct {
 // SetCallerProvider implements vfs.CallerProviderAware.
 func (f *IntentFile) SetCallerProvider(provider string) {
 	f.callerProvider = provider
+}
+
+// SetLLMOpener sets a fallback LLM file opener for project-level providers.
+func (f *IntentFile) SetLLMOpener(opener LLMFileOpener) {
+	f.llmOpener = opener
 }
 
 func (f *IntentFile) Write(ctx context.Context, data []byte) error {
@@ -189,6 +195,9 @@ func (f *IntentFile) handleDecompose(ctx context.Context, data []byte) (*intent.
 	provider := req.Provider
 	if provider == "" {
 		provider = f.callerProvider
+	}
+	if f.llmOpener != nil {
+		ctx = WithLLMOpener(ctx, f.llmOpener)
 	}
 	tree, err := f.driver.manager.Apply(ctx, intent.ApplyRequest{
 		Intent:   req.Intent,

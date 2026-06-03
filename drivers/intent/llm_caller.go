@@ -20,6 +20,18 @@ type llmResponse struct {
 	Content string `json:"content"`
 }
 
+// LLMFileOpener opens an LLM VFS file for a given provider.
+// Used to support project-level providers that aren't in the global device registry.
+type LLMFileOpener func(provider string) (vfs.VFSFile, error)
+
+type llmOpenerKey struct{}
+
+// WithLLMOpener attaches an LLMFileOpener to the context, allowing VFSCaller
+// to open project-level LLM providers not in the global device registry.
+func WithLLMOpener(ctx context.Context, opener LLMFileOpener) context.Context {
+	return context.WithValue(ctx, llmOpenerKey{}, opener)
+}
+
 // VFSCaller implements intent.LLMCaller by routing calls through VFS /dev/llm/* devices.
 type VFSCaller struct {
 	devReg   *vfs.DeviceRegistry
@@ -37,7 +49,14 @@ func (c *VFSCaller) Call(ctx context.Context, prompt string, model string, provi
 	}
 	devicePath := "/dev/llm/" + p
 
-	file, err := c.devReg.Open(devicePath, vfs.O_RDWR, "")
+	var file vfs.VFSFile
+	var err error
+	if opener, ok := ctx.Value(llmOpenerKey{}).(LLMFileOpener); ok {
+		file, err = opener(p)
+	}
+	if file == nil {
+		file, err = c.devReg.Open(devicePath, vfs.O_RDWR, "")
+	}
 	if err != nil {
 		return "", fmt.Errorf("VFSCaller: provider %q via %s: %w", p, devicePath, err)
 	}

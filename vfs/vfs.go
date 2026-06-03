@@ -82,6 +82,13 @@ type CallerProviderAware interface {
 	SetCallerProvider(provider string)
 }
 
+// LLMOpenerAware is an optional interface for VFSFile implementations that
+// need to open LLM devices (including project-level providers not in the global
+// device registry). The kernel injects an opener after Open.
+type LLMOpenerAware interface {
+	SetLLMOpener(opener func(provider string) (VFSFile, error))
+}
+
 // ToolCapable is an optional interface for VFSFile implementations that
 // indicate whether the underlying driver supports native tool calling
 // (i.e., the LLM driver implements ToolCallingDriver).
