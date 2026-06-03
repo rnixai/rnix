@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+Theme (draft 0.9.4): **Feature Profiles & Runtime Introspection (Epic 52)** — feature flags become a first-class, conditionally-injected runtime profile, and a new `rnix config` command surfaces the active profile straight from the daemon.
+
+### Added
+
+- **Feature flags & profiles (Epic 52)**: a `FeatureFlags` / `FeatureProfile` model now controls which emergent subsystems are active at runtime. Named profiles (`baseline`, `core`, `adaptive`, `full`, `custom`) map to flag sets, and `custom` applies only the flags explicitly listed (the rest default to enabled). Conditional injection wires these flags into process management and tool definitions at the kernel layer, so a disabled subsystem adds no prompt or tool-definition overhead.
+- **`rnix config` command**: `rnix config show` displays the active feature profile and individual flags, reading live state from the running daemon and falling back to the global config file when the daemon is down. Daemon status responses now include the feature profile for observability.
+- **Unknown feature-key warning**: unrecognized keys under a `custom:` profile now emit a warning instead of being silently ignored; feature values sourced from environment variables are trimmed of surrounding whitespace.
+
+### Fixed
+
+- **diffmemory**: `Lookup` validates the available-skill count before use, and recording/lookup now track that count accurately.
+- **llm**: skip binary resolution when a custom `CommandBuilder` is supplied, avoiding spurious PATH lookups for embedded / test drivers.
+
 ## [0.9.3] - 2026-06-02
 
 Theme: **Claude CLI Compatibility & Adaptive Intelligence (Epics 40, 50, 51)** — Claude CLI driver gains version-adaptive capability probing and fallback binaries; adaptive immune system ships enabled by default; stem agents accumulate differentiation memory across restarts and use reputation-driven skill ranking.
