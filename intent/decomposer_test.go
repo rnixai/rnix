@@ -278,6 +278,35 @@ func stringContains(s, substr string) bool {
 	return false
 }
 
+func TestDecomposer_Decompose_SingleNode(t *testing.T) {
+	nodes := []struct {
+		ID        string   `json:"id"`
+		Intent    string   `json:"intent"`
+		DependsOn []string `json:"depends_on"`
+	}{
+		{ID: "create-file", Intent: "创建 /app/hello.txt 内容为 Hello Rnix", DependsOn: []string{}},
+	}
+	jsonBytes, _ := json.Marshal(nodes)
+
+	caller := &mockLLMCaller{response: string(jsonBytes)}
+	decomposer := NewDecomposer(caller)
+
+	tree, err := decomposer.Decompose(context.Background(), "创建 /app/hello.txt 内容为 Hello Rnix", "")
+	if err != nil {
+		t.Fatalf("Decompose failed: %v", err)
+	}
+	if len(tree.Nodes) != 1 {
+		t.Fatalf("expected 1 node for simple task, got %d", len(tree.Nodes))
+	}
+	node := tree.Nodes["create-file"]
+	if node == nil {
+		t.Fatal("expected node 'create-file'")
+	}
+	if len(node.DependsOn) != 0 {
+		t.Fatalf("expected no dependencies, got %v", node.DependsOn)
+	}
+}
+
 // --- Story 19.2: Decompose initializes DesiredNodes ---
 
 func TestDecomposer_Decompose_InitDesired(t *testing.T) {

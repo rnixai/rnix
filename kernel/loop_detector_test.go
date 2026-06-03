@@ -1,6 +1,7 @@
 package kernel
 
 import (
+	"fmt"
 	"testing"
 )
 
@@ -139,6 +140,90 @@ func TestActionHash_TruncatesInput(t *testing.T) {
 	h2 := ActionHash("tool_call", "/dev/shell", input2)
 	if h1 != h2 {
 		t.Error("inputs differing only after 256 bytes should produce same hash")
+	}
+}
+
+func TestLoopDetector_CheckDual_CoarseWarning(t *testing.T) {
+	d := NewLoopDetector(3)
+	coarseHash := CoarseActionHash("tool_call", "/dev/fs")
+
+	var gotWarning bool
+	for i := range DefaultCoarseLoopThreshold {
+		fineHash := ActionHash("tool_call", "/dev/fs", fmt.Sprintf("input-%d", i))
+		status := d.CheckDual(fineHash, coarseHash)
+		if status == LoopWarning {
+			gotWarning = true
+			if i != DefaultCoarseLoopThreshold-1 {
+				t.Errorf("coarse warning at step %d, expected step %d", i, DefaultCoarseLoopThreshold-1)
+			}
+		}
+	}
+	if !gotWarning {
+		t.Errorf("expected coarse LoopWarning after %d same-tool steps with different inputs", DefaultCoarseLoopThreshold)
+	}
+}
+
+func TestLoopDetector_CheckDual_CoarseSuspend(t *testing.T) {
+	d := NewLoopDetector(3)
+	coarseHash := CoarseActionHash("tool_call", "/dev/fs")
+
+	var gotSuspend bool
+	for i := range 2 * DefaultCoarseLoopThreshold {
+		fineHash := ActionHash("tool_call", "/dev/fs", fmt.Sprintf("input-%d", i))
+		status := d.CheckDual(fineHash, coarseHash)
+		if status == LoopSuspend {
+			gotSuspend = true
+		}
+	}
+	if !gotSuspend {
+		t.Errorf("expected coarse LoopSuspend after %d same-tool steps", 2*DefaultCoarseLoopThreshold)
+	}
+}
+
+func TestLoopDetector_CheckDual_FineStillWorks(t *testing.T) {
+	d := NewLoopDetector(3)
+	hash := uint64(42)
+
+	var gotWarning bool
+	for i := range 3 {
+		status := d.CheckDual(hash, hash)
+		if status == LoopWarning {
+			gotWarning = true
+			if i != 2 {
+				t.Errorf("fine warning at step %d, expected step 2", i)
+			}
+		}
+	}
+	if !gotWarning {
+		t.Error("expected fine-grain LoopWarning after 3 identical steps via CheckDual")
+	}
+}
+
+func TestLoopDetector_CheckDual_DifferentToolsNoTrigger(t *testing.T) {
+	d := NewLoopDetector(3)
+
+	for i := range DefaultCoarseLoopThreshold {
+		tool := fmt.Sprintf("/dev/tool-%d", i)
+		fineHash := ActionHash("tool_call", tool, "input")
+		coarseHash := CoarseActionHash("tool_call", tool)
+		status := d.CheckDual(fineHash, coarseHash)
+		if status != LoopNone {
+			t.Errorf("step %d: expected LoopNone for different tools, got %d", i, status)
+		}
+	}
+}
+
+func TestCoarseActionHash_IgnoresInput(t *testing.T) {
+	h1 := CoarseActionHash("tool_call", "/dev/fs")
+	h2 := CoarseActionHash("tool_call", "/dev/fs")
+	if h1 != h2 {
+		t.Error("same (actionType, toolPath) should produce same coarse hash")
+	}
+
+	fine1 := ActionHash("tool_call", "/dev/fs", "input-a")
+	fine2 := ActionHash("tool_call", "/dev/fs", "input-b")
+	if fine1 == fine2 {
+		t.Error("different inputs should produce different fine hashes")
 	}
 }
 

@@ -2,6 +2,7 @@ package kernel
 
 import (
 	gocontext "context"
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -669,12 +670,45 @@ func TestErrFingerprintCounter_ResetClears(t *testing.T) {
 		t.Fatalf("setup: got count=%d, want 2", c.count)
 	}
 	c.reset()
-	if c.count != 0 || c.fp != "" {
-		t.Fatalf("after reset: count=%d fp=%q, want 0/\"\"", c.count, c.fp)
+	if c.count != 0 || c.fp != "" || c.total != 0 {
+		t.Fatalf("after reset: count=%d fp=%q total=%d, want 0/\"\"/0", c.count, c.fp, c.total)
 	}
 	// Bump after reset starts fresh
 	if n, _ := bumpToolError(&c, map[string]bool{}, "NOT_FOUND", "/dev/fs"); n != 1 {
 		t.Fatalf("after reset, new bump count=%d, want 1", n)
+	}
+}
+
+func TestErrFingerprintCounter_TotalTripsAcrossFingerprints(t *testing.T) {
+	var c errFingerprintCounter
+	codes := []string{"IS_DIRECTORY", "NOT_FOUND", "PERMISSION", "TIMEOUT", "DRIVER", "INTERNAL"}
+	for i, code := range codes {
+		seen := map[string]bool{}
+		_, tripped := bumpToolError(&c, seen, code, "/dev/fs")
+		if i < len(codes)-1 && tripped {
+			t.Fatalf("step %d (%s): tripped early at total=%d", i+1, code, c.total)
+		}
+		if i == len(codes)-1 && !tripped {
+			t.Fatalf("step %d (%s): expected total-based trip at total=%d", i+1, code, c.total)
+		}
+	}
+	if c.total != TotalToolErrorThreshold {
+		t.Fatalf("expected total=%d, got %d", TotalToolErrorThreshold, c.total)
+	}
+}
+
+func TestErrFingerprintCounter_TotalResetsOnReset(t *testing.T) {
+	var c errFingerprintCounter
+	for i := range 4 {
+		seen := map[string]bool{}
+		bumpToolError(&c, seen, fmt.Sprintf("ERR_%d", i), "/dev/fs")
+	}
+	if c.total != 4 {
+		t.Fatalf("expected total=4, got %d", c.total)
+	}
+	c.reset()
+	if c.total != 0 {
+		t.Fatalf("expected total=0 after reset, got %d", c.total)
 	}
 }
 

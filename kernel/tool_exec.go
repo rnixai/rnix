@@ -21,15 +21,23 @@ import (
 	"github.com/rnixai/rnix/vfs"
 )
 
+// TotalToolErrorThreshold is the cumulative error count (across all fingerprints)
+// that triggers the circuit breaker. This prevents agents from bypassing the
+// per-fingerprint breaker by alternating between different failing tools.
+const TotalToolErrorThreshold = 6
+
 // errFingerprintCounter tracks consecutive tool errors by fingerprint (errorCode|toolPath).
 // When a new fingerprint appears, count resets to 1. Same fingerprint increments count.
+// The total field accumulates across all fingerprints and only resets on reset().
 type errFingerprintCounter struct {
 	fp    string // "<errCode>|<toolPath>"
 	count int
+	total int
 }
 
 func (c *errFingerprintCounter) bump(errCode, toolPath string) int {
 	fp := errCode + "|" + toolPath
+	c.total++
 	if c.fp != fp {
 		c.fp = fp
 		c.count = 1
@@ -42,6 +50,7 @@ func (c *errFingerprintCounter) bump(errCode, toolPath string) int {
 func (c *errFingerprintCounter) reset() {
 	c.fp = ""
 	c.count = 0
+	c.total = 0
 }
 
 // appendToolResult appends a tool result to the context. Errors here used
@@ -92,13 +101,18 @@ func extractErrCode(err error) string {
 	return string(types.ErrInternal)
 }
 
-// circuitBreakerReason formats the exit reason string with fingerprint detail for traceability.
-func circuitBreakerReason(fp string, count int) string {
-	return fmt.Sprintf("circuit_breaker: %d consecutive errors with fingerprint %s", count, fp)
+// circuitBreakerReason formats the exit reason string for traceability.
+// It distinguishes between per-fingerprint trips and cumulative total trips.
+func circuitBreakerReason(counter *errFingerprintCounter) string {
+	if counter.count >= 3 {
+		return fmt.Sprintf("circuit_breaker: %d consecutive errors with fingerprint %s", counter.count, counter.fp)
+	}
+	return fmt.Sprintf("circuit_breaker: %d cumulative tool errors across fingerprints", counter.total)
 }
 
 // bumpToolError applies per-step deduplication then bumps the cross-step counter.
-// Returns (count, tripped) where tripped=true when count >= 3.
+// Returns (count, tripped) where tripped=true when same-fingerprint count >= 3
+// OR cumulative total errors >= TotalToolErrorThreshold.
 // Cancellation errors are filtered upstream and never reach here.
 func bumpToolError(counter *errFingerprintCounter, seen map[string]bool, errCode, toolPath string) (int, bool) {
 	fp := errCode + "|" + toolPath
@@ -107,7 +121,7 @@ func bumpToolError(counter *errFingerprintCounter, seen map[string]bool, errCode
 	}
 	seen[fp] = true
 	n := counter.bump(errCode, toolPath)
-	return n, n >= 3
+	return n, n >= 3 || counter.total >= TotalToolErrorThreshold
 }
 
 // spawnBreakerOutcome applies the circuit-breaker policy for a child spawn that
@@ -181,7 +195,7 @@ toolLoop:
 				tc.Name, tc.ParseError, errMsg, time.Since(stepStart),
 				nil, 0)
 			if _, tripped := bumpToolError(counter, seen, string(types.ErrInvalid), tc.Name); tripped {
-				k.finishProcess(proc, ExitStatus{Code: 1, Reason: circuitBreakerReason(counter.fp, counter.count)})
+				k.finishProcess(proc, ExitStatus{Code: 1, Reason: circuitBreakerReason(counter)})
 				return toolCalls, false
 			}
 			continue
@@ -225,7 +239,7 @@ toolLoop:
 				"tool":   tc.Name,
 			}, nil, fmt.Errorf("%s", errMsg), time.Since(stepStart))
 			if _, tripped := bumpToolError(counter, seen, string(types.ErrPermission), tc.Name); tripped {
-				k.finishProcess(proc, ExitStatus{Code: 1, Reason: circuitBreakerReason(counter.fp, counter.count)})
+				k.finishProcess(proc, ExitStatus{Code: 1, Reason: circuitBreakerReason(counter)})
 				return toolCalls, false
 			}
 			continue
@@ -279,7 +293,7 @@ toolLoop:
 				// breaker — they reflect user intent or upstream deadline, not tool misuse.
 				if !cancelled {
 					if _, tripped := bumpToolError(counter, seen, errCode, mapping.VFSPath); tripped {
-						k.finishProcess(proc, ExitStatus{Code: 1, Reason: circuitBreakerReason(counter.fp, counter.count)})
+						k.finishProcess(proc, ExitStatus{Code: 1, Reason: circuitBreakerReason(counter)})
 						return toolCalls, false
 					}
 				}
@@ -710,7 +724,7 @@ func (k *KernelImpl) executeMetaAction(proc *Process, tc llmToolCall, mapping to
 			k.writeSpawnFailureStepRecord(proc, step, tc, errMsg, promptResult, rawResponseStr, resp, stepStart)
 			if _, tripped := bumpToolError(counter, seen, string(types.ErrInternal), "spawn"); tripped {
 				k.emitEvent(proc, "ReasonStep", map[string]any{"step": step, "action": "circuit_breaker", "consecutive_errors": counter.count}, nil, nil, time.Since(stepStart))
-				k.finishProcess(proc, ExitStatus{Code: 1, Reason: circuitBreakerReason(counter.fp, counter.count)})
+				k.finishProcess(proc, ExitStatus{Code: 1, Reason: circuitBreakerReason(counter)})
 				return false
 			}
 			return true
@@ -739,7 +753,7 @@ func (k *KernelImpl) executeMetaAction(proc *Process, tc llmToolCall, mapping to
 				k.writeSpawnFailureStepRecord(proc, step, tc, errMsg, promptResult, rawResponseStr, resp, stepStart)
 				if _, tripped := bumpToolError(counter, seen, string(types.ErrInternal), "spawn"); tripped {
 					k.emitEvent(proc, "ReasonStep", map[string]any{"step": step, "action": "circuit_breaker", "consecutive_errors": counter.count}, nil, nil, time.Since(stepStart))
-					k.finishProcess(proc, ExitStatus{Code: 1, Reason: circuitBreakerReason(counter.fp, counter.count)})
+					k.finishProcess(proc, ExitStatus{Code: 1, Reason: circuitBreakerReason(counter)})
 					return false
 				}
 				return true
@@ -755,7 +769,7 @@ func (k *KernelImpl) executeMetaAction(proc *Process, tc llmToolCall, mapping to
 					// Use ErrInternal so all spawn-error sub-types share fingerprint "INTERNAL|spawn".
 					if _, tripped := bumpToolError(counter, seen, string(types.ErrInternal), "spawn"); tripped {
 						k.emitEvent(proc, "ReasonStep", map[string]any{"step": step, "action": "circuit_breaker", "consecutive_errors": counter.count}, nil, nil, time.Since(stepStart))
-						k.finishProcess(proc, ExitStatus{Code: 1, Reason: circuitBreakerReason(counter.fp, counter.count)})
+						k.finishProcess(proc, ExitStatus{Code: 1, Reason: circuitBreakerReason(counter)})
 						return false
 					}
 				}
@@ -775,7 +789,7 @@ func (k *KernelImpl) executeMetaAction(proc *Process, tc llmToolCall, mapping to
 				// failure modes (no-loader / load-fail / spawn-fail) accumulate together —
 				// otherwise alternating sub-types would silently bypass the breaker.
 				if _, tripped := bumpToolError(counter, seen, string(types.ErrInternal), "spawn"); tripped {
-					k.finishProcess(proc, ExitStatus{Code: 1, Reason: circuitBreakerReason(counter.fp, counter.count)})
+					k.finishProcess(proc, ExitStatus{Code: 1, Reason: circuitBreakerReason(counter)})
 					return false
 				}
 			}
@@ -837,7 +851,7 @@ func (k *KernelImpl) executeMetaAction(proc *Process, tc llmToolCall, mapping to
 		// up the chain. See spawnBreakerOutcome.
 		if spawnBreakerOutcome(counter, seen, childExit.Code) {
 			k.emitEvent(proc, "ReasonStep", map[string]any{"step": step, "action": "circuit_breaker", "consecutive_errors": counter.count}, nil, nil, time.Since(stepStart))
-			k.finishProcess(proc, ExitStatus{Code: 1, Reason: circuitBreakerReason(counter.fp, counter.count)})
+			k.finishProcess(proc, ExitStatus{Code: 1, Reason: circuitBreakerReason(counter)})
 			return false
 		}
 		return true
