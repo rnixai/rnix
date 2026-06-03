@@ -627,7 +627,8 @@ func (m dashboardModel) renderStepInspector(w, h int) string {
 		b.WriteString(m.inspector.Viewports[lens].View())
 	} else {
 		contentH := max(h-4, 1)
-		lines := strings.Split(content, "\n")
+		wrapped := inspector.WrapContent(content, max(m.width-2, 1))
+		lines := strings.Split(wrapped, "\n")
 		for i, line := range lines {
 			if i >= contentH {
 				break
@@ -1092,7 +1093,7 @@ func (m *dashboardModel) rebuildInspectorContents() {
 			content = applyWordLevelHighlight(content, m.inspector.SearchPos, m.search.Matches, m.search.MatchIdx, curStyle, otherStyle)
 		}
 		m.inspector.Contents[i] = content
-		m.inspector.Viewports[i].SetContent(content)
+		m.inspector.Viewports[i].SetContent(inspector.WrapContent(content, max(m.width-2, 1)))
 		// Story 36-5 fix: only reset scroll on the active lens; preserve per-lens
 		// scroll position on other lenses (Story 36-1 invariant).
 		if inspectorLens(i) == m.inspector.Lens {
@@ -1160,7 +1161,8 @@ func (m dashboardModel) buildConversationLens(detail *ipc.GetStepDetailResponse)
 
 	var b strings.Builder
 	toolCallNames := buildToolCallNameMap(detail.Messages)
-	separator := lipgloss.NewStyle().Foreground(lipgloss.Color("#888888")).Render(strings.Repeat("─", 70))
+	sepW := min(70, max(m.width-2, 10))
+	separator := lipgloss.NewStyle().Foreground(lipgloss.Color("#888888")).Render(strings.Repeat("─", sepW))
 
 	for i, msg := range detail.Messages {
 		if i > 0 {
@@ -1193,7 +1195,7 @@ func (m dashboardModel) buildConversationLensFull(detail *ipc.GetStepDetailRespo
 	var b strings.Builder
 	for i, msg := range detail.Messages {
 		if i > 0 {
-			b.WriteString(strings.Repeat("─", 70) + "\n")
+			b.WriteString(strings.Repeat("─", min(70, max(m.width-2, 10))) + "\n")
 		}
 		b.WriteString("[" + msg.Role + "]\n")
 		b.WriteString(msg.Content)

@@ -98,6 +98,35 @@ func TruncateANSIRunes(s string, maxCols int) string {
 	return b.String()
 }
 
+// WrapContent 对多行文本内容按 maxWidth 显示宽度逐行包裹。
+// 每行如果超出 maxWidth 则用 ChunkRunes 切块后以换行符拼接。
+// 已在 maxWidth 内的行不改动。用于 Inspector viewport 内容设置前
+// 确保所有行不超出终端宽度。
+func WrapContent(content string, maxWidth int) string {
+	if maxWidth <= 0 {
+		return content
+	}
+	lines := strings.Split(content, "\n")
+	var b strings.Builder
+	for i, line := range lines {
+		if i > 0 {
+			b.WriteByte('\n')
+		}
+		if lipgloss.Width(line) <= maxWidth {
+			b.WriteString(line)
+			continue
+		}
+		chunks := ChunkRunes(line, maxWidth)
+		for j, chunk := range chunks {
+			if j > 0 {
+				b.WriteByte('\n')
+			}
+			b.WriteString(chunk)
+		}
+	}
+	return b.String()
+}
+
 // ChunkRunes 把 s 按显示宽度切块（每块 ≤ maxCols 列），跳过 ANSI 转义并跨块续色。
 //
 // 用途：renderBoxedSection 在 box 内换行长行时调用，确保 box 右边线列对齐。
