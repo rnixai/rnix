@@ -11,6 +11,8 @@ import (
 )
 
 var _ vfs.ToolDescriptor = (*IntentDriver)(nil)
+var _ vfs.CallerProviderAware = (*IntentFile)(nil)
+var _ vfs.LLMOpenerAware = (*IntentFile)(nil)
 
 // IntentDriver provides VFS device access to the intent management system.
 type IntentDriver struct {
@@ -127,8 +129,8 @@ type IntentFile struct {
 	driver         *IntentDriver
 	subpath        string
 	devicePath     string
-	callerProvider string         // injected by kernel via CallerProviderAware
-	llmOpener      LLMFileOpener  // injected by kernel via LLMOpenerAware
+	callerProvider string                                       // injected by kernel via CallerProviderAware
+	llmOpener      func(provider string) (vfs.VFSFile, error)  // injected by kernel via LLMOpenerAware
 	response       []byte
 	offset         int
 	closed         bool
@@ -139,8 +141,8 @@ func (f *IntentFile) SetCallerProvider(provider string) {
 	f.callerProvider = provider
 }
 
-// SetLLMOpener sets a fallback LLM file opener for project-level providers.
-func (f *IntentFile) SetLLMOpener(opener LLMFileOpener) {
+// SetLLMOpener implements vfs.LLMOpenerAware.
+func (f *IntentFile) SetLLMOpener(opener func(provider string) (vfs.VFSFile, error)) {
 	f.llmOpener = opener
 }
 

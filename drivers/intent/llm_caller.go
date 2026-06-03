@@ -20,15 +20,11 @@ type llmResponse struct {
 	Content string `json:"content"`
 }
 
-// LLMFileOpener opens an LLM VFS file for a given provider.
-// Used to support project-level providers that aren't in the global device registry.
-type LLMFileOpener func(provider string) (vfs.VFSFile, error)
-
 type llmOpenerKey struct{}
 
-// WithLLMOpener attaches an LLMFileOpener to the context, allowing VFSCaller
+// WithLLMOpener attaches an LLM file opener to the context, allowing VFSCaller
 // to open project-level LLM providers not in the global device registry.
-func WithLLMOpener(ctx context.Context, opener LLMFileOpener) context.Context {
+func WithLLMOpener(ctx context.Context, opener func(provider string) (vfs.VFSFile, error)) context.Context {
 	return context.WithValue(ctx, llmOpenerKey{}, opener)
 }
 
@@ -51,7 +47,7 @@ func (c *VFSCaller) Call(ctx context.Context, prompt string, model string, provi
 
 	var file vfs.VFSFile
 	var err error
-	if opener, ok := ctx.Value(llmOpenerKey{}).(LLMFileOpener); ok {
+	if opener, ok := ctx.Value(llmOpenerKey{}).(func(string) (vfs.VFSFile, error)); ok {
 		file, err = opener(p)
 	}
 	if file == nil {
