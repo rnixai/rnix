@@ -28,6 +28,19 @@ func WithLLMOpener(ctx context.Context, opener func(provider string) (vfs.VFSFil
 	return context.WithValue(ctx, llmOpenerKey{}, opener)
 }
 
+type projectConfigKey struct{}
+
+// WithProjectConfig attaches a ProjectConfig to the context so downstream
+// consumers (e.g., intent reconciler spawn) can inherit project-level settings.
+func WithProjectConfig(ctx context.Context, cfg any) context.Context {
+	return context.WithValue(ctx, projectConfigKey{}, cfg)
+}
+
+// ProjectConfigFromContext extracts the ProjectConfig from the context.
+func ProjectConfigFromContext(ctx context.Context) any {
+	return ctx.Value(projectConfigKey{})
+}
+
 // VFSCaller implements intent.LLMCaller by routing calls through VFS /dev/llm/* devices.
 type VFSCaller struct {
 	devReg   *vfs.DeviceRegistry

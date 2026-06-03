@@ -1964,7 +1964,13 @@ func runDaemon(cmd *cobra.Command, args []string) error {
 	intentSpawner := &ipc.IntentKernelSpawner{
 		SpawnFunc: func(ctx context.Context, node *intent.IntentNode) (types.PID, error) {
 			agentInfo, _ := agentLoader.Load(node.Agent)
-			pid, err := k.Spawn(node.Intent, agentInfo, kernel.SpawnOpts{Model: node.Model, Provider: node.Provider})
+			opts := kernel.SpawnOpts{Model: node.Model, Provider: node.Provider}
+			if cfg := intentdriver.ProjectConfigFromContext(ctx); cfg != nil {
+				if pc, ok := cfg.(*config.ProjectConfig); ok {
+					opts.ProjectConfig = pc
+				}
+			}
+			pid, err := k.Spawn(node.Intent, agentInfo, opts)
 			return pid, err
 		},
 		WaitFunc: func(pid types.PID) (intent.ExitStatus, error) {

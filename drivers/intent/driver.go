@@ -13,6 +13,7 @@ import (
 var _ vfs.ToolDescriptor = (*IntentDriver)(nil)
 var _ vfs.CallerProviderAware = (*IntentFile)(nil)
 var _ vfs.LLMOpenerAware = (*IntentFile)(nil)
+var _ vfs.ProjectConfigAware = (*IntentFile)(nil)
 
 // IntentDriver provides VFS device access to the intent management system.
 type IntentDriver struct {
@@ -131,6 +132,7 @@ type IntentFile struct {
 	devicePath     string
 	callerProvider string                                       // injected by kernel via CallerProviderAware
 	llmOpener      func(provider string) (vfs.VFSFile, error)  // injected by kernel via LLMOpenerAware
+	projectConfig  any                                          // injected by kernel via ProjectConfigAware
 	response       []byte
 	offset         int
 	closed         bool
@@ -144,6 +146,11 @@ func (f *IntentFile) SetCallerProvider(provider string) {
 // SetLLMOpener implements vfs.LLMOpenerAware.
 func (f *IntentFile) SetLLMOpener(opener func(provider string) (vfs.VFSFile, error)) {
 	f.llmOpener = opener
+}
+
+// SetProjectConfig implements vfs.ProjectConfigAware.
+func (f *IntentFile) SetProjectConfig(cfg any) {
+	f.projectConfig = cfg
 }
 
 func (f *IntentFile) Write(ctx context.Context, data []byte) error {
@@ -200,6 +207,9 @@ func (f *IntentFile) handleDecompose(ctx context.Context, data []byte) (*intent.
 	}
 	if f.llmOpener != nil {
 		ctx = WithLLMOpener(ctx, f.llmOpener)
+	}
+	if f.projectConfig != nil {
+		ctx = WithProjectConfig(ctx, f.projectConfig)
 	}
 	tree, err := f.driver.manager.Apply(ctx, intent.ApplyRequest{
 		Intent:   req.Intent,

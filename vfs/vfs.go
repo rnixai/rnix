@@ -89,6 +89,13 @@ type LLMOpenerAware interface {
 	SetLLMOpener(opener func(provider string) (VFSFile, error))
 }
 
+// ProjectConfigAware is an optional interface for VFSFile implementations that
+// need the calling process's project config (for spawning sub-processes that
+// use project-level providers). The kernel injects this after Open.
+type ProjectConfigAware interface {
+	SetProjectConfig(cfg any)
+}
+
 // ToolCapable is an optional interface for VFSFile implementations that
 // indicate whether the underlying driver supports native tool calling
 // (i.e., the LLM driver implements ToolCallingDriver).

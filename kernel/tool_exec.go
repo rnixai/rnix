@@ -616,6 +616,9 @@ func (k *KernelImpl) executeVFSTool(proc *Process, tc llmToolCall, mapping toolM
 			if loa, ok := file.(vfs.LLMOpenerAware); ok {
 				loa.SetLLMOpener(k.buildLLMOpener(proc))
 			}
+			if pca, ok := file.(vfs.ProjectConfigAware); ok && proc.ProjectConfig != nil {
+				pca.SetProjectConfig(proc.ProjectConfig)
+			}
 		}
 		if !isEmpty || targetIsMCP {
 			writeData := inputData
