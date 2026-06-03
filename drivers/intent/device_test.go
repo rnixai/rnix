@@ -18,7 +18,7 @@ type mockDecomposeCaller struct {
 	err      error
 }
 
-func (m *mockDecomposeCaller) Call(_ context.Context, _ string, _ string) (string, error) {
+func (m *mockDecomposeCaller) Call(_ context.Context, _ string, _ string, _ string) (string, error) {
 	if m.err != nil {
 		return "", m.err
 	}

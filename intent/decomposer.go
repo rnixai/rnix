@@ -11,7 +11,7 @@ import (
 
 // LLMCaller abstracts LLM invocation for intent decomposition.
 type LLMCaller interface {
-	Call(ctx context.Context, prompt string, model string) (string, error)
+	Call(ctx context.Context, prompt string, model string, provider string) (string, error)
 }
 
 // Decomposer breaks a high-level intent into sub-intents using an LLM.
@@ -39,10 +39,10 @@ type llmDecomposeNode struct {
 }
 
 // Decompose calls the LLM to break an intent into an IntentTree.
-func (d *Decomposer) Decompose(ctx context.Context, intent string, model string) (*IntentTree, error) {
+func (d *Decomposer) Decompose(ctx context.Context, intent string, model string, provider string) (*IntentTree, error) {
 	prompt := fmt.Sprintf(d.decomposePrompt, intent)
 
-	response, err := d.llmDriver.Call(ctx, prompt, model)
+	response, err := d.llmDriver.Call(ctx, prompt, model, provider)
 	if err != nil {
 		return nil, fmt.Errorf("decompose: LLM call failed: %w", err)
 	}
@@ -87,7 +87,7 @@ func (d *Decomposer) Decompose(ctx context.Context, intent string, model string)
 }
 
 // DecomposeIncremental calls the LLM to produce an updated node list for an existing tree.
-func (d *Decomposer) DecomposeIncremental(ctx context.Context, tree *IntentTree, newIntent string, model string) ([]*IntentNode, error) {
+func (d *Decomposer) DecomposeIncremental(ctx context.Context, tree *IntentTree, newIntent string, model string, provider string) ([]*IntentNode, error) {
 	// Build current tasks summary with deterministic order
 	ids := make([]string, 0, len(tree.Nodes))
 	for id := range tree.Nodes {
@@ -102,7 +102,7 @@ func (d *Decomposer) DecomposeIncremental(ctx context.Context, tree *IntentTree,
 
 	prompt := fmt.Sprintf(d.incrementalPrompt, tree.RootIntent, tasksSummary.String(), newIntent)
 
-	response, err := d.llmDriver.Call(ctx, prompt, model)
+	response, err := d.llmDriver.Call(ctx, prompt, model, provider)
 	if err != nil {
 		return nil, fmt.Errorf("decompose incremental: LLM call failed: %w", err)
 	}

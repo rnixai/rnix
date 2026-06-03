@@ -39,7 +39,7 @@ func NewManager(decomposer *Decomposer, spawner KernelSpawner, config Reconciler
 
 // Apply decomposes a high-level intent and stores the resulting IntentTree.
 func (m *Manager) Apply(ctx context.Context, req ApplyRequest) (*IntentTree, error) {
-	tree, err := m.decomposer.Decompose(ctx, req.Intent, req.Model)
+	tree, err := m.decomposer.Decompose(ctx, req.Intent, req.Model, req.Provider)
 	if err != nil {
 		return nil, fmt.Errorf("intent apply: %w", err)
 	}
@@ -160,7 +160,7 @@ func (m *Manager) ApplyIncremental(ctx context.Context, intentID IntentID, newIn
 		return nil, nil, fmt.Errorf("apply incremental: intent %s: cannot update terminal intent", intentID)
 	}
 
-	newNodes, err := m.decomposer.DecomposeIncremental(ctx, tree, newIntent, model)
+	newNodes, err := m.decomposer.DecomposeIncremental(ctx, tree, newIntent, model, provider)
 	if err != nil {
 		return nil, nil, fmt.Errorf("apply incremental: intent %s: %w", intentID, err)
 	}

@@ -14,7 +14,7 @@ type mockLLMCaller struct {
 	delay    time.Duration
 }
 
-func (m *mockLLMCaller) Call(ctx context.Context, prompt string, model string) (string, error) {
+func (m *mockLLMCaller) Call(ctx context.Context, prompt string, model string, provider string) (string, error) {
 	if m.delay > 0 {
 		select {
 		case <-time.After(m.delay):
@@ -41,7 +41,7 @@ func TestDecomposer_Decompose_Success(t *testing.T) {
 	caller := &mockLLMCaller{response: string(jsonBytes)}
 	decomposer := NewDecomposer(caller)
 
-	tree, err := decomposer.Decompose(context.Background(), "我要一个完整的博客系统", "")
+	tree, err := decomposer.Decompose(context.Background(), "我要一个完整的博客系统", "", "")
 
 	if err != nil {
 		t.Fatalf("Decompose failed: %v", err)
@@ -75,7 +75,7 @@ func TestDecomposer_Decompose_InvalidJSON(t *testing.T) {
 	caller := &mockLLMCaller{response: "this is not valid json at all"}
 	decomposer := NewDecomposer(caller)
 
-	_, err := decomposer.Decompose(context.Background(), "build a blog", "")
+	_, err := decomposer.Decompose(context.Background(), "build a blog", "", "")
 
 	if err == nil {
 		t.Fatal("expected error for invalid JSON, got nil")
@@ -96,7 +96,7 @@ func TestDecomposer_Decompose_CyclicDeps(t *testing.T) {
 	caller := &mockLLMCaller{response: string(jsonBytes)}
 	decomposer := NewDecomposer(caller)
 
-	_, err := decomposer.Decompose(context.Background(), "cyclic intent", "")
+	_, err := decomposer.Decompose(context.Background(), "cyclic intent", "", "")
 
 	if err == nil {
 		t.Fatal("expected cycle detection error, got nil")
@@ -107,7 +107,7 @@ func TestDecomposer_Decompose_EmptyResult(t *testing.T) {
 	caller := &mockLLMCaller{response: "[]"}
 	decomposer := NewDecomposer(caller)
 
-	_, err := decomposer.Decompose(context.Background(), "empty intent", "")
+	_, err := decomposer.Decompose(context.Background(), "empty intent", "", "")
 
 	if err == nil {
 		t.Fatal("expected error for empty decomposition result, got nil")
@@ -118,7 +118,7 @@ func TestDecomposer_Decompose_LLMError(t *testing.T) {
 	caller := &mockLLMCaller{err: fmt.Errorf("API rate limit exceeded")}
 	decomposer := NewDecomposer(caller)
 
-	_, err := decomposer.Decompose(context.Background(), "will fail", "")
+	_, err := decomposer.Decompose(context.Background(), "will fail", "", "")
 
 	if err == nil {
 		t.Fatal("expected LLM error to propagate, got nil")
@@ -132,7 +132,7 @@ func TestDecomposer_Decompose_Timeout(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
 	defer cancel()
 
-	_, err := decomposer.Decompose(ctx, "slow intent", "")
+	_, err := decomposer.Decompose(ctx, "slow intent", "", "")
 
 	if err == nil {
 		t.Fatal("expected timeout error, got nil")
@@ -149,7 +149,7 @@ func TestDecomposer_Decompose_ModelPassthrough(t *testing.T) {
 	}
 	decomposer := NewDecomposer(caller)
 
-	_, err := decomposer.Decompose(context.Background(), "test intent", "claude-opus")
+	_, err := decomposer.Decompose(context.Background(), "test intent", "claude-opus", "")
 
 	if err != nil {
 		t.Fatalf("Decompose failed: %v", err)
@@ -165,9 +165,41 @@ type recordingLLMCaller struct {
 	onCall   func(ctx context.Context, prompt string, model string)
 }
 
-func (r *recordingLLMCaller) Call(ctx context.Context, prompt string, model string) (string, error) {
+func (r *recordingLLMCaller) Call(ctx context.Context, prompt string, model string, provider string) (string, error) {
 	if r.onCall != nil {
 		r.onCall(ctx, prompt, model)
+	}
+	return r.response, r.err
+}
+
+func TestDecomposer_Decompose_ProviderPassthrough(t *testing.T) {
+	var capturedProvider string
+	caller := &providerRecordingCaller{
+		response: `[{"id":"a","intent":"task","depends_on":[]}]`,
+		onCall: func(_ context.Context, _ string, _ string, provider string) {
+			capturedProvider = provider
+		},
+	}
+	decomposer := NewDecomposer(caller)
+
+	_, err := decomposer.Decompose(context.Background(), "test intent", "", "custom-provider")
+	if err != nil {
+		t.Fatalf("Decompose failed: %v", err)
+	}
+	if capturedProvider != "custom-provider" {
+		t.Fatalf("expected provider='custom-provider' passed to LLM, got %q", capturedProvider)
+	}
+}
+
+type providerRecordingCaller struct {
+	response string
+	err      error
+	onCall   func(ctx context.Context, prompt string, model string, provider string)
+}
+
+func (r *providerRecordingCaller) Call(ctx context.Context, prompt string, model string, provider string) (string, error) {
+	if r.onCall != nil {
+		r.onCall(ctx, prompt, model, provider)
 	}
 	return r.response, r.err
 }
@@ -207,7 +239,7 @@ func TestDecomposer_DecomposeIncremental(t *testing.T) {
 	}
 	decomposer := NewDecomposer(caller)
 
-	nodes, err := decomposer.DecomposeIncremental(context.Background(), existingTree, "add comment feature", "claude-sonnet")
+	nodes, err := decomposer.DecomposeIncremental(context.Background(), existingTree, "add comment feature", "claude-sonnet", "")
 
 	if err != nil {
 		t.Fatalf("DecomposeIncremental failed: %v", err)
@@ -258,7 +290,7 @@ func TestDecomposer_DecomposeIncremental_InvalidJSON(t *testing.T) {
 	caller := &mockLLMCaller{response: "this is not valid json"}
 	decomposer := NewDecomposer(caller)
 
-	_, err := decomposer.DecomposeIncremental(context.Background(), existingTree, "invalid", "")
+	_, err := decomposer.DecomposeIncremental(context.Background(), existingTree, "invalid", "", "")
 
 	if err == nil {
 		t.Fatal("expected error for invalid JSON from LLM, got nil")
@@ -291,7 +323,7 @@ func TestDecomposer_Decompose_SingleNode(t *testing.T) {
 	caller := &mockLLMCaller{response: string(jsonBytes)}
 	decomposer := NewDecomposer(caller)
 
-	tree, err := decomposer.Decompose(context.Background(), "创建 /app/hello.txt 内容为 Hello Rnix", "")
+	tree, err := decomposer.Decompose(context.Background(), "创建 /app/hello.txt 内容为 Hello Rnix", "", "")
 	if err != nil {
 		t.Fatalf("Decompose failed: %v", err)
 	}
@@ -323,7 +355,7 @@ func TestDecomposer_Decompose_InitDesired(t *testing.T) {
 	caller := &mockLLMCaller{response: string(jsonBytes)}
 	decomposer := NewDecomposer(caller)
 
-	tree, err := decomposer.Decompose(context.Background(), "test init desired", "")
+	tree, err := decomposer.Decompose(context.Background(), "test init desired", "", "")
 	if err != nil {
 		t.Fatalf("Decompose failed: %v", err)
 	}

@@ -71,7 +71,7 @@ func TestVFSCaller_Call_Success(t *testing.T) {
 	reg := newMockDeviceRegistry("test", mock)
 
 	caller := NewVFSCaller(reg, "test")
-	result, err := caller.Call(context.Background(), "decompose this", "claude-3")
+	result, err := caller.Call(context.Background(), "decompose this", "claude-3", "")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -87,7 +87,7 @@ func TestVFSCaller_Call_DeviceNotFound(t *testing.T) {
 	reg := vfs.NewDeviceRegistry()
 	caller := NewVFSCaller(reg, "nonexistent")
 
-	_, err := caller.Call(context.Background(), "test", "")
+	_, err := caller.Call(context.Background(), "test", "", "")
 	if err == nil {
 		t.Fatal("expected error for missing device")
 	}
@@ -101,7 +101,7 @@ func TestVFSCaller_Call_WriteError(t *testing.T) {
 	reg := newMockDeviceRegistry("failing", mock)
 
 	caller := NewVFSCaller(reg, "failing")
-	_, err := caller.Call(context.Background(), "test", "")
+	_, err := caller.Call(context.Background(), "test", "", "")
 	if err == nil {
 		t.Fatal("expected error on write failure")
 	}
@@ -118,7 +118,7 @@ func TestVFSCaller_Call_InvalidResponse(t *testing.T) {
 	reg := newMockDeviceRegistry("broken", mock)
 
 	caller := NewVFSCaller(reg, "broken")
-	_, err := caller.Call(context.Background(), "test", "")
+	_, err := caller.Call(context.Background(), "test", "", "")
 	if err == nil {
 		t.Fatal("expected error for invalid JSON response")
 	}
@@ -134,7 +134,7 @@ func TestVFSCaller_Call_EmptyModel(t *testing.T) {
 	reg := newMockDeviceRegistry("test", mock)
 
 	caller := NewVFSCaller(reg, "test")
-	result, err := caller.Call(context.Background(), "prompt", "")
+	result, err := caller.Call(context.Background(), "prompt", "", "")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -148,7 +148,7 @@ func TestVFSCaller_Call_ReadError(t *testing.T) {
 	reg := newMockDeviceRegistry("broken-read", mock)
 
 	caller := NewVFSCaller(reg, "broken-read")
-	_, err := caller.Call(context.Background(), "test", "")
+	_, err := caller.Call(context.Background(), "test", "", "")
 	if err == nil {
 		t.Fatal("expected error on read failure")
 	}
@@ -157,12 +157,36 @@ func TestVFSCaller_Call_ReadError(t *testing.T) {
 	}
 }
 
+func TestVFSCaller_Call_ProviderOverride(t *testing.T) {
+	resp := llmResponse{Content: "override result"}
+	respJSON, _ := json.Marshal(resp)
+	overrideMock := &mockLLMFile{responseJSON: respJSON}
+
+	reg := vfs.NewDeviceRegistry()
+	_ = reg.Register("/dev/llm/default-prov", func(_ string, _ vfs.OpenFlag, _ string) (vfs.VFSFile, error) {
+		t.Fatal("should not open the default provider device")
+		return nil, nil
+	})
+	_ = reg.Register("/dev/llm/override-prov", func(_ string, _ vfs.OpenFlag, _ string) (vfs.VFSFile, error) {
+		return overrideMock, nil
+	})
+
+	caller := NewVFSCaller(reg, "default-prov")
+	result, err := caller.Call(context.Background(), "test", "", "override-prov")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if result != "override result" {
+		t.Errorf("got %q, want %q", result, "override result")
+	}
+}
+
 func TestVFSCaller_Call_EmptyResponse(t *testing.T) {
 	mock := &mockLLMFile{responseJSON: []byte{}}
 	reg := newMockDeviceRegistry("empty", mock)
 
 	caller := NewVFSCaller(reg, "empty")
-	_, err := caller.Call(context.Background(), "test", "")
+	_, err := caller.Call(context.Background(), "test", "", "")
 	if err == nil {
 		t.Fatal("expected error for empty response")
 	}
