@@ -65,6 +65,10 @@ func (m *mockIntentSpawner) Wait(pid types.PID) (ExitStatus, error) {
 	return ExitStatus{Code: 0, Reason: "ok"}, nil
 }
 
+func (m *mockIntentSpawner) Kill(pid types.PID) error {
+	return nil
+}
+
 func (m *mockIntentSpawner) getSpawnOrder() []string {
 	m.mu.Lock()
 	defer m.mu.Unlock()

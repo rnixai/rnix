@@ -12,6 +12,7 @@ import (
 type KernelSpawner interface {
 	SpawnIntent(ctx context.Context, node *IntentNode) (types.PID, error)
 	Wait(pid types.PID) (ExitStatus, error)
+	Kill(pid types.PID) error
 }
 
 // ExitStatus records the exit status of an intent node execution.

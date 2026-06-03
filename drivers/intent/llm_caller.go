@@ -6,6 +6,7 @@ import (
 	"fmt"
 
 	"github.com/rnixai/rnix/intent"
+	"github.com/rnixai/rnix/internal/types"
 	"github.com/rnixai/rnix/vfs"
 )
 
@@ -39,6 +40,26 @@ func WithProjectConfig(ctx context.Context, cfg any) context.Context {
 // ProjectConfigFromContext extracts the ProjectConfig from the context.
 func ProjectConfigFromContext(ctx context.Context) any {
 	return ctx.Value(projectConfigKey{})
+}
+
+type callerProcessInfoKey struct{}
+
+// CallerProcessInfo carries the calling process's PID and depth through context
+// so that intent reconciler SpawnFunc can set ParentPID and Depth on child processes.
+type CallerProcessInfo struct {
+	PID   types.PID
+	Depth int
+}
+
+// WithCallerProcessInfo attaches caller process info to the context.
+func WithCallerProcessInfo(ctx context.Context, info CallerProcessInfo) context.Context {
+	return context.WithValue(ctx, callerProcessInfoKey{}, info)
+}
+
+// CallerProcessInfoFromContext extracts the caller process info from the context.
+func CallerProcessInfoFromContext(ctx context.Context) (CallerProcessInfo, bool) {
+	info, ok := ctx.Value(callerProcessInfoKey{}).(CallerProcessInfo)
+	return info, ok
 }
 
 // VFSCaller implements intent.LLMCaller by routing calls through VFS /dev/llm/* devices.

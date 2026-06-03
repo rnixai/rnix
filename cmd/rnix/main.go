@@ -1970,16 +1970,22 @@ func runDaemon(cmd *cobra.Command, args []string) error {
 					opts.ProjectConfig = pc
 				}
 			}
+			if cpInfo, ok := intentdriver.CallerProcessInfoFromContext(ctx); ok {
+				opts.ParentPID = cpInfo.PID
+				opts.Depth = cpInfo.Depth + 1
+			}
 			pid, err := k.Spawn(node.Intent, agentInfo, opts)
 			return pid, err
 		},
 		WaitFunc: func(pid types.PID) (intent.ExitStatus, error) {
-			proc, ok := k.GetProcess(pid)
-			if !ok {
-				return intent.ExitStatus{Code: 1, Reason: "process not found"}, fmt.Errorf("process %d not found", pid)
+			es, err := k.Wait(pid)
+			if err != nil {
+				return intent.ExitStatus{Code: 1, Reason: err.Error()}, err
 			}
-			es := <-proc.Done
 			return intent.ExitStatus{Code: es.Code, Reason: es.Reason, Err: es.Err}, nil
+		},
+		KillFunc: func(pid types.PID) error {
+			return k.Kill(pid, types.SIGKILL)
 		},
 	}
 	intentMgr := intent.NewManager(intentDecomposer, intentSpawner, intent.DefaultReconcilerConfig())

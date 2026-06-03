@@ -14,6 +14,7 @@ var _ vfs.ToolDescriptor = (*IntentDriver)(nil)
 var _ vfs.CallerProviderAware = (*IntentFile)(nil)
 var _ vfs.LLMOpenerAware = (*IntentFile)(nil)
 var _ vfs.ProjectConfigAware = (*IntentFile)(nil)
+var _ vfs.CallerProcessInfoAware = (*IntentFile)(nil)
 
 // IntentDriver provides VFS device access to the intent management system.
 type IntentDriver struct {
@@ -133,6 +134,8 @@ type IntentFile struct {
 	callerProvider string                                       // injected by kernel via CallerProviderAware
 	llmOpener      func(provider string) (vfs.VFSFile, error)  // injected by kernel via LLMOpenerAware
 	projectConfig  any                                          // injected by kernel via ProjectConfigAware
+	callerPID      types.PID                                    // injected by kernel via CallerProcessInfoAware
+	callerDepth    int                                          // injected by kernel via CallerProcessInfoAware
 	response       []byte
 	offset         int
 	closed         bool
@@ -151,6 +154,12 @@ func (f *IntentFile) SetLLMOpener(opener func(provider string) (vfs.VFSFile, err
 // SetProjectConfig implements vfs.ProjectConfigAware.
 func (f *IntentFile) SetProjectConfig(cfg any) {
 	f.projectConfig = cfg
+}
+
+// SetCallerProcessInfo implements vfs.CallerProcessInfoAware.
+func (f *IntentFile) SetCallerProcessInfo(pid types.PID, depth int) {
+	f.callerPID = pid
+	f.callerDepth = depth
 }
 
 func (f *IntentFile) Write(ctx context.Context, data []byte) error {
@@ -210,6 +219,9 @@ func (f *IntentFile) handleDecompose(ctx context.Context, data []byte) (*intent.
 	}
 	if f.projectConfig != nil {
 		ctx = WithProjectConfig(ctx, f.projectConfig)
+	}
+	if f.callerPID > 0 {
+		ctx = WithCallerProcessInfo(ctx, CallerProcessInfo{PID: f.callerPID, Depth: f.callerDepth})
 	}
 	tree, err := f.driver.manager.Apply(ctx, intent.ApplyRequest{
 		Intent:   req.Intent,

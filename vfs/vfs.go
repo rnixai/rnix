@@ -96,6 +96,13 @@ type ProjectConfigAware interface {
 	SetProjectConfig(cfg any)
 }
 
+// CallerProcessInfoAware is an optional interface for VFSFile implementations
+// that need the calling process's PID and spawn depth. The kernel injects this
+// after Open so intent devices can propagate parent-child relationships.
+type CallerProcessInfoAware interface {
+	SetCallerProcessInfo(pid types.PID, depth int)
+}
+
 // ToolCapable is an optional interface for VFSFile implementations that
 // indicate whether the underlying driver supports native tool calling
 // (i.e., the LLM driver implements ToolCallingDriver).

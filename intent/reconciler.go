@@ -260,6 +260,7 @@ func (r *Reconciler) executeNodeWithTimeout(ctx context.Context, node *IntentNod
 
 	select {
 	case <-nodeCtx.Done():
+		_ = r.spawner.Kill(pid)
 		if ctx.Err() == nil {
 			r.eventCh <- reconcileEvent{nodeID: node.ID, evType: evNodeTimeout, errMsg: fmt.Sprintf("node timeout after %v", timeout)}
 		} else {

@@ -619,6 +619,9 @@ func (k *KernelImpl) executeVFSTool(proc *Process, tc llmToolCall, mapping toolM
 			if pca, ok := file.(vfs.ProjectConfigAware); ok && proc.ProjectConfig != nil {
 				pca.SetProjectConfig(proc.ProjectConfig)
 			}
+			if cpia, ok := file.(vfs.CallerProcessInfoAware); ok {
+				cpia.SetCallerProcessInfo(proc.PID, proc.Depth)
+			}
 		}
 		if !isEmpty || targetIsMCP {
 			writeData := inputData

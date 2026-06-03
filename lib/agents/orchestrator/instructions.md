@@ -62,3 +62,4 @@ driver 会在分解成功后同步完成 confirm + execute，等待所有子任�
 - 不要跳过任何步骤
 - 不要尝试自行分解任务，必须通过 /dev/intent/decompose 设备
 - 执行可能需要较长时间，耐心等待 /dev/intent/execute 返回
+- intent 执行成功后，直接汇报结果，**禁止** spawn 子 agent 或调用其他工具做二次验证

@@ -39,6 +39,10 @@ func (m *mockSpawner) Wait(_ types.PID) (intent.ExitStatus, error) {
 	return intent.ExitStatus{Code: 0, Reason: "done"}, nil
 }
 
+func (m *mockSpawner) Kill(_ types.PID) error {
+	return nil
+}
+
 func newTestManager(caller intent.LLMCaller) *intent.Manager {
 	return intent.NewManager(
 		intent.NewDecomposer(caller),

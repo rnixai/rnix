@@ -205,6 +205,7 @@ func intentNodeToWire(node *intent.IntentNode) *IntentNodeWire {
 type IntentKernelSpawner struct {
 	SpawnFunc func(ctx context.Context, node *intent.IntentNode) (types.PID, error)
 	WaitFunc  func(pid types.PID) (intent.ExitStatus, error)
+	KillFunc  func(pid types.PID) error
 }
 
 func (s *IntentKernelSpawner) SpawnIntent(ctx context.Context, node *intent.IntentNode) (types.PID, error) {
@@ -219,4 +220,11 @@ func (s *IntentKernelSpawner) Wait(pid types.PID) (intent.ExitStatus, error) {
 		return intent.ExitStatus{}, fmt.Errorf("wait not configured")
 	}
 	return s.WaitFunc(pid)
+}
+
+func (s *IntentKernelSpawner) Kill(pid types.PID) error {
+	if s.KillFunc == nil {
+		return fmt.Errorf("kill not configured")
+	}
+	return s.KillFunc(pid)
 }
