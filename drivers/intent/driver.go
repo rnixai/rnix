@@ -124,12 +124,18 @@ func (d *IntentDriver) ToolDefs() []vfs.ToolDef {
 
 // IntentFile implements vfs.VFSFile for /dev/intent via write-then-read semantics.
 type IntentFile struct {
-	driver     *IntentDriver
-	subpath    string
-	devicePath string
-	response   []byte
-	offset     int
-	closed     bool
+	driver         *IntentDriver
+	subpath        string
+	devicePath     string
+	callerProvider string // injected by kernel via CallerProviderAware
+	response       []byte
+	offset         int
+	closed         bool
+}
+
+// SetCallerProvider implements vfs.CallerProviderAware.
+func (f *IntentFile) SetCallerProvider(provider string) {
+	f.callerProvider = provider
 }
 
 func (f *IntentFile) Write(ctx context.Context, data []byte) error {
@@ -180,10 +186,14 @@ func (f *IntentFile) handleDecompose(ctx context.Context, data []byte) (*intent.
 		return nil, &types.DriverError{Op: "Write", Device: f.devicePath, Err: fmt.Errorf("intent is required"), Code: types.ErrInvalid}
 	}
 
+	provider := req.Provider
+	if provider == "" {
+		provider = f.callerProvider
+	}
 	tree, err := f.driver.manager.Apply(ctx, intent.ApplyRequest{
 		Intent:   req.Intent,
 		Model:    req.Model,
-		Provider: req.Provider,
+		Provider: provider,
 	})
 	if err != nil {
 		return nil, &types.DriverError{Op: "Write", Device: f.devicePath, Err: err, Code: types.ErrDriver}

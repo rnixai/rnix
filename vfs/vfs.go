@@ -75,6 +75,13 @@ type ToolDescriptor interface {
 	ToolDefs() []ToolDef
 }
 
+// CallerProviderAware is an optional interface for VFSFile implementations
+// that need the calling process's LLM provider. The kernel sets this after
+// Open so the device can route internal LLM calls through the correct provider.
+type CallerProviderAware interface {
+	SetCallerProvider(provider string)
+}
+
 // ToolCapable is an optional interface for VFSFile implementations that
 // indicate whether the underlying driver supports native tool calling
 // (i.e., the LLM driver implements ToolCallingDriver).

@@ -609,6 +609,11 @@ func (k *KernelImpl) executeVFSTool(proc *Process, tc llmToolCall, mapping toolM
 		if err != nil {
 			return "", fmt.Errorf("open failed: %w", err)
 		}
+		if file := k.vfs.GetFile(proc.PID, fd); file != nil {
+			if cpa, ok := file.(vfs.CallerProviderAware); ok {
+				cpa.SetCallerProvider(proc.Provider)
+			}
+		}
 		if !isEmpty || targetIsMCP {
 			writeData := inputData
 			if isEmpty {
