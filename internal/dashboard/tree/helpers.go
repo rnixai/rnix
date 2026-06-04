@@ -216,6 +216,16 @@ func BuildCollapsedIntents(state TreeState) map[string]string {
 		return result
 	}
 
+	// reusedPID counts how many displayed rows hold each PID. A PID held by >1
+	// row was recycled across daemon generations; the PPID fallback below must
+	// not group siblings by such a PID, or unrelated trees' children would be
+	// folded together (spec-agent-tree-uuid-build). Counted inline over the rows
+	// to avoid copying ProcInfo structs on the per-tick render path.
+	pidCount := make(map[types.PID]int, len(state.Rows))
+	for _, row := range state.Rows {
+		pidCount[row.Proc.PID]++
+	}
+
 	// Build parent UUID → child rows mapping from the tree structure
 	parentChildren := make(map[string][]int) // parentUUID → indices in Rows
 	for i, row := range state.Rows {
@@ -224,8 +234,10 @@ func BuildCollapsedIntents(state TreeState) map[string]string {
 			parentChildren[puuid] = append(parentChildren[puuid], i)
 			continue
 		}
-		// Fallback: PPID → UUID lookup for old processes without ParentUUID
-		if row.Proc.PPID > 0 && row.Proc.PPID != row.Proc.PID {
+		// Fallback: PPID → UUID lookup for old processes without ParentUUID.
+		// Skip when the parent PID is reused (ambiguous across daemon
+		// generations) — grouping by it would merge unrelated siblings.
+		if row.Proc.PPID > 0 && row.Proc.PPID != row.Proc.PID && pidCount[row.Proc.PPID] <= 1 {
 			for _, other := range state.Rows {
 				if other.Proc.PID == row.Proc.PPID && other.Proc.UUID != "" {
 					parentChildren[other.Proc.UUID] = append(parentChildren[other.Proc.UUID], i)

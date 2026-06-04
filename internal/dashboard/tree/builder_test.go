@@ -243,6 +243,83 @@ func TestBuildProcessTree_PIDReuse_UUIDKeyed(t *testing.T) {
 	}
 }
 
+// TestBuildProcessTree_PIDReuse_NoParentUUID_NoCrossMerge locks the
+// spec-agent-tree-uuid-build invariant: when a process has no ParentUUID and its
+// PPID points to a PID that is REUSED across daemon generations, the builder must
+// NOT cross-link it under an unrelated process holding that PID — it stays a root.
+// Contrast (control): an unambiguous (non-reused) PID still links via PPID fallback.
+func TestBuildProcessTree_PIDReuse_NoParentUUID_NoCrossMerge(t *testing.T) {
+	t.Parallel()
+	now := time.Now()
+	procs := []vfs.ProcInfo{
+		// Tree A: root PID 5 (live) + child linked by ParentUUID.
+		{PID: 5, PPID: 0, UUID: "treeA-root", State: types.StateRunning, CreatedAt: now},
+		{PID: 6, PPID: 5, UUID: "treeA-child", ParentUUID: "treeA-root", State: types.StateRunning, CreatedAt: now},
+		// A DIFFERENT generation that also used PID 5 → PID 5 is now reused.
+		{PID: 5, PPID: 0, UUID: "old-gen", State: types.StateDead, CreatedAt: now.Add(-1 * time.Hour)},
+		// Orphan with empty ParentUUID whose PPID==5 (the reused PID).
+		{PID: 9, PPID: 5, UUID: "orphan-noPUUID", ParentUUID: "", State: types.StateDead, CreatedAt: now},
+		// A RUNNING orphan also sharing the reused PPID 5 → must also stay root
+		// (covers the non-dead fallback branch, not just dead→dead).
+		{PID: 10, PPID: 5, UUID: "orphan-running", ParentUUID: "", State: types.StateRunning, CreatedAt: now},
+		// Control: unique PID 20 parent + child with empty ParentUUID → must still link.
+		{PID: 20, PPID: 0, UUID: "uniq-parent", State: types.StateRunning, CreatedAt: now},
+		{PID: 21, PPID: 20, UUID: "uniq-child", ParentUUID: "", State: types.StateRunning, CreatedAt: now},
+	}
+	roots := BuildProcessTree(procs, 1 /* PID */, true)
+
+	var find func(ns []*TreeNode, uuid string) *TreeNode
+	find = func(ns []*TreeNode, uuid string) *TreeNode {
+		for _, n := range ns {
+			if n.Proc.UUID == uuid {
+				return n
+			}
+			if got := find(n.Children, uuid); got != nil {
+				return got
+			}
+		}
+		return nil
+	}
+	isRoot := func(uuid string) bool {
+		for _, r := range roots {
+			if r.Proc.UUID == uuid {
+				return true
+			}
+		}
+		return false
+	}
+
+	// The reused-PID orphans (dead AND running) must NOT attach to any PID-5 holder.
+	if !isRoot("orphan-noPUUID") {
+		t.Errorf("dead orphan with reused PPID must stay a root, but it was attached elsewhere")
+	}
+	if !isRoot("orphan-running") {
+		t.Errorf("running orphan with reused PPID must stay a root, but it was attached elsewhere")
+	}
+	for _, uuid := range []string{"treeA-root", "old-gen"} {
+		n := find(roots, uuid)
+		if n == nil {
+			t.Fatalf("%s missing from tree", uuid)
+		}
+		for _, c := range n.Children {
+			if c.Proc.UUID == "orphan-noPUUID" || c.Proc.UUID == "orphan-running" {
+				t.Errorf("%s wrongly adopted reused-PID orphan %s", uuid, c.Proc.UUID)
+			}
+		}
+	}
+	// treeA-root keeps exactly its ParentUUID-linked child.
+	if n := find(roots, "treeA-root"); n == nil || len(n.Children) != 1 || n.Children[0].Proc.UUID != "treeA-child" {
+		t.Errorf("treeA-root should have exactly 1 ParentUUID child (treeA-child), got %+v", n)
+	}
+	// Control: unique-PID fallback still links the empty-ParentUUID child.
+	if isRoot("uniq-child") {
+		t.Errorf("unique-PID PPID fallback must still link uniq-child, but it became a root")
+	}
+	if n := find(roots, "uniq-parent"); n == nil || len(n.Children) != 1 || n.Children[0].Proc.UUID != "uniq-child" {
+		t.Errorf("uniq-parent should adopt uniq-child via unambiguous PPID fallback, got %+v", n)
+	}
+}
+
 func TestBuildProcessTree_NodeKey_FallbackToPID(t *testing.T) {
 	t.Parallel()
 	// Empty UUID → fallback to "!pid:N" key

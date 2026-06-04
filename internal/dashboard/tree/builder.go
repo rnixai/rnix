@@ -4,13 +4,12 @@
 // cmd/rnix/dashboard_tree.go（Step 1）。BuildProcessTree / SortNodes / StateRank
 // 迁出自 cmd/rnix/dashboard_tree.go 复杂版（Step 4）。
 //
-// 函数命名差异说明：
-//   - BuildTree(procs)                       — 简化版（PID 排序）· 被 cmd/rnix/top.go 用
-//   - BuildProcessTree(procs, sortMode, asc) — 复杂版（UUID+ParentUUID + sortMode/asc + synthetic parent）· 被 dashboard 用
-//
-// 二者并存：top 命令对快速 PID 列表展示需求简单；dashboard 需要 UUID 去重 +
-// 多种 sortMode + ParentUUID 跨 daemon-restart 父子关系保持 + missing parent
-// 合成节点占位等高级功能。
+// 构树统一为 UUID（spec-agent-tree-uuid-build）：
+//   - BuildProcessTree(procs, sortMode, asc) — 唯一实现：UUID+ParentUUID 构树，
+//     PPID 回退对重用 PID 安全（仅当目标 PID 在输入中唯一才按 PPID 挂载），支持
+//     sortMode/asc + synthetic missing-parent 占位。dashboard 直接调用。
+//   - BuildTree(procs) — 薄委托：以 PID 升序模式调 BuildProcessTree，供 `rnix top`
+//     保持既有 PID 列表展示。不再有独立的纯 PID 构树逻辑。
 package tree
 
 import (
@@ -22,41 +21,15 @@ import (
 	"github.com/rnixai/rnix/vfs"
 )
 
-// BuildTree constructs a process tree from a flat list of ProcInfo.
-// Processes whose PPID is not in the list become root nodes.
-// Children within each node are sorted by PID.
+// BuildTree constructs a process tree sorted by PID ascending.
+//
+// It is a thin delegation to BuildProcessTree — the single UUID/ParentUUID-keyed,
+// PID-reuse-safe implementation — with the PID sort mode. Callers like `rnix top`
+// thus get accurate parent linkage across daemon-restart PID reuse and never
+// cross-link unrelated processes that happen to share a reused PID, while keeping
+// the historical PID-ascending display order.
 func BuildTree(procs []vfs.ProcInfo) []*TreeNode {
-	if len(procs) == 0 {
-		return nil
-	}
-
-	nodes := make(map[types.PID]*TreeNode, len(procs))
-	for i := range procs {
-		nodes[procs[i].PID] = &TreeNode{Proc: procs[i]}
-	}
-
-	var roots []*TreeNode
-	for _, n := range nodes {
-		if parent, ok := nodes[n.Proc.PPID]; ok {
-			parent.Children = append(parent.Children, n)
-		} else {
-			roots = append(roots, n)
-		}
-	}
-
-	sortNodes := func(ns []*TreeNode) {
-		sort.Slice(ns, func(i, j int) bool {
-			return ns[i].Proc.PID < ns[j].Proc.PID
-		})
-	}
-	sortNodes(roots)
-	for _, n := range nodes {
-		if len(n.Children) > 1 {
-			sortNodes(n.Children)
-		}
-	}
-
-	return roots
+	return BuildProcessTree(procs, 1 /* sortMode: PID */, true)
 }
 
 // FlattenTree converts a tree into a flat list with indentation prefixes
@@ -251,21 +224,16 @@ func SortNodes(ns []*TreeNode, sortMode int, asc bool) {
 	}
 }
 
-// BuildProcessTree 用复杂查找规则（UUID + ParentUUID + PPID fallback + missing parent
-// synthetic 占位）构造进程树。是 dashboard 渲染主用接口。
+// BuildProcessTree 是唯一的进程树构造实现（UUID + ParentUUID + PID-reuse-safe PPID
+// fallback + missing parent synthetic 占位）。dashboard 直接调用，`rnix top` 经
+// BuildTree 薄委托（sortMode=PID/asc）调用。
 //
-// 与简化版 BuildTree 的差异：
-//
-//	BuildTree(procs):
-//	  - 仅按 PID 查找父节点（PPID lookup）
-//	  - 仅按 PID 升序排序
-//	  - 不处理 UUID 复用 / missing parent
-//
-//	BuildProcessTree(procs, sortMode, asc):
+// 查找规则：
 //	  - UUID-keyed 节点（PID 复用时多个进程共存而不互覆盖）
 //	  - ParentUUID 优先（跨 daemon-restart 精确父子关系）
-//	  - PPID 回退查找（兼容老进程无 ParentUUID）
-//	  - StateDead 进程的 dead→dead 父子关系（spec § Story 34.3 AC3）
+//	  - PPID 回退查找（兼容老进程无 ParentUUID）——仅当目标 PID 在输入中唯一时才
+//	    挂载；PID 被重用则放弃回退、该节点降级为 root，避免跨代误挂（ReusedPIDs 守卫）
+//	  - StateDead 进程的 dead→dead 父子关系（spec § Story 34.3 AC3），同受重用守卫
 //	  - missing ParentUUID 的孤儿合成 synthetic placeholder node
 //	  - 多种 sortMode（Time/PID/State）+ 升降序参数
 //
@@ -314,6 +282,11 @@ func BuildProcessTree(procs []vfs.ProcInfo, sortMode int, asc bool) []*TreeNode 
 		}
 	}
 
+	// reused holds PIDs occupied by more than one process in this input — i.e.
+	// recycled across daemon generations (PID counter resets on restart). The
+	// PPID fallback below must NOT link by such a PID (spec-agent-tree-uuid-build).
+	reused := ReusedPIDs(procs)
+
 	var roots []*TreeNode
 	orphansByParent := make(map[string][]*TreeNode)
 	for _, n := range nodes {
@@ -347,20 +320,27 @@ func BuildProcessTree(procs []vfs.ProcInfo, sortMode int, asc bool) []*TreeNode 
 			continue
 		}
 
-		if parentKey, ok := pidToKey[p.PPID]; ok {
-			if parentKey != myKey {
-				if parent, ok := nodes[parentKey]; ok {
-					parent.Children = append(parent.Children, n)
-					continue
-				}
-			}
-		}
-		if p.State == types.StateDead {
-			if parentKey, ok := allPidToKey[p.PPID]; ok {
+		// PID-based fallback for legacy data without ParentUUID. Only trust the
+		// parent PID when it is UNAMBIGUOUS — not reused across daemon
+		// generations. A reused PID cannot be disambiguated by number alone, so
+		// linking by it would cross-attach unrelated trees; leave the node a root
+		// instead (spec-agent-tree-uuid-build).
+		if reused[p.PPID] == 0 {
+			if parentKey, ok := pidToKey[p.PPID]; ok {
 				if parentKey != myKey {
 					if parent, ok := nodes[parentKey]; ok {
 						parent.Children = append(parent.Children, n)
 						continue
+					}
+				}
+			}
+			if p.State == types.StateDead {
+				if parentKey, ok := allPidToKey[p.PPID]; ok {
+					if parentKey != myKey {
+						if parent, ok := nodes[parentKey]; ok {
+							parent.Children = append(parent.Children, n)
+							continue
+						}
 					}
 				}
 			}

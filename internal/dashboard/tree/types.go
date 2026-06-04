@@ -30,7 +30,8 @@ type FlatRow struct {
 //
 // 字段语义：
 //   - Proc:     原始 ProcInfo；
-//   - Children: 子节点指针列表（按 PID 升序排列，由 BuildTree 保证）。
+//   - Children: 子节点指针列表（排序由 BuildProcessTree 按 sortMode 决定；
+//     BuildTree 委托时为 PID 升序）。
 type TreeNode struct {
 	Proc     vfs.ProcInfo
 	Children []*TreeNode
