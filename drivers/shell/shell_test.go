@@ -31,6 +31,8 @@ func TestHelperProcess(t *testing.T) {
 		time.Sleep(5 * time.Second)
 	case "env_home":
 		fmt.Fprint(os.Stdout, os.Getenv("HOME"))
+	case "env_spawn_depth":
+		fmt.Fprint(os.Stdout, os.Getenv("RNIX_SPAWN_DEPTH"))
 	}
 	os.Exit(0)
 }
@@ -554,6 +556,99 @@ func TestShellFile_Write_UsesWorkDir(t *testing.T) {
 	output := strings.TrimSpace(string(data))
 	if output != tmpDir {
 		t.Errorf("pwd output = %q, want %q", output, tmpDir)
+	}
+}
+
+func TestDangerousCommand_RnixApplyBlocked(t *testing.T) {
+	blocked := []string{
+		`rnix apply "build a blog"`,
+		`rnix apply --yes "add auth"`,
+		`rnix  apply "test"`,
+		`echo x && rnix apply "nested"`,
+		`rnix -i "intent text"`,
+		`rnix -yi "with flags"`,
+	}
+	for _, cmd := range blocked {
+		if err := checkDangerousCommand(cmd); err == nil {
+			t.Errorf("expected %q to be blocked, but it passed", cmd)
+		}
+	}
+
+	allowed := []string{
+		`rnix ps -a`,
+		`rnix daemon status`,
+		`rnix log 42`,
+		`rnix intent status intent-1`,
+	}
+	for _, cmd := range allowed {
+		if err := checkDangerousCommand(cmd); err != nil {
+			t.Errorf("expected %q to be allowed, got: %v", cmd, err)
+		}
+	}
+}
+
+func TestShellFile_CallerProcessInfoAware(t *testing.T) {
+	driver := NewDriver()
+	f := &ShellFile{driver: driver, devicePath: "/dev/shell"}
+
+	var cpia vfs.CallerProcessInfoAware = f
+	cpia.SetCallerProcessInfo(42, 3)
+
+	if f.callerDepth != 3 {
+		t.Errorf("expected callerDepth=3, got %d", f.callerDepth)
+	}
+}
+
+func TestShellFile_Write_InjectsSpawnDepthEnv(t *testing.T) {
+	builder := func(ctx context.Context, name string, args ...string) *exec.Cmd {
+		cs := []string{"-test.run=TestHelperProcess", "--"}
+		cs = append(cs, args...)
+		cmd := exec.CommandContext(ctx, os.Args[0], cs...)
+		cmd.Env = append(os.Environ(), "GO_TEST_PROCESS=1", "GO_TEST_CASE=echo_hello")
+		return cmd
+	}
+
+	driver := NewDriverWithOptions(DriverOpts{CmdBuilder: builder})
+
+	// callerDepth=2: Write should inject RNIX_SPAWN_DEPTH=2 (appended to existing cmd.Env)
+	f := &ShellFile{driver: driver, devicePath: "/dev/shell", callerDepth: 2}
+	err := f.Write(context.Background(), []byte("echo test"))
+	if err != nil {
+		t.Fatalf("unexpected Write error with depth=2: %v", err)
+	}
+
+	// callerDepth=0: Write should NOT modify cmd.Env
+	f2 := &ShellFile{driver: driver, devicePath: "/dev/shell", callerDepth: 0}
+	err = f2.Write(context.Background(), []byte("echo test"))
+	if err != nil {
+		t.Fatalf("unexpected Write error with depth=0: %v", err)
+	}
+}
+
+func TestShellFile_Write_SpawnDepthEnvPropagation(t *testing.T) {
+	// Use a helper process that echoes RNIX_SPAWN_DEPTH
+	builder := func(ctx context.Context, name string, args ...string) *exec.Cmd {
+		cs := []string{"-test.run=TestHelperProcess", "--"}
+		cs = append(cs, args...)
+		cmd := exec.CommandContext(ctx, os.Args[0], cs...)
+		cmd.Env = []string{"GO_TEST_PROCESS=1", "GO_TEST_CASE=env_spawn_depth"}
+		return cmd
+	}
+
+	driver := NewDriverWithOptions(DriverOpts{CmdBuilder: builder})
+	f := &ShellFile{driver: driver, devicePath: "/dev/shell", callerDepth: 5}
+
+	err := f.Write(context.Background(), []byte("echo $RNIX_SPAWN_DEPTH"))
+	if err != nil {
+		t.Fatalf("unexpected Write error: %v", err)
+	}
+
+	data, err := f.Read(0)
+	if err != nil {
+		t.Fatalf("unexpected Read error: %v", err)
+	}
+	if string(data) != "5" {
+		t.Errorf("expected RNIX_SPAWN_DEPTH=5, got %q", string(data))
 	}
 }
 

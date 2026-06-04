@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"os"
 	"os/exec"
 	"regexp"
 	"strings"
@@ -105,12 +106,18 @@ func NewDriverWithOptions(opts DriverOpts) *ShellDriver {
 
 // ShellFile implements vfs.VFSFile for shell command execution via write-then-read semantics.
 type ShellFile struct {
-	driver     *ShellDriver
-	devicePath string
-	workDir    string
-	response   []byte
-	offset     int
-	closed     bool
+	driver      *ShellDriver
+	devicePath  string
+	workDir     string
+	callerDepth int
+	response    []byte
+	offset      int
+	closed      bool
+}
+
+// SetCallerProcessInfo implements vfs.CallerProcessInfoAware.
+func (f *ShellFile) SetCallerProcessInfo(_ types.PID, depth int) {
+	f.callerDepth = depth
 }
 
 // Write accepts a shell command string, executes it, and buffers the output.
@@ -135,6 +142,13 @@ func (f *ShellFile) Write(ctx context.Context, data []byte) error {
 	cmd := f.driver.cmdBuilder(ctx, "sh", "-c", command)
 	if f.workDir != "" {
 		cmd.Dir = f.workDir
+	}
+
+	if f.callerDepth > 0 {
+		if cmd.Env == nil {
+			cmd.Env = os.Environ()
+		}
+		cmd.Env = append(cmd.Env, fmt.Sprintf("RNIX_SPAWN_DEPTH=%d", f.callerDepth))
 	}
 
 	// Isolate the child into its own process group so cmd.Cancel can kill
@@ -262,6 +276,7 @@ var dangerousPatterns = []*regexp.Regexp{
 	regexp.MustCompile(`\bwget\b.*\|\s*(ba)?sh`),                           // wget | sh
 	regexp.MustCompile(`\bcurl\b.*\|\s*(zsh|python[23]?|perl|ruby)\b`),    // curl | python/perl/ruby/zsh
 	regexp.MustCompile(`\bwget\b.*\|\s*(zsh|python[23]?|perl|ruby)\b`),    // wget | python/perl/ruby/zsh
+	regexp.MustCompile(`\brnix\s+(apply\b|(-[a-zA-Z]*i))`),               // block recursive rnix apply/intent via shell
 }
 
 // checkDangerousCommand returns an error if the command matches a dangerous pattern.

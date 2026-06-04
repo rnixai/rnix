@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"strconv"
 	"time"
 
 	"github.com/rnixai/rnix/internal/config"
@@ -33,6 +34,12 @@ func init() {
 }
 
 func runApply(cmd *cobra.Command, args []string) error {
+	if depthStr := os.Getenv("RNIX_SPAWN_DEPTH"); depthStr != "" {
+		if depth, err := strconv.Atoi(depthStr); err == nil && depth > 0 {
+			return fmt.Errorf("recursive rnix apply blocked: already at spawn depth %d", depth)
+		}
+	}
+
 	intentStr := args[0]
 	mode := resolveOutputMode()
 	renderer := ui.NewRenderer(os.Stdout, mode)

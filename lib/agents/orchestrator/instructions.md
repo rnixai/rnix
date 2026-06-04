@@ -63,3 +63,4 @@ driver 会在分解成功后同步完成 confirm + execute，等待所有子任�
 - 不要尝试自行分解任务，必须通过 /dev/intent/decompose 设备
 - 执行可能需要较长时间，耐心等待 /dev/intent/execute 返回
 - intent 执行成功后，直接汇报结果，**禁止** spawn 子 agent 或调用其他工具做二次验证
+- **禁止**通过 /dev/shell 调用 `rnix apply`、`rnix -i` 或任何 `rnix` 子命令来分解或编排任务——所有意图分解必须通过 /dev/intent/decompose 设备
