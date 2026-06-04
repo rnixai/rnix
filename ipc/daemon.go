@@ -79,7 +79,7 @@ func startDaemon() error {
 	}
 
 	logPath := stderrLogPath()
-	logFile, err := os.OpenFile(logPath, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0600)
+	logFile, err := os.OpenFile(logPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0600)
 	if err != nil {
 		logFile = nil
 	}
@@ -142,6 +142,23 @@ func readDaemonStderr() string {
 func writePIDFile(dir string, pid int) {
 	pidPath := filepath.Join(dir, "rnix.pid")
 	_ = os.WriteFile(pidPath, []byte(strconv.Itoa(pid)+"\n"), 0600)
+}
+
+// WaitForDaemonReady polls until a daemon is reachable at the default socket
+// path, without starting a new daemon. Use this when an external process
+// (e.g. an agent via /dev/shell) is restarting the daemon and the caller
+// just needs to reconnect.
+func WaitForDaemonReady(timeout time.Duration) (*Client, error) {
+	sockPath := SocketPath()
+	deadline := time.Now().Add(timeout)
+	for time.Now().Before(deadline) {
+		client, err := tryConnect(sockPath)
+		if err == nil {
+			return client, nil
+		}
+		time.Sleep(daemonPollInterval)
+	}
+	return nil, fmt.Errorf("ipc: daemon not reachable within %s", timeout)
 }
 
 // IsDaemonRunning checks if a daemon is reachable at the default socket path.

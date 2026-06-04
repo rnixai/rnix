@@ -1775,6 +1775,11 @@ func runDaemon(cmd *cobra.Command, args []string) error {
 	} else if loaded > 0 {
 		fmt.Fprintf(os.Stderr, "[kernel] reloaded %d suspended placeholder(s) — use 'rnix resume <uuid>' to wake\n", loaded)
 	}
+
+	// Auto-resume processes that were suspended by daemon shutdown (not user-initiated).
+	if autoResumed := k.AutoResumeDaemonShutdown(); autoResumed > 0 {
+		fmt.Fprintf(os.Stderr, "[kernel] auto-resumed %d process(es) suspended by daemon shutdown\n", autoResumed)
+	}
 	if resumable, rerr := k.ListResumable(); rerr != nil {
 		fmt.Fprintf(os.Stderr, "[kernel] warn: list resumable: %v\n", rerr)
 	} else if n := len(resumable); n > 0 {

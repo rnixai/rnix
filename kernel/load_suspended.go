@@ -269,3 +269,30 @@ func (k *KernelImpl) LoadSuspendedFromDisk() (int, error) {
 	})
 	return loaded, nil
 }
+
+// AutoResumeDaemonShutdown resumes all processes that were suspended as
+// collateral of a daemon stop (SuspendReason=="daemon_shutdown"). These
+// processes were not intentionally paused by the user — the daemon shutdown
+// interrupted them mid-flight. Auto-resuming restores the pre-shutdown
+// execution state so `rnix apply` reconnection (Phase 1) finds them Running
+// rather than Suspended.
+func (k *KernelImpl) AutoResumeDaemonShutdown() int {
+	var targets []string
+	k.procTable.Range(func(_ types.PID, proc *Process) bool {
+		if proc.GetState() == types.StateSuspended && proc.GetSuspendReason() == "daemon_shutdown" {
+			targets = append(targets, proc.UUID)
+		}
+		return true
+	})
+
+	resumed := 0
+	for _, uuid := range targets {
+		if _, err := k.ResumeWithOpts(uuid, ResumeOpts{}); err != nil {
+			log.Printf("[kernel] auto-resume daemon_shutdown uuid=%s failed: %v", uuid, err)
+			continue
+		}
+		log.Printf("[kernel] auto-resumed daemon_shutdown process uuid=%s", uuid)
+		resumed++
+	}
+	return resumed
+}

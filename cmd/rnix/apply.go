@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/rnixai/rnix/internal/config"
+	"github.com/rnixai/rnix/internal/types"
 	"github.com/rnixai/rnix/internal/ui"
 	"github.com/rnixai/rnix/ipc"
 	"github.com/spf13/cobra"
@@ -84,6 +85,7 @@ func runApply(cmd *cobra.Command, args []string) error {
 	}
 
 	var spawnProvider, spawnModel string
+	var spawnUUID string
 
 	pid, final, spawnErr := client.SpawnAndWatch(req, func(ev ipc.StreamEvent) {
 		switch ev.Type {
@@ -104,6 +106,7 @@ func runApply(cmd *cobra.Command, args []string) error {
 		case "spawn":
 			spawnProvider = pp.Provider
 			spawnModel = pp.Model
+			spawnUUID = pp.UUID
 			uuidShort := pp.UUID
 			if len(uuidShort) > 12 {
 				uuidShort = uuidShort[:12] + "..."
@@ -136,6 +139,10 @@ func runApply(cmd *cobra.Command, args []string) error {
 	elapsed := time.Since(start)
 
 	if final == nil {
+		final = tryReconnectAndPoll(progress, spawnUUID, projectDir, req.RnixEnv)
+	}
+
+	if final == nil {
 		outputError(renderer, mode, "apply", "connection to daemon lost", "orchestrator process may still be running", "check rnix ps for process status")
 		exitCode = 1
 		return nil
@@ -156,6 +163,67 @@ func runApply(cmd *cobra.Command, args []string) error {
 		exitCode = 1
 	}
 
+	return nil
+}
+
+// tryReconnectAndPoll attempts to reconnect to a restarted daemon and poll
+// the orchestrator process to completion. Returns nil if reconnection fails
+// or the process cannot be found.
+func tryReconnectAndPoll(progress *ui.ProgressReporter, uuid, projectDir, rnixEnv string) *ipc.ProgressPayload {
+	if uuid == "" {
+		return nil
+	}
+
+	progress.KernelMessage("daemon connection lost, waiting for new daemon...")
+
+	const reconnectTimeout = 30 * time.Second
+	const pollInterval = 500 * time.Millisecond
+	const pollTimeout = 10 * time.Minute
+
+	newClient, err := ipc.WaitForDaemonReady(reconnectTimeout)
+	if err != nil {
+		return nil
+	}
+	defer newClient.Close()
+
+	progress.KernelMessage("reconnected to daemon, polling process %s...", uuid[:min(12, len(uuid))])
+
+	// If the process is suspended from daemon_shutdown, resume it.
+	if detail, derr := newClient.GetProcDetail(0, uuid); derr == nil && detail.State == "suspended" {
+		progress.KernelMessage("resuming suspended orchestrator...")
+		if _, rerr := newClient.ResumeWithOptsV3(uuid, false, 0, projectDir, rnixEnv); rerr != nil {
+			progress.KernelMessage("resume failed: %v", rerr)
+			return nil
+		}
+	}
+
+	deadline := time.Now().Add(pollTimeout)
+	for time.Now().Before(deadline) {
+		time.Sleep(pollInterval)
+
+		procs, perr := newClient.ListAllProcs()
+		if perr != nil {
+			continue
+		}
+
+		for _, p := range procs {
+			if p.UUID != uuid {
+				continue
+			}
+			if p.State == types.StateDead || p.State == types.StateZombie {
+				return &ipc.ProgressPayload{
+					Event:      "complete",
+					PID:        p.PID,
+					Result:     p.Result,
+					ExitCode:   p.ExitCode,
+					ExitReason: p.ExitReason,
+					TokensUsed: p.TokensUsed,
+				}
+			}
+			// Still running or suspended — keep polling.
+			break
+		}
+	}
 	return nil
 }
 
