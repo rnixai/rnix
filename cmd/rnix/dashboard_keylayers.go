@@ -526,7 +526,7 @@ func pauseHandler(_ tea.KeyPressMsg, ctx ui.KeyContext) (bool, ui.KeyContext, te
 	if m.timeline.StepFilterMode {
 		return false, m, nil
 	}
-	if m.selectedPID == 0 {
+	if !m.hasProcessSelected() {
 		m.statusMsg = "Select a process first"
 		m.statusMsgTTL = statusMsgDefaultTTL
 		return true, m, nil
@@ -565,7 +565,7 @@ func pauseHandler(_ tea.KeyPressMsg, ctx ui.KeyContext) (bool, ui.KeyContext, te
 // 单进程 UUID 续跑语义，不走子树。
 func resumeHandler(_ tea.KeyPressMsg, ctx ui.KeyContext) (bool, ui.KeyContext, tea.Cmd) {
 	m := ctx.(dashboardModel)
-	if m.selectedPID == 0 {
+	if !m.hasProcessSelected() {
 		m.statusMsg = "Select a process first"
 		m.statusMsgTTL = statusMsgDefaultTTL
 		return true, m, nil
@@ -578,8 +578,23 @@ func resumeHandler(_ tea.KeyPressMsg, ctx ui.KeyContext) (bool, ui.KeyContext, t
 		return true, m, nil
 	}
 	if proc.State == types.StateSuspended {
-		// selectedPID != 0 is guaranteed by the early return above.
-		return true, m, resumeSubtreeCmd(m.selectedPID)
+		// A live Suspended placeholder (selectedPID>0) resumes its whole subtree.
+		// A PID=0 history row carries only selectedUUID — it cannot drive a
+		// PID-keyed subtree resume, so fall back to single-process UUID resume
+		// (the same path Dead/Zombie rows take below). This is why the sentinel
+		// above is hasProcessSelected() rather than selectedPID==0: a PID=0
+		// history row IS a valid selection, not "nothing selected".
+		if m.selectedPID > 0 {
+			return true, m, resumeSubtreeCmd(m.selectedPID)
+		}
+		if m.selectedUUID == "" {
+			m.statusMsg = "Cannot resume: no UUID for this process"
+			m.statusMsgTTL = statusMsgDefaultTTL
+			return true, m, nil
+		}
+		m.statusMsg = "Resuming UUID " + shortUUIDForStatus(m.selectedUUID) + "..."
+		m.statusMsgTTL = statusMsgDefaultTTL
+		return true, m, resumeProcessCmd(m.selectedUUID)
 	}
 	if proc.State == types.StateDead || proc.State == types.StateZombie {
 		if m.selectedUUID == "" {

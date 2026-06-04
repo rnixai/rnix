@@ -44,6 +44,55 @@ type ResumeOpts struct {
 	ProjectConfig *config.ProjectConfig
 }
 
+// resolveResumeProjectConfig determines the effective ProjectConfig for a resume,
+// mirroring the Spawn path's project-level provider escape hatch (spawn.go:588).
+// Priority:
+//   1. opts.ProjectConfig — caller-supplied (apply's handleResume rebuilds it
+//      via resolveProjectContext).
+//   2. oldProc.ProjectConfig — placeholder rebuilt by LoadSuspendedFromDisk.
+//      AutoResumeDaemonShutdown resumes with an empty ResumeOpts{}, so for
+//      daemon-self-start auto-resume of a project-level provider this is the
+//      only in-memory source.
+//   3. projectConfigLoader(projectDir) — last-resort rebuild from the on-disk
+//      project_dir. History path only; checkpoint ProcState carries no
+//      ProjectDir, so callers pass "" there.
+//
+// Returns nil when none yields a config — callers then fall through to the
+// global resolveLLMDevice validation, preserving back-compat for global
+// providers and fail-fast for genuinely unknown ones.
+func (k *KernelImpl) resolveResumeProjectConfig(opts ResumeOpts, oldProc *Process, projectDir string) *config.ProjectConfig {
+	if opts.ProjectConfig != nil {
+		return opts.ProjectConfig
+	}
+	if oldProc != nil && oldProc.ProjectConfig != nil {
+		return oldProc.ProjectConfig
+	}
+	if projectDir != "" && k.projectConfigLoader != nil {
+		pc, err := k.projectConfigLoader(projectDir)
+		if err != nil {
+			log.Printf("[resume] projectConfigLoader(%q) failed: %v; falling back to global provider validation", projectDir, err)
+			return nil
+		}
+		return pc
+	}
+	return nil
+}
+
+// resolveResumeLLMDevice mirrors the Spawn path's branch at spawn.go:588 — when
+// the effective ProjectConfig carries an LLMFileOpener, the provider may exist
+// only at project level (e.g. opencodego defined solely in .rnix/providers.yaml),
+// so we skip the global DriverRegistry validation and build the device path
+// directly. openLLMDeviceForResume then opens it through the project opener.
+// Without a project opener we fall through to the global resolveLLMDevice check,
+// keeping the original error semantics for global / unknown providers.
+func (k *KernelImpl) resolveResumeLLMDevice(effPC *config.ProjectConfig, provider string) (string, error) {
+	if effPC != nil && effPC.LLMFileOpener != nil {
+		return "/dev/llm/" + provider, nil
+	}
+	dev, _, err := k.resolveLLMDevice(nil, provider)
+	return dev, err
+}
+
 // openLLMDeviceForResume mirrors spawn.go:528-545 — prefers proc.ProjectConfig
 // .LLMFileOpener when the resumed process has a ProjectConfig, falling back to
 // the global VFS driver otherwise. This is the single fix point for the Dashboard
@@ -379,7 +428,15 @@ func (k *KernelImpl) resumeFromCheckpoint(uuid string, opts ResumeOpts, start ti
 		oldProc = found
 	}
 
-	llmDevice, _, resolveErr := k.resolveLLMDevice(nil, cp.Provider)
+	// Resolve the effective ProjectConfig (opts > oldProc > loader) BEFORE the
+	// LLM-device check so project-level providers (defined only in
+	// .rnix/providers.yaml) survive the same way they do on the Spawn path.
+	// checkpoint ProcState carries no ProjectDir, so the loader fallback is
+	// unavailable here (projectDir=""); opts/oldProc cover the checkpoint case —
+	// daemon_shutdown placeholders have no checkpoint and always take the history path.
+	effPC := k.resolveResumeProjectConfig(opts, oldProc, "")
+
+	llmDevice, resolveErr := k.resolveResumeLLMDevice(effPC, cp.Provider)
 	if resolveErr != nil {
 		return nil, NewSyscallError("Resume", 0, "",
 			fmt.Errorf("LLM provider %q not available: %w", cp.Provider, resolveErr), types.ErrDriver)
@@ -394,8 +451,10 @@ func (k *KernelImpl) resumeFromCheckpoint(uuid string, opts ResumeOpts, start ti
 
 	proc := NewProcess(0, cp.Intent, cp.Skills)
 	// Epic 42 fix: inherit ProjectConfig so openLLMDeviceForResume + per-process
-	// VFS WorkDir match the original Spawn path.
-	proc.ProjectConfig = opts.ProjectConfig
+	// VFS WorkDir match the original Spawn path. Use the resolved effPC (not
+	// opts.ProjectConfig directly) so auto-resume's empty ResumeOpts still
+	// inherits a rebuilt ProjectConfig.
+	proc.ProjectConfig = effPC
 	if proc.ProjectConfig != nil && proc.ProjectConfig.ProjectDir != "" {
 		k.vfs.SetWorkDir(proc.PID, proc.ProjectConfig.ProjectDir)
 	}
@@ -601,24 +660,35 @@ func (k *KernelImpl) resumeFromHistory(uuid string, opts ResumeOpts, start time.
 	}
 	provider := diskInfo.Provider
 
-	llmDevice, _, resolveErr := k.resolveLLMDevice(nil, provider)
-	if resolveErr != nil {
-		return nil, NewSyscallError("Resume", 0, "",
-			fmt.Errorf("LLM provider %q not available: %w", provider, resolveErr), types.ErrDriver)
-	}
-
-	// Locate old Dead/Zombie process if present (cleanup deferred until all
-	// allocations succeed; skipped entirely when forking so original is preserved).
+	// Locate old Dead/Zombie/Suspended process if present (cleanup deferred until
+	// all allocations succeed; skipped entirely when forking so original is
+	// preserved). Resolved BEFORE the LLM-device check so its rebuilt
+	// ProjectConfig can feed the effective-ProjectConfig resolution below.
 	var oldProc *Process
 	if found, ok := k.GetProcessByUUID(uuid); ok {
 		oldProc = found
 	}
 
+	// Resolve the effective ProjectConfig (opts > oldProc > loader) BEFORE the
+	// LLM-device check so project-level providers (defined only in
+	// .rnix/providers.yaml) survive the same way they do on the Spawn path.
+	// The loader fallback uses diskInfo.ProjectDir, which covers daemon-self-start
+	// AutoResumeDaemonShutdown (empty ResumeOpts; oldProc may itself be nil).
+	effPC := k.resolveResumeProjectConfig(opts, oldProc, diskInfo.ProjectDir)
+
+	llmDevice, resolveErr := k.resolveResumeLLMDevice(effPC, provider)
+	if resolveErr != nil {
+		return nil, NewSyscallError("Resume", 0, "",
+			fmt.Errorf("LLM provider %q not available: %w", provider, resolveErr), types.ErrDriver)
+	}
+
 	// Create new process
 	proc := NewProcess(0, diskInfo.Intent, diskInfo.Skills)
 	// Epic 42 fix: inherit ProjectConfig so openLLMDeviceForResume + per-process
-	// VFS WorkDir match the original Spawn path.
-	proc.ProjectConfig = opts.ProjectConfig
+	// VFS WorkDir match the original Spawn path. Use the resolved effPC (not
+	// opts.ProjectConfig directly) so auto-resume's empty ResumeOpts still
+	// inherits the placeholder/loader-rebuilt ProjectConfig.
+	proc.ProjectConfig = effPC
 	if proc.ProjectConfig != nil && proc.ProjectConfig.ProjectDir != "" {
 		k.vfs.SetWorkDir(proc.PID, proc.ProjectConfig.ProjectDir)
 	}
