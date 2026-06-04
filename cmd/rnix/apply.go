@@ -177,11 +177,21 @@ func tryReconnectAndPoll(progress *ui.ProgressReporter, uuid, projectDir, rnixEn
 	progress.KernelMessage("daemon connection lost, waiting for new daemon...")
 
 	const reconnectTimeout = 30 * time.Second
+	const reconnectInterval = 2 * time.Second
 	const pollInterval = 500 * time.Millisecond
 	const pollTimeout = 10 * time.Minute
 
-	newClient, err := ipc.WaitForDaemonReady(reconnectTimeout)
-	if err != nil {
+	var newClient *ipc.Client
+	deadline := time.Now().Add(reconnectTimeout)
+	for time.Now().Before(deadline) {
+		c, cerr := ipc.EnsureDaemon()
+		if cerr == nil {
+			newClient = c
+			break
+		}
+		time.Sleep(reconnectInterval)
+	}
+	if newClient == nil {
 		return nil
 	}
 	defer newClient.Close()
@@ -197,7 +207,7 @@ func tryReconnectAndPoll(progress *ui.ProgressReporter, uuid, projectDir, rnixEn
 		}
 	}
 
-	deadline := time.Now().Add(pollTimeout)
+	deadline = time.Now().Add(pollTimeout)
 	for time.Now().Before(deadline) {
 		time.Sleep(pollInterval)
 

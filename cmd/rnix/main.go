@@ -244,6 +244,12 @@ var daemonStatusCmd = &cobra.Command{
 	RunE:  runDaemonStatus,
 }
 
+var daemonStartCmd = &cobra.Command{
+	Use:   "start",
+	Short: "Start the daemon if not already running",
+	RunE:  runDaemonStart,
+}
+
 var flagDaemonInternal bool
 
 func runVersion(cmd *cobra.Command, args []string) {
@@ -306,6 +312,7 @@ func init() {
 	_ = daemonCmd.Flags().MarkHidden("internal")
 	daemonCmd.AddCommand(daemonStopCmd)
 	daemonCmd.AddCommand(daemonStatusCmd)
+	daemonCmd.AddCommand(daemonStartCmd)
 	rootCmd.AddCommand(versionCmd)
 	rootCmd.AddCommand(straceCmd)
 	psCmd.Flags().BoolVar(&flagUUID, "uuid", false, "Show UUID column in process table")
@@ -1445,6 +1452,24 @@ func runDaemonStatus(cmd *cobra.Command, args []string) error {
 	return nil
 }
 
+func runDaemonStart(cmd *cobra.Command, args []string) error {
+	w := cmd.OutOrStdout()
+
+	if ipc.IsDaemonRunning() {
+		fmt.Fprintln(w, "daemon is already running")
+		return runDaemonStatus(cmd, args)
+	}
+
+	client, err := ipc.EnsureDaemon()
+	if err != nil {
+		return fmt.Errorf("failed to start daemon: %w", err)
+	}
+	defer client.Close()
+
+	fmt.Fprintln(w, "daemon started")
+	return runDaemonStatus(cmd, args)
+}
+
 func runDaemon(cmd *cobra.Command, args []string) error {
 	if !flagDaemonInternal {
 		return cmd.Help()
@@ -2131,10 +2156,26 @@ func runDaemon(cmd *cobra.Command, args []string) error {
 	case <-srv.Done():
 	}
 
-	srv.Wait()
-	immuneDaemon.Stop()
 	k.Shutdown()
-	os.Remove(socketPath)
+	immuneDaemon.Stop()
+	srvDone := make(chan struct{})
+	go func() { srv.Wait(); close(srvDone) }()
+	select {
+	case <-srvDone:
+	case <-time.After(10 * time.Second):
+		log.Println("[daemon] srv.Wait timed out after 10s — forcing exit")
+	}
+	// Only remove the socket if we still own it (PID file matches our PID).
+	// A new daemon may have started during our shutdown window.
+	pidPath := filepath.Join(filepath.Dir(socketPath), "rnix.pid")
+	if data, err := os.ReadFile(pidPath); err == nil {
+		if pidStr := strings.TrimSpace(string(data)); pidStr == strconv.Itoa(os.Getpid()) {
+			os.Remove(socketPath)
+			os.Remove(pidPath)
+		}
+	} else {
+		os.Remove(socketPath)
+	}
 
 	return nil
 }

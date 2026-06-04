@@ -535,7 +535,14 @@ func (k *KernelImpl) Shutdown() {
 			proc.suspendRequested.Store(true)
 		}
 		proc.Cancel()
-		proc.wg.Wait()
+		wgDone := make(chan struct{})
+		go func() { proc.wg.Wait(); close(wgDone) }()
+		select {
+		case <-wgDone:
+		case <-time.After(15 * time.Second):
+			log.Printf("[shutdown] pid=%d wg.Wait timed out after 15s — skipping suspend", proc.PID)
+			return true
+		}
 		if preState == types.StateRunning && proc.GetState() == types.StateRunning {
 			if err := proc.Suspend(); err != nil {
 				log.Printf("[shutdown] suspend pid=%d failed: %v", proc.PID, err)
