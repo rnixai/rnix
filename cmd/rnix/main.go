@@ -20,6 +20,7 @@ import (
 	"time"
 
 	"github.com/goccy/go-yaml"
+	rnix "github.com/rnixai/rnix"
 	"github.com/rnixai/rnix/agents"
 	rnixctx "github.com/rnixai/rnix/context"
 	"github.com/rnixai/rnix/debug"
@@ -1455,6 +1456,10 @@ func runDaemon(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("resolve global config directory: %w", err)
 	}
 
+	// Sync embedded agents/skills to global directory (conffile-style smart merge)
+	config.ExtractEmbeddedSmart(rnix.EmbeddedAgents, "lib/agents", filepath.Join(globalDir, "agents"))
+	config.ExtractEmbeddedSmart(rnix.EmbeddedSkills, "lib/skills", filepath.Join(globalDir, "skills"))
+
 	// Load providers config from global directory
 	var providersCfg *llm.ProvidersConfig
 	var globalProvidersRaw []byte
@@ -1975,6 +1980,8 @@ func runDaemon(cmd *cobra.Command, args []string) error {
 				opts.Depth = cpInfo.Depth + 1
 			}
 			opts.DeniedDevices = []string{"/dev/intent"}
+			opts.MaxTurns = 30
+			opts.MaxTokens = 500_000
 			pid, err := k.Spawn(node.Intent, agentInfo, opts)
 			return pid, err
 		},

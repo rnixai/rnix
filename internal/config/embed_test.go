@@ -1,6 +1,7 @@
 package config
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -220,6 +221,137 @@ func TestExtractEmbedded_BinaryContent(t *testing.T) {
 	}
 	if !reflect.DeepEqual(content, binaryData) {
 		t.Errorf("binary content mismatch: got %v, want %v", content, binaryData)
+	}
+}
+
+// ============================================================
+// ExtractEmbeddedSmart tests
+// ============================================================
+
+func TestExtractEmbeddedSmart_FirstRun(t *testing.T) {
+	fsys := newTestFS()
+	target := t.TempDir()
+
+	// Pre-create a file with the SAME content as embedded (simulates old init)
+	coderDir := filepath.Join(target, "coder")
+	os.MkdirAll(coderDir, 0o755)
+	os.WriteFile(filepath.Join(coderDir, "agent.yaml"), []byte("name: coder\n"), 0o644)
+
+	// Pre-create a file with DIFFERENT content (user modified)
+	os.WriteFile(filepath.Join(coderDir, "instructions.md"), []byte("my custom instructions\n"), 0o644)
+
+	ExtractEmbeddedSmart(fsys, "lib/agents", target)
+
+	// Unchanged file: should NOT be overwritten (same content), but hash should be recorded
+	content, _ := os.ReadFile(filepath.Join(target, "coder", "agent.yaml"))
+	if string(content) != "name: coder\n" {
+		t.Errorf("coder/agent.yaml = %q, want %q", content, "name: coder\n")
+	}
+
+	// User-modified file: should be preserved
+	content, _ = os.ReadFile(filepath.Join(target, "coder", "instructions.md"))
+	if string(content) != "my custom instructions\n" {
+		t.Errorf("instructions.md was overwritten: got %q", content)
+	}
+
+	// New file (planner) should be extracted
+	content, _ = os.ReadFile(filepath.Join(target, "planner", "agent.yaml"))
+	if string(content) != "name: planner\n" {
+		t.Errorf("planner/agent.yaml = %q, want %q", content, "name: planner\n")
+	}
+
+	// Hash file should exist
+	hashData, err := os.ReadFile(filepath.Join(target, builtinHashesFile))
+	if err != nil {
+		t.Fatalf("hash file not created: %v", err)
+	}
+	var hashes map[string]string
+	if err := json.Unmarshal(hashData, &hashes); err != nil {
+		t.Fatalf("invalid hash file: %v", err)
+	}
+	if len(hashes) == 0 {
+		t.Error("hash file is empty")
+	}
+}
+
+func TestExtractEmbeddedSmart_UpgradeUnmodified(t *testing.T) {
+	target := t.TempDir()
+
+	// Phase 1: initial extraction with v1 content
+	v1FS := fstest.MapFS{
+		"lib/agents/coder/agent.yaml":      {Data: []byte("v1 content\n")},
+		"lib/agents/coder/instructions.md": {Data: []byte("v1 instructions\n")},
+	}
+	ExtractEmbeddedSmart(v1FS, "lib/agents", target)
+
+	content, _ := os.ReadFile(filepath.Join(target, "coder", "agent.yaml"))
+	if string(content) != "v1 content\n" {
+		t.Fatalf("phase 1: agent.yaml = %q, want %q", content, "v1 content\n")
+	}
+
+	// Phase 2: upgrade with v2 content — files untouched by user
+	v2FS := fstest.MapFS{
+		"lib/agents/coder/agent.yaml":      {Data: []byte("v2 content\n")},
+		"lib/agents/coder/instructions.md": {Data: []byte("v2 instructions\n")},
+	}
+	ExtractEmbeddedSmart(v2FS, "lib/agents", target)
+
+	content, _ = os.ReadFile(filepath.Join(target, "coder", "agent.yaml"))
+	if string(content) != "v2 content\n" {
+		t.Errorf("phase 2: agent.yaml = %q, want %q (should be upgraded)", content, "v2 content\n")
+	}
+	content, _ = os.ReadFile(filepath.Join(target, "coder", "instructions.md"))
+	if string(content) != "v2 instructions\n" {
+		t.Errorf("phase 2: instructions.md = %q, want %q", content, "v2 instructions\n")
+	}
+}
+
+func TestExtractEmbeddedSmart_PreserveUserModified(t *testing.T) {
+	target := t.TempDir()
+
+	// Phase 1: initial extraction
+	v1FS := fstest.MapFS{
+		"lib/agents/coder/agent.yaml": {Data: []byte("v1 content\n")},
+	}
+	ExtractEmbeddedSmart(v1FS, "lib/agents", target)
+
+	// User modifies the file
+	os.WriteFile(filepath.Join(target, "coder", "agent.yaml"), []byte("user customized\n"), 0o644)
+
+	// Phase 2: upgrade — user-modified file should be preserved
+	v2FS := fstest.MapFS{
+		"lib/agents/coder/agent.yaml": {Data: []byte("v2 content\n")},
+	}
+	ExtractEmbeddedSmart(v2FS, "lib/agents", target)
+
+	content, _ := os.ReadFile(filepath.Join(target, "coder", "agent.yaml"))
+	if string(content) != "user customized\n" {
+		t.Errorf("user-modified file was overwritten: got %q, want %q", content, "user customized\n")
+	}
+}
+
+func TestExtractEmbeddedSmart_NewFile(t *testing.T) {
+	target := t.TempDir()
+
+	// Phase 1: extract v1 with only one file
+	v1FS := fstest.MapFS{
+		"lib/agents/coder/agent.yaml": {Data: []byte("v1\n")},
+	}
+	ExtractEmbeddedSmart(v1FS, "lib/agents", target)
+
+	// Phase 2: v2 adds a new file
+	v2FS := fstest.MapFS{
+		"lib/agents/coder/agent.yaml":      {Data: []byte("v1\n")},
+		"lib/agents/coder/instructions.md": {Data: []byte("new file\n")},
+	}
+	ExtractEmbeddedSmart(v2FS, "lib/agents", target)
+
+	content, err := os.ReadFile(filepath.Join(target, "coder", "instructions.md"))
+	if err != nil {
+		t.Fatalf("new file not created: %v", err)
+	}
+	if string(content) != "new file\n" {
+		t.Errorf("new file content = %q, want %q", content, "new file\n")
 	}
 }
 
