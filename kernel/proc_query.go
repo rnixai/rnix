@@ -74,7 +74,7 @@ func (k *KernelImpl) LoadHistory() error {
 		return nil
 	}
 	merged := NewProcessHistory(1000)
-	for _, baseDir := range AllProjectBaseDirs(k.dataDir) {
+	for _, baseDir := range AllBaseDirs(k.dataDir) {
 		h, err := LoadProcHistory(baseDir, 1000)
 		if err != nil {
 			log.Printf("[history] warn: load %s: %v", baseDir, err)
@@ -103,7 +103,7 @@ func (k *KernelImpl) LoadHistory() error {
 //     process IS the resumed session; no parallel resume permitted).
 func (k *KernelImpl) ListResumable() ([]vfs.ProcInfo, error) {
 	var candidates []vfs.ProcInfo
-	for _, baseDir := range AllProjectBaseDirs(k.dataDir) {
+	for _, baseDir := range AllBaseDirs(k.dataDir) {
 		c, err := ListResumable(baseDir)
 		if err != nil {
 			log.Printf("[resumable] warn: scan %s: %v", baseDir, err)

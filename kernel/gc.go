@@ -89,7 +89,7 @@ func (k *KernelImpl) RunGc(dryRun bool, force bool) (GcResult, error) {
 	var result GcResult
 
 	// GC each per-project data directory independently.
-	for _, baseDir := range AllProjectBaseDirs(k.dataDir) {
+	for _, baseDir := range AllBaseDirs(k.dataDir) {
 		stepsDir := filepath.Join(baseDir, "steps")
 		candidates, err := scanGcCandidates(stepsDir, cfg)
 		if err != nil {

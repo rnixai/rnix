@@ -191,7 +191,7 @@ func findDescendantsByOrigin(uuid string, history *ProcessHistory, stepDataDir s
 	// 磁盘扫描兜底（procHistory evicted 的旧 fork）。
 	if stepDataDir != "" {
 		scanned := 0
-		for _, baseDir := range AllProjectBaseDirs(stepDataDir) {
+		for _, baseDir := range AllBaseDirs(stepDataDir) {
 			stepsDir := filepath.Join(baseDir, "steps")
 			entries, err := os.ReadDir(stepsDir)
 			if err != nil {

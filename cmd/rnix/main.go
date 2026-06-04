@@ -1754,7 +1754,7 @@ func runDaemon(cmd *cobra.Command, args []string) error {
 	k.SetGcConfig(gcCfg)
 	// Seed pidCounter from all per-project data dirs BEFORE LoadHistory /
 	// LoadSuspendedFromDisk so NewProcess draws unique PIDs after restart.
-	for _, projDir := range kernel.AllProjectBaseDirs(dataDir) {
+	for _, projDir := range kernel.AllBaseDirs(dataDir) {
 		if err := kernel.SeedPIDCounterFromDisk(projDir); err != nil {
 			fmt.Fprintf(os.Stderr, "[kernel] warn: seed pid counter from %s: %v\n", projDir, err)
 		}
@@ -1789,7 +1789,7 @@ func runDaemon(cmd *cobra.Command, args []string) error {
 		k.SetRecallIndex(recallIdx)
 
 		// Start background index build from all project step directories
-		for _, projBaseDir := range kernel.AllProjectBaseDirs(dataDir) {
+		for _, projBaseDir := range kernel.AllBaseDirs(dataDir) {
 			recallIdx.BuildFromDiskAsync(filepath.Join(projBaseDir, "steps"))
 		}
 

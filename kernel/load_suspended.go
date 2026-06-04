@@ -29,7 +29,7 @@ func (k *KernelImpl) LoadSuspendedFromDisk() (int, error) {
 	}
 
 	var candidates []vfs.ProcInfo
-	for _, baseDir := range AllProjectBaseDirs(k.dataDir) {
+	for _, baseDir := range AllBaseDirs(k.dataDir) {
 		c, err := ListResumable(baseDir)
 		if err != nil {
 			log.Printf("[load_suspended] warn: scan %s: %v", baseDir, err)

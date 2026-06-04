@@ -124,6 +124,15 @@ func ProjectDataID(projectPath string) string {
 	return base + "-" + hex.EncodeToString(hash[:4])
 }
 
+// GlobalDataDir returns the fallback data directory for processes without a
+// project context. Used when ProjectConfig is nil or ProjectDir is empty.
+func GlobalDataDir(dataDir string) string {
+	if dataDir == "" {
+		return ""
+	}
+	return filepath.Join(dataDir, "global")
+}
+
 // ProjectDataDir returns the per-project data directory under dataDir.
 // Returns "" when projectPath is empty (no project = no data storage).
 func ProjectDataDir(dataDir, projectPath string) string {

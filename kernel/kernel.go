@@ -341,15 +341,16 @@ func (k *KernelImpl) resolveBaseDir(proc *Process) string {
 	return k.ResolveStepBaseDir(proc)
 }
 
-// ResolveStepBaseDir resolves the per-project data directory used for step /
-// event / checkpoint persistence. Returns "" when the process has no
-// ProjectDir (caller must skip writer initialisation).
+// ResolveStepBaseDir resolves the data directory used for step / event /
+// checkpoint persistence. For project-scoped processes it returns the
+// per-project directory; for processes without a ProjectConfig it falls
+// back to {dataDir}/global/ so observation data is never silently lost.
 func (k *KernelImpl) ResolveStepBaseDir(proc *Process) string {
-	if k.dataDir == "" {
+	if k.dataDir == "" || proc == nil {
 		return ""
 	}
-	if proc == nil || proc.ProjectConfig == nil || proc.ProjectConfig.ProjectDir == "" {
-		return ""
+	if proc.ProjectConfig == nil || proc.ProjectConfig.ProjectDir == "" {
+		return config.GlobalDataDir(k.dataDir)
 	}
 	return config.ProjectDataDir(k.dataDir, proc.ProjectConfig.ProjectDir)
 }

@@ -33,6 +33,9 @@ func (s *Server) handleSpawn(conn net.Conn, rawPayload json.RawMessage) {
 		writeResponse(conn, Response{OK: false, Error: &ErrorPayload{Code: "CONFIG_ERROR", Message: err.Error()}})
 		return
 	}
+	if projectCfg == nil && req.ProjectDir != "" {
+		log.Printf("[spawn] project context resolution failed — step/event data will use global fallback (projectDir=%q)", req.ProjectDir)
+	}
 
 	var agentInfo *agents.AgentInfo
 	agentName := req.Agent

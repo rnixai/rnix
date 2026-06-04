@@ -43,6 +43,7 @@ func (k *KernelImpl) attachStepObservation(proc *Process) {
 
 	stepBaseDir := k.ResolveStepBaseDir(proc)
 	if stepBaseDir == "" {
+		log.Printf("[observation] no step base dir for pid=%d uuid=%s — step/event data will not be recorded", proc.PID, proc.UUID)
 		return
 	}
 
@@ -50,11 +51,15 @@ func (k *KernelImpl) attachStepObservation(proc *Process) {
 	if proc.stepWriter == nil {
 		if sw, err := NewStepWriter(stepBaseDir, proc.UUID); err == nil {
 			proc.stepWriter = sw
+		} else {
+			log.Printf("[observation] step writer creation failed pid=%d: %v", proc.PID, err)
 		}
 	}
 	if proc.eventWriter == nil {
 		if ew, err := NewEventWriter(stepBaseDir, proc.UUID); err == nil {
 			proc.eventWriter = ew
+		} else {
+			log.Printf("[observation] event writer creation failed pid=%d: %v", proc.PID, err)
 		}
 	}
 	if proc.stepsDir == "" {

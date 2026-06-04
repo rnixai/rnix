@@ -18,7 +18,7 @@ func allStepsDirs() []string {
 		return nil
 	}
 	var dirs []string
-	for _, base := range kernel.AllProjectBaseDirs(dataDir) {
+	for _, base := range kernel.AllBaseDirs(dataDir) {
 		stepsDir := filepath.Join(base, "steps")
 		if info, statErr := os.Stat(stepsDir); statErr == nil && info.IsDir() {
 			dirs = append(dirs, stepsDir)
