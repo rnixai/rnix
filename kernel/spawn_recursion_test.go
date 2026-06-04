@@ -243,3 +243,86 @@ func TestSpawnBreakerOutcome(t *testing.T) {
 		}
 	})
 }
+
+// Spawn()-level depth guard: rejects spawn when opts.Depth > MaxSpawnDepth,
+// covering intent / compose paths that bypass ActionSpawn in tool_exec.go.
+func TestSpawn_DepthRejectInSpawn(t *testing.T) {
+	k := newMinimalKernel(t)
+
+	t.Run("at_max_depth_succeeds", func(t *testing.T) {
+		pid, err := k.Spawn("at-limit", nil, SpawnOpts{Depth: MaxSpawnDepth, SkipReasonLoop: true})
+		if err != nil {
+			t.Fatalf("Spawn at MaxSpawnDepth should succeed: %v", err)
+		}
+		proc, ok := k.GetProcess(pid)
+		if !ok {
+			t.Fatal("process not found")
+		}
+		if proc.Depth != MaxSpawnDepth {
+			t.Errorf("Depth = %d, want %d", proc.Depth, MaxSpawnDepth)
+		}
+	})
+
+	t.Run("exceeding_max_depth_rejected", func(t *testing.T) {
+		_, err := k.Spawn("too-deep", nil, SpawnOpts{Depth: MaxSpawnDepth + 1, SkipReasonLoop: true})
+		if err == nil {
+			t.Fatal("Spawn at MaxSpawnDepth+1 should fail")
+		}
+		if !strings.Contains(err.Error(), "spawn rejected") {
+			t.Errorf("error should mention spawn rejected: %v", err)
+		}
+	})
+}
+
+// DeniedDevices: device blacklist blocks access regardless of AllowedDevices.
+func TestSpawnRecursion_DeniedDevices(t *testing.T) {
+	k := newSimpleKernel(t)
+
+	t.Run("denied_device_blocked", func(t *testing.T) {
+		proc := NewProcess(0, "intent-child", nil)
+		proc.DeniedDevices = []string{"/dev/intent"}
+
+		_, err := k.executeVFSTool(proc,
+			llmToolCall{Name: "intent_decompose", Input: map[string]any{}},
+			toolMapping{Type: "vfs", VFSPath: "/dev/intent/decompose"})
+		if err == nil {
+			t.Fatal("expected permission denied for denied device /dev/intent")
+		}
+		if !strings.Contains(err.Error(), "permission denied") {
+			t.Errorf("error should mention permission denied: %q", err.Error())
+		}
+		if !strings.Contains(err.Error(), "blocked") {
+			t.Errorf("error should mention device is blocked: %q", err.Error())
+		}
+	})
+
+	t.Run("non_denied_device_allowed", func(t *testing.T) {
+		proc := NewProcess(0, "intent-child", nil)
+		proc.DeniedDevices = []string{"/dev/intent"}
+
+		// /dev/fs should pass the DeniedDevices check (may fail later on VFS open)
+		_, err := k.executeVFSTool(proc,
+			llmToolCall{Name: "Read", Input: map[string]any{"path": "test.txt"}},
+			toolMapping{Type: "vfs", VFSPath: "/dev/fs", FSOperation: "Read"})
+		if err != nil && strings.Contains(err.Error(), "permission denied") {
+			t.Errorf("non-denied device should not be blocked: %v", err)
+		}
+	})
+
+	t.Run("denied_devices_inherited_by_spawn", func(t *testing.T) {
+		pid, err := k.Spawn("child-with-deny", nil, SpawnOpts{
+			DeniedDevices:  []string{"/dev/intent"},
+			SkipReasonLoop: true,
+		})
+		if err != nil {
+			t.Fatalf("Spawn: %v", err)
+		}
+		child, ok := k.GetProcess(pid)
+		if !ok {
+			t.Fatal("child process not found")
+		}
+		if len(child.DeniedDevices) != 1 || child.DeniedDevices[0] != "/dev/intent" {
+			t.Errorf("child.DeniedDevices = %v, want [/dev/intent]", child.DeniedDevices)
+		}
+	})
+}

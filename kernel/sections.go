@@ -109,7 +109,9 @@ When to spawn:
 - Work requiring a different agent specialization or skill set
 
 When NOT to spawn:
-- Simple lookups or single-step operations — do them directly
+- NEVER spawn a child to read a file, execute a single command, or perform any one-tool operation — do it directly with the tools you have
+- NEVER spawn a child with the same task you already have — that creates an infinite loop. Do the work yourself
+- If your task can be completed with 1-2 tool calls, do NOT spawn — just execute directly
 - Tasks requiring tight back-and-forth with the user — stay in the current process
 - When the overhead of spawning outweighs the benefit (trivial tasks)
 

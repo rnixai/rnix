@@ -373,6 +373,17 @@ func (k *KernelImpl) executeVFSTool(proc *Process, tc llmToolCall, mapping toolM
 	// agent with MCP mounts but no skills keeps base devices unrestricted —
 	// appending MCP must extend access, never revoke it.
 	cleanPath := path.Clean(mapping.VFSPath)
+
+	// DeniedDevices blacklist: checked before AllowedDevices. Intent-spawned
+	// children use this to block recursive /dev/intent/decompose access.
+	for _, denied := range proc.DeniedDevices {
+		if cleanPath == denied || strings.HasPrefix(cleanPath, denied+"/") {
+			return "", fmt.Errorf("permission denied: device %s is blocked for this process. "+
+				"Intent subtasks cannot re-decompose — complete your work with the devices you have",
+				mapping.VFSPath)
+		}
+	}
+
 	targetIsMCP := strings.HasPrefix(cleanPath, mcpPathPrefix)
 	if len(proc.AllowedDevices) > 0 && (targetIsMCP || baseDeviceWhitelistActive(proc.AllowedDevices)) {
 		allowed := false
@@ -767,6 +778,7 @@ func (k *KernelImpl) executeMetaAction(proc *Process, tc llmToolCall, mapping to
 			TraceID:        proc.TraceID,
 			ProjectConfig:  proc.ProjectConfig,
 			AllowedDevices: append([]string(nil), proc.AllowedDevices...),
+			DeniedDevices:  append([]string(nil), proc.DeniedDevices...),
 		}
 		if proc.TraceID != "" {
 			childOpts.ParentSpanID = proc.SpanID

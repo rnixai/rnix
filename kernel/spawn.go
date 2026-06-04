@@ -76,10 +76,17 @@ func (k *KernelImpl) Spawn(intent string, agent *agents.AgentInfo, opts SpawnOpt
 		proc.CompactionDisabled = true
 	}
 
-	// Spawn-recursion guard depth: inherited from opts. Only ActionSpawn sets
-	// it to parent.Depth+1; all other spawn paths leave opts.Depth=0, so those
-	// processes are top-level (Depth=0) and never trip MaxSpawnDepth.
+	// Spawn-recursion guard: reject if depth exceeds cap. ActionSpawn checks
+	// this earlier in tool_exec.go (with LLM guidance); this is the backstop
+	// for intent / compose / other spawn paths that bypass tool_exec.
 	proc.Depth = opts.Depth
+	if opts.Depth > MaxSpawnDepth {
+		return 0, fmt.Errorf("spawn rejected: depth %d exceeds maximum %d", opts.Depth, MaxSpawnDepth)
+	}
+
+	// Device deny-list: intent-spawned children are blocked from /dev/intent
+	// to prevent recursive decomposition chains.
+	proc.DeniedDevices = opts.DeniedDevices
 
 	// Set project config snapshot (Story 25.3) — immutable after spawn
 	proc.ProjectConfig = opts.ProjectConfig

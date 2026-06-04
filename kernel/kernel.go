@@ -62,13 +62,14 @@ const DefaultMaxSteps = 0
 // DefaultCtxSize is the default context size (message count) for new contexts.
 const DefaultCtxSize = 256
 
-// MaxSpawnDepth caps the process-tree depth an LLM may reach via ActionSpawn.
-// It is a safety net against infinite spawn recursion: when a process lacks a
-// required device permission, the LLM may try to spawn a child to "acquire"
-// it, but child AllowedDevices are always ≤ parent (commit 30fba3c), so the
-// chain can never succeed. Only ActionSpawn accumulates depth — resume /
-// compose / CLI / supervisor spawns leave Depth=0 and are unaffected.
-const MaxSpawnDepth = 8
+// MaxSpawnDepth caps the process-tree depth for spawned processes. It guards
+// against two recursion patterns: (1) permission-denied loops where the LLM
+// spawns children to "acquire" a device it lacks (child AllowedDevices ≤
+// parent), and (2) behavioral loops where the LLM delegates simple tasks
+// (e.g. "read a file") to child processes instead of executing directly.
+// Checked in both ActionSpawn (tool_exec.go) and kernel.Spawn() (intent/
+// compose paths). CLI / resume / supervisor spawns leave Depth=0, unaffected.
+const MaxSpawnDepth = 4
 
 // SpawnOpts configures optional parameters for Spawn.
 type SpawnOpts struct {
@@ -96,6 +97,7 @@ type SpawnOpts struct {
 	CompactThreshold  float64               // 0 = use default (80%); >0 = trigger compact when TokenUsage > threshold
 	GracePeriod       time.Duration          // 0 = use DefaultGracePeriod; >0 = custom SIGTERM grace period
 	AllowedDevices    []string               // inherited from parent; nil = no constraint from parent
+	DeniedDevices     []string               // device blacklist; checked before AllowedDevices whitelist
 
 	// Orchestration metadata (Story 34.7)
 	ComposeNode   string   // compose node name (e.g. "summarizer")

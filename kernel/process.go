@@ -90,6 +90,7 @@ type Process struct {
 	Budget         ProcessBudget // per-process resource budget (mu protected); suspend when exhausted
 	MaxSteps       int            // max reasoning steps for this process (from SpawnOpts.MaxTurns or DefaultMaxSteps)
 	AllowedDevices []string    // nil/empty = all devices allowed; non-empty = whitelist only
+	DeniedDevices  []string    // device blacklist; checked before AllowedDevices; blocks access regardless of whitelist
 	MCPMounts      []string    // MCP mount paths auto-mounted by Spawn
 	// mcpReusedMounts contains MCP paths this process did NOT mount itself
 	// (Story 48.1 AC7 — fork-resume collision: an existing mount under the

@@ -1974,6 +1974,7 @@ func runDaemon(cmd *cobra.Command, args []string) error {
 				opts.ParentPID = cpInfo.PID
 				opts.Depth = cpInfo.Depth + 1
 			}
+			opts.DeniedDevices = []string{"/dev/intent"}
 			pid, err := k.Spawn(node.Intent, agentInfo, opts)
 			return pid, err
 		},
