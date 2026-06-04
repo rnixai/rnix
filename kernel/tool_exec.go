@@ -28,7 +28,9 @@ const TotalToolErrorThreshold = 6
 
 // errFingerprintCounter tracks consecutive tool errors by fingerprint (errorCode|toolPath).
 // When a new fingerprint appears, count resets to 1. Same fingerprint increments count.
-// The total field accumulates across all fingerprints and only resets on reset().
+// The total field accumulates across all fingerprints and decays by 1 on each
+// recordSuccess() (it is NOT zeroed), so a single success cannot erase the
+// cross-fingerprint history the cumulative breaker relies on.
 type errFingerprintCounter struct {
 	fp    string // "<errCode>|<toolPath>"
 	count int
@@ -47,10 +49,17 @@ func (c *errFingerprintCounter) bump(errCode, toolPath string) int {
 	return c.count
 }
 
-func (c *errFingerprintCounter) reset() {
+// recordSuccess records a unit of progress (a successful tool call or a clean
+// child exit). The consecutive streak (count/fp) is fully cleared, but the
+// cumulative pressure (total) only decays by 1 so a single success cannot erase
+// the cross-fingerprint history — closing the "error→success→error" bypass while
+// letting healthy long-running processes drain total back to 0 over time.
+func (c *errFingerprintCounter) recordSuccess() {
 	c.fp = ""
 	c.count = 0
-	c.total = 0
+	if c.total > 0 {
+		c.total--
+	}
 }
 
 // appendToolResult appends a tool result to the context. Errors here used
@@ -126,18 +135,18 @@ func bumpToolError(counter *errFingerprintCounter, seen map[string]bool, errCode
 
 // spawnBreakerOutcome applies the circuit-breaker policy for a child spawn that
 // finished, based on its exit code (spec spawn-recursion-no-permission, scheme
-// 3). A child that finished cleanly (ExitOK) is progress and resets the breaker.
-// A child that exited abnormally (ExitError) is a no-progress "spawn-to-escape"
-// and bumps the shared "INTERNAL|spawn" fingerprint — returns tripped=true when
-// the breaker should fire. Because a circuit-broken child itself exits with
-// code 1, the trip cascades up the recursion chain. Suspended / context-full
-// children are neutral (neither reset nor bump). The shared fingerprint means a
-// failing child and a failing spawn() accumulate together, so alternating
-// failure modes cannot silently bypass the breaker.
+// 3). A child that finished cleanly (ExitOK) is progress and decays the breaker
+// pressure (recordSuccess). A child that exited abnormally (ExitError) is a
+// no-progress "spawn-to-escape" and bumps the shared "INTERNAL|spawn"
+// fingerprint — returns tripped=true when the breaker should fire. Because a
+// circuit-broken child itself exits with code 1, the trip cascades up the
+// recursion chain. Suspended / context-full children are neutral (neither decay
+// nor bump). The shared fingerprint means a failing child and a failing spawn()
+// accumulate together, so alternating failure modes cannot silently bypass the breaker.
 func spawnBreakerOutcome(counter *errFingerprintCounter, seen map[string]bool, code int) (tripped bool) {
 	switch code {
 	case ExitOK:
-		counter.reset()
+		counter.recordSuccess()
 	case ExitError:
 		_, tripped = bumpToolError(counter, seen, string(types.ErrInternal), "spawn")
 	}
@@ -310,7 +319,7 @@ toolLoop:
 				toolContent = toolContent[:500] + fmt.Sprintf("... (truncated, %d bytes total)", len(result))
 			}
 			k.emitLog(proc, step, types.LogTool, toolContent, mapping.VFSPath)
-			counter.reset()
+			counter.recordSuccess()
 			proc.mu.Lock()
 			proc.HasToolError = false
 			proc.mu.Unlock()

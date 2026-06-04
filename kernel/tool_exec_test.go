@@ -661,7 +661,7 @@ func TestErrFingerprintCounter_SameDeviceDifferentInputPathStillSameFingerprint(
 	}
 }
 
-func TestErrFingerprintCounter_ResetClears(t *testing.T) {
+func TestErrFingerprintCounter_SuccessClearsConsecutive(t *testing.T) {
 	var c errFingerprintCounter
 	seen := map[string]bool{}
 	bumpToolError(&c, seen, "NOT_FOUND", "/dev/fs")
@@ -669,13 +669,18 @@ func TestErrFingerprintCounter_ResetClears(t *testing.T) {
 	if c.count != 2 {
 		t.Fatalf("setup: got count=%d, want 2", c.count)
 	}
-	c.reset()
-	if c.count != 0 || c.fp != "" || c.total != 0 {
-		t.Fatalf("after reset: count=%d fp=%q total=%d, want 0/\"\"/0", c.count, c.fp, c.total)
+	// recordSuccess fully clears the consecutive streak (count/fp) but only
+	// decays the cumulative pressure (total: 2 → 1), it does NOT zero it.
+	c.recordSuccess()
+	if c.count != 0 || c.fp != "" {
+		t.Fatalf("after recordSuccess: count=%d fp=%q, want 0/\"\"", c.count, c.fp)
 	}
-	// Bump after reset starts fresh
+	if c.total != 1 {
+		t.Fatalf("after recordSuccess: total=%d, want 1 (decayed by 1, not zeroed)", c.total)
+	}
+	// Bump after success starts a fresh consecutive count.
 	if n, _ := bumpToolError(&c, map[string]bool{}, "NOT_FOUND", "/dev/fs"); n != 1 {
-		t.Fatalf("after reset, new bump count=%d, want 1", n)
+		t.Fatalf("after recordSuccess, new bump count=%d, want 1", n)
 	}
 }
 
@@ -697,7 +702,7 @@ func TestErrFingerprintCounter_TotalTripsAcrossFingerprints(t *testing.T) {
 	}
 }
 
-func TestErrFingerprintCounter_TotalResetsOnReset(t *testing.T) {
+func TestErrFingerprintCounter_SuccessDecaysTotal(t *testing.T) {
 	var c errFingerprintCounter
 	for i := range 4 {
 		seen := map[string]bool{}
@@ -706,9 +711,57 @@ func TestErrFingerprintCounter_TotalResetsOnReset(t *testing.T) {
 	if c.total != 4 {
 		t.Fatalf("expected total=4, got %d", c.total)
 	}
-	c.reset()
+	// A single success decays total by 1 (4 → 3), NOT to zero — so it cannot
+	// erase the cross-fingerprint history the cumulative breaker relies on.
+	c.recordSuccess()
+	if c.total != 3 {
+		t.Fatalf("expected total=3 after one recordSuccess, got %d", c.total)
+	}
+	// Enough successes drain total back to 0 (floored — never goes negative).
+	for range 5 {
+		c.recordSuccess()
+	}
 	if c.total != 0 {
-		t.Fatalf("expected total=0 after reset, got %d", c.total)
+		t.Fatalf("expected total=0 after draining, got %d (must floor at 0)", c.total)
+	}
+}
+
+// Regression (deferred-work [MEDIUM] from eval-smoke-over-decomposition-fix): a
+// single success must NOT wipe the cumulative breaker's history. Before the fix,
+// reset() zeroed total on every success, so an error-heavy loop that interleaved
+// occasional successes (different failing fingerprints, so the per-fingerprint
+// count never reached 3) could run forever without tripping the cumulative
+// breaker — weakening the spawn-storm backstop documented in
+// intent-only-spawn-hallucination-investigation.md.
+func TestErrFingerprintCounter_IntermittentSuccessStillTrips(t *testing.T) {
+	var c errFingerprintCounter
+	bumpDistinct := func(tag int) bool {
+		// Fresh per-step seen + distinct fingerprint → count stays at 1, only
+		// total accumulates (mirrors alternating between different failing tools).
+		_, tripped := bumpToolError(&c, map[string]bool{}, fmt.Sprintf("ERR_%d", tag), "/dev/fs")
+		return tripped
+	}
+
+	// 5 distinct-fingerprint errors: total climbs to 5, never trips per-fingerprint.
+	for i := range 5 {
+		if bumpDistinct(i) {
+			t.Fatalf("tripped early at error %d (total=%d)", i+1, c.total)
+		}
+	}
+	if c.count >= 3 {
+		t.Fatalf("setup invariant broken: count=%d hit the per-fingerprint trip; this test must exercise the cumulative path", c.count)
+	}
+	// One success: with the fix, total decays 5 → 4 (pre-fix it would zero to 0).
+	c.recordSuccess()
+	if c.total != 4 {
+		t.Fatalf("after one success: total=%d, want 4 (decay, not reset-to-zero)", c.total)
+	}
+	// Two more distinct errors push net pressure to the threshold and trip.
+	if bumpDistinct(100) {
+		t.Fatalf("tripped too early at total=%d (want trip on the 6th cumulative error)", c.total)
+	}
+	if !bumpDistinct(101) {
+		t.Fatalf("expected cumulative trip at total=%d (threshold %d)", c.total, TotalToolErrorThreshold)
 	}
 }
 
