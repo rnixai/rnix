@@ -162,6 +162,10 @@ func TestATDD_37_4_P2_ManualConfirmExecute_NoGuard_ByDesign(t *testing.T) {
 		if isDriverError(execErr, &de) && de.Code == types.ErrInvalid {
 			t.Fatalf("手动 execute 出现 ErrInvalid 护栏拦截——A 范围明确【不】扩面到此路径；若有意扩面请先更新 spec-37-4/ADR Decision 43 并改本红线: %v", execErr)
 		}
+		// [Review][Patch] 非护栏失败（DAG 构建 / spawn / 其它内部错误）也须显式暴露：
+		// 否则 execErr 被静默放过，末尾 pidAlloc 断言要么以"应放行执行"的误导消息失败、
+		// 要么在碰巧已 spawn 时假绿吞掉真实 execute 错误，削弱本红线的诊断性。
+		t.Fatalf("手动 execute 非预期失败（非护栏错误）——P2 固化的是'放行并执行成功'的现状，execute 不应因其它原因失败: %v", execErr)
 	}
 	if spawner.pidAlloc == 0 {
 		t.Error("手动 confirm→execute 应放行执行(spawn)含 daemon stop 的节点——固化'此同步路径无护栏'的已知现状边界")
