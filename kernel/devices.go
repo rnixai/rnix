@@ -33,13 +33,22 @@ func stripOrchestrationDevices(devs []string) []string {
 }
 
 // unionDevices returns the de-duplicated union of a and b in a new slice,
-// keeping a's order first and appending only the elements of b not already
-// present. Used to build an ActionSpawn child's DeniedDevices: the parent's
-// existing blacklist is preserved while the orchestration-only devices are
-// added (symmetric with cmd/rnix/main.go SpawnFunc's denied /dev/intent,
-// preventing recursive orchestration).
+// preserving first-seen order (all of a, then any of b not already present).
+// Both inputs are de-duplicated, so the result is free of duplicates even if a
+// itself contains repeats. Used to build an ActionSpawn child's DeniedDevices:
+// the parent's existing blacklist is preserved AND the orchestration-only
+// devices are added. This carries the same /dev/intent deny as cmd/rnix/main.go
+// SpawnFunc but is strictly stronger — SpawnFunc hard-sets []string{"/dev/intent"}
+// (intent children have no parent denylist to keep), whereas ActionSpawn also
+// retains the parent's denies, blocking recursive orchestration without dropping
+// inherited restrictions.
 func unionDevices(a, b []string) []string {
-	out := append([]string(nil), a...)
+	var out []string
+	for _, d := range a {
+		if !slices.Contains(out, d) {
+			out = append(out, d)
+		}
+	}
 	for _, d := range b {
 		if !slices.Contains(out, d) {
 			out = append(out, d)

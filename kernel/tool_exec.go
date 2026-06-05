@@ -784,8 +784,9 @@ func (k *KernelImpl) executeMetaAction(proc *Process, tc llmToolCall, mapping to
 		// children. stripOrchestrationDevices removes purely-orchestration
 		// devices so a parent with AllowedDevices=['/dev/intent'] yields a
 		// fail-open child able to reach /dev/shell etc.; unionDevices adds
-		// /dev/intent to the deny-list to block recursive orchestration
-		// (symmetric with cmd/rnix/main.go SpawnFunc).
+		// /dev/intent to the deny-list to block recursive orchestration —
+		// the same deny as cmd/rnix/main.go SpawnFunc, while also preserving
+		// the parent's existing denies.
 		childOpts := SpawnOpts{
 			Model:          modelStr,
 			ParentPID:      proc.PID,

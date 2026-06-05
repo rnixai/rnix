@@ -24,6 +24,7 @@ package kernel
 import (
 	gocontext "context"
 	"slices"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -153,17 +154,8 @@ func driveActionSpawnAndCaptureChild(
 		t.Fatal("timeout 等待子进程到达 LLM Read（park gate 未触发）")
 	}
 
-	children := parent.GetChildren()
-	if len(children) != 1 {
-		close(park.release)
-		t.Fatalf("expected exactly 1 child, got %d", len(children))
-	}
-	c, ok := k.GetProcess(children[0])
-	if !ok {
-		close(park.release)
-		t.Fatalf("child PID %d not found in procTable", children[0])
-	}
-
+	// release 放行子进程并等待 executeMetaAction 收尾（带超时）。提前定义，使下面
+	// 的失败路径也能 join 后台 goroutine，避免泄漏到后续测试（code-review P6）。
 	release = func() {
 		close(park.release)
 		select {
@@ -171,6 +163,17 @@ func driveActionSpawnAndCaptureChild(
 		case <-time.After(3 * time.Second):
 			t.Error("executeMetaAction 在 release 后未返回（WaitChildInReason 卡住）")
 		}
+	}
+
+	children := parent.GetChildren()
+	if len(children) != 1 {
+		release()
+		t.Fatalf("expected exactly 1 child, got %d", len(children))
+	}
+	c, ok := k.GetProcess(children[0])
+	if !ok {
+		release()
+		t.Fatalf("child PID %d not found in procTable", children[0])
 	}
 	return c, release
 }
@@ -261,7 +264,7 @@ func TestATDD_37_5_020_ActionSpawn_StripsOrchestrationOnlyDevice(t *testing.T) {
 	defer release()
 
 	if slices.Contains(child.AllowedDevices, "/dev/intent") {
-		t.Errorf("AC1 RED: child.AllowedDevices = %v, 必须剔除纯编排设备 /dev/intent", child.AllowedDevices)
+		t.Errorf("AC1: child.AllowedDevices = %v, 必须剔除纯编排设备 /dev/intent", child.AllowedDevices)
 	}
 	// 剔除后为空 → fail-open，子进程方能调用 /dev/shell（不再 unknown tool /dev/shell）。
 	if len(child.AllowedDevices) != 0 {
@@ -283,7 +286,7 @@ func TestATDD_37_5_021_ActionSpawn_PreservesRealDeviceDropsOrchestration(t *test
 
 	want := []string{"/dev/fs"}
 	if !slices.Equal(child.AllowedDevices, want) {
-		t.Errorf("AC3 RED: child.AllowedDevices = %v, want %v（保留真实设备，仅剔除 /dev/intent）",
+		t.Errorf("AC3: child.AllowedDevices = %v, want %v（保留真实设备，仅剔除 /dev/intent）",
 			child.AllowedDevices, want)
 	}
 }
@@ -302,7 +305,7 @@ func TestATDD_37_5_022_ActionSpawn_ChildDeniesIntentDevice(t *testing.T) {
 	defer release()
 
 	if !slices.Contains(child.DeniedDevices, "/dev/intent") {
-		t.Errorf("AC2 RED: child.DeniedDevices = %v, 必须含 /dev/intent（防递归编排，与 SpawnFunc 对称）",
+		t.Errorf("AC2: child.DeniedDevices = %v, 必须含 /dev/intent（防递归编排）",
 			child.DeniedDevices)
 	}
 }
@@ -332,10 +335,40 @@ func TestATDD_37_5_023_ActionSpawn_PreservesParentDeniedAndAddsIntent(t *testing
 	defer release()
 
 	if !slices.Contains(child.DeniedDevices, "/dev/intent") {
-		t.Errorf("AC2 RED: child.DeniedDevices = %v, 必须补 /dev/intent", child.DeniedDevices)
+		t.Errorf("AC2: child.DeniedDevices = %v, 必须补 /dev/intent", child.DeniedDevices)
 	}
 	if !slices.Contains(child.DeniedDevices, "/dev/shell") {
-		t.Errorf("AC2 RED: child.DeniedDevices = %v, 必须保留父原有 denied /dev/shell", child.DeniedDevices)
+		t.Errorf("AC2: child.DeniedDevices = %v, 必须保留父原有 denied /dev/shell", child.DeniedDevices)
+	}
+}
+
+// 024 — AC5 行为实证：纯编排父 ActionSpawn 的子进程能**实际**放行 /dev/shell 工具调用
+// （fail-open 生效，而非仅断言字段为空），且 /dev/intent 被 DeniedDevices 先行拦截。
+// 直接驱动 executeVFSTool 走权限判定（tool_exec.go:388 denied 先行 / :397 空白名单 fail-open），
+// 补足 020 仅断言 child.AllowedDevices 字段值的覆盖盲区（code-review P1）。
+func TestATDD_37_5_024_ActionSpawn_ChildReachesShellBlocksIntent(t *testing.T) {
+	park := newSpawnGate()
+	k, ctxMgr := newDeviceInheritanceKernel(t, park)
+	parent := spawnRestrictedParent(t, k, []string{"/dev/intent"})
+
+	child, release := driveActionSpawnAndCaptureChild(t, k, parent, ctxMgr, park)
+	defer release()
+
+	// 放行：子 AllowedDevices 为空（fail-open）→ /dev/shell 不应被权限拦截。
+	// 可能因非权限原因失败，但绝不能是 "permission denied"（参考 spawn_recursion_test.go）。
+	_, shellErr := k.executeVFSTool(child,
+		llmToolCall{Name: "Bash", Input: map[string]any{}},
+		toolMapping{Type: "vfs", VFSPath: "/dev/shell"})
+	if shellErr != nil && strings.Contains(shellErr.Error(), "permission denied") {
+		t.Errorf("AC5: 子进程应放行 /dev/shell（fail-open），却被权限拦截: %v", shellErr)
+	}
+
+	// 拦截：子 DeniedDevices 含 /dev/intent → 必须被黑名单先行拦截（防递归编排）。
+	_, intentErr := k.executeVFSTool(child,
+		llmToolCall{Name: "intent_decompose", Input: map[string]any{}},
+		toolMapping{Type: "vfs", VFSPath: "/dev/intent/decompose"})
+	if intentErr == nil || !strings.Contains(intentErr.Error(), "permission denied") {
+		t.Errorf("AC2/AC5: 子进程必须拦截 /dev/intent（防递归编排），got err=%v", intentErr)
 	}
 }
 
