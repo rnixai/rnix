@@ -12,32 +12,41 @@ import (
 // kill the running daemon, so it is not a self-reference hazard.
 var daemonRestartPattern = regexp.MustCompile(`(?i)\brnix\s+daemon\s+(stop|restart)\b`)
 
-// firstDaemonRestartNode returns the ID and matched substring of the first node
-// (deterministic by sorted ID, for stable error messages) whose intent would
-// restart the hosting daemon, or ("", "") if none.
+// daemonRestartHit identifies a sub-task node whose intent matched the
+// daemon-restart pattern, paired with the matched substring for diagnostics.
+type daemonRestartHit struct {
+	NodeID  string
+	Matched string
+}
+
+// daemonRestartNodes returns every node whose intent would restart the hosting
+// daemon, in deterministic sorted-ID order, or nil if none. ALL matches are
+// returned (not just the first) so the caller can report every offending node in
+// a single error and avoid a fix-one-retry-hit-the-next cycle.
 //
 // Rationale: auto_start runs the orchestration synchronously, bound to this
 // process's (hence the daemon's) context. A sub-task that restarts the daemon
 // would cancel the orchestration itself — a self-reference paradox. Architecture
 // Decision 41 (2026-06-05): IntentTree orchestration does NOT span a daemon
 // restart; such work must live outside the orchestration.
-func firstDaemonRestartNode(tree *intent.IntentTree) (nodeID, matched string) {
+func daemonRestartNodes(tree *intent.IntentTree) []daemonRestartHit {
 	if tree == nil {
-		return "", ""
+		return nil
 	}
 	ids := make([]string, 0, len(tree.Nodes))
 	for id := range tree.Nodes {
 		ids = append(ids, id)
 	}
 	sort.Strings(ids)
+	var hits []daemonRestartHit
 	for _, id := range ids {
 		node := tree.Nodes[id]
 		if node == nil {
 			continue
 		}
 		if m := daemonRestartPattern.FindString(node.Intent); m != "" {
-			return id, m
+			hits = append(hits, daemonRestartHit{NodeID: id, Matched: m})
 		}
 	}
-	return "", ""
+	return hits
 }

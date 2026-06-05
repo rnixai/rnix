@@ -2,6 +2,7 @@ package intentdriver
 
 import (
 	"context"
+	"fmt"
 	"testing"
 
 	"github.com/rnixai/rnix/intent"
@@ -107,5 +108,41 @@ func TestIntentFile_ManualPath_Guard_NotTriggered(t *testing.T) {
 	}
 	if spawner.pidAlloc != 0 {
 		t.Error("manual decompose must not Execute (no spawn)")
+	}
+}
+
+// TestIntentFile_AutoStart_Guard_KnownBypasses documents the CURRENT, intentionally
+// scoped limits of the literal-regex guard: semantically-equivalent daemon-termination
+// commands that are NOT matched today and therefore pass through to Execute. Each case
+// asserts present behavior (allowed) to lock in the known gap as a red-line baseline.
+// When detection is later strengthened (decision 2026-06-05「增强检测机制」— needs spec
+// re-negotiation; see deferred-work.md「37-3 code-review defer」复审升级块), move the
+// relevant cases to a rejected set expecting ErrInvalid.
+func TestIntentFile_AutoStart_Guard_KnownBypasses(t *testing.T) {
+	cases := []struct {
+		name       string
+		nodeIntent string // would terminate the daemon but evades `rnix daemon (stop|restart)`
+	}{
+		{"kill_by_pgrep", "kill -9 $(pgrep -f rnix)"},
+		{"pkill_rnix", "pkill -f rnix"},
+		{"socat_shutdown", "echo '{\"method\":\"shutdown\"}' | socat - UNIX-CONNECT:/tmp/rnix.sock"},
+		{"flag_form", "rnix daemon --stop"},
+		{"word_order_inverted", "stop the rnix daemon now"},
+		{"chinese_paraphrase", "停止 rnix 守护进程"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			nodesJSON := fmt.Sprintf(`[{"id":"n","intent":%q,"depends_on":[]}]`, tc.nodeIntent)
+			driver, spawner := newGuardTestDriver(nodesJSON)
+			file, _ := FileFactory(driver)("/decompose", vfs.O_RDWR, "")
+
+			err := file.Write(context.Background(), []byte(`{"intent":"x","auto_start":true}`))
+			if err != nil {
+				t.Fatalf("KNOWN LIMITATION regressed: %q should currently pass the literal-regex guard, got %v — if detection was strengthened, move this case to the rejected set", tc.nodeIntent, err)
+			}
+			if spawner.pidAlloc == 0 {
+				t.Errorf("expected Execute to run (guard passed) for known-bypass intent %q", tc.nodeIntent)
+			}
+		})
 	}
 }

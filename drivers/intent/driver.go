@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strings"
 
 	"github.com/rnixai/rnix/intent"
 	"github.com/rnixai/rnix/internal/types"
@@ -245,9 +246,13 @@ func (f *IntentFile) handleDecompose(ctx context.Context, data []byte) (*intent.
 		// daemon would cancel the orchestration itself (self-reference paradox).
 		// Decision 41 (2026-06-05): IntentTree orchestration does NOT span a
 		// daemon restart — such work must live outside the orchestration.
-		if nodeID, matched := firstDaemonRestartNode(tree); matched != "" {
+		if hits := daemonRestartNodes(tree); len(hits) > 0 {
+			parts := make([]string, len(hits))
+			for i, h := range hits {
+				parts[i] = fmt.Sprintf("节点 %s: %q", h.NodeID, h.Matched)
+			}
 			return nil, &types.DriverError{Op: "Write", Device: f.devicePath, Code: types.ErrInvalid,
-				Err: fmt.Errorf("auto_start 不支持含 daemon 重启的子任务 (节点 %s: %q)：编排运行在 daemon 内，重启会取消编排自身；请将 daemon 重启移到编排外，或改用分步 decompose→confirm→execute", nodeID, matched)}
+				Err: fmt.Errorf("auto_start 不支持含 daemon 重启的子任务 (%s)：编排运行在 daemon 内，重启会取消编排自身；请将 daemon 重启移到编排外，或改用分步 decompose→confirm→execute", strings.Join(parts, "; "))}
 		}
 		if err := f.driver.manager.Confirm(tree.ID); err != nil {
 			return nil, &types.DriverError{Op: "Write", Device: f.devicePath, Err: fmt.Errorf("auto_start confirm: %w", err), Code: types.ErrDriver}
