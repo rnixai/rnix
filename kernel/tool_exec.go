@@ -780,14 +780,20 @@ func (k *KernelImpl) executeMetaAction(proc *Process, tc llmToolCall, mapping to
 			return true
 		}
 
+		// Story 37.5: align ActionSpawn child devices with intent-decompose
+		// children. stripOrchestrationDevices removes purely-orchestration
+		// devices so a parent with AllowedDevices=['/dev/intent'] yields a
+		// fail-open child able to reach /dev/shell etc.; unionDevices adds
+		// /dev/intent to the deny-list to block recursive orchestration
+		// (symmetric with cmd/rnix/main.go SpawnFunc).
 		childOpts := SpawnOpts{
 			Model:          modelStr,
 			ParentPID:      proc.PID,
 			Depth:          proc.Depth + 1,
 			TraceID:        proc.TraceID,
 			ProjectConfig:  proc.ProjectConfig,
-			AllowedDevices: append([]string(nil), proc.AllowedDevices...),
-			DeniedDevices:  append([]string(nil), proc.DeniedDevices...),
+			AllowedDevices: stripOrchestrationDevices(proc.AllowedDevices),
+			DeniedDevices:  unionDevices(proc.DeniedDevices, orchestrationOnlyDevices),
 		}
 		if proc.TraceID != "" {
 			childOpts.ParentSpanID = proc.SpanID
