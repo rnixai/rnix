@@ -205,6 +205,7 @@ type procInfoDisk struct {
 	CtxID          uint64   `json:"ctx_id"`
 	Result         string   `json:"result,omitempty"`
 	AllowedDevices []string `json:"allowed_devices,omitempty"`
+	DeniedDevices  []string `json:"denied_devices,omitempty"`
 	Provider       string   `json:"provider,omitempty"`
 	Model          string   `json:"model,omitempty"`
 	// PrimaryDevice — Epic 44 follow-up: persist the LLM VFS path so daemon
@@ -274,6 +275,7 @@ func procInfoToDisk(info vfs.ProcInfo) procInfoDisk {
 		CtxID:          uint64(info.CtxID),
 		Result:         info.Result,
 		AllowedDevices: info.AllowedDevices,
+		DeniedDevices:  info.DeniedDevices,
 		Provider:       info.Provider,
 		Model:          info.Model,
 		PrimaryDevice:  info.PrimaryDevice,
@@ -333,6 +335,7 @@ func procInfoFromDisk(d procInfoDisk) vfs.ProcInfo {
 		CtxID:          types.CtxID(d.CtxID),
 		Result:         d.Result,
 		AllowedDevices: d.AllowedDevices,
+		DeniedDevices:  d.DeniedDevices,
 		Provider:       d.Provider,
 		Model:          d.Model,
 		PrimaryDevice:  d.PrimaryDevice,

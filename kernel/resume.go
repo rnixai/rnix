@@ -479,6 +479,7 @@ func (k *KernelImpl) resumeFromCheckpoint(uuid string, opts ResumeOpts, start ti
 	proc.Provider = cp.Provider
 	proc.Model = cp.Model
 	proc.AllowedDevices = append([]string(nil), cp.AllowedDevices...)
+	proc.DeniedDevices = append([]string(nil), cp.DeniedDevices...)
 	proc.MaxSteps = cp.MaxSteps
 	proc.ResumedFromStep = startStep
 	proc.mu.Lock()
@@ -711,6 +712,7 @@ func (k *KernelImpl) resumeFromHistory(uuid string, opts ResumeOpts, start time.
 	proc.PrimaryDevice = llmDevice // must be set before rehydrate so the caller
 	// can route reasonStep-driven processes correctly on later resume legs.
 	proc.AllowedDevices = append([]string(nil), diskInfo.AllowedDevices...)
+	proc.DeniedDevices = append([]string(nil), diskInfo.DeniedDevices...)
 	proc.MaxSteps = diskInfo.MaxSteps
 	// Restore additional state captured on disk so the resumed process is not a
 	// stripped-down shadow of the original (Edge Case Hunter Finding #5 & #10).

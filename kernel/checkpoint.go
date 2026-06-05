@@ -30,6 +30,7 @@ type CheckpointProcState struct {
 	Model                 string            `json:"model"`
 	Skills                []string          `json:"skills"`
 	AllowedDevices        []string          `json:"allowed_devices"`
+	DeniedDevices         []string          `json:"denied_devices,omitempty"`
 	Intent                string            `json:"intent"`
 	IntentID              string            `json:"intent_id,omitempty"`
 	MaxSteps              int               `json:"max_steps"`
@@ -102,6 +103,12 @@ func buildCheckpointData(proc *Process, step int, contextSnapshot json.RawMessag
 	parentUUID := proc.ParentUUID
 	skills := make([]string, len(proc.Skills))
 	copy(skills, proc.Skills)
+	// Story 37.6 — snapshot both device lists under the lock. DeniedDevices is
+	// the new symmetric field; AllowedDevices was previously read lock-free in the
+	// struct literal below (a latent -race risk), so pull both reads in here to
+	// keep the snapshot consistent with skills.
+	allowedDevices := append([]string(nil), proc.AllowedDevices...)
+	deniedDevices := append([]string(nil), proc.DeniedDevices...)
 	proc.mu.Unlock()
 
 	// Snapshot relevant environment variables for resume drift detection (Story 30.4 review)
@@ -123,7 +130,8 @@ func buildCheckpointData(proc *Process, step int, contextSnapshot json.RawMessag
 			Provider:              proc.Provider,
 			Model:                 proc.Model,
 			Skills:                skills,
-			AllowedDevices:        append([]string(nil), proc.AllowedDevices...),
+			AllowedDevices:        allowedDevices,
+			DeniedDevices:         deniedDevices,
 			Intent:                proc.Intent,
 			MaxSteps:              proc.MaxSteps,
 			CtxSize:               proc.CtxSize,

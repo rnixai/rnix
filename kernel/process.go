@@ -403,6 +403,11 @@ type DetailSnapshot struct {
 	PausedTotal    time.Duration
 	Skills         []string
 	AllowedDevices []string
+	// DeniedDevices mirrors AllowedDevices in this observability snapshot so the
+	// detail view reflects a resumed process's device blocklist (Story 37.6). It
+	// is captured at the kernel layer for symmetry; IPC/dashboard surfacing stays
+	// out of this story's kernel/+vfs/ persistence scope.
+	DeniedDevices  []string
 	CtxID          types.CtxID
 	TokensUsed      int
 	LastInputTokens int
@@ -440,6 +445,7 @@ func (p *Process) GetDetailSnapshot() DetailSnapshot {
 		PausedTotal:     p.pausedTotal,
 		Skills:          append([]string(nil), p.Skills...),
 		AllowedDevices:  append([]string(nil), p.AllowedDevices...),
+		DeniedDevices:   append([]string(nil), p.DeniedDevices...),
 		CtxID:           p.CtxID,
 		TokensUsed:      p.TokensUsed,
 		LastInputTokens: p.LastInputTokens,

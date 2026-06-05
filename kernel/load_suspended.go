@@ -92,6 +92,10 @@ func (k *KernelImpl) LoadSuspendedFromDisk() (int, error) {
 		}
 		proc.ContextWindow = info.ContextWindow
 		proc.AllowedDevices = append([]string(nil), info.AllowedDevices...)
+		// Story 37.6 — restore the device blocklist symmetric to AllowedDevices so
+		// a Suspended process revived after a daemon restart keeps the
+		// anti-recursive-orchestration guard (deny /dev/intent) installed at spawn.
+		proc.DeniedDevices = append([]string(nil), info.DeniedDevices...)
 		proc.ContextBudget = info.ContextBudget
 		proc.ComposeNode = info.ComposeNode
 		proc.ComposeDeps = append([]string(nil), info.ComposeDeps...)

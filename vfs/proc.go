@@ -66,6 +66,12 @@ type ProcInfo struct {
 	CtxID          types.CtxID
 	Result         string
 	AllowedDevices []string
+	// DeniedDevices is the process device blocklist, checked before AllowedDevices
+	// in kernel tool dispatch. Persisted alongside AllowedDevices (Story 37.6) so
+	// resume / daemon-restart revival keeps the anti-recursive-orchestration guard
+	// (deny /dev/intent) that Story 37-5 installs on spawned children — without
+	// this the blocklist resumes as nil and the guard silently lapses.
+	DeniedDevices  []string
 	Provider       string
 	Model          string
 	// PrimaryDevice is the LLM VFS device path (e.g. "/dev/llm/claude") this
@@ -255,6 +261,7 @@ type statusJSON struct {
 	ContextBudget  int       `json:"context_budget,omitempty"`
 	ElapsedMs      int64     `json:"elapsed_ms"`
 	AllowedDevices []string  `json:"allowed_devices"`
+	DeniedDevices  []string  `json:"denied_devices,omitempty"`
 }
 
 // buildStatusJSON generates the JSON content for /proc/{pid}/status.
@@ -269,6 +276,7 @@ func buildStatusJSON(info *ProcInfo) ([]byte, error) {
 		ContextBudget:  info.ContextBudget,
 		ElapsedMs:      time.Since(info.CreatedAt).Milliseconds(),
 		AllowedDevices: info.AllowedDevices,
+		DeniedDevices:  info.DeniedDevices,
 	}
 	if s.Skills == nil {
 		s.Skills = []string{}
