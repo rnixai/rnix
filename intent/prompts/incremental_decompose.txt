@@ -14,6 +14,7 @@
 4. 如果新需求修改了已有子任务的目标，更新其 intent 字段
 5. 正确声明 depends_on 依赖关系
 6. 返回纯 JSON 数组，不要包含其他文本
+7. 禁止把 daemon 重启（rnix daemon stop / restart）作为子任务节点——编排运行在 daemon 内，重启会取消编排自身
 
 示例输出:
 [

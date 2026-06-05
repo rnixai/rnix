@@ -54,7 +54,7 @@ func (d *IntentDriver) ToolDefs() []vfs.ToolDef {
 					},
 					"auto_start": map[string]any{
 						"type":        "boolean",
-						"description": "若为 true，分解成功后自动 confirm + execute，同步等待整个意图树执行完成；适用于 [AUTO_CONFIRM] 流程，可避免后续手动调用 intent_confirm/intent_execute",
+						"description": "若为 true，分解成功后自动 confirm + execute，同步等待整个意图树执行完成；适用于 [AUTO_CONFIRM] 流程，可避免后续手动调用 intent_confirm/intent_execute。注意：含 daemon 重启（rnix daemon stop/restart）的子任务不可用于 auto_start——编排运行在 daemon 内，重启会取消编排自身",
 					},
 				},
 				"required": []string{"intent"},
@@ -240,6 +240,15 @@ func (f *IntentFile) handleDecompose(ctx context.Context, data []byte) (*intent.
 	// idle. The synchronous Execute waits for all child processes to finish,
 	// so the returned tree reflects terminal state (completed or failed).
 	if req.AutoStart {
+		// Guard: auto_start runs the orchestration synchronously, bound to this
+		// process's (hence the daemon's) context. A sub-task that restarts the
+		// daemon would cancel the orchestration itself (self-reference paradox).
+		// Decision 41 (2026-06-05): IntentTree orchestration does NOT span a
+		// daemon restart — such work must live outside the orchestration.
+		if nodeID, matched := firstDaemonRestartNode(tree); matched != "" {
+			return nil, &types.DriverError{Op: "Write", Device: f.devicePath, Code: types.ErrInvalid,
+				Err: fmt.Errorf("auto_start 不支持含 daemon 重启的子任务 (节点 %s: %q)：编排运行在 daemon 内，重启会取消编排自身；请将 daemon 重启移到编排外，或改用分步 decompose→confirm→execute", nodeID, matched)}
+		}
 		if err := f.driver.manager.Confirm(tree.ID); err != nil {
 			return nil, &types.DriverError{Op: "Write", Device: f.devicePath, Err: fmt.Errorf("auto_start confirm: %w", err), Code: types.ErrDriver}
 		}

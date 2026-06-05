@@ -12,3 +12,5 @@ Returns the decomposed IntentTree as JSON, containing:
 - nodes: Map of sub-task nodes with dependencies
 
 The returned tree is in "await_confirm" state. Use intent_confirm to approve it before execution.
+
+Note: when using auto_start, do NOT include daemon-restart commands (rnix daemon stop / restart) as sub-tasks — the orchestration runs synchronously inside the daemon, so restarting the daemon cancels the orchestration itself. Restart the daemon outside the orchestration instead.
