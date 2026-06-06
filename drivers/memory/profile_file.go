@@ -13,6 +13,7 @@ import (
 // but forces the target to "user" for all operations.
 type MemoryProfileFile struct {
 	driver   *MemoryProfileDriver
+	workDir  string // caller's project dir for per-project routing (user target)
 	response []byte
 }
 
@@ -31,28 +32,28 @@ func (f *MemoryProfileFile) Write(_ context.Context, data []byte) error {
 
 	switch req.Action {
 	case "add":
-		if err := store.Add(req.Target, req.Content); err != nil {
+		if err := store.Add(req.Target, req.Content, f.workDir); err != nil {
 			f.response = marshalResponse(memoryResponse{OK: false, Error: err.Error()})
 			return nil
 		}
 		f.response = marshalResponse(memoryResponse{OK: true, Message: "user profile entry added"})
 	case "replace":
-		if err := store.Replace(req.Target, req.Old, req.New); err != nil {
+		if err := store.Replace(req.Target, req.Old, req.New, f.workDir); err != nil {
 			f.response = marshalResponse(memoryResponse{OK: false, Error: err.Error()})
 			return nil
 		}
 		f.response = marshalResponse(memoryResponse{OK: true, Message: "user profile entry replaced"})
 	case "remove":
-		if err := store.Remove(req.Target, req.Old); err != nil {
+		if err := store.Remove(req.Target, req.Old, f.workDir); err != nil {
 			f.response = marshalResponse(memoryResponse{OK: false, Error: err.Error()})
 			return nil
 		}
 		f.response = marshalResponse(memoryResponse{OK: true, Message: "user profile entry removed"})
 	case "snapshot":
-		snap := store.Snapshot(req.Target)
+		snap := store.Snapshot(req.Target, f.workDir)
 		f.response = marshalResponse(memoryResponse{OK: true, Snapshot: snap})
 	case "capacity":
-		used, limit := store.Capacity(req.Target)
+		used, limit := store.Capacity(req.Target, f.workDir)
 		f.response = marshalResponse(memoryResponse{OK: true, Used: used, Limit: limit})
 	default:
 		f.response = marshalResponse(memoryResponse{OK: false, Error: fmt.Sprintf("unknown action: %q", req.Action)})

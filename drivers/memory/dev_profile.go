@@ -62,6 +62,6 @@ func (d *MemoryProfileDriver) ToolDefs() []vfs.ToolDef {
 // ProfileFileFactory returns a VFSFileFactory that creates MemoryProfileFile instances.
 func ProfileFileFactory(driver *MemoryProfileDriver) vfs.VFSFileFactory {
 	return func(subpath string, flags vfs.OpenFlag, workDir string) (vfs.VFSFile, error) {
-		return &MemoryProfileFile{driver: driver}, nil
+		return &MemoryProfileFile{driver: driver, workDir: workDir}, nil
 	}
 }

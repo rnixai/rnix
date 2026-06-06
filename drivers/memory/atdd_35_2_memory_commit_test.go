@@ -104,7 +104,7 @@ func TestMemoryCommitFile_WriteAdd(t *testing.T) {
 		t.Fatalf("Write add failed: %v", err)
 	}
 
-	snap := store.Snapshot("memory")
+	snap := store.Snapshot("memory", "/tmp")
 	if !strings.Contains(snap, "goccy/go-yaml") {
 		t.Errorf("memory missing added content, got: %q", snap)
 	}
@@ -144,7 +144,7 @@ func TestMemoryCommitFile_WriteAdd_Response(t *testing.T) {
 // 35.2-UNIT-006: Write replace 操作替换条目
 func TestMemoryCommitFile_WriteReplace(t *testing.T) {
 	store := setupTestMemoryStore(t)
-	_ = store.Add("memory", "old entry")
+	_ = store.Add("memory", "old entry", "/tmp")
 
 	driver := NewDriver(store)
 	file := newTestFile(t, driver)
@@ -160,7 +160,7 @@ func TestMemoryCommitFile_WriteReplace(t *testing.T) {
 		t.Fatalf("Write replace failed: %v", err)
 	}
 
-	snap := store.Snapshot("memory")
+	snap := store.Snapshot("memory", "/tmp")
 	if strings.Contains(snap, "old entry") {
 		t.Error("old entry still present after replace")
 	}
@@ -176,7 +176,7 @@ func TestMemoryCommitFile_WriteReplace(t *testing.T) {
 // 35.2-UNIT-007: Write remove 操作删除条目
 func TestMemoryCommitFile_WriteRemove(t *testing.T) {
 	store := setupTestMemoryStore(t)
-	_ = store.Add("memory", "to-delete")
+	_ = store.Add("memory", "to-delete", "/tmp")
 
 	driver := NewDriver(store)
 	file := newTestFile(t, driver)
@@ -191,7 +191,7 @@ func TestMemoryCommitFile_WriteRemove(t *testing.T) {
 		t.Fatalf("Write remove failed: %v", err)
 	}
 
-	snap := store.Snapshot("memory")
+	snap := store.Snapshot("memory", "/tmp")
 	if strings.Contains(snap, "to-delete") {
 		t.Error("entry still present after remove")
 	}
@@ -204,7 +204,7 @@ func TestMemoryCommitFile_WriteRemove(t *testing.T) {
 // 35.2-UNIT-008: Write snapshot 返回当前记忆内容
 func TestMemoryCommitFile_WriteSnapshot(t *testing.T) {
 	store := setupTestMemoryStore(t)
-	_ = store.Add("memory", "snapshot-test-entry")
+	_ = store.Add("memory", "snapshot-test-entry", "/tmp")
 
 	driver := NewDriver(store)
 	file := newTestFile(t, driver)
@@ -309,7 +309,7 @@ func TestMemoryCommitFile_WriteAdd_GlobalTarget(t *testing.T) {
 		t.Fatalf("Write add to global failed: %v", err)
 	}
 
-	snap := store.Snapshot("global_memory")
+	snap := store.Snapshot("global_memory", "")
 	if !strings.Contains(snap, "global knowledge entry") {
 		t.Errorf("global memory missing added content, got: %q", snap)
 	}
@@ -369,7 +369,7 @@ func TestMemoryCommitDriver_ToolDefs_DescriptionNonEmpty(t *testing.T) {
 // 35.2-UNIT-014: BuildMemoryBlock 空记忆返回空字符串
 func TestBuildMemoryBlock_EmptyMemory(t *testing.T) {
 	store := setupTestMemoryStore(t)
-	result := kernelmemory.BuildMemoryBlock(store)
+	result := kernelmemory.BuildMemoryBlock(store, "")
 	if result != "" {
 		t.Errorf("expected empty string for empty memory, got: %q", result)
 	}
@@ -378,9 +378,9 @@ func TestBuildMemoryBlock_EmptyMemory(t *testing.T) {
 // 35.2-UNIT-015: BuildMemoryBlock 项目记忆存在时返回 section 内容
 func TestBuildMemoryBlock_WithProjectMemory(t *testing.T) {
 	store := setupTestMemoryStore(t)
-	_ = store.Add("memory", "project fact one")
+	_ = store.Add("memory", "project fact one", "")
 
-	result := kernelmemory.BuildMemoryBlock(store)
+	result := kernelmemory.BuildMemoryBlock(store, "")
 	if result == "" {
 		t.Fatal("expected non-empty memory block")
 	}
@@ -392,10 +392,10 @@ func TestBuildMemoryBlock_WithProjectMemory(t *testing.T) {
 // 35.2-UNIT-016: BuildMemoryBlock 全局+项目记忆以分隔符分隔
 func TestBuildMemoryBlock_DualScope(t *testing.T) {
 	store := setupTestMemoryStore(t)
-	_ = store.Add("global_memory", "global fact")
-	_ = store.Add("memory", "project fact")
+	_ = store.Add("global_memory", "global fact", "")
+	_ = store.Add("memory", "project fact", "")
 
-	result := kernelmemory.BuildMemoryBlock(store)
+	result := kernelmemory.BuildMemoryBlock(store, "")
 	if !strings.Contains(result, "global fact") {
 		t.Error("memory block missing global entry")
 	}
@@ -413,9 +413,9 @@ func TestBuildMemoryBlock_DualScope(t *testing.T) {
 // 35.2-UNIT-017: BuildMemoryBlock 只有全局记忆时正常工作
 func TestBuildMemoryBlock_GlobalOnly(t *testing.T) {
 	store := setupTestMemoryStore(t)
-	_ = store.Add("global_memory", "only global fact")
+	_ = store.Add("global_memory", "only global fact", "")
 
-	result := kernelmemory.BuildMemoryBlock(store)
+	result := kernelmemory.BuildMemoryBlock(store, "")
 	if !strings.Contains(result, "only global fact") {
 		t.Errorf("memory block missing global entry, got: %q", result)
 	}
@@ -424,9 +424,9 @@ func TestBuildMemoryBlock_GlobalOnly(t *testing.T) {
 // 35.2-UNIT-018: BuildMemoryBlock 包含 Memory heading
 func TestBuildMemoryBlock_ContainsHeading(t *testing.T) {
 	store := setupTestMemoryStore(t)
-	_ = store.Add("memory", "some entry")
+	_ = store.Add("memory", "some entry", "")
 
-	result := kernelmemory.BuildMemoryBlock(store)
+	result := kernelmemory.BuildMemoryBlock(store, "")
 	if !strings.Contains(result, "# Memory") && !strings.Contains(result, "## Memory") {
 		t.Error("memory block should contain a Memory heading")
 	}
@@ -439,19 +439,19 @@ func TestBuildMemoryBlock_ContainsHeading(t *testing.T) {
 // 35.2-UNIT-019: Snapshot 调用后新写入不影响已获取的快照
 func TestMemorySnapshot_FrozenSemantics(t *testing.T) {
 	store := setupTestMemoryStore(t)
-	_ = store.Add("memory", "before-freeze")
+	_ = store.Add("memory", "before-freeze", "")
 
 	// Simulate spawn: freeze snapshot
-	frozen := kernelmemory.BuildMemoryBlock(store)
+	frozen := kernelmemory.BuildMemoryBlock(store, "")
 
 	// Simulate runtime write by another process
-	_ = store.Add("memory", "after-freeze")
+	_ = store.Add("memory", "after-freeze", "")
 
 	// Frozen snapshot should NOT contain the new write
 	// (BuildMemoryBlock reads live state, but the section's Cached=true means
 	// the first Build() result is frozen for that process)
 	// This test verifies the MemoryStore Snapshot reads current state
-	liveBlock := kernelmemory.BuildMemoryBlock(store)
+	liveBlock := kernelmemory.BuildMemoryBlock(store, "")
 	if !strings.Contains(liveBlock, "after-freeze") {
 		t.Error("live snapshot should contain new write")
 	}
@@ -464,10 +464,10 @@ func TestMemorySnapshot_FrozenSemantics(t *testing.T) {
 // 35.2-UNIT-020: 新进程 spawn 获取最新快照（含前一进程的写入）
 func TestMemorySnapshot_NewProcessGetsLatest(t *testing.T) {
 	store := setupTestMemoryStore(t)
-	_ = store.Add("memory", "from-process-A")
+	_ = store.Add("memory", "from-process-A", "")
 
 	// Process B spawns after Process A wrote
-	snapshot := kernelmemory.BuildMemoryBlock(store)
+	snapshot := kernelmemory.BuildMemoryBlock(store, "")
 	if !strings.Contains(snapshot, "from-process-A") {
 		t.Error("new process snapshot should contain previous process's writes")
 	}

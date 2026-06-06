@@ -20,13 +20,13 @@ func TestFileMemoryProvider_UserTargetIndependentLimit(t *testing.T) {
 
 	// Add a large entry to "user" target that fits within memory limit but exceeds user limit
 	bigEntry := strings.Repeat("u", 90)
-	err := store.Add("user", bigEntry)
+	err := store.Add("user", bigEntry, "")
 	if err != nil {
 		t.Fatalf("first user Add should succeed within user limit: %v", err)
 	}
 
 	// This should fail because user limit is 100, not 4096
-	err = store.Add("user", "overflow entry that exceeds the small user limit")
+	err = store.Add("user", "overflow entry that exceeds the small user limit", "")
 	if err == nil {
 		t.Error("expected capacity error for user target with small limit, but Add succeeded")
 	}
@@ -38,7 +38,7 @@ func TestFileMemoryProvider_MemoryTargetUsesOwnLimit(t *testing.T) {
 
 	// Memory target should have its own larger limit
 	entry := strings.Repeat("m", 150)
-	err := store.Add("memory", entry)
+	err := store.Add("memory", entry, "")
 	if err != nil {
 		t.Errorf("memory Add within memory limit should succeed: %v", err)
 	}
@@ -48,8 +48,8 @@ func TestFileMemoryProvider_MemoryTargetUsesOwnLimit(t *testing.T) {
 func TestFileMemoryProvider_CapacityReturnsUserLimit(t *testing.T) {
 	store, _, _ := setupTestStore(t, 4096, 2048)
 
-	_, userLimit := store.Capacity("user")
-	_, memLimit := store.Capacity("memory")
+	_, userLimit := store.Capacity("user", "")
+	_, memLimit := store.Capacity("memory", "")
 
 	if userLimit == memLimit {
 		t.Errorf("user limit (%d) should differ from memory limit (%d)", userLimit, memLimit)
@@ -66,10 +66,10 @@ func TestFileMemoryProvider_CapacityReturnsUserLimit(t *testing.T) {
 func TestFileMemoryProvider_ReplaceRespectsUserLimit(t *testing.T) {
 	store, _, _ := setupTestStore(t, 4096, 100)
 
-	_ = store.Add("user", "short")
+	_ = store.Add("user", "short", "")
 	// Replace with an entry that exceeds user limit (100) after capacity accounting
 	bigReplacement := strings.Repeat("x", 100)
-	err := store.Replace("user", "short", bigReplacement)
+	err := store.Replace("user", "short", bigReplacement, "")
 	if err == nil {
 		t.Error("expected capacity error when Replace exceeds user limit")
 	}
@@ -80,10 +80,10 @@ func TestFileMemoryProvider_IndependentCapacityTracking(t *testing.T) {
 	store, _, _ := setupTestStore(t, 200, 200)
 
 	// Fill user target near capacity
-	_ = store.Add("user", strings.Repeat("u", 180))
+	_ = store.Add("user", strings.Repeat("u", 180), "")
 
 	// Memory target should still have full capacity
-	err := store.Add("memory", strings.Repeat("m", 180))
+	err := store.Add("memory", strings.Repeat("m", 180), "")
 	if err != nil {
 		t.Errorf("memory Add should succeed independently of user capacity: %v", err)
 	}
@@ -95,7 +95,7 @@ func TestFileMemoryProvider_UnknownTargetFallback(t *testing.T) {
 	store, _, _ := setupTestStore(t, 4096, 2048)
 
 	// "memory" target should work with MemoryCharLimit
-	_, limit := store.Capacity("memory")
+	_, limit := store.Capacity("memory", "")
 	if limit != 4096 {
 		t.Errorf("expected memory limit=4096, got %d", limit)
 	}
@@ -116,11 +116,11 @@ func TestDefaultMemoryConfig_UserCharLimitDefault(t *testing.T) {
 func TestFileMemoryProvider_UserMdIndependentFromMemoryMd(t *testing.T) {
 	store, _, _ := setupTestStore(t, 4096, 2048)
 
-	_ = store.Add("user", "user profile entry")
-	_ = store.Add("memory", "memory knowledge entry")
+	_ = store.Add("user", "user profile entry", "")
+	_ = store.Add("memory", "memory knowledge entry", "")
 
-	userSnap := store.Snapshot("user")
-	memSnap := store.Snapshot("memory")
+	userSnap := store.Snapshot("user", "")
+	memSnap := store.Snapshot("memory", "")
 
 	if !strings.Contains(userSnap, "user profile entry") {
 		t.Error("user snapshot missing user entry")
@@ -169,24 +169,24 @@ func TestMemoryProvider_InterfaceCompleteness(t *testing.T) {
 	store, _, _ := setupTestStore(t, 4096, 2048)
 
 	// Exercise all interface methods on "user" target
-	if err := store.Add("user", "test entry"); err != nil {
+	if err := store.Add("user", "test entry", ""); err != nil {
 		t.Fatalf("Add user failed: %v", err)
 	}
-	if err := store.Replace("user", "test entry", "replaced entry"); err != nil {
+	if err := store.Replace("user", "test entry", "replaced entry", ""); err != nil {
 		t.Fatalf("Replace user failed: %v", err)
 	}
-	snap := store.Snapshot("user")
+	snap := store.Snapshot("user", "")
 	if !strings.Contains(snap, "replaced entry") {
 		t.Error("Snapshot user missing replaced entry")
 	}
-	used, limit := store.Capacity("user")
+	used, limit := store.Capacity("user", "")
 	if limit == 0 || used == 0 {
 		t.Errorf("Capacity user: used=%d, limit=%d", used, limit)
 	}
-	if err := store.Remove("user", "replaced entry"); err != nil {
+	if err := store.Remove("user", "replaced entry", ""); err != nil {
 		t.Fatalf("Remove user failed: %v", err)
 	}
-	snap = store.Snapshot("user")
+	snap = store.Snapshot("user", "")
 	if snap != "" {
 		t.Errorf("expected empty snapshot after Remove, got %q", snap)
 	}

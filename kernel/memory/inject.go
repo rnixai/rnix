@@ -7,9 +7,9 @@ import (
 // BuildMemoryBlock builds the memory section content for system prompt injection.
 // Returns empty string if no memory entries exist in either scope.
 // Output order: global memory first, then project memory (project is closer to conversation).
-func BuildMemoryBlock(store *MemoryStore) string {
-	globalSnap := store.Snapshot("global_memory")
-	projectSnap := store.Snapshot("memory")
+func BuildMemoryBlock(store *MemoryStore, projectDir string) string {
+	globalSnap := store.Snapshot("global_memory", "")
+	projectSnap := store.Snapshot("memory", projectDir)
 	if globalSnap == "" && projectSnap == "" {
 		return ""
 	}
@@ -36,8 +36,8 @@ func BuildMemoryBlock(store *MemoryStore) string {
 
 // BuildUserProfileBlock builds the user profile section for system prompt injection.
 // Returns empty string if no user profile entries exist.
-func BuildUserProfileBlock(store *MemoryStore) string {
-	userSnap := store.Snapshot("user")
+func BuildUserProfileBlock(store *MemoryStore, projectDir string) string {
+	userSnap := store.Snapshot("user", projectDir)
 	if userSnap == "" {
 		return ""
 	}

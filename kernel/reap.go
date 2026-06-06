@@ -185,7 +185,11 @@ func (k *KernelImpl) reapProcess(proc *Process) {
 				return
 			}
 			if memory.ShouldExtract(k.writebackWorker.Config(), exit.Code, exit.Reason, stepsDir) {
-				k.writebackWorker.Submit(memory.NewWritebackJob(proc.UUID, stepsDir, exit.Code, exit.Reason))
+				projectDir := ""
+				if proc.ProjectConfig != nil {
+					projectDir = proc.ProjectConfig.ProjectDir
+				}
+				k.writebackWorker.Submit(memory.NewWritebackJob(proc.UUID, stepsDir, projectDir, exit.Code, exit.Reason))
 			}
 		})
 	}

@@ -236,7 +236,7 @@ func TestWritebackWorker_ProcessJob_NormalExtraction(t *testing.T) {
 
 	w.processJob(writebackJob{UUID: "test-uuid", StepsDir: stepsDir})
 
-	snap := store.Snapshot("memory")
+	snap := store.Snapshot("memory", "")
 	if snap == "" {
 		t.Error("expected store to contain extracted knowledge after processJob")
 	}
@@ -264,7 +264,7 @@ func TestWritebackWorker_ProcessJob_MultipleEntries(t *testing.T) {
 		t.Errorf("expected 1 LLM call, got %d", caller.CallCount())
 	}
 	// Verify both project entries written
-	projSnap := store.Snapshot("memory")
+	projSnap := store.Snapshot("memory", "")
 	if projSnap == "" {
 		t.Error("expected project memory entries")
 	}
@@ -284,7 +284,7 @@ func TestWritebackWorker_ProcessJob_LLMFailure(t *testing.T) {
 	// Should not panic
 	w.processJob(writebackJob{UUID: "test-uuid", StepsDir: stepsDir})
 
-	snap := store.Snapshot("memory")
+	snap := store.Snapshot("memory", "")
 	if snap != "" {
 		t.Error("expected empty memory after LLM failure")
 	}
@@ -315,7 +315,7 @@ func TestWritebackWorker_ProcessJob_PanicRecovery(t *testing.T) {
 	w.Stop()
 
 	// Worker should still be alive after panic
-	snap := store.Snapshot("memory")
+	snap := store.Snapshot("memory", "")
 	if snap == "" {
 		t.Error("expected Worker to recover from panic and process subsequent job")
 	}
@@ -334,7 +334,7 @@ func TestWritebackWorker_ProcessJob_EmptyEntries(t *testing.T) {
 
 	w.processJob(writebackJob{UUID: "test-uuid", StepsDir: stepsDir})
 
-	snap := store.Snapshot("memory")
+	snap := store.Snapshot("memory", "")
 	if snap != "" {
 		t.Error("expected empty memory when LLM returns no entries")
 	}
@@ -354,7 +354,7 @@ func TestWritebackWorker_ProcessJob_MalformedJSON(t *testing.T) {
 	// Should not panic
 	w.processJob(writebackJob{UUID: "test-uuid", StepsDir: stepsDir})
 
-	snap := store.Snapshot("memory")
+	snap := store.Snapshot("memory", "")
 	if snap != "" {
 		t.Error("expected empty memory when LLM returns malformed JSON")
 	}
@@ -397,7 +397,7 @@ func TestWritebackWorker_ProcessJob_SecurityScanReject(t *testing.T) {
 	w.processJob(writebackJob{UUID: "test-uuid", StepsDir: stepsDir})
 
 	// Safe entry should be written, malicious entry should be rejected
-	snap := store.Snapshot("memory")
+	snap := store.Snapshot("memory", "")
 	if snap == "" {
 		t.Error("expected safe entry to be written despite malicious entry rejection")
 	}
@@ -545,7 +545,7 @@ func TestWritebackWorker_FullPipeline(t *testing.T) {
 	time.Sleep(500 * time.Millisecond)
 	w.Stop()
 
-	snap := store.Snapshot("memory")
+	snap := store.Snapshot("memory", "")
 	if snap == "" {
 		t.Error("expected memory to contain extracted knowledge after full pipeline")
 	}

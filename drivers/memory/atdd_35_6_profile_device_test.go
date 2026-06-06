@@ -140,7 +140,7 @@ func TestProfileFile_WriteAdd(t *testing.T) {
 		t.Fatalf("Write add failed: %v", err)
 	}
 
-	snap := store.Snapshot("user")
+	snap := store.Snapshot("user", "/tmp")
 	if !strings.Contains(snap, "senior Go developer") {
 		t.Errorf("user profile missing added content, got: %q", snap)
 	}
@@ -185,8 +185,8 @@ func TestProfileFile_WriteAdd_ForcesUserTarget(t *testing.T) {
 	})
 	_ = file.Write(context.Background(), req)
 
-	userSnap := store.Snapshot("user")
-	memSnap := store.Snapshot("memory")
+	userSnap := store.Snapshot("user", "/tmp")
+	memSnap := store.Snapshot("memory", "/tmp")
 
 	if !strings.Contains(userSnap, "should go to user not memory") {
 		t.Error("entry should be in user profile, not memory")
@@ -203,7 +203,7 @@ func TestProfileFile_WriteAdd_ForcesUserTarget(t *testing.T) {
 // 35.6-VFS-008: Write replace updates user profile entry
 func TestProfileFile_WriteReplace(t *testing.T) {
 	store := setupProfileTestStore(t)
-	_ = store.Add("user", "old preference")
+	_ = store.Add("user", "old preference", "/tmp")
 
 	driver := NewProfileDriver(store)
 	file := newProfileTestFile(t, driver)
@@ -217,7 +217,7 @@ func TestProfileFile_WriteReplace(t *testing.T) {
 		t.Fatalf("Write replace failed: %v", err)
 	}
 
-	snap := store.Snapshot("user")
+	snap := store.Snapshot("user", "/tmp")
 	if strings.Contains(snap, "old preference") {
 		t.Error("old entry still present after replace")
 	}
@@ -233,7 +233,7 @@ func TestProfileFile_WriteReplace(t *testing.T) {
 // 35.6-VFS-009: Write remove deletes user profile entry
 func TestProfileFile_WriteRemove(t *testing.T) {
 	store := setupProfileTestStore(t)
-	_ = store.Add("user", "to-delete-profile")
+	_ = store.Add("user", "to-delete-profile", "/tmp")
 
 	driver := NewProfileDriver(store)
 	file := newProfileTestFile(t, driver)
@@ -246,7 +246,7 @@ func TestProfileFile_WriteRemove(t *testing.T) {
 		t.Fatalf("Write remove failed: %v", err)
 	}
 
-	snap := store.Snapshot("user")
+	snap := store.Snapshot("user", "/tmp")
 	if strings.Contains(snap, "to-delete-profile") {
 		t.Error("entry still present after remove")
 	}
@@ -259,7 +259,7 @@ func TestProfileFile_WriteRemove(t *testing.T) {
 // 35.6-VFS-010: Write snapshot returns current user profile content
 func TestProfileFile_WriteSnapshot(t *testing.T) {
 	store := setupProfileTestStore(t)
-	_ = store.Add("user", "snapshot-profile-entry")
+	_ = store.Add("user", "snapshot-profile-entry", "/tmp")
 
 	driver := NewProfileDriver(store)
 	file := newProfileTestFile(t, driver)
@@ -463,7 +463,7 @@ func TestProfileFile_WriteAdd_PersistsImmediately(t *testing.T) {
 	_ = file.Write(context.Background(), req)
 
 	// Simulate new process reading latest state
-	snap := store.Snapshot("user")
+	snap := store.Snapshot("user", "/tmp")
 	if !strings.Contains(snap, "persisted profile entry") {
 		t.Error("profile entry should persist immediately for next spawn")
 	}

@@ -68,6 +68,6 @@ func (d *MemoryCommitDriver) ToolDefs() []vfs.ToolDef {
 // FileFactory returns a VFSFileFactory that creates MemoryCommitFile instances.
 func FileFactory(driver *MemoryCommitDriver) vfs.VFSFileFactory {
 	return func(subpath string, flags vfs.OpenFlag, workDir string) (vfs.VFSFile, error) {
-		return &MemoryCommitFile{driver: driver}, nil
+		return &MemoryCommitFile{driver: driver, workDir: workDir}, nil
 	}
 }

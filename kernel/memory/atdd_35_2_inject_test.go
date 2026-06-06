@@ -23,7 +23,7 @@ func TestBuildMemoryBlock_Empty(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	result := BuildMemoryBlock(store)
+	result := BuildMemoryBlock(store, "")
 	if result != "" {
 		t.Errorf("expected empty string for empty memory, got: %q", result)
 	}
@@ -36,9 +36,9 @@ func TestBuildMemoryBlock_ProjectOnly(t *testing.T) {
 	cfg := DefaultMemoryConfig()
 	store := NewMemoryStore(globalDir, projectDir, cfg)
 	_ = store.Load()
-	_ = store.Add("memory", "test project fact")
+	_ = store.Add("memory", "test project fact", "")
 
-	result := BuildMemoryBlock(store)
+	result := BuildMemoryBlock(store, "")
 	if !strings.Contains(result, "test project fact") {
 		t.Errorf("missing project entry, got: %q", result)
 	}
@@ -51,10 +51,10 @@ func TestBuildMemoryBlock_DualScope_Order(t *testing.T) {
 	cfg := DefaultMemoryConfig()
 	store := NewMemoryStore(globalDir, projectDir, cfg)
 	_ = store.Load()
-	_ = store.Add("global_memory", "global knowledge")
-	_ = store.Add("memory", "project knowledge")
+	_ = store.Add("global_memory", "global knowledge", "")
+	_ = store.Add("memory", "project knowledge", "")
 
-	result := BuildMemoryBlock(store)
+	result := BuildMemoryBlock(store, "")
 	gIdx := strings.Index(result, "global knowledge")
 	pIdx := strings.Index(result, "project knowledge")
 	if gIdx < 0 || pIdx < 0 {
@@ -72,9 +72,9 @@ func TestBuildMemoryBlock_HasHeading(t *testing.T) {
 	cfg := DefaultMemoryConfig()
 	store := NewMemoryStore(globalDir, projectDir, cfg)
 	_ = store.Load()
-	_ = store.Add("memory", "entry")
+	_ = store.Add("memory", "entry", "")
 
-	result := BuildMemoryBlock(store)
+	result := BuildMemoryBlock(store, "")
 	if !strings.Contains(result, "Memory") {
 		t.Error("should contain Memory heading")
 	}
@@ -87,9 +87,9 @@ func TestBuildMemoryBlock_GlobalOnly(t *testing.T) {
 	cfg := DefaultMemoryConfig()
 	store := NewMemoryStore(globalDir, projectDir, cfg)
 	_ = store.Load()
-	_ = store.Add("global_memory", "only global")
+	_ = store.Add("global_memory", "only global", "")
 
-	result := BuildMemoryBlock(store)
+	result := BuildMemoryBlock(store, "")
 	if !strings.Contains(result, "only global") {
 		t.Errorf("missing global entry, got: %q", result)
 	}

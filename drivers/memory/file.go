@@ -13,6 +13,7 @@ import (
 // The response from the last Write is available via Read.
 type MemoryCommitFile struct {
 	driver   *MemoryCommitDriver
+	workDir  string // caller's project dir (ProjectConfig.ProjectDir) for per-project routing
 	response []byte // last Write response (JSON)
 }
 
@@ -51,32 +52,32 @@ func (f *MemoryCommitFile) Write(_ context.Context, data []byte) error {
 
 	switch req.Action {
 	case "add":
-		if err := store.Add(req.Target, req.Content); err != nil {
+		if err := store.Add(req.Target, req.Content, f.workDir); err != nil {
 			f.response = marshalResponse(memoryResponse{OK: false, Error: err.Error()})
 			return nil // error is in the response, not a VFS-level error
 		}
 		f.response = marshalResponse(memoryResponse{OK: true, Message: fmt.Sprintf("entry added to %s", req.Target)})
 
 	case "replace":
-		if err := store.Replace(req.Target, req.Old, req.New); err != nil {
+		if err := store.Replace(req.Target, req.Old, req.New, f.workDir); err != nil {
 			f.response = marshalResponse(memoryResponse{OK: false, Error: err.Error()})
 			return nil
 		}
 		f.response = marshalResponse(memoryResponse{OK: true, Message: fmt.Sprintf("entry replaced in %s", req.Target)})
 
 	case "remove":
-		if err := store.Remove(req.Target, req.Old); err != nil {
+		if err := store.Remove(req.Target, req.Old, f.workDir); err != nil {
 			f.response = marshalResponse(memoryResponse{OK: false, Error: err.Error()})
 			return nil
 		}
 		f.response = marshalResponse(memoryResponse{OK: true, Message: fmt.Sprintf("entry removed from %s", req.Target)})
 
 	case "snapshot":
-		snap := store.Snapshot(req.Target)
+		snap := store.Snapshot(req.Target, f.workDir)
 		f.response = marshalResponse(memoryResponse{OK: true, Snapshot: snap})
 
 	case "capacity":
-		used, limit := store.Capacity(req.Target)
+		used, limit := store.Capacity(req.Target, f.workDir)
 		f.response = marshalResponse(memoryResponse{OK: true, Used: used, Limit: limit})
 
 	default:

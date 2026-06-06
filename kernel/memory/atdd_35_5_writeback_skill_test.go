@@ -116,7 +116,7 @@ func TestWritebackWorker_ProcessJob_NilSkillWriter(t *testing.T) {
 	w.processJob(writebackJob{UUID: "nil-sw-test", StepsDir: stepsDir})
 
 	// Normal knowledge extraction should still work
-	snap := store.Snapshot("memory")
+	snap := store.Snapshot("memory", "")
 	if snap == "" {
 		t.Error("expected knowledge extraction to work even without SkillWriter")
 	}
@@ -367,7 +367,7 @@ func TestWritebackWorker_ProcessJob_SkillSuggestion_LLMFailure(t *testing.T) {
 	w.processJob(writebackJob{UUID: "fail-test", StepsDir: stepsDir})
 
 	// Normal extraction should still have succeeded
-	snap := store.Snapshot("memory")
+	snap := store.Snapshot("memory", "")
 	if snap == "" {
 		t.Error("expected knowledge extraction to succeed even if skill suggestion fails")
 	}

@@ -34,12 +34,19 @@ func registerSections(proc *Process, k *KernelImpl, agentInstructions string) *r
 	// --- Agent instructions section (cached) ---
 	reg.Register("agent_instructions", func() string { return agentInstructions }, true)
 
+	// projectDir resolves per-project memory targets (Fix H). Empty when the
+	// process has no project config → memory store falls back to global data.
+	projectDir := ""
+	if proc.ProjectConfig != nil {
+		projectDir = proc.ProjectConfig.ProjectDir
+	}
+
 	// --- Memory section (cached — frozen snapshot per-process, Story 35.2) ---
 	reg.Register("memory", func() string {
 		if k.memoryStore == nil {
 			return ""
 		}
-		return memory.BuildMemoryBlock(k.memoryStore)
+		return memory.BuildMemoryBlock(k.memoryStore, projectDir)
 	}, true)
 
 	// --- User profile section (cached — frozen snapshot per-process, Story 35.6) ---
@@ -47,7 +54,7 @@ func registerSections(proc *Process, k *KernelImpl, agentInstructions string) *r
 		if k.memoryStore == nil {
 			return ""
 		}
-		return memory.BuildUserProfileBlock(k.memoryStore)
+		return memory.BuildUserProfileBlock(k.memoryStore, projectDir)
 	}, true)
 
 	// --- Dynamic sections (recomputed on each Build) ---

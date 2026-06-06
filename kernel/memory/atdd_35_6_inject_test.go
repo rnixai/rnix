@@ -24,7 +24,7 @@ func TestBuildUserProfileBlock_Empty(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	result := BuildUserProfileBlock(store)
+	result := BuildUserProfileBlock(store, "")
 	if result != "" {
 		t.Errorf("expected empty string for empty user profile, got: %q", result)
 	}
@@ -37,9 +37,9 @@ func TestBuildUserProfileBlock_WithProfile(t *testing.T) {
 	cfg := DefaultMemoryConfig()
 	store := NewMemoryStore(globalDir, projectDir, cfg)
 	_ = store.Load()
-	_ = store.Add("user", "User is a senior Go developer")
+	_ = store.Add("user", "User is a senior Go developer", "")
 
-	result := BuildUserProfileBlock(store)
+	result := BuildUserProfileBlock(store, "")
 	if result == "" {
 		t.Fatal("expected non-empty user profile block")
 	}
@@ -55,9 +55,9 @@ func TestBuildUserProfileBlock_HasHeading(t *testing.T) {
 	cfg := DefaultMemoryConfig()
 	store := NewMemoryStore(globalDir, projectDir, cfg)
 	_ = store.Load()
-	_ = store.Add("user", "prefers concise explanations")
+	_ = store.Add("user", "prefers concise explanations", "")
 
-	result := BuildUserProfileBlock(store)
+	result := BuildUserProfileBlock(store, "")
 	if !strings.Contains(result, "User Profile") {
 		t.Error("user profile block should contain 'User Profile' heading")
 	}
@@ -70,11 +70,11 @@ func TestBuildUserProfileBlock_IndependentFromMemoryBlock(t *testing.T) {
 	cfg := DefaultMemoryConfig()
 	store := NewMemoryStore(globalDir, projectDir, cfg)
 	_ = store.Load()
-	_ = store.Add("memory", "project uses goccy/go-yaml")
-	_ = store.Add("user", "User prefers Chinese communication")
+	_ = store.Add("memory", "project uses goccy/go-yaml", "")
+	_ = store.Add("user", "User prefers Chinese communication", "")
 
-	profileBlock := BuildUserProfileBlock(store)
-	memoryBlock := BuildMemoryBlock(store)
+	profileBlock := BuildUserProfileBlock(store, "")
+	memoryBlock := BuildMemoryBlock(store, "")
 
 	// Profile block should NOT contain memory entries
 	if strings.Contains(profileBlock, "goccy/go-yaml") {
@@ -102,11 +102,11 @@ func TestBuildUserProfileBlock_MultipleEntries(t *testing.T) {
 	cfg := DefaultMemoryConfig()
 	store := NewMemoryStore(globalDir, projectDir, cfg)
 	_ = store.Load()
-	_ = store.Add("user", "Senior Go developer")
-	_ = store.Add("user", "Prefers concise explanations")
-	_ = store.Add("user", "Expert in distributed systems")
+	_ = store.Add("user", "Senior Go developer", "")
+	_ = store.Add("user", "Prefers concise explanations", "")
+	_ = store.Add("user", "Expert in distributed systems", "")
 
-	result := BuildUserProfileBlock(store)
+	result := BuildUserProfileBlock(store, "")
 	for _, entry := range []string{"Senior Go developer", "Prefers concise explanations", "Expert in distributed systems"} {
 		if !strings.Contains(result, entry) {
 			t.Errorf("profile block missing entry %q", entry)
@@ -121,16 +121,16 @@ func TestBuildUserProfileBlock_FrozenSemantics(t *testing.T) {
 	cfg := DefaultMemoryConfig()
 	store := NewMemoryStore(globalDir, projectDir, cfg)
 	_ = store.Load()
-	_ = store.Add("user", "before-freeze-entry")
+	_ = store.Add("user", "before-freeze-entry", "")
 
 	// Simulate spawn: capture snapshot
-	frozen := BuildUserProfileBlock(store)
+	frozen := BuildUserProfileBlock(store, "")
 
 	// Simulate runtime write
-	_ = store.Add("user", "after-freeze-entry")
+	_ = store.Add("user", "after-freeze-entry", "")
 
 	// Live snapshot should contain new entry
-	live := BuildUserProfileBlock(store)
+	live := BuildUserProfileBlock(store, "")
 	if !strings.Contains(live, "after-freeze-entry") {
 		t.Error("live profile block should contain post-freeze entry")
 	}

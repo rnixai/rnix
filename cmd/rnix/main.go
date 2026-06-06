@@ -1531,26 +1531,9 @@ func runDaemon(cmd *cobra.Command, args []string) error {
 	tasksDriver := tasks.NewDriver()
 	_ = devReg.RegisterWithDriver("/dev/tasks", tasks.FileFactory(tasksDriver), tasksDriver)
 
-	// /dev/memory/commit (Story 35.2) — persistent memory read/write
-	var memStore *kernelmemory.MemoryStore
-	memoryCfg := kernelmemory.DefaultMemoryConfig()
-	if memoryCfg.Enabled {
-		globalMemDir := filepath.Join(globalDir, "memory")
-		daemonCwd, _ := os.Getwd()
-		projectMemDir := filepath.Join(daemonCwd, ".rnix", "memory")
-		memStore = kernelmemory.NewMemoryStore(globalMemDir, projectMemDir, memoryCfg)
-		if err := memStore.Load(); err != nil {
-			fmt.Fprintf(os.Stderr, "[memory] warn: failed to load memory: %v\n", err)
-		}
-		memDriver := driversmemory.NewDriver(memStore)
-		_ = devReg.RegisterWithDriver("/dev/memory/commit", driversmemory.FileFactory(memDriver), memDriver)
+	// /dev/memory/* devices are registered after dataDir resolution below, so
+	// project memory can land under the per-project data root (Fix H).
 
-		// /dev/memory/profile (Story 35.6) — user profile read/write
-		if memoryCfg.UserProfile.Enabled {
-			profileDriver := driversmemory.NewProfileDriver(memStore)
-			_ = devReg.RegisterWithDriver("/dev/memory/profile", driversmemory.ProfileFileFactory(profileDriver), profileDriver)
-		}
-	}
 
 	ctxMgr := rnixctx.NewManager()
 	skillLoader := skills.NewSkillLoader([]string{filepath.Join(globalDir, "skills")})
@@ -1642,6 +1625,28 @@ func runDaemon(cmd *cobra.Command, args []string) error {
 	}
 	if err := os.MkdirAll(dataDir, 0o755); err != nil {
 		return fmt.Errorf("create data dir %s: %w", dataDir, err)
+	}
+
+	// /dev/memory/commit (Story 35.2) — persistent memory read/write.
+	// Project memory resolves per-process under {dataDir}/projects/<id>/memory
+	// (Fix H — same per-project root as steps/events); global memory and user
+	// profile stay under {globalDir}/memory, independent of daemon CWD.
+	var memStore *kernelmemory.MemoryStore
+	memoryCfg := kernelmemory.DefaultMemoryConfig()
+	if memoryCfg.Enabled {
+		globalMemDir := filepath.Join(globalDir, "memory")
+		memStore = kernelmemory.NewMemoryStore(globalMemDir, dataDir, memoryCfg)
+		if err := memStore.Load(); err != nil {
+			fmt.Fprintf(os.Stderr, "[memory] warn: failed to load memory: %v\n", err)
+		}
+		memDriver := driversmemory.NewDriver(memStore)
+		_ = devReg.RegisterWithDriver("/dev/memory/commit", driversmemory.FileFactory(memDriver), memDriver)
+
+		// /dev/memory/profile (Story 35.6) — user profile read/write
+		if memoryCfg.UserProfile.Enabled {
+			profileDriver := driversmemory.NewProfileDriver(memStore)
+			_ = devReg.RegisterWithDriver("/dev/memory/profile", driversmemory.ProfileFileFactory(profileDriver), profileDriver)
+		}
 	}
 
 	// Assemble GlobalConfig

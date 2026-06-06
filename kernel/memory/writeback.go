@@ -39,15 +39,17 @@ type SkillWriter interface {
 type writebackJob struct {
 	UUID       string
 	StepsDir   string // .rnix/data/steps/<uuid>/
+	ProjectDir string // caller's project dir for per-project memory routing (Fix H)
 	ExitCode   int
 	ExitReason string
 }
 
 // NewWritebackJob creates a writebackJob (exported for kernel integration).
-func NewWritebackJob(uuid, stepsDir string, exitCode int, exitReason string) writebackJob {
+func NewWritebackJob(uuid, stepsDir, projectDir string, exitCode int, exitReason string) writebackJob {
 	return writebackJob{
 		UUID:       uuid,
 		StepsDir:   stepsDir,
+		ProjectDir: projectDir,
 		ExitCode:   exitCode,
 		ExitReason: exitReason,
 	}
@@ -212,7 +214,7 @@ func (w *WritebackWorker) processJob(job writebackJob) {
 		if target == "" {
 			target = "memory"
 		}
-		if err := w.store.Add(target, entry.Content); err != nil {
+		if err := w.store.Add(target, entry.Content, job.ProjectDir); err != nil {
 			log.Printf("[writeback] store.Add failed uuid=%s target=%s: %v", job.UUID, target, err)
 			// Continue with remaining entries
 			continue
