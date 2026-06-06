@@ -3,11 +3,16 @@ package intent
 import (
 	"context"
 	"fmt"
+	"strings"
 	"sync"
 	"time"
 
 	"github.com/rnixai/rnix/internal/types"
 )
+
+// injectResultMaxRunes caps each injected upstream result (F4) so a large
+// dependency output doesn't blow the dependent child's context window.
+const injectResultMaxRunes = 2000
 
 // ReconcilerConfig holds tuning parameters for the Reconciler.
 type ReconcilerConfig struct {
@@ -212,12 +217,45 @@ func (r *Reconciler) spawnRunnable(ctx context.Context) int {
 	runnable := r.tree.RunnableNodes()
 	for _, node := range runnable {
 		node.State = IntentExecuting
+		// F4: inject completed upstream dependency results into the node's
+		// context, so strongly-coupled sequential sub-tasks (e.g. list → call →
+		// write-the-result) can see prior output. Without this, decompose spawns
+		// each child with an isolated context (rnix-eval mcp/hello-mcp: the
+		// write-result child had no result to write).
+		r.injectUpstreamContext(node)
 	}
 	count := len(runnable)
 	for _, node := range runnable {
 		go r.executeNodeWithTimeout(ctx, node)
 	}
 	return count
+}
+
+// injectUpstreamContext populates node.Context with the results of the node's
+// completed dependencies (those listed in DependsOn). Must be called with r.mu
+// held — it reads sibling node state from the tree.
+func (r *Reconciler) injectUpstreamContext(node *IntentNode) {
+	if len(node.DependsOn) == 0 {
+		return
+	}
+	var b strings.Builder
+	for _, depID := range node.DependsOn {
+		dep, ok := r.tree.Nodes[depID]
+		if !ok || dep.Result == "" {
+			continue
+		}
+		if b.Len() == 0 {
+			b.WriteString("前序子任务的结果（供参考）：\n")
+		}
+		// Truncate per-dependency result (rune-safe for CJK) so injecting a
+		// large upstream output doesn't blow the child's context window.
+		res := dep.Result
+		if rs := []rune(res); len(rs) > injectResultMaxRunes {
+			res = string(rs[:injectResultMaxRunes]) + "…(truncated)"
+		}
+		fmt.Fprintf(&b, "\n### %s\n%s\n", dep.ID, res)
+	}
+	node.Context = b.String()
 }
 
 // executeNodeWithTimeout runs a single node with timeout and reports events.
@@ -276,7 +314,14 @@ func (r *Reconciler) executeNodeWithTimeout(ctx context.Context, node *IntentNod
 			r.eventCh <- reconcileEvent{nodeID: node.ID, evType: evNodeFailed, errMsg: errMsg}
 			return
 		}
-		r.eventCh <- reconcileEvent{nodeID: node.ID, evType: evNodeCompleted, result: wr.status.Reason}
+		// F4: prefer the child's real output (Result) over the exit reason, so a
+		// dependent node's injected context shows actual upstream product. Fall
+		// back to Reason for spawners that don't populate Result.
+		result := wr.status.Result
+		if result == "" {
+			result = wr.status.Reason
+		}
+		r.eventCh <- reconcileEvent{nodeID: node.ID, evType: evNodeCompleted, result: result}
 	}
 }
 

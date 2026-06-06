@@ -2010,14 +2010,32 @@ func runDaemon(cmd *cobra.Command, args []string) error {
 					opts.ProjectConfig = pc
 				}
 			}
+			var callerProvider, callerModel string
 			if cpInfo, ok := intentdriver.CallerProcessInfoFromContext(ctx); ok {
 				opts.ParentPID = cpInfo.PID
 				opts.Depth = cpInfo.Depth + 1
+				if caller, ok := k.GetProcess(cpInfo.PID); ok {
+					callerProvider, callerModel = caller.Provider, caller.Model
+				}
 			}
+			// F3 (model routing 401): inherit the caller's provider/model when the
+			// node leaves them unset, and route a bare provider-name-as-model to
+			// that provider — see resolveChildSpawnRouting.
+			knownProviders := make([]string, len(providersCfg.Providers))
+			for i, p := range providersCfg.Providers {
+				knownProviders[i] = p.Name
+			}
+			opts.Provider, opts.Model = resolveChildSpawnRouting(opts.Provider, opts.Model, callerProvider, callerModel, knownProviders)
 			opts.DeniedDevices = []string{"/dev/intent"}
 			opts.MaxTurns = 30
 			opts.MaxTokens = 500_000
-			pid, err := k.Spawn(node.Intent, agentInfo, opts)
+			// F4: prepend completed upstream dependency results so sequential
+			// sub-tasks (list → call → write-result) see prior output.
+			spawnIntent := node.Intent
+			if node.Context != "" {
+				spawnIntent = node.Context + "\n---\n当前任务：" + node.Intent
+			}
+			pid, err := k.Spawn(spawnIntent, agentInfo, opts)
 			return pid, err
 		},
 		WaitFunc: func(pid types.PID) (intent.ExitStatus, error) {
@@ -2025,7 +2043,7 @@ func runDaemon(cmd *cobra.Command, args []string) error {
 			if err != nil {
 				return intent.ExitStatus{Code: 1, Reason: err.Error()}, err
 			}
-			return intent.ExitStatus{Code: es.Code, Reason: es.Reason, Err: es.Err}, nil
+			return intent.ExitStatus{Code: es.Code, Reason: es.Reason, Result: es.Result, Err: es.Err}, nil
 		},
 		KillFunc: func(pid types.PID) error {
 			return k.Kill(pid, types.SIGKILL)

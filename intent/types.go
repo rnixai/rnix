@@ -36,6 +36,7 @@ type IntentNode struct {
 	PID          types.PID     `json:"pid,omitempty" yaml:"pid,omitempty"`
 	Result       string        `json:"result,omitempty" yaml:"result,omitempty"`
 	Error        string        `json:"error,omitempty" yaml:"error,omitempty"`
+	Context      string        `json:"-" yaml:"-"` // F4: upstream dependency results injected at spawn (runtime-only, not persisted)
 	Children     []string      `json:"children,omitempty" yaml:"children,omitempty"`
 	RetryCount   int           `json:"retry_count" yaml:"retry_count"`
 	MaxRetries   int           `json:"max_retries" yaml:"max_retries"`

@@ -94,6 +94,11 @@ func (k *KernelImpl) finishProcess(proc *Process, exit ExitStatus) {
 	if proc.Result == "" && exit.Code != 0 && exit.Reason != "" {
 		proc.Result = exit.Reason
 	}
+	// F4: surface the process's actual output on the ExitStatus so the intent
+	// reconciler can inject a child's real result into its dependents' context
+	// (rnix-eval mcp/hello-mcp), instead of only the exit reason. proc.Result
+	// holds the `complete` action's output (or the backfilled reason above).
+	exit.Result = proc.Result
 	// Story 44.5 AC3 — failed exits clear stale SuspendReason. The
 	// pause-during-LLM-Write race (Story 44.5 AC1) is the primary case where
 	// suspendProcess has already stamped SuspendReason before reasonStep

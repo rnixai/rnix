@@ -19,6 +19,7 @@ type KernelSpawner interface {
 type ExitStatus struct {
 	Code   int
 	Reason string
+	Result string // F4: process's actual output, distinct from Reason (exit reason)
 	Err    error
 }
 

@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"sort"
 	"strings"
 
 	"github.com/rnixai/rnix/intent"
@@ -36,7 +37,7 @@ func (d *IntentDriver) ToolDefs() []vfs.ToolDef {
 			IsDestructive:     false,
 			ShouldDefer:       true,
 			SearchHint:        "intent decompose plan task goal",
-			MaxResultTokens:   8192,
+			MaxResultTokens:   16384,
 			Subpath:           "/decompose",
 			Parameters: map[string]any{
 				"type": "object",
@@ -267,6 +268,30 @@ func (f *IntentFile) handleDecompose(ctx context.Context, data []byte) (*intent.
 		latest, statusErr := f.driver.manager.Status(tree.ID)
 		if statusErr == nil {
 			tree = latest
+		}
+
+		// F2 (assessment integrity): reconciler.Execute returns nil on ANY
+		// terminal state — including IntentFailed — so a failed tree would
+		// otherwise surface as a *successful* tool result. The caller
+		// (orchestrator) then emits `complete` with exit 0, masking child
+		// failures (the rnix-eval mcp/hello-mcp "fake success"). Reflect the
+		// real terminal state: a failed tree returns a DriverError listing the
+		// failed sub-tasks, so the caller's HasToolError trips and `rnix apply`
+		// exits non-zero.
+		if tree.State == intent.IntentFailed {
+			failed := make([]string, 0, len(tree.Nodes))
+			for _, node := range tree.Nodes {
+				if node.State == intent.IntentFailed {
+					msg := node.Error
+					if msg == "" {
+						msg = "failed"
+					}
+					failed = append(failed, fmt.Sprintf("%s: %s", node.ID, msg))
+				}
+			}
+			sort.Strings(failed)
+			return nil, &types.DriverError{Op: "Write", Device: f.devicePath, Code: types.ErrDriver,
+				Err: fmt.Errorf("intent execution failed: %d of %d sub-task(s) failed [%s]", len(failed), len(tree.Nodes), strings.Join(failed, "; "))}
 		}
 	}
 

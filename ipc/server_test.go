@@ -2038,11 +2038,13 @@ func TestResolveProjectContext_WithProjectDir(t *testing.T) {
 }
 
 // TestResolveProjectContext_AgentLoaderHonorsProjectOverride exercises the
-// full project-loader path end-to-end: write a project-level stem/agent.yaml
-// with empty models, write a (stale) global stem/agent.yaml that pins
-// provider=claude, then ask the returned AgentLoader for "stem" and assert
-// the project version wins. This is the inverse of the bug reported via
-// strace: provider=claude [agent] when it should follow project default.
+// full project-loader path end-to-end under the F1 field-merge model: a project
+// .rnix/agents/stem/agent.yaml overrides specific model fields while inheriting
+// the rest (provider, fallback, name) from global, and a project instructions.md
+// wins over the global one. Pre-F1 the loader did whole-directory replacement;
+// F1 aligns it with the providers.yaml project-override model (field merge +
+// per-file fallback) — see spec-eval-upstream-findings.md. To CLEAR an inherited
+// field, a project writes an explicit empty value (see agents.TestAgentLoader_Merge_ExplicitEmptyClears).
 func TestResolveProjectContext_AgentLoaderHonorsProjectOverride(t *testing.T) {
 	srv := NewServer(nil, nil, "0.1.0-test", "", "")
 
@@ -2052,7 +2054,7 @@ func TestResolveProjectContext_AgentLoaderHonorsProjectOverride(t *testing.T) {
 	if err := os.MkdirAll(filepath.Join(globalAgentsDir, "stem"), 0o755); err != nil {
 		t.Fatalf("mkdir global stem dir: %v", err)
 	}
-	staleStem := []byte("name: stem\nmodels:\n  provider: claude\n  preferred: sonnet\n")
+	staleStem := []byte("name: stem\nmodels:\n  provider: claude\n  preferred: sonnet\n  fallback: haiku\n")
 	if err := os.WriteFile(filepath.Join(globalAgentsDir, "stem", "agent.yaml"), staleStem, 0o644); err != nil {
 		t.Fatalf("write global stem agent.yaml: %v", err)
 	}
@@ -2070,8 +2072,10 @@ func TestResolveProjectContext_AgentLoaderHonorsProjectOverride(t *testing.T) {
 	if err := os.MkdirAll(projStemDir, 0o755); err != nil {
 		t.Fatalf("mkdir project stem dir: %v", err)
 	}
-	// Project override: empty models — agent should follow project/CLI default.
-	cleanStem := []byte("name: stem\nmodels: {}\n")
+	// F1 field-merge: project overrides ONLY preferred; provider+fallback inherit
+	// from global, name is inherited (project omits it), and instructions.md is
+	// project-first. (Pre-F1 this loader did whole-directory replacement.)
+	cleanStem := []byte("models:\n  preferred: opus\n")
 	if err := os.WriteFile(filepath.Join(projStemDir, "agent.yaml"), cleanStem, 0o644); err != nil {
 		t.Fatalf("write project stem agent.yaml: %v", err)
 	}
@@ -2095,11 +2099,17 @@ func TestResolveProjectContext_AgentLoaderHonorsProjectOverride(t *testing.T) {
 	if !ok {
 		t.Fatalf("AgentLoader returned %T, want *agents.AgentInfo", raw)
 	}
-	if ai.Manifest.Models.Provider != "" {
-		t.Errorf("Models.Provider = %q, want \"\" (project override clears it; global stale version is being loaded — the bug)", ai.Manifest.Models.Provider)
+	if ai.Manifest.Models.Preferred != "opus" {
+		t.Errorf("Models.Preferred = %q, want %q (project field override)", ai.Manifest.Models.Preferred, "opus")
 	}
-	if ai.Manifest.Models.Preferred != "" {
-		t.Errorf("Models.Preferred = %q, want \"\"", ai.Manifest.Models.Preferred)
+	if ai.Manifest.Models.Provider != "claude" {
+		t.Errorf("Models.Provider = %q, want %q (inherited from global via field merge)", ai.Manifest.Models.Provider, "claude")
+	}
+	if ai.Manifest.Models.Fallback != "haiku" {
+		t.Errorf("Models.Fallback = %q, want %q (inherited from global via field merge)", ai.Manifest.Models.Fallback, "haiku")
+	}
+	if ai.Manifest.Name != "stem" {
+		t.Errorf("Name = %q, want stem (inherited from global; project omitted it)", ai.Manifest.Name)
 	}
 	if got := string(ai.Instructions); got != "project" {
 		t.Errorf("Instructions = %q, want %q (project version should win)", got, "project")

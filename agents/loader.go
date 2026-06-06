@@ -34,40 +34,79 @@ func (l *AgentLoader) Load(agentName string) (*AgentInfo, error) {
 		return nil, fmt.Errorf("invalid agent name %q: path traversal not allowed", agentName)
 	}
 
-	// Use ShadowResolve to find the agent directory in searchDirs (project-first)
-	agentDir := config.ShadowResolve(agentName, l.searchDirs...)
-	if agentDir == "" {
+	// Resolve ALL directories containing this agent across searchDirs (project
+	// first). Project layers override global on a per-field basis — mirroring
+	// the providers.yaml project-override model (ipc/server_spawn.go) so a
+	// project .rnix/agents/<name>/agent.yaml can override just `models` while
+	// inheriting name/skills/instructions.md from the global definition.
+	agentDirs := config.ShadowResolveAll(agentName, l.searchDirs...)
+	if len(agentDirs) == 0 {
 		return nil, fmt.Errorf("agent directory not found: %s (searched %v)", agentName, l.searchDirs)
 	}
 
-	// Path containment check: ensure resolved path is under one of the searchDirs
-	absDir, err := filepath.Abs(agentDir)
-	if err != nil {
-		return nil, fmt.Errorf("resolve agent path: %w", err)
-	}
-	if !isUnderAnyDir(absDir, l.searchDirs) {
-		return nil, fmt.Errorf("invalid agent name %q: resolved path escapes search directories", agentName)
+	// Path containment check: every resolved layer must be under a searchDir.
+	for _, d := range agentDirs {
+		absDir, err := filepath.Abs(d)
+		if err != nil {
+			return nil, fmt.Errorf("resolve agent path: %w", err)
+		}
+		if !isUnderAnyDir(absDir, l.searchDirs) {
+			return nil, fmt.Errorf("invalid agent name %q: resolved path escapes search directories", agentName)
+		}
 	}
 
-	// Load agent.yaml
-	manifestPath := filepath.Join(agentDir, "agent.yaml")
-	manifestData, err := os.ReadFile(manifestPath)
+	// Merge agent.yaml across layers. agentDirs is project-first; DeepMergeYAML
+	// treats its second arg as the override, so fold from the lowest-priority
+	// layer (last/global) up to the highest-priority (first/project). A layer
+	// without agent.yaml contributes nothing — file-level fallback to a lower
+	// layer that does have it.
+	mergedManifest := map[string]any{}
+	foundManifest := false
+	for i := len(agentDirs) - 1; i >= 0; i-- {
+		manifestData, err := os.ReadFile(filepath.Join(agentDirs[i], "agent.yaml"))
+		if err != nil {
+			if os.IsNotExist(err) {
+				continue
+			}
+			return nil, fmt.Errorf("failed to read agent manifest: %w", err)
+		}
+		var layer map[string]any
+		if err := yaml.Unmarshal(manifestData, &layer); err != nil {
+			return nil, fmt.Errorf("failed to parse agent manifest %s: %w", filepath.Join(agentDirs[i], "agent.yaml"), err)
+		}
+		mergedManifest = config.DeepMergeYAML(mergedManifest, layer)
+		foundManifest = true
+	}
+	if !foundManifest {
+		return nil, fmt.Errorf("failed to read agent manifest: no agent.yaml found for %q in %v", agentName, agentDirs)
+	}
+
+	mergedBytes, err := yaml.Marshal(mergedManifest)
 	if err != nil {
-		return nil, fmt.Errorf("failed to read agent manifest: %w", err)
+		return nil, fmt.Errorf("failed to re-marshal merged agent manifest: %w", err)
 	}
 	var manifest AgentManifest
-	if err := yaml.Unmarshal(manifestData, &manifest); err != nil {
+	if err := yaml.Unmarshal(mergedBytes, &manifest); err != nil {
 		return nil, fmt.Errorf("failed to parse agent manifest: %w", err)
 	}
 	if manifest.Name == "" {
 		return nil, fmt.Errorf("agent manifest missing required field: name")
 	}
 
-	// Load instructions.md
-	instructionsPath := filepath.Join(agentDir, "instructions.md")
-	instructionsData, err := os.ReadFile(instructionsPath)
-	if err != nil {
-		return nil, fmt.Errorf("failed to read agent instructions: %w", err)
+	// Load instructions.md with file-level fallback: first existing across
+	// agentDirs in project-first order (project overrides, else inherit global).
+	var instructionsData []byte
+	instructionsFound := false
+	for _, d := range agentDirs {
+		b, rerr := os.ReadFile(filepath.Join(d, "instructions.md"))
+		if rerr == nil {
+			instructionsData = b
+			instructionsFound = true
+			break
+		}
+	}
+	if !instructionsFound {
+		return nil, fmt.Errorf("failed to read agent instructions: instructions.md not found for %q in %v", agentName, agentDirs)
 	}
 
 	// Load referenced skills

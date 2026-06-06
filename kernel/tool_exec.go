@@ -734,6 +734,7 @@ func (k *KernelImpl) executeMetaAction(proc *Process, tc llmToolCall, mapping to
 		proc.mu.Lock()
 		proc.Result = resultStr
 		hadError := proc.HasToolError
+		failedChildren := proc.failedChildren
 		proc.mu.Unlock()
 		k.emitLog(proc, step, types.LogOutput, resultStr, "")
 		k.writeStepRecord(proc, step, promptResult, rawResponseStr, resp,
@@ -748,6 +749,14 @@ func (k *KernelImpl) executeMetaAction(proc *Process, tc llmToolCall, mapping to
 		if hadError {
 			exitCode = 1
 			reason = "completed_with_tool_errors"
+		} else if failedChildren > 0 {
+			// F2 (assessment integrity): a parent that spawned children which
+			// exited non-zero must not report success — otherwise child
+			// failures (e.g. 401s, no output) are masked behind the parent's
+			// own `complete` and `rnix apply` reports exit 0 (the rnix-eval
+			// mcp/hello-mcp "fake success").
+			exitCode = 1
+			reason = fmt.Sprintf("completed_with_%d_failed_children", failedChildren)
 		}
 		k.finishProcess(proc, ExitStatus{Code: exitCode, Reason: reason})
 		return false
@@ -787,8 +796,17 @@ func (k *KernelImpl) executeMetaAction(proc *Process, tc llmToolCall, mapping to
 		// /dev/intent to the deny-list to block recursive orchestration —
 		// the same deny as cmd/rnix/main.go SpawnFunc, while also preserving
 		// the parent's existing denies.
+		// F3 (model routing): inherit the parent's resolved provider when the
+		// spawn action doesn't name one, so a bare child model doesn't fall
+		// back to the project default provider and produce a remote 401
+		// (rnix-eval mcp/hello-mcp). Explicit `provider` still takes precedence.
+		childProvider, _ := tc.Input["provider"].(string)
+		if childProvider == "" {
+			childProvider = proc.Provider
+		}
 		childOpts := SpawnOpts{
 			Model:          modelStr,
+			Provider:       childProvider,
 			ParentPID:      proc.PID,
 			Depth:          proc.Depth + 1,
 			TraceID:        proc.TraceID,
@@ -901,6 +919,13 @@ func (k *KernelImpl) executeMetaAction(proc *Process, tc llmToolCall, mapping to
 		stepDur := time.Since(stepStart)
 		if k.callbacks != nil {
 			k.callbacks.OnStepComplete(proc.PID, step, "spawn", fmt.Sprintf("child pid=%d", childPID), false, float64(stepDur.Microseconds())/1000.0)
+		}
+
+		// F2 (assessment integrity): record non-zero child exits so the parent's
+		// eventual `complete` reflects child failures in its own exit code,
+		// rather than reporting success while spawned sub-tasks failed.
+		if childExit.Code != ExitOK {
+			proc.MarkFailedChild()
 		}
 
 		// Circuit breaker (spec spawn-recursion-no-permission, scheme 3): only

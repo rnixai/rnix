@@ -109,6 +109,23 @@ func ShadowResolve(name string, dirs ...string) string {
 	return ""
 }
 
+// ShadowResolveAll returns the full paths to ALL directories named name found
+// across the given dirs (searched in order). Unlike ShadowResolve, which stops
+// at the first match, this returns every matching layer so callers can merge
+// layered config (e.g. project-over-global agent.yaml) instead of shadowing the
+// lower-priority layers entirely.
+func ShadowResolveAll(name string, dirs ...string) []string {
+	var matches []string
+	for _, dir := range dirs {
+		candidate := filepath.Join(dir, name)
+		info, err := os.Stat(candidate)
+		if err == nil && info.IsDir() {
+			matches = append(matches, candidate)
+		}
+	}
+	return matches
+}
+
 // ListMerged returns a deduplicated, sorted list of subdirectory names
 // found across all given dirs. Only directories are included (files are
 // skipped). Nonexistent dirs are silently ignored.

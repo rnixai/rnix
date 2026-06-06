@@ -40,6 +40,7 @@ type ProcessBudget struct {
 type ExitStatus struct {
 	Code   int    // 0 = normal, non-zero = abnormal
 	Reason string // human-readable reason
+	Result string // F4: the process's actual output (proc.Result), distinct from Reason; used by intent reconciler to inject a child's real result into dependents' context
 	Err    error  // underlying error, if any
 }
 
@@ -115,6 +116,7 @@ type Process struct {
 	SpanID         types.SpanID
 	ParentSpanID   types.SpanID
 	HasToolError   bool // true if any tool call failed (mu protected)
+	failedChildren int  // F2: count of spawned children that exited non-zero (mu protected)
 
 	// Log history ring buffer (mu protected)
 	logHistory []types.LogEntry
@@ -583,6 +585,16 @@ func (p *Process) AddChild(pid types.PID) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	p.Children = append(p.Children, pid)
+}
+
+// MarkFailedChild records that a spawned child exited abnormally (non-zero exit
+// code). ActionComplete consults this so a parent that orchestrated failing
+// children does not report success with exit 0 (F2: assessment integrity —
+// child failures must not be masked behind the parent's own `complete`).
+func (p *Process) MarkFailedChild() {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.failedChildren++
 }
 
 // RemoveChild removes a child PID from the Children slice (thread-safe).
