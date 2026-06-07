@@ -44,7 +44,9 @@ func TestRenderDetailCardLeft_Running(t *testing.T) {
 		ContextStats:   ipc.ContextStatsWire{TokensUsed: 3200, ContextBudget: 100000, UsagePct: 3.2},
 	}
 
-	result := renderDetailCardLeft(&m, 40, 2)
+	// dashboard-model-info：line1 现含 Provider + Model，加宽渲染宽度以容纳
+	// Provider/Model/Devices 三项（model 名本身可达 25 字符，40 列不再够）。
+	result := renderDetailCardLeft(&m, 120, 2)
 
 	if !strings.Contains(result, "Provider: claude") {
 		t.Errorf("expected Provider info, got %q", result)

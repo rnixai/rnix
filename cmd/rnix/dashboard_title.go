@@ -116,6 +116,14 @@ func (m dashboardModel) renderDashboardTitle() string {
 	if providerStyled != "" {
 		leftPart = base + " " + providerStyled
 		leftPlain = base + " " + selectedProc.Provider
+		// dashboard-model-info：provider 段后追加实际 model（dim 区分主次），
+		// leftPart(带色)/leftPlain(裸) 双轨同步——宽度按 plain 计算，窄屏时整段
+		// 随 provider 一起按既有多级 trim 裁剪（Level 1 无 provider 故也无 model）。
+		if selectedProc.Model != "" {
+			modelDim := lipgloss.NewStyle().Foreground(lipgloss.Color(ui.ColorMuted))
+			leftPart += modelDim.Render("/" + selectedProc.Model)
+			leftPlain += "/" + selectedProc.Model
+		}
 	}
 
 	// Build candidates from widest to narrowest (trim order: elapsed → budget → ctx → provider)

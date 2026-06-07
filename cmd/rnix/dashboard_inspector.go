@@ -1534,13 +1534,38 @@ func (m dashboardModel) buildMetaLens(detail *ipc.GetStepDetailResponse) string 
 
 	// Resolve dynamic context window: IPC detail → prefix lookup → 200k fallback
 	modelName := ""
+	var modelProvider string
+	var driverMeta map[string]string
 	for _, p := range m.processes {
-		if p.PID == m.selectedPID {
+		// 与 dashboard_title / detail card 的选中进程查找保持一致：PID>0 用 PID
+		// 匹配（并校验 UUID 防 PID 复用串号），否则按 UUID 回退。历史(已 reap)进程
+		// 的 PID 被置 0（proc_query.go），单用 p.PID==selectedPID(0==0) 会误命中
+		// 第一个历史进程，导致 Model 段错配到无关进程（review 发现）。
+		match := false
+		if m.selectedPID > 0 {
+			match = p.PID == m.selectedPID && (m.selectedUUID == "" || p.UUID == m.selectedUUID)
+		} else if m.selectedUUID != "" {
+			match = p.UUID == m.selectedUUID
+		}
+		if match {
 			modelName = p.Model
+			modelProvider = p.Provider
+			driverMeta = p.DriverMeta
 			break
 		}
 	}
 	ctxWindow := inspector.ResolveContextWindow(modelName, detail.ContextWindow)
+
+	// ── Model ──（dashboard-model-info）：进程级 Provider/Model/Driver + 完整
+	// DriverMeta 运行时诊断。放在 Tokens 段之前——先交代"这步用什么模型算的"。
+	headerWidth := metaSectionHeaderWidth(m.width)
+	b.WriteString(renderMetaSectionHeader("Model", headerWidth))
+	b.WriteString("\n")
+	for _, ln := range inspector.RenderModelSectionLines(modelProvider, modelName, detail.DriverType, driverMeta) {
+		b.WriteString(ln)
+		b.WriteString("\n")
+	}
+	b.WriteString("\n")
 
 	// ── Tokens ──
 	//
@@ -1548,7 +1573,6 @@ func (m dashboardModel) buildMetaLens(detail *ipc.GetStepDetailResponse) string 
 	//   - 优先用真实 Input/Output/CachedInput 拆分（driver 已上报）。
 	//   - 旧文件 / 未上报拆分时退化到 Request/Response/Total 旧字段(此时旧的
 	//     "Request: 0 / Response: <total>" 误导问题仍存,但至少不再加重）。
-	headerWidth := metaSectionHeaderWidth(m.width)
 	b.WriteString(renderMetaSectionHeader("Tokens", headerWidth))
 	b.WriteString("\n")
 	hasSplit := detail.InputTokens > 0 || detail.OutputTokens > 0 || detail.CachedInputTokens > 0

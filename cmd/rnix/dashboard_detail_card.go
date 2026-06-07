@@ -12,6 +12,7 @@ import (
 
 	"github.com/rnixai/rnix/internal/config"
 	"github.com/rnixai/rnix/internal/dashboard/detail"
+	"github.com/rnixai/rnix/internal/dashboard/inspector"
 	"github.com/rnixai/rnix/internal/dashboard/timeline"
 	"github.com/rnixai/rnix/internal/types"
 	"github.com/rnixai/rnix/internal/ui"
@@ -54,7 +55,7 @@ func renderDetailCardLeft(m *dashboardModel, width, height int) string {
 	if len(d.AllowedDevices) > 0 {
 		deviceList = strings.Join(d.AllowedDevices, ", ")
 	}
-	line1 := fmt.Sprintf("  Provider: %s%s │ Devices: %s", d.Provider, startedSeg, deviceList)
+	line1 := fmt.Sprintf("  Provider: %s │ Model: %s%s │ Devices: %s", inspector.DashIfEmpty(d.Provider), inspector.DashIfEmpty(d.Model), startedSeg, deviceList)
 	line1 = fitLine(line1, width)
 
 	// Line 2: Skills + Orchestration info
@@ -164,7 +165,7 @@ func renderDeadDetailCard(m *dashboardModel, proc *selectedProcRef, width, heigh
 	if len(d.AllowedDevices) > 0 {
 		deadDeviceList = strings.Join(d.AllowedDevices, ", ")
 	}
-	line2 := fmt.Sprintf("  Provider: %s │ Devices: %s", d.Provider, deadDeviceList)
+	line2 := fmt.Sprintf("  Provider: %s │ Model: %s │ Devices: %s", inspector.DashIfEmpty(d.Provider), inspector.DashIfEmpty(d.Model), deadDeviceList)
 	line2 = fitLine(line2, width)
 
 	content := lipgloss.NewStyle().Width(width).Height(height).Render(

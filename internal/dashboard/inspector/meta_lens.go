@@ -34,6 +34,7 @@ package inspector
 
 import (
 	"fmt"
+	"sort"
 	"strings"
 	"unicode/utf8"
 
@@ -335,4 +336,89 @@ func ComputeCacheHitRate(driverType string, input, cached int) (rate float64, de
 		return 0, 0
 	}
 	return float64(cached) / float64(denom), denom
+}
+
+// dashboard-model-info：Meta lens ── Model ── 段渲染。
+// =============================================================================
+
+// friendlyMetaLabels maps known DriverMeta keys to human-friendly labels.
+// Unknown keys fall back to the raw key name (see RenderModelSectionLines).
+var friendlyMetaLabels = map[string]string{
+	"resolved_bin":        "Binary:",
+	"permission_mode":     "Permission:",
+	"fallback_candidates": "Fallback:",
+	"probe_duration_ms":   "Probe:",
+}
+
+// DashIfEmpty returns s, or a dash placeholder when s is empty. ASCII mode
+// degrades the em-dash "—" to "-" so RNIX_ASCII=1 stays glyph-free. Shared by
+// the Meta lens Model section and the detail card so the "missing value"
+// convention is identical everywhere.
+func DashIfEmpty(s string) string {
+	if s != "" {
+		return s
+	}
+	if ui.IsASCIIMode() {
+		return "-"
+	}
+	return "—"
+}
+
+// RenderModelSectionLines renders the body lines of the Meta lens ── Model ──
+// section: Provider / Model / Driver type, followed by every DriverMeta runtime
+// diagnostic field. Labels are right-aligned to 10 columns and dimmed, matching
+// the existing Tokens/Counts sections (RenderTokenLine's "%10s").
+//
+// DriverMeta handling:
+//   - cap_* keys are aggregated onto a single "Cap:" line as
+//     "partial-messages=true add-dir=true ..." (underscores → dashes);
+//   - known keys use friendlyMetaLabels; unknown keys fall back to "<key>:";
+//   - non-cap keys are emitted in sorted order for deterministic output;
+//   - an empty meta map appends a single "(无运行时诊断)" line so non-CLI
+//     drivers (which expose no DriverMeta) render cleanly without blank lines.
+//
+// Pure function: inputs are strings/maps, output is a slice of styled lines.
+func RenderModelSectionLines(provider, model, driverType string, meta map[string]string) []string {
+	dim := lipgloss.NewStyle().Foreground(lipgloss.Color(ui.ColorMuted))
+	line := func(label, value string) string {
+		return fmt.Sprintf("%s %s", dim.Render(fmt.Sprintf("%10s", label)), value)
+	}
+
+	out := []string{
+		line("Provider:", DashIfEmpty(provider)),
+		line("Model:", DashIfEmpty(model)),
+		line("Driver:", DashIfEmpty(driverType)),
+	}
+
+	if len(meta) == 0 {
+		out = append(out, line("", "(无运行时诊断)"))
+		return out
+	}
+
+	keys := make([]string, 0, len(meta))
+	for k := range meta {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+
+	var caps []string
+	for _, k := range keys {
+		if name, ok := strings.CutPrefix(k, "cap_"); ok {
+			if name == "" {
+				continue // 跳过退化键 "cap_"（无能力名），避免渲染出 "=value"
+			}
+			name = strings.ReplaceAll(name, "_", "-")
+			caps = append(caps, name+"="+meta[k])
+			continue
+		}
+		label, ok := friendlyMetaLabels[k]
+		if !ok {
+			label = k + ":"
+		}
+		out = append(out, line(label, meta[k]))
+	}
+	if len(caps) > 0 {
+		out = append(out, line("Cap:", strings.Join(caps, " ")))
+	}
+	return out
 }

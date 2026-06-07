@@ -434,3 +434,122 @@ func TestComputeCacheHitRate_DriverConstantsInSync(t *testing.T) {
 		}
 	}
 }
+
+// =============================================================================
+// dashboard-model-info：DashIfEmpty + RenderModelSectionLines 行为测试。
+// =============================================================================
+
+func TestDashIfEmpty_NonEmptyReturnsValue(t *testing.T) {
+	t.Setenv("RNIX_ASCII", "")
+	if got := DashIfEmpty("claude-opus-4-8"); got != "claude-opus-4-8" {
+		t.Errorf("DashIfEmpty(non-empty) = %q, want unchanged", got)
+	}
+}
+
+func TestDashIfEmpty_EmptyReturnsEmDash(t *testing.T) {
+	t.Setenv("RNIX_ASCII", "")
+	if got := DashIfEmpty(""); got != "—" {
+		t.Errorf("DashIfEmpty(\"\") = %q, want \"—\"", got)
+	}
+}
+
+func TestDashIfEmpty_EmptyASCIIReturnsHyphen(t *testing.T) {
+	t.Setenv("RNIX_ASCII", "1")
+	if got := DashIfEmpty(""); got != "-" {
+		t.Errorf("DashIfEmpty(\"\") ASCII = %q, want \"-\"", got)
+	}
+}
+
+// claude-cli 全字段：三项 + 全部 DriverMeta 诊断（binary/permission/caps 聚合/probe/fallback）。
+func TestRenderModelSectionLines_ClaudeCliFullMeta(t *testing.T) {
+	t.Setenv("RNIX_ASCII", "")
+	meta := map[string]string{
+		"resolved_bin":         "/usr/local/bin/claude",
+		"permission_mode":      "bypassPermissions",
+		"cap_partial_messages": "true",
+		"cap_add_dir":          "true",
+		"cap_permission_mode":  "true",
+		"fallback_candidates":  "claude,openclaude",
+		"probe_duration_ms":    "12",
+	}
+	got := stripANSIMeta(strings.Join(
+		RenderModelSectionLines("claude", "claude-opus-4-8", "claude-cli", meta), "\n"))
+
+	for _, want := range []string{
+		"Provider:", "claude",
+		"Model:", "claude-opus-4-8",
+		"Driver:", "claude-cli",
+		"Binary:", "/usr/local/bin/claude",
+		"Permission:", "bypassPermissions",
+		"Probe:", "12",
+		"Fallback:", "claude,openclaude",
+		"Cap:", "partial-messages=true", "add-dir=true", "permission-mode=true",
+	} {
+		if !strings.Contains(got, want) {
+			t.Errorf("ClaudeCli meta output missing %q:\n%s", want, got)
+		}
+	}
+	// cap_* 应聚合为单行 "Cap:"，不应泄漏原始下划线键名。
+	if strings.Contains(got, "cap_") {
+		t.Errorf("cap_* keys should be aggregated, raw key leaked:\n%s", got)
+	}
+}
+
+// 非 CLI driver：DriverMeta 为 nil → 三项 + "(无运行时诊断)"，无诊断字段、无空行。
+func TestRenderModelSectionLines_NonCLINilMeta(t *testing.T) {
+	t.Setenv("RNIX_ASCII", "")
+	lines := RenderModelSectionLines("deepseek", "deepseek-v4", "openai-compat", nil)
+	got := stripANSIMeta(strings.Join(lines, "\n"))
+
+	for _, want := range []string{"deepseek", "deepseek-v4", "openai-compat", "(无运行时诊断)"} {
+		if !strings.Contains(got, want) {
+			t.Errorf("NonCLI output missing %q:\n%s", want, got)
+		}
+	}
+	if strings.Contains(got, "Binary:") || strings.Contains(got, "Cap:") {
+		t.Errorf("NonCLI (nil meta) should not render diagnostic fields:\n%s", got)
+	}
+	// 4 行：Provider / Model / Driver / 诊断提示——无多余空行。
+	if len(lines) != 4 {
+		t.Errorf("NonCLI nil meta line count = %d, want 4", len(lines))
+	}
+	for i, ln := range lines {
+		if strings.TrimSpace(stripANSIMeta(ln)) == "" {
+			t.Errorf("line %d is blank, want no empty lines", i)
+		}
+	}
+}
+
+// Model 为空（历史/placeholder 进程）→ "—" 占位，不 panic。
+func TestRenderModelSectionLines_EmptyModelDash(t *testing.T) {
+	t.Setenv("RNIX_ASCII", "")
+	got := stripANSIMeta(strings.Join(
+		RenderModelSectionLines("claude", "", "claude-cli", nil), "\n"))
+	if !strings.Contains(got, "Model:") || !strings.Contains(got, "—") {
+		t.Errorf("empty Model should render \"—\" placeholder:\n%s", got)
+	}
+}
+
+// ASCII 模式：空值用 "-" 而非 "—"，整体无 Unicode em-dash 字形。
+func TestRenderModelSectionLines_ASCIIMode(t *testing.T) {
+	t.Setenv("RNIX_ASCII", "1")
+	got := stripANSIMeta(strings.Join(
+		RenderModelSectionLines("", "", "", nil), "\n"))
+	if strings.Contains(got, "—") {
+		t.Errorf("ASCII mode must not contain em-dash \"—\":\n%s", got)
+	}
+	if !strings.Contains(got, "-") {
+		t.Errorf("ASCII mode empty value should render \"-\":\n%s", got)
+	}
+}
+
+// 未知 DriverMeta key → 回退原始键名（加冒号），保证未来新增字段也可见。
+func TestRenderModelSectionLines_UnknownKeyFallback(t *testing.T) {
+	t.Setenv("RNIX_ASCII", "")
+	meta := map[string]string{"future_field": "xyz"}
+	got := stripANSIMeta(strings.Join(
+		RenderModelSectionLines("p", "m", "d", meta), "\n"))
+	if !strings.Contains(got, "future_field:") || !strings.Contains(got, "xyz") {
+		t.Errorf("unknown key should fall back to raw name:\n%s", got)
+	}
+}
