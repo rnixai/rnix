@@ -1965,6 +1965,19 @@ func TestResolveProjectContext_WithProjectDir_NoGlobalConfig(t *testing.T) {
 // --- 25.3-SRV-004: Non-empty projectDir with global config returns ProjectConfig ---
 
 func TestResolveProjectContext_WithProjectDir(t *testing.T) {
+	// ATDD Story 53.1 / 53.1-INT-001 [RED]: spawn 注入纳入 .agents/skills。
+	// RED PHASE 脚手架——dev-story 实现 ipc/server_spawn.go:resolveProjectContext
+	// 改用 config.ResolveSkillScopes(projectDir) 后,移除下面的 t.Skip 激活。
+	// 激活后在当前(未修复)代码下必失败: 当前 skillDirs 硬编码 [.rnix/skills, gc.SkillsDir]
+	// (len==2),不含 .agents/skills;修复后应为 [.rnix/skills, .agents/skills,
+	// globalSkillsDir(去重追加)](len==3)。
+	t.Skip("RED PHASE (ATDD 53.1-INT-001): 待 resolveProjectContext 接入 ResolveSkillScopes 后,于 dev-story 移除此 Skip 激活")
+
+	// 隔离宿主真实用户 skill 目录(本机有 rnix init 解压的 ~/.config/rnix/skills 与
+	// ~/.agents/skills),否则 ResolveSkillScopes 会扫到它们使断言 flaky。
+	t.Setenv("HOME", t.TempDir())
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+
 	srv := NewServer(nil, nil, "0.1.0-test", "", "")
 
 	// Set up global config
@@ -1976,18 +1989,22 @@ func TestResolveProjectContext_WithProjectDir(t *testing.T) {
 		SkillsDir: globalSkillsDir,
 	})
 
-	// Create a project directory (no providers.yaml, so no merge needed)
+	// Create a project directory with BOTH skill namespaces so ResolveSkillScopes
+	// stat-verifies and includes them (project-native + project-agents).
 	projectDir := t.TempDir()
-	rnixDir := filepath.Join(projectDir, ".rnix")
-	if err := os.MkdirAll(rnixDir, 0o755); err != nil {
-		t.Fatalf("mkdir .rnix: %v", err)
+	projectRnixSkills := filepath.Join(projectDir, ".rnix", "skills")
+	projectAgentsSkills := filepath.Join(projectDir, ".agents", "skills")
+	if err := os.MkdirAll(projectRnixSkills, 0o755); err != nil {
+		t.Fatalf("mkdir .rnix/skills: %v", err)
+	}
+	if err := os.MkdirAll(projectAgentsSkills, 0o755); err != nil {
+		t.Fatalf("mkdir .agents/skills: %v", err)
 	}
 
 	projCfg, loaderFn, err := srv.resolveProjectContext(projectDir, "")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-
 	if projCfg == nil {
 		t.Fatal("expected non-nil ProjectConfig for valid projectDir")
 	}
@@ -1995,10 +2012,10 @@ func TestResolveProjectContext_WithProjectDir(t *testing.T) {
 		t.Errorf("ProjectDir = %q, want %q", projCfg.ProjectDir, projectDir)
 	}
 
-	// Verify agent dirs: project first, global second
+	// Agent dirs unchanged (AC4 scope guard: agentDirs must NOT gain .agents).
 	expectedAgentDir := filepath.Join(projectDir, ".rnix", "agents")
 	if len(projCfg.AgentDirs) != 2 {
-		t.Fatalf("AgentDirs length = %d, want 2", len(projCfg.AgentDirs))
+		t.Fatalf("AgentDirs length = %d, want 2 (unchanged)", len(projCfg.AgentDirs))
 	}
 	if projCfg.AgentDirs[0] != expectedAgentDir {
 		t.Errorf("AgentDirs[0] = %q, want %q", projCfg.AgentDirs[0], expectedAgentDir)
@@ -2007,28 +2024,26 @@ func TestResolveProjectContext_WithProjectDir(t *testing.T) {
 		t.Errorf("AgentDirs[1] = %q, want %q", projCfg.AgentDirs[1], globalAgentsDir)
 	}
 
-	// Verify skill dirs: project first, global second
-	expectedSkillDir := filepath.Join(projectDir, ".rnix", "skills")
-	if len(projCfg.SkillDirs) != 2 {
-		t.Fatalf("SkillDirs length = %d, want 2", len(projCfg.SkillDirs))
+	// Skill dirs (AC1): project-native, project-agents, then global (deduped
+	// append). User scope is isolated to empty temp dirs, so user-native /
+	// user-agents are stat-absent and do not appear.
+	if len(projCfg.SkillDirs) != 3 {
+		t.Fatalf("SkillDirs length = %d, want 3 ([.rnix/skills, .agents/skills, globalSkillsDir]); got %v", len(projCfg.SkillDirs), projCfg.SkillDirs)
 	}
-	if projCfg.SkillDirs[0] != expectedSkillDir {
-		t.Errorf("SkillDirs[0] = %q, want %q", projCfg.SkillDirs[0], expectedSkillDir)
+	if projCfg.SkillDirs[0] != projectRnixSkills {
+		t.Errorf("SkillDirs[0] = %q, want %q (project native, highest priority)", projCfg.SkillDirs[0], projectRnixSkills)
 	}
-	if projCfg.SkillDirs[1] != globalSkillsDir {
-		t.Errorf("SkillDirs[1] = %q, want %q", projCfg.SkillDirs[1], globalSkillsDir)
+	if projCfg.SkillDirs[1] != projectAgentsSkills {
+		t.Errorf("SkillDirs[1] = %q, want %q (project .agents/skills — the epic-47 runtime gap fix)", projCfg.SkillDirs[1], projectAgentsSkills)
+	}
+	if projCfg.SkillDirs[2] != globalSkillsDir {
+		t.Errorf("SkillDirs[2] = %q, want %q (gc.SkillsDir deduped append, lowest priority)", projCfg.SkillDirs[2], globalSkillsDir)
 	}
 
-	// Verify the loader function is returned (project-aware)
+	// Loader plumbing regression guards (unchanged from pre-53.1).
 	if loaderFn == nil {
 		t.Error("expected non-nil project-aware loader function")
 	}
-
-	// Regression guard for the "subagent uses wrong provider/model" bug:
-	// ProjectConfig must carry the project-aware AgentLoader and SkillLoader
-	// so kernel/tool_exec.go can route ActionSpawn / ActionSpecialize through
-	// `.rnix/agents/` and `.rnix/skills/` instead of falling back to the
-	// daemon's global loaders.
 	if projCfg.AgentLoader == nil {
 		t.Error("expected ProjectConfig.AgentLoader to be populated (regression: subagent spawn would ignore .rnix/agents overrides)")
 	}
