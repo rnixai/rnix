@@ -182,7 +182,9 @@ func TestSkillLoader_LoadFull_RealCodeAnalysis(t *testing.T) {
 	if info.Body == "" {
 		t.Fatal("Body is empty")
 	}
-	keywords := []string{"Code Analysis", "/dev/fs", "/dev/shell", "Critical", "Warning", "Info"}
+	// Story 53.3 起 code-analysis body 工具中立化：原 /dev/fs / /dev/shell 设备路径已改为
+	// ToolDef.Name（Read / Bash）。上方 :175-180 的 AllowedTools 仍是 Layer 1 设备路径，保持不变。
+	keywords := []string{"Code Analysis", "Read", "Bash", "Critical", "Warning", "Info"}
 	for _, kw := range keywords {
 		if !strings.Contains(info.Body, kw) {
 			t.Errorf("Body missing keyword %q", kw)

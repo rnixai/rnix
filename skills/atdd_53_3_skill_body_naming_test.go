@@ -247,6 +247,7 @@ func TestATDD_53_3_AC4_GrepCompliance_DevicePathsOnlyInAllowedTools(t *testing.T
 		t.Fatalf("read dir %s: %v", atdd533LibSkillsDir, err)
 	}
 
+	checked := 0
 	for _, e := range entries {
 		if !e.IsDir() {
 			continue
@@ -256,6 +257,7 @@ func TestATDD_53_3_AC4_GrepCompliance_DevicePathsOnlyInAllowedTools(t *testing.T
 		if statErr != nil {
 			continue // 非 skill 目录
 		}
+		checked++
 		for i, line := range strings.Split(string(data), "\n") {
 			for _, tok := range atdd533DeviceTokens {
 				if !strings.Contains(line, tok) {
@@ -267,5 +269,10 @@ func TestATDD_53_3_AC4_GrepCompliance_DevicePathsOnlyInAllowedTools(t *testing.T
 				}
 			}
 		}
+	}
+	// 兜底：与 INT-012 对齐，防止 lib/skills 目录为空 / 全部 SKILL.md 读取失败时
+	// 测试零检查 vacuous pass（code-review 2026-06-09 Patch）。
+	if checked == 0 {
+		t.Fatalf("no builtin skills with SKILL.md found under %s — search dir may be wrong", atdd533LibSkillsDir)
 	}
 }

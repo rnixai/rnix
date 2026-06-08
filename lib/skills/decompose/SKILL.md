@@ -1,8 +1,8 @@
 ---
 name: decompose
 description: >
-  将高层意图分解为子任务 DAG，通过 /dev/intent 设备进行意图分解、
-  确认和执行。适用于用户需要将复杂目标拆解为可执行步骤的场景。
+  将高层意图分解为子任务 DAG，沿分解 → 确认 → 执行的生命周期推进。
+  适用于用户需要将复杂目标拆解为可执行步骤的场景。
 allowed-tools: /dev/intent /dev/shell /dev/fs
 system: true
 metadata:
@@ -45,45 +45,12 @@ metadata:
 4. 如果新需求修改了已有子任务的目标，更新其 intent 字段
 5. 正确声明 depends_on 依赖关系
 
-## 工具使用指南
-
-### /dev/intent/decompose — 分解意图
-
-向设备写入 JSON 对象触发分解：
-```json
-{"intent": "构建一个博客系统", "model": "claude-sonnet", "provider": "claude"}
-```
-- `intent`（必填）：高层意图描述
-- `model`（可选）：用于分解的 LLM 模型
-- `provider`（可选）：LLM provider 名称
-
-返回 IntentTree JSON，状态为 `await_confirm`。
-
-### /dev/intent/status — 查询状态
-
-```json
-{"intent_id": "intent-1"}
-```
-返回完整的 IntentTree 状态信息。
-
-### /dev/intent/confirm — 确认执行
-
-```json
-{"intent_id": "intent-1"}
-```
-将意图从 `await_confirm` 转换为 `executing` 状态。
-
-### /dev/intent/execute — 执行意图
-
-```json
-{"intent_id": "intent-1"}
-```
-使用 Reconciler 执行已确认的意图树。
-
 ## 工作流程
 
-1. **分解** — 使用 /dev/intent/decompose 将高层意图分解为子任务
-2. **审查** — 检查分解结果，确认子任务粒度和依赖关系合理
-3. **确认** — 使用 /dev/intent/confirm 批准执行计划
-4. **执行** — 使用 /dev/intent/execute 触发 Reconciler 按依赖顺序执行
-5. **监控** — 使用 /dev/intent/status 跟踪执行进度
+意图从分解到完成遵循五阶段生命周期，每阶段关注"做什么 / 判断什么"：
+
+1. **分解** — 将高层意图拆解为子任务 DAG，明确每个子任务的 id、intent 与 depends_on 依赖（遵循上方《分解规则》）。
+2. **审查** — 检查分解结果：子任务粒度是否适中、依赖关系是否完整且无环、是否覆盖原始意图的全部目标。
+3. **确认** — 在执行前批准该计划；确认即冻结当前 DAG 结构，进入执行阶段。
+4. **执行** — 按依赖拓扑顺序推进子任务：依赖已满足的节点可并行执行，未满足的等待其上游完成。
+5. **监控** — 跟踪各子任务的执行进度与状态，识别失败或漂移；失败节点会级联标记其下游依赖，必要时回到分解阶段做增量更新（见上方《增量更新规则》）。

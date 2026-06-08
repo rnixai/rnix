@@ -456,7 +456,23 @@ rnix skill list
 
 ### 跨工具共享的 skill 编写建议
 
-写入 `.agents/skills/` 的 SKILL.md 应只使用 [agentskills.io specification](https://agentskills.io/specification.md) 定义的标准字段（`name`、`description`、`allowed-tools` 等），避免 rnix-only 扩展字段。`allowed-tools` 用规范的抽象标签（`Read` / `Write` / `Bash` 等）——Rnix 内部由 Agent 抽象层映射到 `/dev/fs` 等 VFS 路径（详见 [Architecture Decision 7](../_bmad-output/planning-artifacts/architecture/core-architectural-decisions.md#decision-7-agent-抽象层与-skill-标准化)），这是实现细节，不应漏到 SKILL.md。如此一份 SKILL.md 在 Rnix / Cursor / OpenCode 中均可被消费。
+写入 `.agents/skills/` 的 SKILL.md 应只使用 [agentskills.io specification](https://agentskills.io/specification.md) 定义的标准字段（`name`、`description`、`allowed-tools` 等），避免 rnix-only 扩展字段。
+
+**`allowed-tools` 的值是 Layer 1 资源路径，不是工具语义名。** frontmatter 的 `allowed-tools` 列出的是设备路径（`/dev/fs`、`/dev/shell`、`/dev/intent`、`/mnt/mcp/*` 等），用于能力声明与权限执行（spawn 设备交集 / 运行时设备过滤）。Rnix **没有** `Read → /dev/fs` 这样的映射层——[`skills/manager.go`](../skills/manager.go) 的 `validateFrontmatter` 强制每个值以 `/dev/` 或 `/mnt/mcp/` 前缀，写成 `Read` 会被直接拒绝（[`skills/types.go`](../skills/types.go) 亦将其注释为 "allowed tool **device paths**"）。这一分层由 [Architecture Decision 44](../_bmad-output/planning-artifacts/architecture/core-architectural-decisions.md#decision-44-工具命名双层原则--capability-资源路径--llm-语义名) 固化：**Layer 1** = 资源路径（`allowed-tools` 属此层，用于 enforcement）；**Layer 2** = `ToolDef.Name`（LLM 经 function-calling 实际看到的呈现名，如 `Read` / `Bash`）。
+
+**跨平台可移植性的真正落点**不是改 `allowed-tools` 的值（那会破坏 enforcement 闭环，且 `Read` 本身也只是某一平台的工具词汇，并无行业统一标准），而是 ① 让 **skill body 工具中立化**（见下节《Skill body 工具引用规范》）+ ② 把 skill 放进 `.agents/skills/` 共享路径并 commit。如此一份 SKILL.md 在 Rnix / Cursor / OpenCode 中均可被消费。
+
+### Skill body 工具引用规范
+
+SKILL.md 的 **body**（frontmatter 之下的 markdown 正文）会被注入 agent 的 System Prompt，是 LLM 直接阅读的文本。因此 body 引用工具时必须用 LLM **实际看到的名字**，而非内部实现路径。依据 [Architecture Decision 44](../_bmad-output/planning-artifacts/architecture/core-architectural-decisions.md#decision-44-工具命名双层原则--capability-资源路径--llm-语义名) 的双层原则——**Layer 1**（资源路径 `/dev/fs` 等）只用于权限执行，LLM 经 function-calling 看到的是 **Layer 2** 的 `ToolDef.Name` + 结构化 Parameters——body 引用工具应遵循以下五条原则：
+
+1. **通用工具用通用语义名**：跨平台通用的文件 / 命令工具直接用其语义名（`Read` / `Write` / `Edit` / `Bash` / `Grep` / `Glob`）。这些恰好就是 Rnix 对应的 `ToolDef.Name`（`/dev/fs` 暴露 `Read` / `Write` / `Edit` / `Grep` / `Glob`，`/dev/shell` 暴露 `Bash`），与主力模型的训练分布锚点对齐（Decision 44 R1）。
+2. **body 绝不出现设备路径**：正文中**禁止**出现 `/dev/*`、`/mnt/mcp/*` 等 Layer 1 资源路径。这些路径 LLM 不可见，写进 body 只会迫使模型做"路径 → 工具名"的心智翻译，抵消 Layer 2 的训练锚点优势。
+3. **Rnix 独有能力用工具中立的方法论描述**：intent / memory / skill 等 Rnix 独有能力，body **不应硬绑** `intent_decompose`、`memory_commit` 等独有工具名，而应描述其**意图与方法论**（如"将高层意图分解为子任务 DAG，声明依赖关系，经确认后执行"）。理由：① skill 必须可移植（遵循 agentskills.io 即无"Rnix 专用"豁免），硬绑独有名会把 body 锁死到 Rnix；② LLM 已从 driver 的 `ToolDef` 看到这些工具及其 Parameters，Rnix agent 自然会落到对应工具，body 的增值是"怎么做"的方法论而非工具指路。
+4. **不在 body 重述 `ToolDef.Parameters`**：工具的参数 schema 由 driver 自动暴露给 LLM（function-calling 的结构化 Parameters），body 再逐字段重述（如 `{intent, model, provider}`）只是冗余，且易与真实 schema 漂移。
+5. **body 主体是领域知识 + 流程判断**：工具名仅在需要点名某项能力时出现；body 的核心价值是领域方法论、判断标准、工作流程，而非把每一步翻译成工具调用。
+
+> 一句话：**`allowed-tools`（frontmatter）= Layer 1 设备路径**（enforcement 用）；**body 引用工具 = Layer 2 `ToolDef.Name`**（通用名）**或工具中立方法论**（Rnix 独有能力）。两者分属不同层，互不混用。
 
 ## 相关 ADR / 规范 / Investigation
 
@@ -465,6 +481,7 @@ rnix skill list
 - [Architecture Decision 7](../_bmad-output/planning-artifacts/architecture/core-architectural-decisions.md#decision-7-agent-抽象层与-skill-标准化) — Agent 抽象层与 Skill 标准化（基于 agentskills.io 行业标准设计 Agent 层）
 - [Architecture Decision 17](../_bmad-output/planning-artifacts/architecture/core-architectural-decisions.md#decision-17-agentskill-shadow-策略) — Agent/Skill Shadow 策略（project 完全替代 user）
 - [Architecture Decision 18](../_bmad-output/planning-artifacts/architecture/core-architectural-decisions.md#decision-18-embedfs-嵌入策略) — embed.FS 嵌入策略（`lib/` 运行时不再作为查找路径）
+- [Architecture Decision 44](../_bmad-output/planning-artifacts/architecture/core-architectural-decisions.md#decision-44-工具命名双层原则--capability-资源路径--llm-语义名) — 工具命名双层原则（Layer 1 资源路径用于 enforcement / Layer 2 `ToolDef.Name` 用于 LLM 呈现；skill body 工具引用规范的依据）
 
 ### 外部规范
 

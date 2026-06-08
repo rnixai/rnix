@@ -18,32 +18,30 @@ Use this skill when the user asks to analyze, review, or audit source code for q
 
 ## How to analyze code
 
-1. Read the target file(s) via /dev/fs
+1. Use `Read` to load the target file(s)
 2. Examine code structure, naming conventions, error handling patterns
-3. Run static analysis tools via /dev/shell if available
-4. If needed, read related files (imports, tests, configs) for context
+3. Use `Grep` to search for code patterns, and `Bash` to run static analysis tools if available
+4. If needed, use `Read` to load related files (imports, tests, configs) for context
 
 ## Tool usage guide
 
-### /dev/fs — File system access
+### Read / Grep / Glob — Source inspection
 
-Use for reading target source code files:
-- Read target files to get full source code
-- Read related import files or config files for context
-- Read test files to evaluate test coverage
+- `Read` — load target files to get full source code; load related import or config files for context; load test files to evaluate test coverage
+- `Grep` — search for specific code patterns across files (prefer this over running `grep` through `Bash`)
+- `Glob` — enumerate related files by pattern (e.g. `*.go`); list a directory with `pattern="*"`
 
-### /dev/shell — Shell command execution
+### Bash — Shell command execution
 
-Use for auxiliary analysis commands:
+Use for auxiliary analysis commands that have no dedicated tool:
 - `wc -l` to count file lines
-- `grep -rn "pattern" path | head -50` to search for specific patterns (always limit output lines)
-- `find . -name "*.go" -type f` to find related files
+- `find . -name "*.go" -type f` to locate related files when a glob is insufficient
 
-⚠️ **Security constraint**: Always use `| head -N` to limit shell command output and avoid consuming context budget with large outputs.
+⚠️ **Security constraint**: Always append `| head -N` to limit `Bash` command output and avoid consuming context budget with large outputs.
 
 ## Workflow
 
-1. **Read target files** — Use /dev/fs to read user-specified files
+1. **Read target files** — Use `Read` to load user-specified files
 2. **Understand context** — Analyze import dependencies, type definitions, interface contracts
 3. **Analyze per dimension** — Systematically check across all analysis dimensions
 4. **Summarize findings** — Organize all findings by severity level

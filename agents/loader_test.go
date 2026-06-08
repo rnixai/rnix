@@ -573,8 +573,10 @@ func TestAgentLoader_Load_RealOrchestrator(t *testing.T) {
 	if !strings.Contains(prompt, "Orchestrator") {
 		t.Error("SystemPrompt missing 'Orchestrator' from agent instructions")
 	}
-	if !strings.Contains(prompt, "/dev/intent/decompose") {
-		t.Error("SystemPrompt missing '/dev/intent/decompose' from skill body")
+	// decompose skill body 注入校验：Story 53.3 起 body 工具中立化（移除 /dev/intent/* 设备路径），
+	// 改用 body 中稳定存在的方法论锚点 depends_on（来自《分解规则》）验证 skill body 已注入 SystemPrompt。
+	if !strings.Contains(prompt, "depends_on") {
+		t.Error("SystemPrompt missing 'depends_on' from decompose skill body")
 	}
 }
 
