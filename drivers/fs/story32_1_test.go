@@ -568,7 +568,7 @@ func TestToolDefs_EmbedDescriptions(t *testing.T) {
 }
 
 func TestLoadPrompt_KnownTemplates(t *testing.T) {
-	for _, name := range []string{"Read", "Write", "list_dir", "Edit", "Glob", "Grep"} {
+	for _, name := range []string{"Read", "Write", "Edit", "Glob", "Grep"} {
 		content := loadPrompt(name)
 		if content == "" {
 			t.Errorf("loadPrompt(%q) returned empty", name)

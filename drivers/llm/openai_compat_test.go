@@ -1090,9 +1090,9 @@ func TestOpenAICompatDriver_BuildMessages_RepairsMissingToolResults(t *testing.T
 				Role:    "assistant",
 				Content: "calling tools",
 				ToolCalls: []ToolCall{
-					{ID: "tc_a", Name: "list_dir", Input: map[string]any{"path": "."}},
-					{ID: "tc_b", Name: "list_dir", Input: map[string]any{"path": "src"}},
-					{ID: "tc_c", Name: "list_dir", Input: map[string]any{"path": "docs"}},
+					{ID: "tc_a", Name: "Glob", Input: map[string]any{"path": "."}},
+					{ID: "tc_b", Name: "Glob", Input: map[string]any{"path": "src"}},
+					{ID: "tc_c", Name: "Glob", Input: map[string]any{"path": "docs"}},
 				},
 			},
 			{Role: "tool", ToolCallID: "tc_a", Content: "a.txt\nb.txt"},

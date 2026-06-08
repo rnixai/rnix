@@ -76,8 +76,6 @@ func runGlob(t *testing.T, workDir, pattern string) globResultAT {
 // 性质: GUARD（激活后即绿；Glob 代码不变，本测试锁定其等价 list_dir 的语义，
 // 是 AC4 "先加 Glob 覆盖再删 list_dir 测试" 的安全网）。
 func TestATDD_53_2_UNIT_001_GlobListsDirectoryDirectChildren(t *testing.T) {
-	t.Skip("ATDD RED-PHASE 脚手架 (Story 53.2 / AC4)：dev-story 移除本行激活。性质 GUARD —— 激活后即绿，锁定 Glob 列目录能力。")
-
 	dir := t.TempDir()
 	// 直接子项：一个文件 + 一个子目录；子目录内再放一个文件以验证不递归。
 	if err := os.WriteFile(filepath.Join(dir, "a.txt"), []byte("hello"), 0o644); err != nil {
@@ -121,8 +119,6 @@ func TestATDD_53_2_UNIT_001_GlobListsDirectoryDirectChildren(t *testing.T) {
 // 性质: GUARD（边界；空目录 matches 为 nil slice → JSON {"matches":null} →
 // 解码后 len==0，故断言 len 而非字面串）。
 func TestATDD_53_2_UNIT_002_GlobListsEmptyDirectory(t *testing.T) {
-	t.Skip("ATDD RED-PHASE 脚手架 (Story 53.2 / AC4)：dev-story 移除本行激活。性质 GUARD（空目录边界）。")
-
 	dir := t.TempDir() // 空目录
 	out := runGlob(t, dir, "*")
 	if len(out.Matches) != 0 {
@@ -136,8 +132,6 @@ func TestATDD_53_2_UNIT_002_GlobListsEmptyDirectory(t *testing.T) {
 // 性质: RED（impl 前 6 个含 list_dir → FAILS；移除 list_dir ToolDef 后 5 个 → PASS）。
 // 对应 story AC4：删 hostfs.go:72-88 list_dir ToolDef 块。
 func TestATDD_53_2_UNIT_003_ToolDefsExcludeListDir(t *testing.T) {
-	t.Skip("ATDD RED-PHASE 脚手架 (Story 53.2 / AC4)：dev-story 移除本行激活。性质 RED —— 移除 list_dir ToolDef 前失败。")
-
 	defs := NewDriver().ToolDefs()
 
 	want := map[string]bool{"Read": false, "Write": false, "Edit": false, "Glob": false, "Grep": false}
@@ -174,8 +168,6 @@ func toolNames(defs []vfs.ToolDef) []string {
 // 不含 Glob → FAILS；改为 "use Glob with pattern \"*\"" 后 → PASS）。
 // 对应 story AC4：hostfs.go:988 错误文案更新。
 func TestATDD_53_2_UNIT_004_DirectoryErrorGuidesToGlob(t *testing.T) {
-	t.Skip("ATDD RED-PHASE 脚手架 (Story 53.2 / AC4)：dev-story 移除本行激活。性质 RED —— 错误文案改指 Glob 前失败。")
-
 	dir := t.TempDir() // 目录
 	factory := FileFactory()
 	// "/"+dir = "//<abs>" —— VFS 双斜线转义为显式宿主绝对路径（同 TestFileFactory_DirectoryRejected）。
@@ -206,8 +198,6 @@ func TestATDD_53_2_UNIT_004_DirectoryErrorGuidesToGlob(t *testing.T) {
 // 删 hostfs.go:310-311 dispatch case 后 list 落入 default 分支 → 返回 ErrDriver → PASS）。
 // 这是 list_dir 能力"确已移除"的行为级证据（不只是 ToolDef 不可见）。
 func TestATDD_53_2_UNIT_005_ListOperationRejected(t *testing.T) {
-	t.Skip("ATDD RED-PHASE 脚手架 (Story 53.2 / AC4)：dev-story 移除本行激活。性质 RED —— 删除 list dispatch 前失败。")
-
 	dir := t.TempDir()
 	factory := FileFactory()
 	file, err := factory("/", vfs.O_RDWR, dir)

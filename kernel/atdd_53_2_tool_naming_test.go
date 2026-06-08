@@ -23,8 +23,6 @@ import (
 // 注：真实 /dev/fs 驱动在 AC4 后将完全不再发射 list_dir ToolDef（由
 // drivers/fs 的 53.2-UNIT-003 覆盖）；本测试专注 kernel switch 这一行的逻辑。
 func TestATDD_53_2_UNIT_006_BuildToolDefsDoesNotTagListDirAsFSOperation(t *testing.T) {
-	t.Skip("ATDD RED-PHASE 脚手架 (Story 53.2 / AC4)：dev-story 移除本行激活。性质 RED —— 去掉 toolgen.go:46 list_dir case 前失败。")
-
 	reg := vfs.NewDeviceRegistry()
 	factory := func(subpath string, flags vfs.OpenFlag, workDir string) (vfs.VFSFile, error) {
 		return nil, nil

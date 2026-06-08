@@ -27,7 +27,7 @@ func TestBuildToolDefs_ShellAndFS(t *testing.T) {
 	fsDriver := &mockToolDescriptor{defs: []vfs.ToolDef{
 		{Name: "Read", Description: "Read"},
 		{Name: "Write", Description: "Write"},
-		{Name: "list_dir", Description: "List"},
+		{Name: "Glob", Description: "Glob"},
 	}}
 
 	_ = reg.RegisterWithDriver("/dev/shell", factory, shellDriver)

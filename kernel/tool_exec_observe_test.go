@@ -6,7 +6,7 @@ package kernel
 //   - Fix 2: ActionSpawn failure must persist a step record so Agent() failures
 //     appear in the Timeline pane (without this, a step that only contained a
 //     failing Agent call had no steps.jsonl row at all).
-//   - Fix 3: vfs fast-path tools (Read/Write/Edit/Glob/Grep/list_dir) must emit
+//   - Fix 3: vfs fast-path tools (Read/Write/Edit/Glob/Grep) must emit
 //     Open/Write/Read/Close syscall events the same way the default branch
 //     already did — events.jsonl/heatmap/strace previously missed all of them.
 //   - Fix 4: failed vfs tool calls must emit a ReasonStep `native_tool_call`

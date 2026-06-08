@@ -188,8 +188,8 @@ func TestFindTopConsumers_ToolNameExtraction(t *testing.T) {
 	}{
 		{
 			name:     "known tool in content",
-			msg:      CtxMessage{Role: "tool", Content: "list_dir output: foo bar"},
-			wantKind: "tool:list_dir",
+			msg:      CtxMessage{Role: "tool", Content: "glob output: foo bar"},
+			wantKind: "tool:glob",
 		},
 		{
 			name:     "fallback to tool call ID",
@@ -242,7 +242,7 @@ func TestGenerateSuggestions_ToolDominant(t *testing.T) {
 		TotalTokens: 100,
 		TopConsumers: []ConsumerEntry{
 			{Kind: "tool:read_file", Tokens: 35, Pct: 35},
-			{Kind: "tool:list_dir", Tokens: 20, Pct: 20},
+			{Kind: "tool:glob", Tokens: 20, Pct: 20},
 		},
 		Classification: ClassificationResult{},
 	}

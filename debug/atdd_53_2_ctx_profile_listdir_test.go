@@ -24,8 +24,6 @@ import "testing"
 //   - impl 前: knownTools 含 "list_dir" → 内容 "list_dir output..." 命中 → 返回 "list_dir" → 断言 != FAILS（RED）。
 //   - impl 后（主路径=删键）: 该样本无其余 knownTool 子串命中 → 返回 "unknown" → PASS。
 func TestATDD_53_2_UNIT_007_ExtractToolNameDropsListDir(t *testing.T) {
-	t.Skip("ATDD RED-PHASE 脚手架 (Story 53.2 / AC4)：dev-story 移除本行激活。性质 RED（决策强制）—— 详见文件头决策注记。")
-
 	// 模仿历史 step 记录里 list_dir 工具结果文本。
 	msg := CtxMessage{Role: "tool", Content: "list_dir output: foo bar"}
 	got := extractToolName(msg)

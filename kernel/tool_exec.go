@@ -484,29 +484,6 @@ func (k *KernelImpl) executeVFSTool(proc *Process, tc llmToolCall, mapping toolM
 		k.updateReadFileMtime(proc, pathStr)
 		return result, nil
 
-	case "list_dir":
-		pathStr, _ := tc.Input["path"].(string)
-		if pathStr == "" {
-			received, _ := json.Marshal(tc.Input)
-			return "", fmt.Errorf("list_dir: missing required 'path' parameter. Received: %s. Expected: {\"path\": \"<relative_path>\"}", string(received))
-		}
-		vfsPath := mapping.VFSPath + "/" + pathStr
-		fd, err := k.vfsOpenWithEvent(proc, vfsPath, vfs.O_WRONLY)
-		if err != nil {
-			return "", fmt.Errorf("open failed: %w", err)
-		}
-		writeData, _ := json.Marshal(map[string]string{"op": "list"})
-		if err := k.vfsWriteWithEvent(proc, fd, writeData); err != nil {
-			_ = k.vfsCloseWithEvent(proc, fd)
-			return "", fmt.Errorf("write failed: %w", err)
-		}
-		data, err := k.vfsReadWithEvent(proc, fd, 1<<20)
-		_ = k.vfsCloseWithEvent(proc, fd)
-		if err != nil {
-			return "", fmt.Errorf("read result failed: %w", err)
-		}
-		return string(data), nil
-
 	case "Edit":
 		pathStr, _ := tc.Input["path"].(string)
 		if pathStr == "" {
@@ -1183,7 +1160,7 @@ func (k *KernelImpl) executeMetaAction(proc *Process, tc llmToolCall, mapping to
 
 // vfsOpenWithEvent wraps VFS.Open with an Open syscall emit so events.jsonl
 // reflects every tool's underlying file activity — including the 6 fast-path
-// tools (Read/Write/Edit/Glob/Grep/list_dir) that previously bypassed emit and
+// tools (Read/Write/Edit/Glob/Grep) that previously bypassed emit and
 // left strace/heatmap/Debug timeline blind to vfs interactions.
 func (k *KernelImpl) vfsOpenWithEvent(proc *Process, path string, flags vfs.OpenFlag) (types.FD, error) {
 	start := time.Now()
@@ -1199,7 +1176,7 @@ func (k *KernelImpl) vfsOpenWithEvent(proc *Process, path string, flags vfs.Open
 
 // vfsWriteWithEvent wraps VFS.Write with a Write syscall emit. Mirrors the
 // default-branch emit pattern so fast-path tools that internally Write request
-// payloads (Edit/Glob/Grep/list_dir/Write) participate in observation.
+// payloads (Edit/Glob/Grep/Write) participate in observation.
 func (k *KernelImpl) vfsWriteWithEvent(proc *Process, fd types.FD, data []byte) error {
 	start := time.Now()
 	err := k.vfs.Write(proc.ctx, proc.PID, fd, data)

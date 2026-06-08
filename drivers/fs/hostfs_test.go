@@ -2,7 +2,6 @@ package fs
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"os"
 	"path/filepath"
@@ -242,8 +241,8 @@ func TestFileFactory_DirectoryRejected(t *testing.T) {
 	if drvErr.Code != types.ErrIsDirectory {
 		t.Errorf("expected ErrIsDirectory, got %s", drvErr.Code)
 	}
-	if !strings.Contains(drvErr.Error(), "use list_dir") {
-		t.Errorf("expected error message to guide toward list_dir, got: %s", drvErr.Error())
+	if !strings.Contains(drvErr.Error(), "Glob") {
+		t.Errorf("expected error message to guide toward Glob, got: %s", drvErr.Error())
 	}
 }
 
@@ -482,94 +481,6 @@ func TestHostFSFile_WriteFile_AutoMkdir(t *testing.T) {
 	}
 }
 
-func TestHostFSFile_ListDir_Success(t *testing.T) {
-	dir := testdataDir(t)
-	factory := FileFactory()
-
-	file, err := factory("/", vfs.O_RDWR, dir)
-	if err != nil {
-		t.Fatalf("Open failed: %v", err)
-	}
-	defer file.Close()
-
-	err = file.Write(context.Background(), []byte(`{"op": "list"}`))
-	if err != nil {
-		t.Fatalf("Write failed: %v", err)
-	}
-
-	result, err := file.Read(0)
-	if err != nil {
-		t.Fatalf("Read failed: %v", err)
-	}
-
-	var listResult listDirResult
-	if err := json.Unmarshal(result, &listResult); err != nil {
-		t.Fatalf("unmarshal list result failed: %v", err)
-	}
-
-	// testdata should contain at least sample.txt and nested/
-	names := make(map[string]bool)
-	for _, e := range listResult.Entries {
-		names[e.Name] = true
-	}
-	if !names["sample.txt"] {
-		t.Error("expected sample.txt in listing")
-	}
-	if !names["nested"] {
-		t.Error("expected nested/ in listing")
-	}
-}
-
-func TestHostFSFile_ListDir_Empty(t *testing.T) {
-	tmp := t.TempDir()
-	factory := FileFactory()
-
-	file, err := factory("/", vfs.O_RDWR, tmp)
-	if err != nil {
-		t.Fatalf("Open failed: %v", err)
-	}
-	defer file.Close()
-
-	err = file.Write(context.Background(), []byte(`{"op": "list"}`))
-	if err != nil {
-		t.Fatalf("Write failed: %v", err)
-	}
-
-	result, err := file.Read(0)
-	if err != nil {
-		t.Fatalf("Read failed: %v", err)
-	}
-
-	expected := `{"entries":[]}`
-	if string(result) != expected {
-		t.Errorf("expected empty list %q, got %q", expected, result)
-	}
-}
-
-func TestHostFSFile_ListDir_NotFound(t *testing.T) {
-	tmp := t.TempDir()
-	factory := FileFactory()
-
-	file, err := factory("/nonexistent", vfs.O_RDWR, tmp)
-	if err != nil {
-		t.Fatalf("Open failed: %v", err)
-	}
-	defer file.Close()
-
-	err = file.Write(context.Background(), []byte(`{"op": "list"}`))
-	if err == nil {
-		t.Fatal("expected error listing nonexistent dir, got nil")
-	}
-
-	var drvErr *types.DriverError
-	if !errors.As(err, &drvErr) {
-		t.Fatalf("expected *types.DriverError, got %T: %v", err, err)
-	}
-	if drvErr.Code != types.ErrNotFound {
-		t.Errorf("expected ErrNotFound, got %s", drvErr.Code)
-	}
-}
-
 func TestHostFSFile_Sandbox_PathEscape(t *testing.T) {
 	tmp := t.TempDir()
 	factory := FileFactory()
@@ -690,11 +601,11 @@ func TestHostFSDriver_ToolDefs(t *testing.T) {
 	d := NewDriver()
 	defs := d.ToolDefs()
 
-	if len(defs) != 6 {
-		t.Fatalf("expected 6 tool defs, got %d", len(defs))
+	if len(defs) != 5 {
+		t.Fatalf("expected 5 tool defs, got %d", len(defs))
 	}
 
-	expected := map[string]bool{"Read": false, "Write": false, "list_dir": false, "Edit": false, "Glob": false, "Grep": false}
+	expected := map[string]bool{"Read": false, "Write": false, "Edit": false, "Glob": false, "Grep": false}
 	for _, def := range defs {
 		if _, ok := expected[def.Name]; !ok {
 			t.Fatalf("unexpected tool name: %q", def.Name)

@@ -255,7 +255,7 @@ func extractToolName(msg CtxMessage) string {
 		"askuserquestion", "enterplanmode", "toolsearch", "websearch", "webfetch",
 		"croncreate", "cronlist", "crondelete",
 		"taskcreate", "taskupdate", "tasklist", "taskget",
-		"list_dir", "agent", "skill", "bash", "glob", "grep", "lsp",
+		"agent", "skill", "bash", "glob", "grep", "lsp",
 		// Short PascalCase tokens last (risk of false-positive substring match in content)
 		"read", "write", "edit",
 	}

@@ -19,7 +19,7 @@ import (
 )
 
 // HostFSDriver is the driver object for the host filesystem device.
-// Implements vfs.ToolDescriptor to describe read_file, write_file, list_dir tools.
+// Implements vfs.ToolDescriptor to describe Read, Write, Edit, Glob, Grep tools.
 type HostFSDriver struct{}
 
 // compile-time interface check
@@ -67,23 +67,6 @@ func (d *HostFSDriver) ToolDefs() []vfs.ToolDef {
 					},
 				},
 				"required": []string{"path", "content"},
-			},
-		},
-		{
-			Name:              "list_dir",
-			Description:       loadPrompt("list_dir"),
-			MaxResultTokens:   5000,
-			IsReadOnly:        true,
-			IsConcurrencySafe: true,
-			Parameters: map[string]any{
-				"type": "object",
-				"properties": map[string]any{
-					"path": map[string]any{
-						"type":        "string",
-						"description": "Directory path relative to the working directory",
-					},
-				},
-				"required": []string{"path"},
 			},
 		},
 		{
@@ -188,8 +171,6 @@ func (d *HostFSDriver) FileFactory() vfs.VFSFileFactory {
 const (
 	// maxReadFileTokens is the maximum token count for read_file results.
 	maxReadFileTokens = 25000
-	// maxListDirEntries is the maximum number of entries returned by list_dir.
-	maxListDirEntries = 100
 )
 
 // HostFSFile implements vfs.VFSFile for host filesystem file access.
@@ -208,7 +189,7 @@ type HostFSFile struct {
 // writeRequest is the JSON payload for /dev/fs command-mode writes.
 type writeRequest struct {
 	Content *string `json:"content"` // pointer to distinguish absent from empty string
-	Op      string  `json:"op"`      // "list", "edit", "glob", "grep"
+	Op      string  `json:"op"`      // "edit", "glob", "grep"
 
 	// edit_file fields
 	OldString  *string `json:"old_string"`  // exact match to find
@@ -226,13 +207,6 @@ type writeRequest struct {
 	CaseInsensitive bool   `json:"case_insensitive"` // ignore case
 	Context         int    `json:"context"`           // context lines around match
 	Glob            string `json:"glob"`              // file name filter
-}
-
-// listEntry is a single entry returned by the list operation.
-type listEntry struct {
-	Name  string `json:"name"`
-	Size  int64  `json:"size"`
-	IsDir bool   `json:"is_dir"`
 }
 
 // Read reads up to length bytes from the file (read mode) or returns
@@ -292,7 +266,7 @@ func (f *HostFSFile) Read(length int) ([]byte, error) {
 }
 
 // Write executes a filesystem command in command mode.
-// Accepts JSON: {"content": "..."} to write a file, or {"op": "list"} to list a directory.
+// Accepts JSON: {"content": "..."} to write a file, or {"op": "edit"|"glob"|"grep"} for other operations.
 func (f *HostFSFile) Write(_ context.Context, data []byte) error {
 	if f.closed {
 		return fmt.Errorf("write to closed hostfs file: %s", f.path)
@@ -307,8 +281,6 @@ func (f *HostFSFile) Write(_ context.Context, data []byte) error {
 	}
 
 	switch {
-	case req.Op == "list":
-		return f.execList()
 	case req.Op == "edit":
 		return f.execEdit(req)
 	case req.Op == "glob":
@@ -318,7 +290,7 @@ func (f *HostFSFile) Write(_ context.Context, data []byte) error {
 	case req.Content != nil:
 		return f.execWrite(*req.Content)
 	default:
-		return &types.DriverError{Op: "Write", Device: "/dev/fs", Err: fmt.Errorf("unknown operation: payload must contain \"content\", or \"op\" must be one of: list, edit, glob, grep"), Code: types.ErrDriver}
+		return &types.DriverError{Op: "Write", Device: "/dev/fs", Err: fmt.Errorf("unknown operation: payload must contain \"content\", or \"op\" must be one of: edit, glob, grep"), Code: types.ErrDriver}
 	}
 }
 
@@ -405,49 +377,6 @@ func (f *HostFSFile) execEdit(req writeRequest) error {
 		replacedCount = count
 	}
 	f.response = fmt.Appendf(nil, "ok: replaced %d occurrence(s)", replacedCount)
-	return nil
-}
-type listDirResult struct {
-	Entries []listEntry `json:"entries"`
-	Notice  string      `json:"notice,omitempty"`
-}
-
-// execList reads the directory at f.path and buffers the result as JSON.
-func (f *HostFSFile) execList() error {
-	device := "/dev/fs"
-
-	entries, err := os.ReadDir(f.path)
-	if err != nil {
-		return mapOSError("Write", device, err)
-	}
-
-	listed := make([]listEntry, 0, min(len(entries), maxListDirEntries))
-	for _, e := range entries {
-		if len(listed) >= maxListDirEntries {
-			break
-		}
-		info, err := e.Info()
-		if err != nil {
-			continue // skip entries we can't stat
-		}
-		listed = append(listed, listEntry{
-			Name:  e.Name(),
-			Size:  info.Size(),
-			IsDir: e.IsDir(),
-		})
-	}
-
-	out := listDirResult{Entries: listed}
-	if len(entries) > maxListDirEntries {
-		out.Notice = fmt.Sprintf("Showing %d of %d entries. Use glob pattern for targeted search.", maxListDirEntries, len(entries))
-	}
-
-	b, err := json.Marshal(out)
-	if err != nil {
-		return &types.DriverError{Op: "Write", Device: device, Err: fmt.Errorf("marshal list result: %w", err), Code: types.ErrDriver}
-	}
-
-	f.response = b
 	return nil
 }
 
@@ -921,7 +850,7 @@ func (f *HostFSFile) Stat() (vfs.FileStat, error) {
 //
 // A VFS subpath always carries a single leading "/" introduced by device-prefix
 // stripping (e.g. /dev/fs/foo → subpath "/foo"). That "/" is a VFS-layer artifact,
-// NOT a signal that the LLM asked for a host-absolute path — the list_dir / read_file
+// NOT a signal that the LLM asked for a host-absolute path — the /dev/fs tool
 // prompts require paths relative to the process working directory.
 //
 // When workDir is empty (e.g. spawn without ProjectConfig), the previous fallback
@@ -985,7 +914,7 @@ func FileFactory() vfs.VFSFileFactory {
 		}
 		if info.IsDir() {
 			f.Close()
-			return nil, types.NewDriverError("Open", device, fmt.Errorf("is a directory, use list_dir to enumerate"), types.ErrIsDirectory)
+			return nil, types.NewDriverError("Open", device, fmt.Errorf("is a directory; use Glob with pattern \"*\" to enumerate"), types.ErrIsDirectory)
 		}
 
 		return &HostFSFile{

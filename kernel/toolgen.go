@@ -13,7 +13,7 @@ type toolMapping struct {
 	Type        string     // "vfs" or "meta"
 	VFSPath     string     // VFS device path (for Type="vfs")
 	Action      ActionType // meta action type (for Type="meta")
-	FSOperation string     // "Read", "Write", "list_dir", "Edit", "Glob", "Grep" for /dev/fs tools (PascalCase canonical names; list_dir kept as-is — CC has no equivalent)
+	FSOperation string     // "Read", "Write", "Edit", "Glob", "Grep" for /dev/fs tools (PascalCase canonical names matching Claude Code; see ADR Decision 44)
 }
 
 // buildToolDefs collects ToolDefs from registered VFS device drivers.
@@ -43,7 +43,7 @@ func buildToolDefs(devReg *vfs.DeviceRegistry, allowedDevices []string) ([]vfs.T
 			m := toolMapping{Type: "vfs", VFSPath: vfsPath}
 			// Tag FS operations for special handling in executeVFSTool
 			switch def.Name {
-			case "Read", "Write", "list_dir", "Edit", "Glob", "Grep":
+			case "Read", "Write", "Edit", "Glob", "Grep":
 				m.FSOperation = def.Name
 			}
 			toolMap[def.Name] = m
