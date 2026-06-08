@@ -11,7 +11,8 @@ import (
 // 本文件覆盖 AC4 在 **Layer 2 路由层 kernel** 的契约（测试 ID 53.2-UNIT-006）。
 // 复用 toolgen_test.go 同包已有的 mockToolDescriptor。
 //
-// TDD 阶段: RED —— t.Skip() 标记未激活；dev-story 移除 t.Skip 行激活验证 RED→GREEN。
+// TDD 生命周期: 最初以 t.Skip() 红灯脚手架生成，dev-story 阶段已移除 t.Skip 激活并验证
+// RED→GREEN；当前已激活（无 t.Skip）。
 
 // 53.2-UNIT-006 [RED] buildToolDefs 不再把 list_dir 标记为 FSOperation。
 //

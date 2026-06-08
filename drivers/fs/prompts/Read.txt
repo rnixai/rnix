@@ -7,7 +7,7 @@ Usage:
 - By default, it reads the entire file. Very large files may be truncated with an overflow notice
 - You can optionally specify a line offset and limit (especially handy for long files), but it's recommended to read the whole file first when feasible
 - Results are returned with line numbers prefixed to each line (e.g., "1. ", "2. "). Use these line numbers when referencing specific locations in the file
-- This operation can only read files, not directories. To list a directory, use the list_dir operation or ls via /dev/shell
+- This operation can only read files, not directories. To list a directory, use Glob with pattern "*", or ls via /dev/shell
 - If you read a file that exists but has empty contents, you will receive a system notice in place of file contents
 - If the file has not changed since the last read within this process, a brief stub is returned instead of re-reading the full content
 

@@ -13,21 +13,22 @@ import (
 	"github.com/rnixai/rnix/vfs"
 )
 
-// ATDD 红灯脚手架 — Story 53.2 / AC4：移除 list_dir，目录枚举能力并入 Glob。
+// ATDD — Story 53.2 / AC4：移除 list_dir，目录枚举能力并入 Glob。
 //
 // 生成模式: AI generation (backend, Go 标准 testing)。
-// TDD 阶段: RED —— 全部以 t.Skip() 标记为未激活脚手架；dev-story 阶段逐个
-// 移除 t.Skip 行以"激活"，验证 RED→GREEN（参照仓库 ATDD 生命周期：
-// "add scaffolding" 提交 → "activate" 提交）。
+// TDD 生命周期: 本文件最初以 t.Skip() 红灯脚手架生成，dev-story 阶段已逐个移除
+// t.Skip 激活并验证 RED→GREEN（"add scaffolding" 提交 → "activate" 提交）；
+// 当前全部测试均已激活（无 t.Skip）。
 //
-// 本文件覆盖 AC4 在 **能力拥有层 drivers/fs** 的契约（测试 ID 53.2-UNIT-001..005）：
-//   - GUARD（激活后即绿，capability 安全网）: UNIT-001 / UNIT-002
-//     —— 锁定 "Glob(pattern=\"*\") 已是 list_dir 超集"，兑现 fold-not-delete：
+// 本文件覆盖 AC4 在 **能力拥有层 drivers/fs** 的契约（测试 ID 53.2-UNIT-001..005 + UNIT-008）：
+//   - GUARD（即绿，capability 安全网）: UNIT-001 / UNIT-002 / UNIT-008
+//     —— UNIT-001/002 锁定 "Glob(pattern=\"*\") 在直接子项枚举上等价 list_dir"，兑现 fold-not-delete：
 //        必须先有 Glob 列目录覆盖，才能安全删除 list_dir 测试（story AC4 task 2.8）。
-//   - RED（激活后在 list_dir 移除前 FAILS、移除后 PASS，驱动实现）:
+//     —— UNIT-008（code-review 2026-06-08 Edge #2 补）锁定 notfound 行为决策（见其函数注释）。
+//   - RED（在 list_dir 移除前 FAILS、移除后 PASS，驱动实现）:
 //        UNIT-003 / UNIT-004 / UNIT-005。
 //
-// 注：globResult 是 execGlob 内部局部类型（hostfs.go:542），测试包无法引用，
+// 注：globResult 是 execGlob 内部局部类型（hostfs.go），测试包无法引用，
 // 故下方自定义 glob 解码结构体匹配其 json tag（matches / path / is_dir）。
 
 // globEntryAT 解码单条 glob 匹配项（对齐 hostfs.go globEntry 的 json tag）。
@@ -216,5 +217,41 @@ func TestATDD_53_2_UNIT_005_ListOperationRejected(t *testing.T) {
 	}
 	if drvErr.Code != types.ErrDriver {
 		t.Errorf("expected ErrDriver for removed 'list' op, got %s", drvErr.Code)
+	}
+}
+
+// 53.2-UNIT-008 [GUARD] Glob(pattern="*") 对不存在的目录返回 0 个匹配且无错误。
+//
+// 性质: GUARD —— 编码 code-review 2026-06-08 Edge #2 的决策「接受差异」：
+// Glob 作为搜索工具对不存在路径返回空匹配是合理语义，不再复刻 list_dir 的 ErrNotFound。
+// 补齐 task 2.8 因移除 TestHostFSFile_ListDir_NotFound 而丢失的 notfound 边界覆盖。
+//
+// 背景: execGlob 的 WalkDir callback 对 root 不可访问错误 `return nil`，故不存在目录 →
+// walk 立即结束 → matches 为空 → 无 error。该行为与原 list_dir（os.ReadDir → ErrNotFound）
+// 的差异已在 spec「Glob 已覆盖 list_dir 的证明」节文档化为第三点可接受差异。
+func TestATDD_53_2_UNIT_008_GlobNonexistentDirReturnsEmptyNoError(t *testing.T) {
+	workDir := t.TempDir() // 存在的 sandbox 根
+	factory := FileFactory()
+	file, err := factory("/", vfs.O_RDWR, workDir)
+	if err != nil {
+		t.Fatalf("Open command-mode failed: %v", err)
+	}
+	defer file.Close()
+
+	// path 指向 sandbox 内一个不存在的子目录 —— 期望 Glob 不报错、返回空匹配（搜索语义）。
+	payload, _ := json.Marshal(map[string]string{"op": "glob", "pattern": "*", "path": "does-not-exist"})
+	if err := file.Write(context.Background(), payload); err != nil {
+		t.Fatalf("Glob on nonexistent dir should not error (search semantics), got: %v", err)
+	}
+	raw, err := file.Read(0)
+	if err != nil {
+		t.Fatalf("Glob read failed: %v", err)
+	}
+	var out globResultAT
+	if err := json.Unmarshal(raw, &out); err != nil {
+		t.Fatalf("unmarshal glob result failed: %v (raw=%s)", err, raw)
+	}
+	if len(out.Matches) != 0 {
+		t.Errorf("expected 0 matches for nonexistent dir, got %d: %v", len(out.Matches), out.Matches)
 	}
 }

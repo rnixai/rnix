@@ -8,7 +8,8 @@ import "testing"
 // 即 story AC4 line 94 / Combination Matrix line 282 标记的 "最易漏" 点：
 // ctx_profile.go:258 的 heatmap 小写分类键集合 knownTools 仍含 "list_dir"。
 //
-// TDD 阶段: RED（决策强制型）—— t.Skip() 标记未激活；dev-story 移除 t.Skip 激活。
+// TDD 生命周期: 最初以 t.Skip() 红灯脚手架生成（决策强制型），dev-story 阶段已移除 t.Skip
+// 激活；当前已激活（无 t.Skip）。
 //
 // ⚠️ 决策注记（不可静默忽略）：
 //   story 明确此处是决策点 —— "删（最可能）" 或 "按 heatmap 历史记录语义保留"。
