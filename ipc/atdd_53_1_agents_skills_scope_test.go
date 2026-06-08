@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strings"
 	"testing"
 
 	"github.com/rnixai/rnix/internal/config"
@@ -88,6 +89,13 @@ func TestATDD_53_1_INT_002_ProjectAgentsSkillLoadable(t *testing.T) {
 	}
 	if projCfg == nil {
 		t.Fatal("expected non-nil ProjectConfig")
+	}
+
+	// [Code Review Patch P1] 强断言: .agents/skills 路径实际进入 SkillDirs(锁定 AC1),
+	// 避免 skill"恰好从别处加载"造成的假阳性 —— 它必须来自 project .agents/skills scope。
+	projectAgentsSkills := filepath.Join(projectDir, ".agents", "skills")
+	if !slices.Contains(projCfg.SkillDirs, projectAgentsSkills) {
+		t.Errorf("SkillDirs %v does not contain project .agents/skills %q (AC1: the epic-47 runtime gap fix)", projCfg.SkillDirs, projectAgentsSkills)
 	}
 
 	loader := skills.NewSkillLoader(projCfg.SkillDirs)
@@ -285,5 +293,75 @@ func TestATDD_53_1_INT_007_AncestorTraversalOffByDefault(t *testing.T) {
 
 	if slices.Contains(projCfg.SkillDirs, parentAgentsSkills) {
 		t.Errorf("ancestor .agents/skills %q leaked into SkillDirs %v (ancestor traversal must stay OFF by default)", parentAgentsSkills, projCfg.SkillDirs)
+	}
+}
+
+// writeAgentWithSkills531 在 <projectDir>/.rnix/agents/<name>/ 写一个引用给定
+// skills 的 agent.yaml + 最小 instructions.md（agent loader 校验前置：需 .rnix/agents 下）。
+func writeAgentWithSkills531(t *testing.T, projectDir, name string, skillNames []string) {
+	t.Helper()
+	agentDir := filepath.Join(projectDir, ".rnix", "agents", name)
+	if err := os.MkdirAll(agentDir, 0o755); err != nil {
+		t.Fatalf("mkdir agent dir %q: %v", agentDir, err)
+	}
+	var sb strings.Builder
+	fmt.Fprintf(&sb, "name: %s\ndescription: \"ATDD 53.1 agent fixture\"\nskills:\n", name)
+	for _, s := range skillNames {
+		fmt.Fprintf(&sb, "  - %s\n", s)
+	}
+	if err := os.WriteFile(filepath.Join(agentDir, "agent.yaml"), []byte(sb.String()), 0o644); err != nil {
+		t.Fatalf("write agent.yaml for %q: %v", name, err)
+	}
+	if err := os.WriteFile(filepath.Join(agentDir, "instructions.md"), []byte("ATDD 53.1 agent instructions.\n"), 0o644); err != nil {
+		t.Fatalf("write instructions.md for %q: %v", name, err)
+	}
+}
+
+// --- 53.1-INT-009 [Code Review Patch P1 · RED] AC3 消费方①: agent.yaml skills:
+//     引用 .agents/skills 经 resolveProjectContext 的 AgentLoader 端到端加载 ---
+
+func TestATDD_53_1_INT_009_AgentLoaderResolvesAgentsScopeSkill(t *testing.T) {
+	// [Code Review Patch P1] 兑现 Combination Matrix(本 story line 265)承诺的 AC3 消费方①
+	// 覆盖: agent.yaml 的 skills: [<name>] 引用 project .agents/skills 下的 skill, 经
+	// resolveProjectContext 返回的 AgentLoader(= projectAgentLoader.Load, 消费方①) 成功
+	// 解析并加载其 body。INT-002~007 只验证 SkillLoader 直读, 本测试补上经
+	// agents.NewAgentLoader → projectSkillLoader 的端到端链路。
+	// 修复前 skillDirs 不含 .agents/skills → AgentLoader 解析该 skill 失败 → RED; 修复后通过。
+	t.Setenv("HOME", t.TempDir())
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+
+	srv := newServerWithGlobal531(t, t.TempDir(), t.TempDir(), t.TempDir())
+
+	projectDir := t.TempDir()
+	mkProjectRnix531(t, projectDir)
+	// skill 在 project .agents/skills, agent 在 project .rnix/agents 引用它。
+	writeSkillFixture531(t, filepath.Join(projectDir, ".agents", "skills"),
+		"code-analyst", "Analyze code structure and dependencies")
+	writeAgentWithSkills531(t, projectDir, "analyzer", []string{"code-analyst"})
+
+	projCfg, loaderFn, err := srv.resolveProjectContext(projectDir, "")
+	if err != nil {
+		t.Fatalf("resolveProjectContext: %v", err)
+	}
+	if loaderFn == nil {
+		t.Fatal("expected non-nil project-aware agent loader")
+	}
+
+	info, err := loaderFn("analyzer")
+	if err != nil {
+		t.Fatalf("AgentLoader.Load(analyzer) failed; SkillDirs=%v: %v", projCfg.SkillDirs, err)
+	}
+	// 消费方① 契约: agent.yaml skills: [code-analyst] 必须经 projectSkillLoader 解析到
+	// .agents/skills 的 skill 并加载其 body。
+	var loadedNames []string
+	found := false
+	for _, sk := range info.Skills {
+		loadedNames = append(loadedNames, sk.Manifest.Name)
+		if sk.Manifest.Name == "code-analyst" {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("agent.yaml skills: [code-analyst] did not resolve from .agents/skills via AgentLoader; loaded skills=%v, SkillDirs=%v", loadedNames, projCfg.SkillDirs)
 	}
 }
