@@ -11,7 +11,7 @@ import (
 	"github.com/rnixai/rnix/skills"
 )
 
-// ATDD red-phase scaffolds for Story 53.1: spawn 注入纳入 .agents/skills
+// ATDD acceptance tests for Story 53.1: spawn 注入纳入 .agents/skills
 // (epic-47 运行时闭环补全)。
 //
 // 缺陷: ipc/server_spawn.go:resolveProjectContext 的 skillDirs 硬编码
@@ -20,8 +20,8 @@ import (
 // 修复: 改用 config.ResolveSkillScopes(projectDir)(CLI 同一解析器)+ 去重追加
 // gc.SkillsDir 作最低优先级 fallback。
 //
-// 全部测试以 t.Skip 标记为 RED PHASE 脚手架; dev-story 实现修复后逐个移除
-// t.Skip 激活(red → green)。
+// 修复(server_spawn.go:resolveProjectContext 改用 config.ResolveSkillScopes)已
+// 落地,以下测试全部激活。
 //
 // 测试性质分类(诚实标注):
 //   - RED  : 激活后在当前(未修复)代码下必失败,实现后通过 —— 缺陷的直接证据。
@@ -70,8 +70,7 @@ func mkProjectRnix531(t *testing.T, projectDir string) {
 // --- 53.1-INT-002 [RED] AC1/AC3: project .agents/skills/<name> 经 spawn loader 可加载 ---
 
 func TestATDD_53_1_INT_002_ProjectAgentsSkillLoadable(t *testing.T) {
-	t.Skip("RED PHASE (ATDD 53.1-INT-002): 待 resolveProjectContext 接入 ResolveSkillScopes 后,于 dev-story 移除此 Skip 激活")
-	// 当前代码: SkillDirs 仅 [.rnix/skills, gc.SkillsDir],不含 .agents/skills →
+	// 修复前代码: SkillDirs 仅 [.rnix/skills, gc.SkillsDir],不含 .agents/skills →
 	// LoadFull 找不到 skill → 失败(red)。修复后含 project .agents/skills → 通过。
 	t.Setenv("HOME", t.TempDir())
 	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
@@ -104,8 +103,7 @@ func TestATDD_53_1_INT_002_ProjectAgentsSkillLoadable(t *testing.T) {
 // --- 53.1-INT-003 [RED] AC3: user ~/.agents/skills/<name> 经 spawn loader 可加载 ---
 
 func TestATDD_53_1_INT_003_UserAgentsSkillLoadable(t *testing.T) {
-	t.Skip("RED PHASE (ATDD 53.1-INT-003): 待 resolveProjectContext 接入 ResolveSkillScopes 后,于 dev-story 移除此 Skip 激活")
-	// 当前代码不含 user-level ~/.agents/skills → LoadFull 失败(red)。
+	// 修复前代码不含 user-level ~/.agents/skills → LoadFull 失败(red)。
 	// 修复后 ResolveSkillScopes 含 user-agents(经 $HOME)→ 通过。
 	home := t.TempDir()
 	t.Setenv("HOME", home)
@@ -137,7 +135,6 @@ func TestATDD_53_1_INT_003_UserAgentsSkillLoadable(t *testing.T) {
 // --- 53.1-INT-004 [GUARD] AC2: gc.SkillsDir == GlobalDir()/skills 去重无重复 ---
 
 func TestATDD_53_1_INT_004_GlobalSkillsDirDeduped(t *testing.T) {
-	t.Skip("RED PHASE 脚手架 (ATDD 53.1-INT-004, GUARD): dev-story 阶段移除此 Skip 激活")
 	// GUARD: 生产环境 gc.SkillsDir == GlobalDir()/skills == ResolveSkillScopes 的
 	// user-native 路径。修复实现必须去重(slices.Contains)避免重复条目。
 	// 错误实现(无脑 append gc.SkillsDir)→ 重复 → 本测试失败。
@@ -188,7 +185,6 @@ func TestATDD_53_1_INT_004_GlobalSkillsDirDeduped(t *testing.T) {
 // --- 53.1-INT-005 [GUARD] AC2: gc.SkillsDir 独立目录时作最低优先级 fallback 仍可搜 ---
 
 func TestATDD_53_1_INT_005_GlobalSkillsDirFallbackSearchable(t *testing.T) {
-	t.Skip("RED PHASE 脚手架 (ATDD 53.1-INT-005, GUARD): dev-story 阶段移除此 Skip 激活")
 	// GUARD: 测试/自定义全局目录场景 gc.SkillsDir != user-native。修复实现必须
 	// 去重追加 gc.SkillsDir,保留"全局 skill 始终可搜"语义。错误实现(只用
 	// ResolveSkillScopes 不追加)→ gc.SkillsDir 里的 skill 丢失 → 本测试失败。
@@ -222,7 +218,6 @@ func TestATDD_53_1_INT_005_GlobalSkillsDirFallbackSearchable(t *testing.T) {
 // --- 53.1-INT-006 [GUARD] AC4: 仅 .rnix/skills 时既有行为不回归 + agentDirs 不动 ---
 
 func TestATDD_53_1_INT_006_NoRegressionRnixOnly(t *testing.T) {
-	t.Skip("RED PHASE 脚手架 (ATDD 53.1-INT-006, GUARD): dev-story 阶段移除此 Skip 激活")
 	// GUARD: 项目仅有 .rnix/skills(无 .agents/skills)时,.rnix/skills 仍最高优先级,
 	// agentDirs 保持 [.rnix/agents, global] 不变(范围护栏: 不得给 agentDirs 加 .agents)。
 	t.Setenv("HOME", t.TempDir())
@@ -266,7 +261,6 @@ func TestATDD_53_1_INT_006_NoRegressionRnixOnly(t *testing.T) {
 // --- 53.1-INT-007 [GUARD] AC4: ancestor traversal 默认关,父目录 .agents/skills 不纳入 ---
 
 func TestATDD_53_1_INT_007_AncestorTraversalOffByDefault(t *testing.T) {
-	t.Skip("RED PHASE 脚手架 (ATDD 53.1-INT-007, GUARD): dev-story 阶段移除此 Skip 激活")
 	// GUARD: resolveProjectContext 必须用默认 opts(不传 WithAncestorTraversal),
 	// projectDir 已是解析好的项目根。父目录的 .agents/skills 不得被纳入。
 	// 错误实现(误开 ancestor)→ 父目录 skill 泄漏进 SkillDirs → 本测试失败。

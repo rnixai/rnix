@@ -7,6 +7,7 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"slices"
 
 	"github.com/rnixai/rnix/agents"
 	"github.com/rnixai/rnix/drivers/llm"
@@ -207,9 +208,26 @@ func (s *Server) resolveProjectContext(projectDir, rnixEnv string) (*config.Proj
 
 	// Build search directories (project first, global second)
 	projectAgentsDir := filepath.Join(projectDir, ".rnix", "agents")
-	projectSkillsDir := filepath.Join(projectDir, ".rnix", "skills")
 	agentDirs := []string{projectAgentsDir, gc.AgentsDir}
-	skillDirs := []string{projectSkillsDir, gc.SkillsDir}
+
+	// Skill search dirs via the same agentskills.io scope resolver the CLI uses
+	// (config.ResolveSkillScopes), so spawn-time skill visibility matches
+	// `rnix skill list`. This adds project + user `.agents/skills` (the cross-tool
+	// shared namespace) on top of the old [.rnix/skills, global] pair — closing the
+	// epic-47 runtime gap (see investigations/skill-allowed-tools-...md §Backlog #6).
+	// Default opts: no ancestor traversal (projectDir is already the resolved root,
+	// matching CLI behavior).
+	scopePaths := config.ResolveSkillScopes(projectDir)
+	skillDirs := make([]string, 0, len(scopePaths)+1)
+	for _, sp := range scopePaths {
+		skillDirs = append(skillDirs, sp.Path)
+	}
+	// gc.SkillsDir equals the user-native scope path in production (both are
+	// GlobalDir()/skills) and is deduped here; tests / custom configs may point it
+	// elsewhere, so keep it searchable as the lowest-priority fallback.
+	if gc.SkillsDir != "" && !slices.Contains(skillDirs, gc.SkillsDir) {
+		skillDirs = append(skillDirs, gc.SkillsDir)
+	}
 
 	// Load .env files from project directory
 	dotenvVars, dotenvErr := config.LoadDotenvDir(projectDir, rnixEnv)

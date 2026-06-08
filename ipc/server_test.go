@@ -1965,13 +1965,10 @@ func TestResolveProjectContext_WithProjectDir_NoGlobalConfig(t *testing.T) {
 // --- 25.3-SRV-004: Non-empty projectDir with global config returns ProjectConfig ---
 
 func TestResolveProjectContext_WithProjectDir(t *testing.T) {
-	// ATDD Story 53.1 / 53.1-INT-001 [RED]: spawn 注入纳入 .agents/skills。
-	// RED PHASE 脚手架——dev-story 实现 ipc/server_spawn.go:resolveProjectContext
-	// 改用 config.ResolveSkillScopes(projectDir) 后,移除下面的 t.Skip 激活。
-	// 激活后在当前(未修复)代码下必失败: 当前 skillDirs 硬编码 [.rnix/skills, gc.SkillsDir]
-	// (len==2),不含 .agents/skills;修复后应为 [.rnix/skills, .agents/skills,
-	// globalSkillsDir(去重追加)](len==3)。
-	t.Skip("RED PHASE (ATDD 53.1-INT-001): 待 resolveProjectContext 接入 ResolveSkillScopes 后,于 dev-story 移除此 Skip 激活")
+	// Story 53.1 / 53.1-INT-001: spawn 注入纳入 .agents/skills。
+	// resolveProjectContext 改用 config.ResolveSkillScopes(projectDir) 后,skillDirs
+	// 为 [.rnix/skills, .agents/skills, globalSkillsDir(去重追加)](len==3),不再是
+	// 修复前硬编码的 [.rnix/skills, gc.SkillsDir](len==2,漏 .agents/skills)。
 
 	// 隔离宿主真实用户 skill 目录(本机有 rnix init 解压的 ~/.config/rnix/skills 与
 	// ~/.agents/skills),否则 ResolveSkillScopes 会扫到它们使断言 flaky。
