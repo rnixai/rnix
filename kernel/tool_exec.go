@@ -808,12 +808,15 @@ func (k *KernelImpl) executeMetaAction(proc *Process, tc llmToolCall, mapping to
 			ProjectConfig:  proc.ProjectConfig,
 			AllowedDevices: stripOrchestrationDevices(proc.AllowedDevices),
 			DeniedDevices:  unionDevices(proc.DeniedDevices, orchestrationOnlyDevices),
-			// Story 54.1: propagate the tool-level constraint alongside the device
-			// strip. Derived from the orchestration-stripped device set so the child
-			// loses orchestration-only tools (e.g. intent_*) yet keeps execution
-			// tools — and stays ⊆ parent. The child re-derives from its own devices
-			// too; this explicit pass keeps the tool constraint authoritative.
-			AllowedTools: expandDevicesToTools(k.vfs.DeviceRegistry(), stripOrchestrationDevices(proc.AllowedDevices)),
+			// Story 54.1 (review patch A): derive the child's tool whitelist from the
+			// PARENT's authoritative proc.AllowedTools — intersected with the
+			// orchestration-stripped device expansion — so a parent already narrowed
+			// to a tool subset (e.g. specialize to [Read]) keeps child ⊆ parent as a
+			// LOGICAL guarantee, not a coincidence that only holds while AllowedTools
+			// ≡ device expansion (54.5 subset skills would break that). The intersect
+			// still drops orchestration-only tools (intent_*) via the stripped set.
+			// k.deviceRegistry() is nil-safe (SkipReasonLoop script-runner nil VFS).
+			AllowedTools: intersectDevices(proc.AllowedTools, expandDevicesToTools(k.deviceRegistry(), stripOrchestrationDevices(proc.AllowedDevices))),
 		}
 		if proc.TraceID != "" {
 			childOpts.ParentSpanID = proc.SpanID
@@ -1001,7 +1004,7 @@ func (k *KernelImpl) executeMetaAction(proc *Process, tc llmToolCall, mapping to
 		// lockstep with AllowedDevices so enforcement stays tool-granular after
 		// specialize. (A process that was unrestricted becomes restricted to the
 		// skill's tools, exactly as the device-level append above already does.)
-		for _, tool := range expandDevicesToTools(k.vfs.DeviceRegistry(), skillInfo.Manifest.AllowedTools()) {
+		for _, tool := range expandDevicesToTools(k.deviceRegistry(), skillInfo.Manifest.AllowedTools()) {
 			if !slices.Contains(proc.AllowedTools, tool) {
 				proc.AllowedTools = append(proc.AllowedTools, tool)
 			}
@@ -1082,7 +1085,7 @@ func (k *KernelImpl) executeMetaAction(proc *Process, tc llmToolCall, mapping to
 					})
 					// Story 54.1: symmetric tool-level rollback — drop the tool names
 					// this skill contributed, mirroring the device removal above.
-					removedToolNames := expandDevicesToTools(k.vfs.DeviceRegistry(), removedTools)
+					removedToolNames := expandDevicesToTools(k.deviceRegistry(), removedTools)
 					if len(removedToolNames) > 0 {
 						toolRemoveSet := make(map[string]struct{}, len(removedToolNames))
 						for _, t := range removedToolNames {

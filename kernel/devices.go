@@ -62,6 +62,19 @@ func unionDevices(a, b []string) []string {
 	return out
 }
 
+// deviceRegistry returns the VFS device registry, or nil when no VFS is attached.
+// SkipReasonLoop script-runner spawns run with a nil VFS; centralizing the nil
+// check here lets every caller pass the result straight to expandDevicesToTools
+// (which treats a nil registry as "no tools") without repeating the guard — keeps
+// the nil-VFS invariant consistent with spawn.go's derivation path (Story 54.1
+// review patch B).
+func (k *KernelImpl) deviceRegistry() *vfs.DeviceRegistry {
+	if k.vfs == nil {
+		return nil
+	}
+	return k.vfs.DeviceRegistry()
+}
+
 // expandDevicesToTools expands a set of base device paths into the full list of
 // tool names those devices expose (Story 54.1 — shared infrastructure for AC2 and
 // AC4). It powers two backward-compatibility paths: expanding a legacy
@@ -124,6 +137,6 @@ func (k *KernelImpl) restoreAllowedTools(proc *Process, persisted []string) {
 		return
 	}
 	if len(proc.AllowedDevices) > 0 {
-		proc.AllowedTools = expandDevicesToTools(k.vfs.DeviceRegistry(), proc.AllowedDevices)
+		proc.AllowedTools = expandDevicesToTools(k.deviceRegistry(), proc.AllowedDevices)
 	}
 }
