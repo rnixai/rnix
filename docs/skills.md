@@ -12,6 +12,7 @@
 - [Trust check（项目级 skill 加载告警）](#trust-check项目级-skill-加载告警)
 - [Ancestor traversal（monorepo 子目录支持，可选）](#ancestor-traversalmonorepo-子目录支持可选)
 - [与 agentskills.io 生态互通](#与-agentskillsio-生态互通)
+- [`using-rnix` 能力 skill 维护约定](#using-rnix-能力-skill-维护约定)
 - [相关 ADR / 规范 / Investigation](#相关-adr--规范--investigation)
 - [更新历史](#更新历史)
 
@@ -474,6 +475,16 @@ SKILL.md 的 **body**（frontmatter 之下的 markdown 正文）会被注入 age
 
 > 一句话：**`allowed-tools`（frontmatter）= Layer 1 设备路径**（enforcement 用）；**body 引用工具 = Layer 2 `ToolDef.Name`**（通用名）**或工具中立方法论**（Rnix 独有能力）。两者分属不同层，互不混用。
 
+## `using-rnix` 能力 skill 维护约定
+
+[`lib/skills/using-rnix/`](../lib/skills/using-rnix/SKILL.md)（Story 53.4）是 rnix **面向外部的能力契约 skill**：其他应用 / AI agent 加载它即可学会用 `rnix` CLI 驱动 rnix 完成任务，无需通读 rnix 源码。它经 `//go:embed lib/skills`（[embedded.go](../embedded.go)）随二进制发布，`rnix init` 解压后对每个 rnix 用户可见。
+
+因为它对外承诺"这些命令可用"，一旦与真实命令面漂移就会让加载它的 agent 产出失败的命令。因此把它当作公开接口维护：
+
+> **当 rnix 新增或变更对外的 CLI 命令、旗标、IPC 方法或核心能力时，必须在同一改动中同步更新本 skill。** 落点：命令 / 旗标改动 → [`references/cli-reference.md`](../lib/skills/using-rnix/references/cli-reference.md)；能力 / 架构（VFS 设备、IPC 协议、进程模型、resume）改动 → [`references/architecture.md`](../lib/skills/using-rnix/references/architecture.md) 或 `SKILL.md` body；新增端到端用法 → [`references/workflows.md`](../lib/skills/using-rnix/references/workflows.md)。命令语法以 `cmd/rnix` 实现（或 `rnix <cmd> --help`）为准，**绝不凭记忆撰写**。
+
+**设备路径切分（与上节《Skill body 工具引用规范》的关系）**：本 skill 的主题就是文档化 rnix（含其 VFS 设备模型），因此设备路径作为**被描述的架构事实**合法出现在 `references/architecture.md`。但 `SKILL.md` body 本身仍遵守"body 不含设备路径"——教加载者调用工具时一律用 Layer 2 的 `Bash` 跑 `rnix` 命令。故对本 skill 的合规校验须按语义判据复核，**不可**直接套用 `grep /dev/ → 零命中` 当唯一闸门（该 grep 只扫 `lib/skills/*/SKILL.md`，本 skill 的 SKILL.md 同样零命中，架构描述设备路径落在不被扫描的 `references/` 内）。
+
 ## 相关 ADR / 规范 / Investigation
 
 ### 内部 ADR
@@ -507,3 +518,4 @@ SKILL.md 的 **body**（frontmatter 之下的 markdown 正文）会被注入 age
 | 日期 | 内容 |
 |------|------|
 | 2026-05-27 | Story 47.5 落地（commit `<commit-hash>`）：新建 docs/skills.md 覆盖 47.1-47.4 全部对外契约 |
+| 2026-06-09 | Story 53.4：新增《`using-rnix` 能力 skill 维护约定》节（含设备路径切分说明） |
