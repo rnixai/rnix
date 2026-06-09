@@ -138,7 +138,7 @@ func TestParseScript_Source_InFunction(t *testing.T) {
 // --- 18.5-UNIT-006: [P0] ParseScript shebang 行被正确跳过 (AC3) ---
 
 func TestParseScript_Source_Shebang(t *testing.T) {
-	input := "#!/usr/bin/env rnix run\nexport KEY=val\nspawn \"test\""
+	input := "#!/usr/bin/env -S rnix run\nexport KEY=val\nspawn \"test\""
 	script, err := ParseScript(input)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -157,7 +157,7 @@ func TestParseScript_Source_Shebang(t *testing.T) {
 // --- 18.5-UNIT-007: [P0] stripShebang 基本功能 ---
 
 func TestStripShebang_Present(t *testing.T) {
-	input := "#!/usr/bin/env rnix run\nexport A=1\nspawn \"test\""
+	input := "#!/usr/bin/env -S rnix run\nexport A=1\nspawn \"test\""
 	result := stripShebang(input)
 	if strings.HasPrefix(result, "#!") {
 		t.Errorf("shebang should be stripped, got: %q", result[:40])
@@ -176,7 +176,7 @@ func TestStripShebang_Absent(t *testing.T) {
 }
 
 func TestStripShebang_OnlyShebang(t *testing.T) {
-	input := "#!/usr/bin/env rnix run"
+	input := "#!/usr/bin/env -S rnix run"
 	result := stripShebang(input)
 	if result != "" {
 		t.Errorf("stripShebang of shebang-only content should return empty, got: %q", result)
@@ -620,7 +620,7 @@ func TestScriptExecutor_Source_EmptyFile(t *testing.T) {
 func TestScriptExecutor_Source_FileWithShebang(t *testing.T) {
 	reader := &mockFileReader{
 		files: map[string]string{
-			"/project/lib.ash": "#!/usr/bin/env rnix run\nexport LIB=loaded",
+			"/project/lib.ash": "#!/usr/bin/env -S rnix run\nexport LIB=loaded",
 		},
 	}
 	spawner := &mockSpawner{}

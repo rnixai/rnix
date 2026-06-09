@@ -96,9 +96,9 @@ func TestRunCmd_ShebangStripped(t *testing.T) {
 		input  string
 		expect string
 	}{
-		{"with shebang", "#!/usr/bin/env rnix run\nexport A=1", "export A=1"},
+		{"with shebang", "#!/usr/bin/env -S rnix run\nexport A=1", "export A=1"},
 		{"no shebang", "export A=1", "export A=1"},
-		{"shebang only", "#!/usr/bin/env rnix run", ""},
+		{"shebang only", "#!/usr/bin/env -S rnix run", ""},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

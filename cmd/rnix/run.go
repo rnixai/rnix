@@ -20,7 +20,7 @@ import (
 var runCmd = &cobra.Command{
 	Use:   "run <script.ash> [args...]",
 	Short: "Execute an AgentShell script file",
-	Long:  "Read and execute an AgentShell script file.\n\nSupports shebang (#!/usr/bin/env rnix run) for direct execution.",
+	Long:  "Read and execute an AgentShell script file.\n\nSupports shebang (#!/usr/bin/env -S rnix run) for direct execution.",
 	Example: `  rnix run deploy.ash
   rnix run deploy.ash --env staging
   ./deploy.ash  (with shebang and chmod +x)`,

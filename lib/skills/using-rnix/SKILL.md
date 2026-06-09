@@ -31,10 +31,10 @@ the processes are: each one is an AI agent reasoning in a loop.
 Three ideas explain almost everything:
 
 - **Everything is a Process.** Every agent run is a first-class process with a
-  PID, a state machine (Created → Running → Zombie → Dead), and a resource table.
-  You list them with `ps`, end them with `kill`, watch them with `strace` — the
-  same verbs you already know. Processes can be suspended, resumed, and forked
-  from checkpoints.
+  PID, a state machine (Created → Running → Suspended/Zombie → Dead), and a
+  resource table. You list them with `ps`, end them with `kill`, watch them with
+  `strace` — the same verbs you already know. Processes can be suspended,
+  resumed, and forked from checkpoints.
 - **Everything is a File.** LLMs, the filesystem, the shell, agent memory, web
   search, code intelligence (LSP), and MCP tools are all exposed as virtual
   devices behind a uniform file interface. Adding a capability is mounting a
@@ -46,11 +46,14 @@ Three ideas explain almost everything:
   OS primitives, not application glue.
 
 **Daemon model — read this once.** A background daemon holds the kernel and the
-process table; the CLI talks to it over a Unix domain socket. You do **not**
-start the daemon yourself: any `rnix` command that needs it auto-starts it on
-first use. Because the daemon is shared, a process you spawn in one terminal is
-visible to `rnix ps` in another. Manage the daemon explicitly only when you need
-to: `rnix daemon status` / `rnix daemon stop`.
+process table; the CLI talks to it over a Unix domain socket. Commands that
+create work (`rnix -i`, `rnix apply`, `rnix compose up`, `rnix run`) auto-start
+the daemon on first use. Passive query, attach, or lifecycle commands such as
+`rnix ps`, `rnix strace`, `rnix suspend`, and `rnix resume` dial the existing
+daemon; if it is stopped, start one with `rnix daemon start` or run a spawning
+command first. Because the daemon is shared, a process you spawn in one terminal
+is visible to `rnix ps` in another. Manage it explicitly with
+`rnix daemon status` / `rnix daemon stop`.
 
 ## How to drive rnix
 
@@ -74,9 +77,10 @@ Each capability below is summarized here and expanded in a reference file. Read
 the reference only when the task needs that depth.
 
 - **Process lifecycle** — spawn an agent from an intent, list/inspect, kill,
-  suspend, and resume. Resume is unusually powerful: in rnix, **Dead is a frozen
-  state, not the end** — a finished or crashed agent keeps its full history on
-  disk and can be revived. See *Core commands* below and `references/workflows.md`.
+  wait for completion, suspend, and resume. Resume is unusually powerful: in
+  rnix, **Dead is a frozen state, not the end** — a finished or crashed agent
+  keeps its full history on disk and can be revived. See *Core commands* below
+  and `references/workflows.md`.
 - **VFS device model** — the uniform file interface over LLMs, filesystem, shell,
   memory, web, LSP, and MCP. You generally don't touch devices directly when
   driving rnix from the CLI; agents use them internally. Catalog and paths:
@@ -110,6 +114,7 @@ These are verified against the current rnix CLI. Arguments in `<>` are required,
 | List processes | `rnix ps` (`-a/--all` includes finished; `--uuid` shows UUIDs) |
 | Trace an agent's syscalls live | `rnix strace <pid>` |
 | Stop an agent | `rnix kill <pid>` |
+| Wait / observe completion | No public `rnix wait` command; use `rnix ps -a`, `rnix strace <pid>`, or compose dependency waits |
 | Suspend / resume | `rnix suspend <pid>` · `rnix resume <uuid>` |
 | Fork from history (explore) | `rnix resume --fork <uuid>` |
 | Apply a high-level intent | `rnix apply "<intent>"` (add `-y` to skip the confirm step) |

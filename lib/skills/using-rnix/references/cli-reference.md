@@ -5,8 +5,9 @@ verified against the current `cmd/rnix` implementation. Arguments in `<>` are
 required, `[]` optional. When a flag isn't listed, run `rnix <command> --help` —
 the binary is always the source of truth.
 
-> Run every command with the `Bash` tool. The daemon auto-starts on first use;
-> you don't launch it manually.
+> Run every command with the `Bash` tool. Commands that create work auto-start
+> the daemon; passive query/attach commands may require an already-running
+> daemon or degrade to an empty/no-daemon view.
 
 ## Global flags
 
@@ -63,6 +64,11 @@ rnix -i "review this PR" --agent code-analyst -m opus
 
 `ps` shows PID, state, skills, tokens, and elapsed time. `strace` is the fastest
 way to understand what an agent actually did.
+
+There is no separate public wait subcommand in the current CLI. Waiting and
+reaping are kernel/compose internals: watch completion with `rnix ps -a` or
+`rnix strace <pid>`, and let `compose` dependency conditions wait between DAG
+nodes.
 
 ## Multi-agent orchestration
 
@@ -130,8 +136,9 @@ other agentskills.io-compatible clients without extra configuration.
 | `rnix heartbeat status` | Show daemon heartbeat status |
 | `rnix serve` | Start the OpenAI-compatible HTTP gateway |
 
-The CLI auto-starts the daemon when a command needs it, so you rarely call
-`daemon start` directly.
+Spawning/execution commands auto-start the daemon. Passive query/attach commands
+such as `ps`, `mcp list`, `top`, `log`, `gdb`, `suspend`, and `resume` dial the
+current daemon; if it is stopped, start it explicitly with `rnix daemon start`.
 
 ## Bootstrap, config & diagnostics
 
@@ -149,7 +156,7 @@ The CLI auto-starts the daemon when a command needs it, so you rarely call
 |---------|---------|
 | `rnix run <script.ash> [args...]` | Execute an AgentShell script file |
 
-AgentShell scripts also support a shebang: `#!/usr/bin/env rnix run`.
+AgentShell scripts also support a shebang: `#!/usr/bin/env -S rnix run`.
 
 ## Advanced commands
 

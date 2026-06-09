@@ -37,6 +37,10 @@ func atdd534Load(t *testing.T) *SkillInfo {
 	return info
 }
 
+func atdd534DevicePathTokens() []string {
+	return []string{"/dev/", "/mnt/mcp/", "/proc/"}
+}
+
 // --- 53.4-AC1: skill 可被 SkillLoader.LoadFull 加载，Name == "using-rnix" ---
 func TestATDD_53_4_AC1_UsingRnix_Loadable(t *testing.T) {
 	info := atdd534Load(t)
@@ -84,7 +88,7 @@ func TestATDD_53_4_AC1_UsingRnix_BodyExcludesFrontmatter(t *testing.T) {
 func TestATDD_53_4_AC2_UsingRnix_BodyCoversCapabilityMap(t *testing.T) {
 	info := atdd534Load(t)
 	required := []string{
-		"spawn", "ps", "kill", "strace", "suspend", "resume",
+		"spawn", "ps", "kill", "strace", "wait", "suspend", "resume",
 		"compose", "intent", "skill", "daemon", "VFS",
 	}
 	for _, kw := range required {
@@ -98,7 +102,7 @@ func TestATDD_53_4_AC2_UsingRnix_BodyCoversCapabilityMap(t *testing.T) {
 // 锁定本 skill 通过 53.3 的 INT-012/INT-013 blanket grep，同时满足 AC3 切分。
 func TestATDD_53_4_AC3_UsingRnix_BodyNoDevicePaths(t *testing.T) {
 	info := atdd534Load(t)
-	for _, tok := range []string{"/dev/", "/mnt/mcp/"} {
+	for _, tok := range atdd534DevicePathTokens() {
 		if strings.Contains(info.Body, tok) {
 			t.Errorf("SKILL.md body contains device path %q (AC3 切分: body 教调用工具用 Bash，设备路径作架构描述须下沉 references/architecture.md)", tok)
 		}

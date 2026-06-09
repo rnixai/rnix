@@ -33,8 +33,9 @@ Adding a capability means mounting a new device. The current device catalog:
 | `/mnt/mcp/<pid>-<server>/tools/<tool>` | MCP server tools (Model Context Protocol) |
 
 Each process has its own file-descriptor table. A skill's `allowed-tools`
-frontmatter lists the device paths it may use; the spawn path intersects these
-across the agent's skills to compute its permitted devices.
+frontmatter lists the device paths it may use. An agent's permitted devices are
+the deduped union of all loaded skill `allowed-tools`; spawn intersects that
+union only when a parent process passes an inherited `AllowedDevices` constraint.
 
 ## Daemon model
 
@@ -43,8 +44,11 @@ thin client that talks to it over a Unix domain socket. Key facts:
 
 - **Socket location** (first that applies): `$XDG_RUNTIME_DIR/rnix/rnix.sock`,
   else `/tmp/rnix-$UID/rnix.sock`. A `rnix.pid` file sits beside the socket.
-- **Auto-start**: any CLI command needing the daemon starts it on first use
-  (`EnsureDaemon`). You don't run a start command manually.
+- **Auto-start**: commands that create work (`rnix -i`, `rnix apply`,
+  `rnix compose up`, `rnix run`) call `EnsureDaemon` and start the daemon on
+  first use. Passive query, attach, and some lifecycle commands dial the current
+  daemon only; if it is stopped they may show an empty view or "no active
+  daemon". Use `rnix daemon start` when you need an explicit running daemon.
 - **Shared state**: because one daemon serves all terminals, a process spawned
   in one shell is visible to `rnix ps` in another.
 - **Lifecycle**: `rnix daemon status` / `rnix daemon stop`.
@@ -60,7 +64,7 @@ It is newline-delimited JSON (NDJSON):
 // Response
 {"ok": true, "payload": { /* method-specific */ }}
 // On failure
-{"ok": false, "payload": {"error": "..."}}
+{"ok": false, "error": {"code": "...", "message": "..."}}
 ```
 
 Spawn additionally streams progress events before the final response.
@@ -83,12 +87,19 @@ another program.
 
 ```
 Created ──▶ Running ──▶ Zombie ──▶ Dead
+               │
+               └────▶ Suspended
 ```
 
 - **Created → Running**: the reasoning loop (`reasonStep`) starts.
+- **Running → Suspended**: the user pauses the process, daemon shutdown
+  preserves it, or the kernel deliberately checkpoints it for later recovery.
+- **Suspended → Running**: `rnix resume <uuid>` restores from checkpoint/history
+  into a runnable process.
 - **Running → Zombie**: the agent completes, errors, times out, or is killed.
 - **Zombie → Dead**: the process is reaped; its observation data is flushed to
   disk.
+- **Suspended → Dead**: killing a suspended process reaps it without resuming.
 
 Each agent runs a single reasoning loop in which the LLM autonomously picks an
 action per step (tool call, plan, spawn a child, complete, etc.).
@@ -107,9 +118,10 @@ removes that directory, the process can be revived.
 | Fork (explore) | `rnix resume --fork <uuid>` | New UUID, links back via `origin_uuid` |
 | Truncated fork | `rnix resume --fork --from-step <n> <uuid>` | New UUID, replays history up to step n |
 
-Resume is not a new state-machine transition — it is "spawn a fresh process from
-history". Suspended/Running processes are exempt from gc; Dead/Zombie ones are
-collected per `gc.retention_days` and `gc.max_entries` (see `rnix gc`).
+Dead/Zombie resume is "spawn a fresh process from history"; Suspended resume
+restores from the checkpoint path when one exists, otherwise from history.
+Suspended/Running processes are exempt from gc; Dead/Zombie ones are collected
+per `gc.retention_days` and `gc.max_entries` (see `rnix gc`).
 
 ## LLM providers
 
