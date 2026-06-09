@@ -72,6 +72,10 @@ type ProcInfo struct {
 	// (deny /dev/intent) that Story 37-5 installs on spawned children — without
 	// this the blocklist resumes as nil and the guard silently lapses.
 	DeniedDevices  []string
+	// AllowedTools is the process authoritative tool-name whitelist (Story 54.1),
+	// persisted alongside AllowedDevices so resume / daemon-restart revival keeps
+	// tool-level enforcement. Empty on legacy snapshots → rebuilt from AllowedDevices.
+	AllowedTools   []string
 	Provider       string
 	Model          string
 	// PrimaryDevice is the LLM VFS device path (e.g. "/dev/llm/claude") this

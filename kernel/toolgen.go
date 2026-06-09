@@ -88,6 +88,27 @@ func baseDeviceWhitelistActive(allowedDevices []string) bool {
 	return false
 }
 
+// toolWhitelistActive reports whether proc.AllowedTools imposes a tool-level
+// whitelist (Story 54.1). Non-empty = only the listed base-device tool names may
+// run (the authoritative enforcement unit). Empty = no tool-level constraint, so
+// executeVFSTool falls back to the legacy device-level whitelist for backward
+// compatibility (legacy persisted processes whose AllowedTools was never
+// derived). MCP tools are never gated here — their names are dynamic.
+func toolWhitelistActive(allowedTools []string) bool {
+	return len(allowedTools) > 0
+}
+
+// deviceAllowed reports whether cleanPath is permitted by the device whitelist:
+// an exact match or a descendant of one of allowedDevices.
+func deviceAllowed(cleanPath string, allowedDevices []string) bool {
+	for _, dev := range allowedDevices {
+		if cleanPath == dev || strings.HasPrefix(cleanPath, dev+"/") {
+			return true
+		}
+	}
+	return false
+}
+
 // metaToolDefs returns ToolDefs for kernel meta actions, conditionally based on FeatureFlags.
 // complete is always generated; other meta tools are gated by their respective flag.
 // Tool names follow Claude Code canonical form to match LLM training distribution anchors.

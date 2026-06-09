@@ -92,6 +92,15 @@ type Process struct {
 	MaxSteps       int            // max reasoning steps for this process (from SpawnOpts.MaxTurns or DefaultMaxSteps)
 	AllowedDevices []string    // nil/empty = all devices allowed; non-empty = whitelist only
 	DeniedDevices  []string    // device blacklist; checked before AllowedDevices; blocks access regardless of whitelist
+	// AllowedTools is the process-level AUTHORITATIVE tool-name whitelist (Story 54.1).
+	// nil/empty = no tool-level constraint; non-empty = only these base-device tools
+	// (by tc.Name, e.g. "Read") may run — so allowed-tools:Read permits Read but denies
+	// Write even though both live under /dev/fs. DISTINCT from the three same-named
+	// concepts: SkillManifest.AllowedTools() / AgentInfo.AllowedTools() return DECLARED
+	// raw values (device paths today); SkillInfoWire.AllowedTools is a dashboard wire
+	// field. This is the runtime-enforced tool set. MCP tools are NOT gated here (their
+	// names are dynamic) — they stay path-gated via AllowedDevices. (mu protected)
+	AllowedTools   []string
 	MCPMounts      []string    // MCP mount paths auto-mounted by Spawn
 	// mcpReusedMounts contains MCP paths this process did NOT mount itself
 	// (Story 48.1 AC7 — fork-resume collision: an existing mount under the
@@ -410,6 +419,10 @@ type DetailSnapshot struct {
 	// is captured at the kernel layer for symmetry; IPC/dashboard surfacing stays
 	// out of this story's kernel/+vfs/ persistence scope.
 	DeniedDevices  []string
+	// AllowedTools mirrors the process authoritative tool-name whitelist
+	// (Story 54.1) into the observability snapshot so the detail view / IPC
+	// wire can surface a process's runtime tool set alongside AllowedDevices.
+	AllowedTools   []string
 	CtxID          types.CtxID
 	TokensUsed      int
 	LastInputTokens int
@@ -448,6 +461,7 @@ func (p *Process) GetDetailSnapshot() DetailSnapshot {
 		Skills:          append([]string(nil), p.Skills...),
 		AllowedDevices:  append([]string(nil), p.AllowedDevices...),
 		DeniedDevices:   append([]string(nil), p.DeniedDevices...),
+		AllowedTools:    append([]string(nil), p.AllowedTools...),
 		CtxID:           p.CtxID,
 		TokensUsed:      p.TokensUsed,
 		LastInputTokens: p.LastInputTokens,

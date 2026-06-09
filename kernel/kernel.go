@@ -98,6 +98,7 @@ type SpawnOpts struct {
 	GracePeriod       time.Duration          // 0 = use DefaultGracePeriod; >0 = custom SIGTERM grace period
 	AllowedDevices    []string               // inherited from parent; nil = no constraint from parent
 	DeniedDevices     []string               // device blacklist; checked before AllowedDevices whitelist
+	AllowedTools      []string               // Story 54.1: authoritative tool-name whitelist; nil = derive from AllowedDevices / no constraint
 
 	// Orchestration metadata (Story 34.7)
 	ComposeNode   string   // compose node name (e.g. "summarizer")

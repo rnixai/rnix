@@ -375,12 +375,16 @@ toolLoop:
 
 // executeVFSTool executes a VFS tool call from native function calling.
 func (k *KernelImpl) executeVFSTool(proc *Process, tc llmToolCall, mapping toolMapping) (string, error) {
-	// Permission model: MCP mount paths in AllowedDevices are additive permits,
-	// not a base-device whitelist. Enforce the whitelist for an MCP target always
-	// (it must be one of this process's own mounts), but for a base /dev target
-	// only when a non-MCP whitelist exists (a skill declared allowed_tools). An
-	// agent with MCP mounts but no skills keeps base devices unrestricted —
-	// appending MCP must extend access, never revoke it.
+	// Permission model (Story 54.1 — tool-level enforcement):
+	//   ① DeniedDevices blacklist — checked first, by device path (below).
+	//   ② MCP target — additive permit, path-gated against AllowedDevices (MCP
+	//      tool names are dynamic, so they cannot be gated by AllowedTools).
+	//   ③ Base /dev target — the AUTHORITATIVE unit is the tool NAME: when
+	//      proc.AllowedTools is non-empty, only those tool names may run
+	//      (allowed-tools:Read permits Read but denies Write though both live
+	//      under /dev/fs). When AllowedTools is empty (legacy process whose tool
+	//      set was never derived), fall back to the legacy device-level whitelist
+	//      so existing behavior and backward compatibility are preserved.
 	cleanPath := path.Clean(mapping.VFSPath)
 
 	// DeniedDevices blacklist: checked before AllowedDevices. Intent-spawned
@@ -394,15 +398,29 @@ func (k *KernelImpl) executeVFSTool(proc *Process, tc llmToolCall, mapping toolM
 	}
 
 	targetIsMCP := strings.HasPrefix(cleanPath, mcpPathPrefix)
-	if len(proc.AllowedDevices) > 0 && (targetIsMCP || baseDeviceWhitelistActive(proc.AllowedDevices)) {
-		allowed := false
-		for _, dev := range proc.AllowedDevices {
-			if cleanPath == dev || strings.HasPrefix(cleanPath, dev+"/") {
-				allowed = true
-				break
-			}
+	switch {
+	case targetIsMCP:
+		// MCP mounts stay path-gated (additive permit). Enforce the AllowedDevices
+		// whitelist so a process reaches only its own mounts.
+		if len(proc.AllowedDevices) > 0 && !deviceAllowed(cleanPath, proc.AllowedDevices) {
+			return "", fmt.Errorf("permission denied: device %s not in allowed list %v. "+
+				"Child processes inherit the same device restrictions, so spawning a child will NOT grant access to this device. "+
+				"If you cannot finish the task with the devices you have, use complete to report what you accomplished and which capability was missing",
+				mapping.VFSPath, proc.AllowedDevices)
 		}
-		if !allowed {
+	case toolWhitelistActive(proc.AllowedTools):
+		// Base device, tool-level (authoritative): gate by the tool name.
+		if !slices.Contains(proc.AllowedTools, tc.Name) {
+			return "", fmt.Errorf("permission denied: tool %q is not in this process's allowed tools %v. "+
+				"This is a tool-level restriction — other tools on the same device are not granted by it. "+
+				"Child processes inherit the same tool restrictions, so spawning a child will NOT grant access to this tool. "+
+				"If you cannot finish the task with the tools you have, use complete to report what you accomplished and which capability was missing",
+				tc.Name, proc.AllowedTools)
+		}
+	case baseDeviceWhitelistActive(proc.AllowedDevices):
+		// Base device, backward-compat fallback: a legacy process (AllowedTools
+		// not derived) still carries a device-level whitelist. Gate by path.
+		if !deviceAllowed(cleanPath, proc.AllowedDevices) {
 			return "", fmt.Errorf("permission denied: device %s not in allowed list %v. "+
 				"Child processes inherit the same device restrictions, so spawning a child will NOT grant access to this device. "+
 				"If you cannot finish the task with the devices you have, use complete to report what you accomplished and which capability was missing",
@@ -790,6 +808,12 @@ func (k *KernelImpl) executeMetaAction(proc *Process, tc llmToolCall, mapping to
 			ProjectConfig:  proc.ProjectConfig,
 			AllowedDevices: stripOrchestrationDevices(proc.AllowedDevices),
 			DeniedDevices:  unionDevices(proc.DeniedDevices, orchestrationOnlyDevices),
+			// Story 54.1: propagate the tool-level constraint alongside the device
+			// strip. Derived from the orchestration-stripped device set so the child
+			// loses orchestration-only tools (e.g. intent_*) yet keeps execution
+			// tools — and stays ⊆ parent. The child re-derives from its own devices
+			// too; this explicit pass keeps the tool constraint authoritative.
+			AllowedTools: expandDevicesToTools(k.vfs.DeviceRegistry(), stripOrchestrationDevices(proc.AllowedDevices)),
 		}
 		if proc.TraceID != "" {
 			childOpts.ParentSpanID = proc.SpanID
@@ -971,6 +995,17 @@ func (k *KernelImpl) executeMetaAction(proc *Process, tc llmToolCall, mapping to
 		}
 		proc.Skills = append(proc.Skills, skillName)
 		proc.AllowedDevices = append(proc.AllowedDevices, skillInfo.Manifest.AllowedTools()...)
+		// Story 54.1: mirror the device append at tool level. Expand the skill's
+		// declared allowed-tools (device paths today) into tool names and add them
+		// to the authoritative whitelist, de-duplicated — keeping AllowedTools in
+		// lockstep with AllowedDevices so enforcement stays tool-granular after
+		// specialize. (A process that was unrestricted becomes restricted to the
+		// skill's tools, exactly as the device-level append above already does.)
+		for _, tool := range expandDevicesToTools(k.vfs.DeviceRegistry(), skillInfo.Manifest.AllowedTools()) {
+			if !slices.Contains(proc.AllowedTools, tool) {
+				proc.AllowedTools = append(proc.AllowedTools, tool)
+			}
+		}
 		if skillInfo.Body != "" {
 			if proc.SkillBodies == nil {
 				proc.SkillBodies = make(map[string]string)
@@ -1045,6 +1080,19 @@ func (k *KernelImpl) executeMetaAction(proc *Process, tc llmToolCall, mapping to
 						_, rm := removeSet[d]
 						return rm
 					})
+					// Story 54.1: symmetric tool-level rollback — drop the tool names
+					// this skill contributed, mirroring the device removal above.
+					removedToolNames := expandDevicesToTools(k.vfs.DeviceRegistry(), removedTools)
+					if len(removedToolNames) > 0 {
+						toolRemoveSet := make(map[string]struct{}, len(removedToolNames))
+						for _, t := range removedToolNames {
+							toolRemoveSet[t] = struct{}{}
+						}
+						proc.AllowedTools = slices.DeleteFunc(proc.AllowedTools, func(t string) bool {
+							_, rm := toolRemoveSet[t]
+							return rm
+						})
+					}
 				}
 				proc.mu.Unlock()
 				k.emitEvent(proc, "SpecializeRollback", map[string]any{"skill": skillName, "reason": "context_full"}, nil, nil, 0)

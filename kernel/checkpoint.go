@@ -31,6 +31,7 @@ type CheckpointProcState struct {
 	Skills                []string          `json:"skills"`
 	AllowedDevices        []string          `json:"allowed_devices"`
 	DeniedDevices         []string          `json:"denied_devices,omitempty"`
+	AllowedTools          []string          `json:"allowed_tools,omitempty"` // Story 54.1: persisted authoritative tool whitelist; omitempty keeps legacy checkpoints clean
 	Intent                string            `json:"intent"`
 	IntentID              string            `json:"intent_id,omitempty"`
 	MaxSteps              int               `json:"max_steps"`
@@ -109,6 +110,9 @@ func buildCheckpointData(proc *Process, step int, contextSnapshot json.RawMessag
 	// keep the snapshot consistent with skills.
 	allowedDevices := append([]string(nil), proc.AllowedDevices...)
 	deniedDevices := append([]string(nil), proc.DeniedDevices...)
+	// Story 54.1 — snapshot the authoritative tool-name whitelist under the same
+	// lock so resume / daemon-restart revival keeps tool-level enforcement.
+	allowedTools := append([]string(nil), proc.AllowedTools...)
 	proc.mu.Unlock()
 
 	// Snapshot relevant environment variables for resume drift detection (Story 30.4 review)
@@ -132,6 +136,7 @@ func buildCheckpointData(proc *Process, step int, contextSnapshot json.RawMessag
 			Skills:                skills,
 			AllowedDevices:        allowedDevices,
 			DeniedDevices:         deniedDevices,
+			AllowedTools:          allowedTools,
 			Intent:                proc.Intent,
 			MaxSteps:              proc.MaxSteps,
 			CtxSize:               proc.CtxSize,

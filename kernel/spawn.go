@@ -409,6 +409,31 @@ func (k *KernelImpl) Spawn(intent string, agent *agents.AgentInfo, opts SpawnOpt
 		proc.AllowedDevices = append([]string(nil), opts.AllowedDevices...)
 	}
 
+	// Story 54.1: derive the authoritative tool-name whitelist from the finalized
+	// AllowedDevices (this point follows both the agent-aggregation branch above
+	// and the no-agent inherit branch, so it covers every spawn shape). Tool-level
+	// enforcement gates by tool name; building it from the already device-narrowed
+	// set keeps the child tool set ⊆ parent automatically. An explicit
+	// opts.AllowedTools (a tool-level parent constraint, e.g. an ActionSpawn child)
+	// narrows it further. MCP mounts appended later expose dynamic tool names and
+	// contribute no base tools here, so deriving before that append is correct.
+	// Guard the DeviceRegistry lookup: SkipReasonLoop script-runner spawns use a
+	// nil VFS and carry no device whitelist, so there is nothing to expand.
+	if len(proc.AllowedDevices) > 0 || len(opts.AllowedTools) > 0 {
+		var tools []string
+		if len(proc.AllowedDevices) > 0 && k.vfs != nil {
+			tools = expandDevicesToTools(k.vfs.DeviceRegistry(), proc.AllowedDevices)
+		}
+		switch {
+		case len(tools) > 0 && len(opts.AllowedTools) > 0:
+			proc.AllowedTools = intersectDevices(opts.AllowedTools, tools)
+		case len(tools) > 0:
+			proc.AllowedTools = tools
+		case len(opts.AllowedTools) > 0:
+			proc.AllowedTools = append([]string(nil), opts.AllowedTools...)
+		}
+	}
+
 	// System prompt = caller-provided prompt + agent instructions (skill bodies handled by loaded_skills section per AC4)
 	if agentInstructions != "" {
 		if opts.SystemPrompt == "" {

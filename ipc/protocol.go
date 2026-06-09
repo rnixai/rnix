@@ -1340,6 +1340,7 @@ type GetProcDetailResponse struct {
 	PausedTotalMs  int64             `json:"paused_total_ms,omitempty"`
 	Skills         []SkillInfoWire   `json:"skills"`
 	AllowedDevices []string          `json:"allowed_devices"`
+	AllowedTools   []string          `json:"allowed_tools,omitempty"` // Story 54.1: authoritative tool whitelist (DISTINCT from SkillInfoWire.AllowedTools below)
 	EnvSnapshot    map[string]string `json:"env_snapshot"`
 	FDTable        []FDEntryWire     `json:"fd_table"`
 	ContextStats   ContextStatsWire  `json:"context_stats"`

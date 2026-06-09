@@ -96,6 +96,10 @@ func (k *KernelImpl) LoadSuspendedFromDisk() (int, error) {
 		// a Suspended process revived after a daemon restart keeps the
 		// anti-recursive-orchestration guard (deny /dev/intent) installed at spawn.
 		proc.DeniedDevices = append([]string(nil), info.DeniedDevices...)
+		// Story 54.1 (NFR87) — restore the tool-name whitelist symmetric to
+		// AllowedDevices; legacy suspended snapshots without it rebuild by
+		// expanding AllowedDevices so revived processes keep tool-level enforcement.
+		k.restoreAllowedTools(proc, info.AllowedTools)
 		proc.ContextBudget = info.ContextBudget
 		proc.ComposeNode = info.ComposeNode
 		proc.ComposeDeps = append([]string(nil), info.ComposeDeps...)

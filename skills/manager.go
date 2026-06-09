@@ -131,8 +131,57 @@ func validateSkillName(name string) error {
 	return nil
 }
 
-// validateFrontmatter checks name is non-empty, description is non-empty,
-// and allowed_tools are valid device paths.
+// knownToolNames is the canonical semantic tool-name vocabulary accepted by
+// validateFrontmatter (Story 54.1, Decision 45 revision ②). allowed-tools may
+// now name a tool directly (e.g. `Read`) rather than a device path, so
+// enforcement can be tool-level (allowed-tools:Read permits Read but denies
+// Write though both live under /dev/fs).
+//
+// The skills package cannot import kernel (kernel imports skills — cycle), so
+// this set is a curated mirror of the tool names registered across the VFS
+// device drivers + kernel meta actions. It must track those registries; new
+// tools should be added here. Story 54.2 will rename snake_case tool names
+// (intent_*, memory_*, skill_*) to PascalCase — add the new names here then.
+//
+// Device paths (/dev/*, /mnt/mcp/*) remain accepted during the compatibility
+// period (see validateFrontmatter); this set only governs the tool-name form.
+var knownToolNames = map[string]struct{}{
+	// /dev/fs
+	"Read": {}, "Write": {}, "Edit": {}, "Glob": {}, "Grep": {},
+	// /dev/shell
+	"Bash": {},
+	// /dev/lsp, /dev/web, /dev/tty
+	"LSP": {}, "WebFetch": {}, "WebSearch": {}, "AskUserQuestion": {},
+	// /dev/tasks
+	"TaskCreate": {}, "TaskGet": {}, "TaskList": {}, "TaskUpdate": {},
+	// /dev/cron
+	"CronCreate": {}, "CronDelete": {}, "CronList": {},
+	// /dev/intent (snake_case until Story 54.2)
+	"intent_decompose": {}, "intent_confirm": {}, "intent_execute": {}, "intent_status": {},
+	// /dev/memory (snake_case until Story 54.2)
+	"memory_commit": {}, "memory_recall": {}, "memory_profile": {},
+	// /dev/skills (snake_case until Story 54.2)
+	"skill_manage": {}, "skill_registry": {}, "skill_score": {},
+	// kernel meta actions
+	"Agent": {}, "Skill": {}, "ToolSearch": {}, "EnterPlanMode": {}, "replan": {}, "complete": {},
+}
+
+// isKnownToolName reports whether v is a recognized semantic tool name.
+func isKnownToolName(v string) bool {
+	_, ok := knownToolNames[v]
+	return ok
+}
+
+// isDevicePath reports whether v is a legacy device-path form of allowed-tools
+// (accepted during the Story 54.1 compatibility period).
+func isDevicePath(v string) bool {
+	return strings.HasPrefix(v, "/dev/") || strings.HasPrefix(v, "/mnt/mcp/")
+}
+
+// validateFrontmatter checks name is non-empty, description is non-empty, and
+// each allowed_tools entry is either a known semantic tool name (Story 54.1) or
+// a legacy device path (compatibility period). Values that are neither are
+// rejected.
 func validateFrontmatter(name, description, allowedTools string) error {
 	if name == "" {
 		return fmt.Errorf("skill name is required")
@@ -141,8 +190,8 @@ func validateFrontmatter(name, description, allowedTools string) error {
 		return fmt.Errorf("skill description is required")
 	}
 	for tool := range strings.FieldsSeq(allowedTools) {
-		if !strings.HasPrefix(tool, "/dev/") && !strings.HasPrefix(tool, "/mnt/mcp/") {
-			return fmt.Errorf("invalid tool path %q: must start with /dev/ or /mnt/mcp/", tool)
+		if !isKnownToolName(tool) && !isDevicePath(tool) {
+			return fmt.Errorf("invalid allowed-tools entry %q: must be a known tool name (e.g. Read, Bash) or a device path (/dev/ or /mnt/mcp/)", tool)
 		}
 	}
 	return nil

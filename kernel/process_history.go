@@ -206,6 +206,7 @@ type procInfoDisk struct {
 	Result         string   `json:"result,omitempty"`
 	AllowedDevices []string `json:"allowed_devices,omitempty"`
 	DeniedDevices  []string `json:"denied_devices,omitempty"`
+	AllowedTools   []string `json:"allowed_tools,omitempty"` // Story 54.1: authoritative tool whitelist; omitempty keeps legacy proc-info.json clean
 	Provider       string   `json:"provider,omitempty"`
 	Model          string   `json:"model,omitempty"`
 	// PrimaryDevice — Epic 44 follow-up: persist the LLM VFS path so daemon
@@ -276,6 +277,7 @@ func procInfoToDisk(info vfs.ProcInfo) procInfoDisk {
 		Result:         info.Result,
 		AllowedDevices: info.AllowedDevices,
 		DeniedDevices:  info.DeniedDevices,
+		AllowedTools:   info.AllowedTools,
 		Provider:       info.Provider,
 		Model:          info.Model,
 		PrimaryDevice:  info.PrimaryDevice,
@@ -336,6 +338,7 @@ func procInfoFromDisk(d procInfoDisk) vfs.ProcInfo {
 		Result:         d.Result,
 		AllowedDevices: d.AllowedDevices,
 		DeniedDevices:  d.DeniedDevices,
+		AllowedTools:   d.AllowedTools,
 		Provider:       d.Provider,
 		Model:          d.Model,
 		PrimaryDevice:  d.PrimaryDevice,

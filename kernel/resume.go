@@ -480,6 +480,9 @@ func (k *KernelImpl) resumeFromCheckpoint(uuid string, opts ResumeOpts, start ti
 	proc.Model = cp.Model
 	proc.AllowedDevices = append([]string(nil), cp.AllowedDevices...)
 	proc.DeniedDevices = append([]string(nil), cp.DeniedDevices...)
+	// Story 54.1 (NFR87) — restore the tool-name whitelist; legacy checkpoints
+	// without it rebuild from AllowedDevices.
+	k.restoreAllowedTools(proc, cp.AllowedTools)
 	proc.MaxSteps = cp.MaxSteps
 	proc.ResumedFromStep = startStep
 	proc.mu.Lock()
@@ -713,6 +716,9 @@ func (k *KernelImpl) resumeFromHistory(uuid string, opts ResumeOpts, start time.
 	// can route reasonStep-driven processes correctly on later resume legs.
 	proc.AllowedDevices = append([]string(nil), diskInfo.AllowedDevices...)
 	proc.DeniedDevices = append([]string(nil), diskInfo.DeniedDevices...)
+	// Story 54.1 (NFR87) — restore tool whitelist; legacy disk snapshots rebuild
+	// from AllowedDevices.
+	k.restoreAllowedTools(proc, diskInfo.AllowedTools)
 	proc.MaxSteps = diskInfo.MaxSteps
 	// Restore additional state captured on disk so the resumed process is not a
 	// stripped-down shadow of the original (Edge Case Hunter Finding #5 & #10).
