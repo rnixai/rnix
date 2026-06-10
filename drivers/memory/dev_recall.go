@@ -32,7 +32,7 @@ func NewRecallDriver(searcher RecallSearcher, caller kernelmemory.LLMCaller) *Me
 func (d *MemoryRecallDriver) ToolDefs() []vfs.ToolDef {
 	return []vfs.ToolDef{
 		{
-			Name:              "memory_recall",
+			Name:              "MemoryRecall",
 			Description:       loadPrompt("memory_recall"),
 			IsReadOnly:        true,
 			IsConcurrencySafe: true,

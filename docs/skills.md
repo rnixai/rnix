@@ -469,7 +469,7 @@ SKILL.md 的 **body**（frontmatter 之下的 markdown 正文）会被注入 age
 
 1. **通用工具用通用语义名**：跨平台通用的文件 / 命令工具直接用其语义名（`Read` / `Write` / `Edit` / `Bash` / `Grep` / `Glob`）。这些恰好就是 Rnix 对应的 `ToolDef.Name`（`/dev/fs` 暴露 `Read` / `Write` / `Edit` / `Grep` / `Glob`，`/dev/shell` 暴露 `Bash`），与主力模型的训练分布锚点对齐（Decision 44 R1）。
 2. **body 绝不出现设备路径**：正文中**禁止**出现 `/dev/*`、`/mnt/mcp/*` 等 Layer 1 资源路径。这些路径 LLM 不可见，写进 body 只会迫使模型做"路径 → 工具名"的心智翻译，抵消 Layer 2 的训练锚点优势。
-3. **Rnix 独有能力用工具中立的方法论描述**：intent / memory / skill 等 Rnix 独有能力，body **不应硬绑** `intent_decompose`、`memory_commit` 等独有工具名，而应描述其**意图与方法论**（如"将高层意图分解为子任务 DAG，声明依赖关系，经确认后执行"）。理由：① skill 必须可移植（遵循 agentskills.io 即无"Rnix 专用"豁免），硬绑独有名会把 body 锁死到 Rnix；② LLM 已从 driver 的 `ToolDef` 看到这些工具及其 Parameters，Rnix agent 自然会落到对应工具，body 的增值是"怎么做"的方法论而非工具指路。
+3. **Rnix 独有能力用工具中立的方法论描述**：intent / memory / skill 等 Rnix 独有能力，body **不应硬绑** `IntentDecompose`、`MemoryCommit` 等独有工具名，而应描述其**意图与方法论**（如"将高层意图分解为子任务 DAG，声明依赖关系，经确认后执行"）。理由：① skill 必须可移植（遵循 agentskills.io 即无"Rnix 专用"豁免），硬绑独有名会把 body 锁死到 Rnix；② LLM 已从 driver 的 `ToolDef` 看到这些工具及其 Parameters，Rnix agent 自然会落到对应工具，body 的增值是"怎么做"的方法论而非工具指路。
 4. **不在 body 重述 `ToolDef.Parameters`**：工具的参数 schema 由 driver 自动暴露给 LLM（function-calling 的结构化 Parameters），body 再逐字段重述（如 `{intent, model, provider}`）只是冗余，且易与真实 schema 漂移。
 5. **body 主体是领域知识 + 流程判断**：工具名仅在需要点名某项能力时出现；body 的核心价值是领域方法论、判断标准、工作流程，而非把每一步翻译成工具调用。
 

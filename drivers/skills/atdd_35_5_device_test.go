@@ -68,8 +68,8 @@ func TestSkillManageDriver_ToolDefs(t *testing.T) {
 	}
 
 	def := defs[0]
-	if def.Name != "skill_manage" {
-		t.Errorf("expected Name='skill_manage', got %q", def.Name)
+	if def.Name != "SkillManage" {
+		t.Errorf("expected Name='SkillManage', got %q", def.Name)
 	}
 	if def.IsReadOnly {
 		t.Error("expected IsReadOnly=false")

@@ -365,7 +365,7 @@ func TestATDD_37_5_024_ActionSpawn_ChildReachesShellBlocksIntent(t *testing.T) {
 
 	// 拦截：子 DeniedDevices 含 /dev/intent → 必须被黑名单先行拦截（防递归编排）。
 	_, intentErr := k.executeVFSTool(child,
-		llmToolCall{Name: "intent_decompose", Input: map[string]any{}},
+		llmToolCall{Name: "IntentDecompose", Input: map[string]any{}},
 		toolMapping{Type: "vfs", VFSPath: "/dev/intent/decompose"})
 	if intentErr == nil || !strings.Contains(intentErr.Error(), "permission denied") {
 		t.Errorf("AC2/AC5: 子进程必须拦截 /dev/intent（防递归编排），got err=%v", intentErr)

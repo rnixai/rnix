@@ -21,8 +21,6 @@ import (
 
 // TestATDD_54_2_010 断言 complete 呈现名改为 Complete（ToolDef.Name + metaMap key 都改）。
 func TestATDD_54_2_010_MetaComplete_RenamedToPascalCase(t *testing.T) {
-	t.Skip("RED: 待 54.2 实现——complete→Complete（toolgen.go:118 Name + :134 metaMap key）")
-
 	defs, metaMap := metaToolDefs(FullFeatureFlags(), nil)
 
 	if !hasToolDefName(defs, "Complete") {
@@ -41,8 +39,6 @@ func TestATDD_54_2_010_MetaComplete_RenamedToPascalCase(t *testing.T) {
 
 // TestATDD_54_2_011 断言 replan 呈现名改为 Replan（受 flags.Replan 门控）。
 func TestATDD_54_2_011_MetaReplan_RenamedToPascalCase(t *testing.T) {
-	t.Skip("RED: 待 54.2 实现——replan→Replan（toolgen.go:166 Name + :180 metaMap key）")
-
 	defs, metaMap := metaToolDefs(FullFeatureFlags(), nil)
 
 	if !hasToolDefName(defs, "Replan") {
@@ -62,8 +58,6 @@ func TestATDD_54_2_011_MetaReplan_RenamedToPascalCase(t *testing.T) {
 // TestATDD_54_2_012 解耦核心：呈现名改 PascalCase 后，metaMap 新 key 映射的 Action
 // （内部 ActionType）必须仍为 ActionComplete/ActionReplan——即「名变、value 不变」。
 func TestATDD_54_2_012_MetaRename_PreservesActionMapping(t *testing.T) {
-	t.Skip("RED: 待 54.2 实现——新 key 改名后才存在；验证 value.Action 解耦不变")
-
 	_, metaMap := metaToolDefs(FullFeatureFlags(), nil)
 
 	if got := metaMap["Complete"].Action; got != ActionComplete {

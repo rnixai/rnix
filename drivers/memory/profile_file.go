@@ -81,7 +81,7 @@ func (f *MemoryProfileFile) Close() error {
 // Stat returns file metadata.
 func (f *MemoryProfileFile) Stat() (vfs.FileStat, error) {
 	return vfs.FileStat{
-		Name:       "memory_profile",
+		Name:       "MemoryProfile",
 		IsDevice:   true,
 		DevicePath: "/dev/memory/profile",
 	}, nil

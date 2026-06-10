@@ -35,7 +35,7 @@ func NewSkillManageDriverFromManager(manager *pkgskills.SkillManager) *SkillMana
 func (d *SkillManageDriver) ToolDefs() []vfs.ToolDef {
 	return []vfs.ToolDef{
 		{
-			Name:              "skill_manage",
+			Name:              "SkillManage",
 			Description:       loadPrompt("skill_manage"),
 			IsReadOnly:        false,
 			IsConcurrencySafe: true,

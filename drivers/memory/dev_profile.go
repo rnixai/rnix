@@ -24,7 +24,7 @@ func NewProfileDriver(store *kernelmemory.MemoryStore) *MemoryProfileDriver {
 func (d *MemoryProfileDriver) ToolDefs() []vfs.ToolDef {
 	return []vfs.ToolDef{
 		{
-			Name:              "memory_profile",
+			Name:              "MemoryProfile",
 			Description:       loadPrompt("memory_profile"),
 			IsReadOnly:        false,
 			IsConcurrencySafe: true,

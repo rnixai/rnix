@@ -71,8 +71,8 @@ func TestMemoryRecallDriver_ToolDefs(t *testing.T) {
 	}
 
 	def := defs[0]
-	if def.Name != "memory_recall" {
-		t.Errorf("expected Name='memory_recall', got %q", def.Name)
+	if def.Name != "MemoryRecall" {
+		t.Errorf("expected Name='MemoryRecall', got %q", def.Name)
 	}
 	if !def.IsReadOnly {
 		t.Error("expected IsReadOnly=true")

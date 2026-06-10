@@ -115,7 +115,7 @@ func deviceAllowed(cleanPath string, allowedDevices []string) bool {
 func metaToolDefs(flags FeatureFlags, deferredSkills []DeferredSkillMeta) ([]vfs.ToolDef, map[string]toolMapping) {
 	defs := []vfs.ToolDef{
 		{
-			Name:            "complete",
+			Name:            "Complete",
 			Description:     "Finish the task with a final result.",
 			MaxResultTokens: 0,
 			Parameters: map[string]any{
@@ -131,7 +131,7 @@ func metaToolDefs(flags FeatureFlags, deferredSkills []DeferredSkillMeta) ([]vfs
 		},
 	}
 	metaMap := map[string]toolMapping{
-		"complete": {Type: "meta", Action: ActionComplete},
+		"Complete": {Type: "meta", Action: ActionComplete},
 	}
 
 	if flags.Spawn {
@@ -163,7 +163,7 @@ func metaToolDefs(flags FeatureFlags, deferredSkills []DeferredSkillMeta) ([]vfs
 
 	if flags.Replan {
 		defs = append(defs, vfs.ToolDef{
-			Name:            "replan",
+			Name:            "Replan",
 			Description:     "Revise the current approach with a new plan.",
 			MaxResultTokens: 0,
 			Parameters: map[string]any{
@@ -177,7 +177,7 @@ func metaToolDefs(flags FeatureFlags, deferredSkills []DeferredSkillMeta) ([]vfs
 				"required": []string{"reason"},
 			},
 		})
-		metaMap["replan"] = toolMapping{Type: "meta", Action: ActionReplan}
+		metaMap["Replan"] = toolMapping{Type: "meta", Action: ActionReplan}
 	}
 
 	if flags.Specialize {
@@ -225,7 +225,12 @@ func metaToolDefs(flags FeatureFlags, deferredSkills []DeferredSkillMeta) ([]vfs
 		})
 		metaMap["ToolSearch"] = toolMapping{Type: "meta", Action: ActionDiscoverSkill}
 
-		// Deferred skill placeholders depend on ToolSearch being available
+		// Deferred skill placeholders depend on ToolSearch being available.
+		// Placeholder form stays `skill_<name>` (NOT PascalCase): ds.Name is a
+		// user skill directory name (often hyphenated, e.g. code-analysis),
+		// i.e. dynamic user data, not a fixed Rnix tool, so the R2' PascalCase
+		// rule does not apply (Story 54.2 AC6 / Decision 45 D4). Discovered via
+		// ToolSearch, then loaded via Skill.
 		for _, ds := range deferredSkills {
 			toolName := "skill_" + ds.Name
 			defs = append(defs, vfs.ToolDef{

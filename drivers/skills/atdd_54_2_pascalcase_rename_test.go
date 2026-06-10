@@ -16,8 +16,6 @@ import (
 
 // TestATDD_54_2_300 断言 skill_manage 的 ToolDef.Name 改为 SkillManage。
 func TestATDD_54_2_300_SkillManage_PascalCaseName(t *testing.T) {
-	t.Skip("RED: 待 54.2 实现——drivers/skills/driver.go:38 Name 改 SkillManage")
-
 	defs := NewSkillManageDriver(nil).ToolDefs()
 	if len(defs) != 1 {
 		t.Fatalf("期望 1 个 tool def，实际 %d", len(defs))
@@ -29,8 +27,6 @@ func TestATDD_54_2_300_SkillManage_PascalCaseName(t *testing.T) {
 
 // TestATDD_54_2_310 断言 FileStat.Name 同步 PascalCase（AC1 / D2，drivers/skills/file.go:74）。
 func TestATDD_54_2_310_SkillManageFileStat_PascalCaseName(t *testing.T) {
-	t.Skip("RED: 待 54.2 实现（决策点 D2：FileStat.Name 一并改名消除残留）")
-
 	f, err := SkillManageFileFactory(NewSkillManageDriver(nil))("", vfs.O_RDWR, "")
 	if err != nil {
 		t.Fatalf("factory: %v", err)

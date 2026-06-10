@@ -108,7 +108,7 @@ func (f *MemoryCommitFile) Close() error {
 // Stat returns file metadata.
 func (f *MemoryCommitFile) Stat() (vfs.FileStat, error) {
 	return vfs.FileStat{
-		Name:       "memory_commit",
+		Name:       "MemoryCommit",
 		IsDevice:   true,
 		DevicePath: "/dev/memory/commit",
 	}, nil

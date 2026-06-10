@@ -14,8 +14,6 @@ import (
 
 // TestATDD_54_2_100 断言 4 个 intent 工具的 ToolDef.Name 改为 PascalCase，无 snake_case 残留。
 func TestATDD_54_2_100_IntentTools_PascalCaseNames(t *testing.T) {
-	t.Skip("RED: 待 54.2 实现——drivers/intent/driver.go:33/66/87/108 Name 改 PascalCase")
-
 	defs := NewDriver(nil).ToolDefs()
 
 	want := map[string]bool{
@@ -47,8 +45,6 @@ func TestATDD_54_2_100_IntentTools_PascalCaseNames(t *testing.T) {
 // intent_decompose.txt:14 "Use intent_confirm to approve" → "Use IntentConfirm to approve"。
 // ⚠️ 该文件 line 16 的 auto_start 是【参数名】，不在改名范围（本测试只查工具名 intent_confirm）。
 func TestATDD_54_2_110_DecomposePrompt_ReferencesPascalCase(t *testing.T) {
-	t.Skip("RED: 待 54.2 实现——drivers/intent/prompts/intent_decompose.txt:14 工具名引用")
-
 	prompt := loadPrompt("intent_decompose")
 	if !strings.Contains(prompt, "IntentConfirm") {
 		t.Errorf("decompose prompt 应引用 PascalCase 工具名 %q", "IntentConfirm")
@@ -62,8 +58,6 @@ func TestATDD_54_2_110_DecomposePrompt_ReferencesPascalCase(t *testing.T) {
 // 改为 PascalCase。⚠️ description 含工具名 intent_confirm/intent_execute（须改）与参数名
 // auto_start（不改）——本测试只断言工具名部分。
 func TestATDD_54_2_111_AutoStartDescription_ReferencesPascalCase(t *testing.T) {
-	t.Skip("RED: 待 54.2 实现——drivers/intent/driver.go:59 description 内工具名引用")
-
 	desc := autoStartParamDescription(t)
 	for _, newName := range []string{"IntentConfirm", "IntentExecute"} {
 		if !strings.Contains(desc, newName) {

@@ -77,7 +77,7 @@ func setupDeniedResumeKernel(t *testing.T) (*KernelImpl, string, *parkingLLMFile
 // /dev/intent —— 参考 spawn_recursion_test.go TestSpawnRecursion_DeniedDevices。
 func runIntentDeviceTool(k *KernelImpl, proc *Process) error {
 	_, err := k.executeVFSTool(proc,
-		llmToolCall{Name: "intent_decompose", Input: map[string]any{}},
+		llmToolCall{Name: "IntentDecompose", Input: map[string]any{}},
 		toolMapping{Type: "vfs", VFSPath: "/dev/intent/decompose"})
 	return err
 }

@@ -26,7 +26,7 @@ func NewDriver(store *kernelmemory.MemoryStore) *MemoryCommitDriver {
 func (d *MemoryCommitDriver) ToolDefs() []vfs.ToolDef {
 	return []vfs.ToolDef{
 		{
-			Name:              "memory_commit",
+			Name:              "MemoryCommit",
 			Description:       loadPrompt("memory_commit"),
 			IsReadOnly:        false,
 			IsConcurrencySafe: true,

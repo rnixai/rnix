@@ -36,7 +36,7 @@ func setupTestMemoryStore(t *testing.T) *kernelmemory.MemoryStore {
 // AC1: VFS 设备注册 — ToolDefs 元数据
 // ---------------------------------------------------------------------------
 
-// 35.2-UNIT-001: ToolDefs 返回 memory_commit 工具定义
+// 35.2-UNIT-001: ToolDefs 返回 MemoryCommit 工具定义
 func TestMemoryCommitDriver_ToolDefs_ReturnsDefinition(t *testing.T) {
 	store := setupTestMemoryStore(t)
 	driver := NewDriver(store)
@@ -44,8 +44,8 @@ func TestMemoryCommitDriver_ToolDefs_ReturnsDefinition(t *testing.T) {
 	if len(defs) == 0 {
 		t.Fatal("ToolDefs returned empty slice")
 	}
-	if defs[0].Name != "memory_commit" {
-		t.Errorf("expected tool name 'memory_commit', got %q", defs[0].Name)
+	if defs[0].Name != "MemoryCommit" {
+		t.Errorf("expected tool name 'MemoryCommit', got %q", defs[0].Name)
 	}
 }
 

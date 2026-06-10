@@ -28,8 +28,6 @@ var story542SnakeNames = []string{
 // TestATDD_54_2_400 断言 knownToolNames（skills/manager.go:148-167）替换为 PascalCase 新名，
 // 且 snake_case 旧名全部移除（AC3）。
 func TestATDD_54_2_400_KnownToolNames_AcceptsPascalCaseRejectsSnake(t *testing.T) {
-	t.Skip("RED: 待 54.2 实现——skills/manager.go:159-166 knownToolNames 改 PascalCase")
-
 	for _, name := range story542PascalNames {
 		if !isKnownToolName(name) {
 			t.Errorf("isKnownToolName(%q) = false, want true（改名后应被接受）", name)
@@ -46,8 +44,6 @@ func TestATDD_54_2_400_KnownToolNames_AcceptsPascalCaseRejectsSnake(t *testing.T
 // 二者非 LLM 工具（skill_registry=init 服务类型；skill_score=immune.go JSON 字段 tag），
 // 无任何 ToolDef.Name 与之对应。D1 推荐删除而非创建 SkillRegistry/SkillScore 伪条目。
 func TestATDD_54_2_410_KnownToolNames_PhantomEntriesRemoved(t *testing.T) {
-	t.Skip("RED: 待 54.2 实现（决策点 D1：推荐删除幻影条目；若 dev 保守保留则调整本测试）")
-
 	for _, phantom := range []string{"skill_registry", "skill_score"} {
 		if isKnownToolName(phantom) {
 			t.Errorf("isKnownToolName(%q) = true，应删除（非 LLM 工具，无对应 ToolDef.Name）", phantom)
@@ -57,8 +53,6 @@ func TestATDD_54_2_410_KnownToolNames_PhantomEntriesRemoved(t *testing.T) {
 
 // TestATDD_54_2_420 断言改名后 validateFrontmatter 接受新 PascalCase 工具名作 allowed-tools（AC4）。
 func TestATDD_54_2_420_ValidateFrontmatter_AcceptsPascalCase(t *testing.T) {
-	t.Skip("RED: 待 54.2 实现——knownToolNames 含新名后 validateFrontmatter 才接受")
-
 	for _, name := range story542PascalNames {
 		if err := validateFrontmatter("s", "d", name); err != nil {
 			t.Errorf("validateFrontmatter(allowed-tools=%q) = %v, want nil", name, err)

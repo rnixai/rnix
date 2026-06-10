@@ -54,7 +54,7 @@
 {"intent": "<去掉 [AUTO_CONFIRM] 前缀的原始意图>", "auto_start": true}
 ```
 
-driver 会在分解成功后同步完成 confirm + execute，等待所有子任务执行完毕，并直接返回终态 IntentTree。**不要再额外调用 `intent_confirm` / `intent_execute` / `intent_status`** —— 返回值已经包含全部信息。返回后直接进入"5. 汇报结果"步骤。
+driver 会在分解成功后同步完成 confirm + execute，等待所有子任务执行完毕，并直接返回终态 IntentTree。**不要再额外调用 `IntentConfirm` / `IntentExecute` / `IntentStatus`** —— 返回值已经包含全部信息。返回后直接进入"5. 汇报结果"步骤。
 
 ## 可用 VFS 设备
 

@@ -140,8 +140,9 @@ func validateSkillName(name string) error {
 // The skills package cannot import kernel (kernel imports skills — cycle), so
 // this set is a curated mirror of the tool names registered across the VFS
 // device drivers + kernel meta actions. It must track those registries; new
-// tools should be added here. Story 54.2 will rename snake_case tool names
-// (intent_*, memory_*, skill_*) to PascalCase — add the new names here then.
+// tools should be added here. Story 54.2 renamed the Rnix-unique tool names
+// (intent_*, memory_*, skill_manage) plus the meta tools complete/replan to
+// PascalCase (Decision 45 R2′); the entries below are the post-rename forms.
 //
 // Device paths (/dev/*, /mnt/mcp/*) remain accepted during the compatibility
 // period (see validateFrontmatter); this set only governs the tool-name form.
@@ -156,14 +157,14 @@ var knownToolNames = map[string]struct{}{
 	"TaskCreate": {}, "TaskGet": {}, "TaskList": {}, "TaskUpdate": {},
 	// /dev/cron
 	"CronCreate": {}, "CronDelete": {}, "CronList": {},
-	// /dev/intent (snake_case until Story 54.2)
-	"intent_decompose": {}, "intent_confirm": {}, "intent_execute": {}, "intent_status": {},
-	// /dev/memory (snake_case until Story 54.2)
-	"memory_commit": {}, "memory_recall": {}, "memory_profile": {},
-	// /dev/skills (snake_case until Story 54.2)
-	"skill_manage": {}, "skill_registry": {}, "skill_score": {},
+	// /dev/intent
+	"IntentDecompose": {}, "IntentConfirm": {}, "IntentExecute": {}, "IntentStatus": {},
+	// /dev/memory
+	"MemoryCommit": {}, "MemoryRecall": {}, "MemoryProfile": {},
+	// /dev/skills
+	"SkillManage": {},
 	// kernel meta actions
-	"Agent": {}, "Skill": {}, "ToolSearch": {}, "EnterPlanMode": {}, "replan": {}, "complete": {},
+	"Agent": {}, "Skill": {}, "ToolSearch": {}, "EnterPlanMode": {}, "Replan": {}, "Complete": {},
 }
 
 // isKnownToolName reports whether v is a recognized semantic tool name.

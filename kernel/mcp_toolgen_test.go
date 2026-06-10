@@ -23,7 +23,7 @@ import (
 // toolgenMockTransport implements the full vfs.MCPTransport surface with a
 // configurable tools/list response, so buildMCPToolDefs can be exercised against
 // a known tool inventory. callErr (when set) fails every Call (tools/list error
-//降级路径).
+// 降级路径).
 type toolgenMockTransport struct {
 	toolsList json.RawMessage // returned for "tools/list" when callErr == nil
 	callErr   error
@@ -184,10 +184,10 @@ func TestAttachMCPToolDefs_AppendsPreservingBase(t *testing.T) {
 	k, proc, _, _ := setupMCPEventKernel(t, "playwright", tr)
 
 	// Simulate the base/meta tool set already assembled before mounting.
-	proc.nativeToolDefs = []vfs.ToolDef{{Name: "Bash"}, {Name: "complete"}}
+	proc.nativeToolDefs = []vfs.ToolDef{{Name: "Bash"}, {Name: "Complete"}}
 	proc.toolMap = map[string]toolMapping{
 		"Bash":     {Type: "vfs", VFSPath: "/dev/shell"},
-		"complete": {Type: "meta"},
+		"Complete": {Type: "meta"},
 	}
 
 	k.attachMCPToolDefs(proc)
@@ -196,7 +196,7 @@ func TestAttachMCPToolDefs_AppendsPreservingBase(t *testing.T) {
 	for _, d := range proc.nativeToolDefs {
 		names[d.Name] = true
 	}
-	for _, want := range []string{"Bash", "complete", "mcp__playwright__browser_navigate", "mcp__playwright__browser_snapshot"} {
+	for _, want := range []string{"Bash", "Complete", "mcp__playwright__browser_navigate", "mcp__playwright__browser_snapshot"} {
 		if !names[want] {
 			t.Errorf("nativeToolDefs missing %q after attach; got %v", want, names)
 		}

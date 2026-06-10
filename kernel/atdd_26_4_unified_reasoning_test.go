@@ -34,7 +34,7 @@ func makeCompleteResponse(result string, tokens int) []byte {
 		TokensUsed: tokens,
 		ToolCalls: []llmToolCall{{
 			ID:    "call_complete",
-			Name:  "complete",
+			Name:  "Complete",
 			Input: map[string]any{"result": result},
 		}},
 	}
@@ -359,11 +359,11 @@ func TestUnified_CircuitBreaker_ResetsOnSuccess(t *testing.T) {
 	reg := vfs.NewDeviceRegistry()
 	seqFile := &sequenceLLMFile{
 		responses: [][]byte{
-			makeToolCallResponse("/dev/nonexistent", map[string]any{}, 10), // fail 1
-			makeToolCallResponse("/dev/nonexistent", map[string]any{}, 10), // fail 2
+			makeToolCallResponse("/dev/nonexistent", map[string]any{}, 10),    // fail 1
+			makeToolCallResponse("/dev/nonexistent", map[string]any{}, 10),    // fail 2
 			makeToolCallResponse("/dev/tools/ok", map[string]any{"x": 1}, 10), // success → reset
-			makeToolCallResponse("/dev/nonexistent", map[string]any{}, 10), // fail 1 again
-			makeToolCallResponse("/dev/nonexistent", map[string]any{}, 10), // fail 2 again
+			makeToolCallResponse("/dev/nonexistent", map[string]any{}, 10),    // fail 1 again
+			makeToolCallResponse("/dev/nonexistent", map[string]any{}, 10),    // fail 2 again
 			makeCompleteResponse("survived", 10),
 		},
 	}
@@ -449,7 +449,7 @@ func TestUnified_CircuitBreaker_SpecializeErrorIgnored(t *testing.T) {
 		responses: [][]byte{
 			makeToolCallResponse("/dev/nonexistent", map[string]any{}, 10), // tool fail 1
 			makeToolCallResponse("/dev/nonexistent", map[string]any{}, 10), // tool fail 2
-			makeSpecializeResponse("bad-skill", 10),                         // specialize fail (should NOT count)
+			makeSpecializeResponse("bad-skill", 10),                        // specialize fail (should NOT count)
 			makeCompleteResponse("alive", 10),
 		},
 	}

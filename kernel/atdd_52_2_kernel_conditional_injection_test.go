@@ -98,12 +98,12 @@ func TestATDD_52_2_AC2_ReplanDisabled(t *testing.T) {
 	defs, metaMap := metaToolDefs(flags, nil)
 
 	for _, d := range defs {
-		if d.Name == "replan" {
-			t.Fatal("replan tool def should not be generated when flags.Replan == false")
+		if d.Name == "Replan" {
+			t.Fatal("Replan tool def should not be generated when flags.Replan == false")
 		}
 	}
-	if _, ok := metaMap["replan"]; ok {
-		t.Fatal("replan should not be in metaMap when flags.Replan == false")
+	if _, ok := metaMap["Replan"]; ok {
+		t.Fatal("Replan should not be in metaMap when flags.Replan == false")
 	}
 }
 
@@ -214,16 +214,16 @@ func TestATDD_52_2_AC8_BaselineProfile_OnlyComplete(t *testing.T) {
 	defs, metaMap := metaToolDefs(flags, nil)
 
 	if len(defs) != 1 {
-		t.Fatalf("baseline profile: expected exactly 1 tool def (complete), got %d", len(defs))
+		t.Fatalf("baseline profile: expected exactly 1 tool def (Complete), got %d", len(defs))
 	}
-	if defs[0].Name != "complete" {
-		t.Fatalf("baseline profile: expected tool name 'complete', got %q", defs[0].Name)
+	if defs[0].Name != "Complete" {
+		t.Fatalf("baseline profile: expected tool name 'Complete', got %q", defs[0].Name)
 	}
-	if _, ok := metaMap["complete"]; !ok {
-		t.Fatal("baseline profile: 'complete' must be in metaMap")
+	if _, ok := metaMap["Complete"]; !ok {
+		t.Fatal("baseline profile: 'Complete' must be in metaMap")
 	}
-	if metaMap["complete"].Action != ActionComplete {
-		t.Fatalf("baseline profile: complete action = %v, want ActionComplete", metaMap["complete"].Action)
+	if metaMap["Complete"].Action != ActionComplete {
+		t.Fatalf("baseline profile: Complete action = %v, want ActionComplete", metaMap["Complete"].Action)
 	}
 }
 
@@ -234,9 +234,9 @@ func TestATDD_52_2_AC9_FullProfile_AllTools(t *testing.T) {
 	defs, metaMap := metaToolDefs(flags, nil)
 
 	expectedNames := map[string]bool{
-		"complete":      false,
+		"Complete":      false,
 		"Agent":         false,
-		"replan":        false,
+		"Replan":        false,
 		"Skill":         false,
 		"ToolSearch":    false,
 		"EnterPlanMode": false,
@@ -277,8 +277,8 @@ func TestATDD_52_2_AC10_PlanningDisabledViaFlags(t *testing.T) {
 	}
 
 	// complete 仍应存在
-	if _, ok := metaMap["complete"]; !ok {
-		t.Fatal("complete must always be present regardless of Planning flag")
+	if _, ok := metaMap["Complete"]; !ok {
+		t.Fatal("Complete must always be present regardless of Planning flag")
 	}
 }
 
@@ -316,19 +316,19 @@ func TestATDD_52_2_CombinedDisable_SpawnAndReplan(t *testing.T) {
 	defs, metaMap := metaToolDefs(flags, nil)
 
 	for _, d := range defs {
-		if d.Name == "Agent" || d.Name == "replan" {
+		if d.Name == "Agent" || d.Name == "Replan" {
 			t.Fatalf("tool %q should not be generated when its flag is false", d.Name)
 		}
 	}
 	if _, ok := metaMap["Agent"]; ok {
 		t.Fatal("Agent should not be in metaMap")
 	}
-	if _, ok := metaMap["replan"]; ok {
-		t.Fatal("replan should not be in metaMap")
+	if _, ok := metaMap["Replan"]; ok {
+		t.Fatal("Replan should not be in metaMap")
 	}
 
 	// complete, Skill, ToolSearch, EnterPlanMode 仍应存在
-	for _, name := range []string{"complete", "Skill", "ToolSearch", "EnterPlanMode"} {
+	for _, name := range []string{"Complete", "Skill", "ToolSearch", "EnterPlanMode"} {
 		if _, ok := metaMap[name]; !ok {
 			t.Errorf("combined disable: %q should still be present", name)
 		}
@@ -350,14 +350,14 @@ func TestATDD_52_2_CombinedDisable_OnlyPlanningAndComplete(t *testing.T) {
 	for _, d := range defs {
 		names[d.Name] = true
 	}
-	if !names["complete"] {
-		t.Error("complete should always be present")
+	if !names["Complete"] {
+		t.Error("Complete should always be present")
 	}
 	if !names["EnterPlanMode"] {
 		t.Error("EnterPlanMode should be present when Planning is true")
 	}
-	if _, ok := metaMap["complete"]; !ok {
-		t.Error("complete should be in metaMap")
+	if _, ok := metaMap["Complete"]; !ok {
+		t.Error("Complete should be in metaMap")
 	}
 	if _, ok := metaMap["EnterPlanMode"]; !ok {
 		t.Error("EnterPlanMode should be in metaMap")

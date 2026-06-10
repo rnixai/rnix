@@ -71,7 +71,7 @@ func (f *SkillManageFile) Close() error { return nil }
 // Stat returns file metadata for the skill manage device.
 func (f *SkillManageFile) Stat() (vfs.FileStat, error) {
 	return vfs.FileStat{
-		Name:       "skill_manage",
+		Name:       "SkillManage",
 		IsDevice:   true,
 		DevicePath: "/dev/skills/manage",
 	}, nil

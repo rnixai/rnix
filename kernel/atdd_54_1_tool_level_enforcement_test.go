@@ -102,8 +102,8 @@ func setupToolResumeKernel(t *testing.T) (*KernelImpl, string, *parkingLLMFile) 
 	v := vfs.NewVFS(reg)
 	k := NewKernel(v, rnixctx.NewManager(), nil)
 	_, projBaseDir := TestSetupDataDir(t, k) // 最先注册 → 最后执行（TempDir 删除在 Shutdown 之后）
-	t.Cleanup(k.Shutdown)                     // 在 releaseAll 之后、TempDir 删除之前
-	t.Cleanup(park.releaseAll)                // 最后注册 → 最先执行：先放行再 Shutdown
+	t.Cleanup(k.Shutdown)                    // 在 releaseAll 之后、TempDir 删除之前
+	t.Cleanup(park.releaseAll)               // 最后注册 → 最先执行：先放行再 Shutdown
 	return k, projBaseDir, park
 }
 
@@ -509,7 +509,7 @@ func TestATDD_54_1_071_DeniedDevicesStillBlocks_GreenGuard(t *testing.T) {
 	proc.DeniedDevices = []string{"/dev/intent"}
 
 	_, err := k.executeVFSTool(proc,
-		llmToolCall{Name: "intent_decompose", Input: map[string]any{}},
+		llmToolCall{Name: "IntentDecompose", Input: map[string]any{}},
 		toolMapping{Type: "vfs", VFSPath: "/dev/intent/decompose"})
 	if err == nil || !strings.Contains(err.Error(), "permission denied") {
 		t.Errorf("NFR88: DeniedDevices 必须先行拦截 /dev/intent（防递归编排），got err=%v", err)

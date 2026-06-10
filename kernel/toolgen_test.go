@@ -186,10 +186,10 @@ func TestBuildToolDefs_SubpathRouting(t *testing.T) {
 	}
 
 	intentDriver := &mockToolDescriptor{defs: []vfs.ToolDef{
-		{Name: "intent_decompose", Subpath: "/decompose"},
-		{Name: "intent_status", Subpath: "/status"},
-		{Name: "intent_confirm", Subpath: "/confirm"},
-		{Name: "intent_execute", Subpath: "/execute"},
+		{Name: "IntentDecompose", Subpath: "/decompose"},
+		{Name: "IntentStatus", Subpath: "/status"},
+		{Name: "IntentConfirm", Subpath: "/confirm"},
+		{Name: "IntentExecute", Subpath: "/execute"},
 	}}
 	shellDriver := &mockToolDescriptor{defs: []vfs.ToolDef{
 		{Name: "Bash"}, // empty Subpath → opens device root
@@ -201,11 +201,11 @@ func TestBuildToolDefs_SubpathRouting(t *testing.T) {
 	_, toolMap := buildToolDefs(reg, nil)
 
 	wantPaths := map[string]string{
-		"intent_decompose": "/dev/intent/decompose",
-		"intent_status":    "/dev/intent/status",
-		"intent_confirm":   "/dev/intent/confirm",
-		"intent_execute":   "/dev/intent/execute",
-		"Bash":             "/dev/shell",
+		"IntentDecompose": "/dev/intent/decompose",
+		"IntentStatus":    "/dev/intent/status",
+		"IntentConfirm":   "/dev/intent/confirm",
+		"IntentExecute":   "/dev/intent/execute",
+		"Bash":            "/dev/shell",
 	}
 	for name, want := range wantPaths {
 		got, ok := toolMap[name]
@@ -223,7 +223,7 @@ func TestMetaToolDefs(t *testing.T) {
 	defs, metaMap := metaToolDefs(FullFeatureFlags(), nil)
 
 	expectedNames := map[string]bool{
-		"complete": false, "Agent": false, "replan": false, "Skill": false, "ToolSearch": false, "EnterPlanMode": false,
+		"Complete": false, "Agent": false, "Replan": false, "Skill": false, "ToolSearch": false, "EnterPlanMode": false,
 	}
 	for _, d := range defs {
 		if _, ok := expectedNames[d.Name]; ok {
@@ -236,11 +236,11 @@ func TestMetaToolDefs(t *testing.T) {
 		}
 	}
 
-	if _, ok := metaMap["complete"]; !ok {
-		t.Fatal("expected 'complete' in metaMap")
+	if _, ok := metaMap["Complete"]; !ok {
+		t.Fatal("expected 'Complete' in metaMap")
 	}
-	if metaMap["complete"].Action != ActionComplete {
-		t.Fatalf("expected ActionComplete, got %v", metaMap["complete"].Action)
+	if metaMap["Complete"].Action != ActionComplete {
+		t.Fatalf("expected ActionComplete, got %v", metaMap["Complete"].Action)
 	}
 }
 
@@ -285,7 +285,7 @@ func TestSystemEventMergesToolDefs(t *testing.T) {
 		{Name: "Read", Description: "Read a file"},
 		{Name: "Write", Description: "Write a file"},
 		{Name: "Bash", Description: "Run command"},
-		{Name: "complete", Description: "Finish task"},
+		{Name: "Complete", Description: "Finish task"},
 		{Name: "Agent", Description: "Spawn child"},
 	}
 
@@ -320,7 +320,7 @@ func TestSystemEventMergesToolDefs(t *testing.T) {
 	}
 
 	// Original kernel tools must be preserved
-	for _, required := range []string{"Read", "Write", "Bash", "complete", "Agent"} {
+	for _, required := range []string{"Read", "Write", "Bash", "Complete", "Agent"} {
 		if !names[required] {
 			t.Fatalf("kernel tool %q was lost after driver event merge", required)
 		}
@@ -333,4 +333,3 @@ func TestSystemEventMergesToolDefs(t *testing.T) {
 		}
 	}
 }
-

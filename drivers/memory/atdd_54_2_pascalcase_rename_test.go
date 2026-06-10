@@ -15,8 +15,6 @@ import (
 
 // TestATDD_54_2_200 断言 memory_commit/recall/profile 的 ToolDef.Name 改为 PascalCase。
 func TestATDD_54_2_200_MemoryTools_PascalCaseNames(t *testing.T) {
-	t.Skip("RED: 待 54.2 实现——drivers/memory/{driver.go:29,dev_recall.go:35,dev_profile.go:27}")
-
 	cases := []struct {
 		toolDefs func() []vfs.ToolDef
 		want     string
@@ -40,8 +38,6 @@ func TestATDD_54_2_200_MemoryTools_PascalCaseNames(t *testing.T) {
 // TestATDD_54_2_210 断言 FileStat.Name 同步 PascalCase 以消除 snake_case 残留（AC1 / D2）。
 // 注意：FileStat.Name 当前是工具名字符串（memory_commit 等），与 DevicePath 字段分离、无功能耦合。
 func TestATDD_54_2_210_MemoryFileStat_PascalCaseNames(t *testing.T) {
-	t.Skip("RED: 待 54.2 实现（决策点 D2：推荐一并改名；若 dev 严格限定 ToolDef.Name 则调整本测试）")
-
 	cases := []struct {
 		factory vfs.VFSFileFactory
 		want    string

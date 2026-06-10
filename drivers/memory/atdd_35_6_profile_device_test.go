@@ -61,8 +61,8 @@ func TestMemoryProfileDriver_ToolDefs(t *testing.T) {
 	}
 
 	def := defs[0]
-	if def.Name != "memory_profile" {
-		t.Errorf("expected Name='memory_profile', got %q", def.Name)
+	if def.Name != "MemoryProfile" {
+		t.Errorf("expected Name='MemoryProfile', got %q", def.Name)
 	}
 }
 

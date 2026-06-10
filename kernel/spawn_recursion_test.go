@@ -283,7 +283,7 @@ func TestSpawnRecursion_DeniedDevices(t *testing.T) {
 		proc.DeniedDevices = []string{"/dev/intent"}
 
 		_, err := k.executeVFSTool(proc,
-			llmToolCall{Name: "intent_decompose", Input: map[string]any{}},
+			llmToolCall{Name: "IntentDecompose", Input: map[string]any{}},
 			toolMapping{Type: "vfs", VFSPath: "/dev/intent/decompose"})
 		if err == nil {
 			t.Fatal("expected permission denied for denied device /dev/intent")

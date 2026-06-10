@@ -105,7 +105,7 @@ func (f *MemoryRecallFile) Close() error {
 // Stat returns file metadata.
 func (f *MemoryRecallFile) Stat() (vfs.FileStat, error) {
 	return vfs.FileStat{
-		Name:       "memory_recall",
+		Name:       "MemoryRecall",
 		IsDevice:   true,
 		DevicePath: "/dev/memory/recall",
 	}, nil

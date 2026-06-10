@@ -64,10 +64,10 @@ func TestIntentDriver_ToolDefs_Metadata(t *testing.T) {
 		deferred bool
 		subpath  string
 	}{
-		"intent_decompose": {readOnly: false, deferred: true, subpath: "/decompose"},
-		"intent_status":    {readOnly: true, deferred: false, subpath: "/status"},
-		"intent_confirm":   {readOnly: false, deferred: false, subpath: "/confirm"},
-		"intent_execute":   {readOnly: false, deferred: true, subpath: "/execute"},
+		"IntentDecompose": {readOnly: false, deferred: true, subpath: "/decompose"},
+		"IntentStatus":    {readOnly: true, deferred: false, subpath: "/status"},
+		"IntentConfirm":   {readOnly: false, deferred: false, subpath: "/confirm"},
+		"IntentExecute":   {readOnly: false, deferred: true, subpath: "/execute"},
 	}
 
 	for _, def := range defs {
@@ -155,7 +155,7 @@ func TestIntentFile_Decompose_MissingIntent(t *testing.T) {
 
 // TestIntentFile_Decompose_AutoStart verifies that auto_start=true causes
 // decompose to chain confirm + execute and return a tree in terminal state
-// (so the LLM can skip the follow-up intent_confirm/intent_execute calls
+// (so the LLM can skip the follow-up IntentConfirm/IntentExecute calls
 // that are unreliable on weak models).
 func TestIntentFile_Decompose_AutoStart(t *testing.T) {
 	nodesJSON := `[{"id":"a","intent":"task a","depends_on":[]}]`

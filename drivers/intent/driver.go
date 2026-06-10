@@ -30,7 +30,7 @@ func NewDriver(mgr *intent.Manager) *IntentDriver {
 func (d *IntentDriver) ToolDefs() []vfs.ToolDef {
 	return []vfs.ToolDef{
 		{
-			Name:              "intent_decompose",
+			Name:              "IntentDecompose",
 			Description:       loadPrompt("intent_decompose"),
 			IsReadOnly:        false,
 			IsConcurrencySafe: true,
@@ -56,14 +56,14 @@ func (d *IntentDriver) ToolDefs() []vfs.ToolDef {
 					},
 					"auto_start": map[string]any{
 						"type":        "boolean",
-						"description": "若为 true，分解成功后自动 confirm + execute，同步等待整个意图树执行完成；适用于 [AUTO_CONFIRM] 流程，可避免后续手动调用 intent_confirm/intent_execute。注意：编排同步运行在 daemon 内，含 daemon 重启（如 rnix daemon stop/restart）的子任务可能中断编排本身——系统会尽力而为(best-effort)按字面拦截，但非穷尽（可经 /dev/shell 绕过）；此类工作建议移到编排外",
+						"description": "若为 true，分解成功后自动 confirm + execute，同步等待整个意图树执行完成；适用于 [AUTO_CONFIRM] 流程，可避免后续手动调用 IntentConfirm/IntentExecute。注意：编排同步运行在 daemon 内，含 daemon 重启（如 rnix daemon stop/restart）的子任务可能中断编排本身——系统会尽力而为(best-effort)按字面拦截，但非穷尽（可经 /dev/shell 绕过）；此类工作建议移到编排外",
 					},
 				},
 				"required": []string{"intent"},
 			},
 		},
 		{
-			Name:              "intent_status",
+			Name:              "IntentStatus",
 			Description:       loadPrompt("intent_status"),
 			IsReadOnly:        true,
 			IsConcurrencySafe: true,
@@ -84,7 +84,7 @@ func (d *IntentDriver) ToolDefs() []vfs.ToolDef {
 			},
 		},
 		{
-			Name:              "intent_confirm",
+			Name:              "IntentConfirm",
 			Description:       loadPrompt("intent_confirm"),
 			IsReadOnly:        false,
 			IsConcurrencySafe: true,
@@ -105,7 +105,7 @@ func (d *IntentDriver) ToolDefs() []vfs.ToolDef {
 			},
 		},
 		{
-			Name:              "intent_execute",
+			Name:              "IntentExecute",
 			Description:       loadPrompt("intent_execute"),
 			IsReadOnly:        false,
 			IsConcurrencySafe: false,
