@@ -135,7 +135,7 @@ func TestATDD_48_4_013_PlaywrightDemoAgent_InstructionsHasWorkflowAnchors(t *tes
 		"navigate":   {"navigate", "打开", "open url", "browser_navigate"},
 		"wait":       {"wait", "等待", "load", "browser_wait"},
 		"screenshot": {"screenshot", "截图", "browser_take_screenshot"},
-		"report":     {"report", "报告", "summary", "/dev/fs"},
+		"report":     {"report", "报告", "summary", "Write"},
 	}
 	for anchor, alts := range anchors {
 		found := false

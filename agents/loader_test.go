@@ -566,7 +566,7 @@ func TestAgentLoader_Load_RealOrchestrator(t *testing.T) {
 
 	tools := info.AllowedTools()
 	if len(tools) == 0 {
-		t.Fatal("AllowedTools is empty, expected /dev/intent/* tools")
+		t.Fatal("AllowedTools is empty, expected IntentDecompose/IntentConfirm/IntentExecute/IntentStatus tools")
 	}
 
 	prompt := info.SystemPrompt()
