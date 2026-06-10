@@ -56,7 +56,7 @@ func (d *IntentDriver) ToolDefs() []vfs.ToolDef {
 					},
 					"auto_start": map[string]any{
 						"type":        "boolean",
-						"description": "若为 true，分解成功后自动 confirm + execute，同步等待整个意图树执行完成；适用于 [AUTO_CONFIRM] 流程，可避免后续手动调用 IntentConfirm/IntentExecute。注意：编排同步运行在 daemon 内，含 daemon 重启（如 rnix daemon stop/restart）的子任务可能中断编排本身——系统会尽力而为(best-effort)按字面拦截，但非穷尽（可经 /dev/shell 绕过）；此类工作建议移到编排外",
+						"description": "若为 true，分解成功后自动 confirm + execute，同步等待整个意图树执行完成；适用于 [AUTO_CONFIRM] 流程，可避免后续手动调用 IntentConfirm/IntentExecute。注意：编排同步运行在 daemon 内，含 daemon 重启（如 rnix daemon stop/restart）的子任务可能中断编排本身——系统会尽力而为(best-effort)按字面拦截，但非穷尽（可经 Bash 绕过）；此类工作建议移到编排外",
 					},
 				},
 				"required": []string{"intent"},
@@ -246,7 +246,7 @@ func (f *IntentFile) handleDecompose(ctx context.Context, data []byte) (*intent.
 		// inside this daemon process, so a sub-task that stops the daemon may
 		// interrupt the orchestration. This is a literal-match reminder over the
 		// node's free-text intent, not exhaustive enforcement — it can be evaded
-		// (e.g. a sub-agent running kill/pkill/socat via /dev/shell, or phrasings
+		// (e.g. a sub-agent running kill/pkill/socat via Bash, or phrasings
 		// the pattern misses). The reliable fix is eval externalization
 		// (rnix-eval); see ADR Decision 43.
 		if hits := daemonRestartNodes(tree); len(hits) > 0 {
@@ -255,7 +255,7 @@ func (f *IntentFile) handleDecompose(ctx context.Context, data []byte) (*intent.
 				parts[i] = fmt.Sprintf("节点 %s: %q", h.NodeID, h.Matched)
 			}
 			return nil, &types.DriverError{Op: "Write", Device: f.devicePath, Code: types.ErrInvalid,
-				Err: fmt.Errorf("auto_start 已尽力而为(best-effort)拦截含 daemon 重启的子任务 (%s)：编排同步运行在 daemon 内，此类子任务可能中断编排本身。注意这是基于意图文本的字面提醒、非穷尽拦截——子任务仍可经 /dev/shell（kill/pkill/socat 等）绕过；可靠做法是将 daemon 重启移到编排外，或改用分步 decompose→confirm→execute", strings.Join(parts, "; "))}
+				Err: fmt.Errorf("auto_start 已尽力而为(best-effort)拦截含 daemon 重启的子任务 (%s)：编排同步运行在 daemon 内，此类子任务可能中断编排本身。注意这是基于意图文本的字面提醒、非穷尽拦截——子任务仍可经 Bash（kill/pkill/socat 等）绕过；可靠做法是将 daemon 重启移到编排外，或改用分步 decompose→confirm→execute", strings.Join(parts, "; "))}
 		}
 		if err := f.driver.manager.Confirm(tree.ID); err != nil {
 			return nil, &types.DriverError{Op: "Write", Device: f.devicePath, Err: fmt.Errorf("auto_start confirm: %w", err), Code: types.ErrDriver}

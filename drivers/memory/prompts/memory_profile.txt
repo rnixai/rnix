@@ -15,7 +15,7 @@ Save profile information when you observe:
 Do not save:
 - Temporary task preferences (use project memory instead)
 - Sensitive personal information (PII, credentials)
-- Project-specific knowledge (use /dev/memory/commit instead)
+- Project-specific knowledge (use MemoryCommit instead)
 
 ## Actions
 

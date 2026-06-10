@@ -973,7 +973,7 @@ func (k *KernelImpl) executeMetaAction(proc *Process, tc llmToolCall, mapping to
 		alreadyLoaded := slices.Contains(proc.Skills, skillName)
 		proc.mu.Unlock()
 		if alreadyLoaded {
-			resultMsg := fmt.Sprintf("skill %q is already loaded — its instructions are in your system prompt. Follow them using available VFS devices (/dev/fs, /dev/shell, etc.). Do NOT try to call this skill as a tool.", skillName)
+			resultMsg := fmt.Sprintf("skill %q is already loaded — its instructions are in your system prompt. Follow them using your available tools. Do NOT try to call this skill as a tool.", skillName)
 			_ = k.appendToolResult(proc, step, tc.ID, tc.Name, resultMsg)
 			k.emitLog(proc, step, types.LogTool, resultMsg, "specialize")
 			k.emitEvent(proc, "ReasonStep", map[string]any{"step": step, "action": "specialize_already_loaded", "skill": skillName}, nil, nil, time.Since(stepStart))

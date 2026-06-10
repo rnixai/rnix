@@ -34,7 +34,7 @@ import (
 //
 // 绿目标契约（dev-story 降级 drivers/intent/driver.go:255 错误信息时须满足）：
 //   (a) 明示 best-effort 性质：含 "best-effort" 或 "尽力而为"。
-//   (b) 明示绕过途径：含 "/dev/shell"。
+//   (b) 明示绕过途径：含 "Bash"。
 //   (c) 去除绝对保证：不得含 "取消编排自身"（及同类硬保证措辞）。
 // 当前生产措辞 "...重启会取消编排自身;..." 三条全违反 → 本测试当前为 RED。
 func TestATDD_37_4_P0_AutoStartGuardError_IsBestEffort_NotAbsolute(t *testing.T) {
@@ -52,9 +52,9 @@ func TestATDD_37_4_P0_AutoStartGuardError_IsBestEffort_NotAbsolute(t *testing.T)
 	if !strings.Contains(msg, "best-effort") && !strings.Contains(msg, "尽力而为") {
 		t.Errorf("AC1 RED: 错误信息须明示 best-effort（含 \"best-effort\" 或 \"尽力而为\"），当前未声明：%q", msg)
 	}
-	// (b) 明示可经 /dev/shell 绕过
-	if !strings.Contains(msg, "/dev/shell") {
-		t.Errorf("AC1 RED: 错误信息须明示可经 /dev/shell 绕过，当前未提及：%q", msg)
+	// (b) 明示可经 Bash 绕过
+	if !strings.Contains(msg, "Bash") {
+		t.Errorf("AC1 RED: 错误信息须明示可经 Bash 绕过，当前未提及：%q", msg)
 	}
 	// (c) 不得含绝对保证措辞
 	for _, absolute := range []string{"取消编排自身", "会取消编排"} {
