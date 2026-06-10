@@ -61,7 +61,7 @@ func (d *SkillManageDriver) ToolDefs() []vfs.ToolDef {
 					},
 					"allowed_tools": map[string]any{
 						"type":        "string",
-						"description": "Space-separated VFS device paths the skill needs (e.g., \"/dev/fs /dev/shell\")",
+						"description": "Space-separated tool names the skill needs (e.g., \"Read Write Bash\")",
 					},
 					"body": map[string]any{
 						"type":        "string",

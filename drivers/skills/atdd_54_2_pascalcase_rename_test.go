@@ -1,7 +1,6 @@
 package skills
 
 import (
-	"strings"
 	"testing"
 
 	"github.com/rnixai/rnix/vfs"
@@ -57,20 +56,8 @@ func TestATDD_54_2_900_GreenGuard_SkillDevicePathUnchanged(t *testing.T) {
 	}
 }
 
-// TestATDD_54_2_901 守护 allowed_tools 参数描述内的设备路径示例（"/dev/fs /dev/shell"）保持原样。
-// 那是【设备路径】问题，归 54.3/54.5，本 story（改工具名）不得顺手删改——guard 确认未被波及。
-func TestATDD_54_2_901_GreenGuard_AllowedToolsParamUntouched(t *testing.T) {
-	defs := NewSkillManageDriver(nil).ToolDefs()
-	props, ok := defs[0].Parameters["properties"].(map[string]any)
-	if !ok {
-		t.Fatal("缺少 properties")
-	}
-	at, ok := props["allowed_tools"].(map[string]any)
-	if !ok {
-		t.Fatal("缺少 allowed_tools 参数")
-	}
-	desc, _ := at["description"].(string)
-	if !strings.Contains(desc, "/dev/") {
-		t.Errorf("allowed_tools 描述应保留设备路径示例（设备路径改写归 54.3/54.5），got %q", desc)
-	}
-}
+// 原 TestATDD_54_2_901_GreenGuard_AllowedToolsParamUntouched 已退役：它断言 allowed_tools
+// 参数 description 含设备路径示例 "/dev/fs /dev/shell" 保持原样，使命是"等 54.3 接管设备路径
+// 改写"。Story 54.3（code-review 补修，AC9）已正式去除该示例（driver.go:64 → "Read Write Bash"、
+// skill_manage.txt:19 "device paths" → "tool names"），故此 guard 反向接管至
+// atdd_54_3_skillmanage_device_paths_test.go（断言 description 不含 /dev/ + 用工具名）。

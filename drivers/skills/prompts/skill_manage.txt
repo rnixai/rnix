@@ -16,5 +16,5 @@ Parameters:
 - action (required): "create", "patch", or "delete"
 - name (required): Skill identifier (used as directory name)
 - description: What the skill does (required for create)
-- allowed_tools: Space-separated device paths the skill needs (required for create)
+- allowed_tools: Space-separated tool names the skill needs (required for create)
 - body: Markdown instructions (required for create and patch)
