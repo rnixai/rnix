@@ -12,7 +12,9 @@ import (
 
 	"github.com/rnixai/rnix/agents"
 	rnixctx "github.com/rnixai/rnix/context"
+	"github.com/rnixai/rnix/drivers/fs"
 	"github.com/rnixai/rnix/drivers/llm"
+	drivershell "github.com/rnixai/rnix/drivers/shell"
 	"github.com/rnixai/rnix/internal/types"
 	"github.com/rnixai/rnix/internal/ui"
 	"github.com/rnixai/rnix/kernel"
@@ -722,6 +724,14 @@ func TestE2E_CodeAnalystAgent(t *testing.T) {
 	vfsInst := vfs.NewVFS(devReg)
 	// code-analyst pins provider: deepseek, so spawn opens /dev/llm/deepseek.
 	_ = devReg.Register("/dev/llm/deepseek", llm.FileFactory(driver, "/dev/llm/deepseek", ""))
+	// Story 54.5: code-analysis 的 allowed-tools 改语义工具名后，spawn 归一化要经设备
+	// registry 反查工具名→设备根（[Read Write Edit Glob Grep]→/dev/fs、Bash→/dev/shell）。
+	// 注册真实 fs/shell driver（实现 ToolDescriptor，对齐 main.go:1515-1518 生产注册）使
+	// 反查成立——否则工具名会被当作无设备根的 meta，proc.AllowedDevices 落空。
+	fsDriver := fs.NewDriver()
+	_ = devReg.RegisterWithDriver("/dev/fs", fsDriver.FileFactory(), fsDriver)
+	shellDriver := drivershell.NewDriver()
+	_ = devReg.RegisterWithDriver("/dev/shell", drivershell.FileFactory(shellDriver, "/dev/shell"), shellDriver)
 	ctxMgr := rnixctx.NewManager()
 	kern := kernel.NewKernel(vfsInst, ctxMgr, cb)
 

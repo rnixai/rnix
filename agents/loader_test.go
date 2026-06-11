@@ -238,10 +238,11 @@ func TestAgentLoader_Load_RealCodeAnalyst(t *testing.T) {
 		t.Errorf("Skill[0].Name = %q, want %q", info.Skills[0].Manifest.Name, "code-analysis")
 	}
 
-	// Verify AllowedTools aggregation
+	// Verify AllowedTools aggregation. Story 54.5: code-analysis allowed-tools
+	// 语义工具名化为 [Read Write Edit Glob Grep Bash]（6 个，Decision 45），故聚合后 length=6。
 	tools := info.AllowedTools()
-	if len(tools) != 2 {
-		t.Fatalf("AllowedTools length = %d, want 2: %v", len(tools), tools)
+	if len(tools) != 6 {
+		t.Fatalf("AllowedTools length = %d, want 6: %v", len(tools), tools)
 	}
 
 	// Verify system prompt contains both agent and skill content

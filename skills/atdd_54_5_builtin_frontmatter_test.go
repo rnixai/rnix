@@ -28,7 +28,6 @@ const (
 	atdd545LibSkillsDir = "../lib/skills"
 	atdd545DocsSkillsMd = "../docs/skills.md"
 	atdd545TypesGo      = "types.go" // 同包，相对包目录 skills/
-	atdd545RedSkip      = "54.5 RED 脚手架：dev-story 改 frontmatter/docs/types.go 后移除此 Skip 验 RED→GREEN。"
 )
 
 func atdd545LoadSkill(t *testing.T, name string) *SkillInfo {
@@ -69,7 +68,6 @@ func assertAllowedTools(t *testing.T, skill string, got, want []string) {
 
 // 54.5-UNIT-001 [RED] AC4：code-analysis frontmatter allowed-tools = [Read Write Edit Glob Grep Bash]。
 func TestATDD_54_5_AC4_CodeAnalysisFrontmatter_ToolNames(t *testing.T) {
-	t.Skip(atdd545RedSkip)
 	info := atdd545LoadSkill(t, "code-analysis")
 	assertAllowedTools(t, "code-analysis", info.Manifest.AllowedTools(),
 		[]string{"Read", "Write", "Edit", "Glob", "Grep", "Bash"})
@@ -77,7 +75,6 @@ func TestATDD_54_5_AC4_CodeAnalysisFrontmatter_ToolNames(t *testing.T) {
 
 // 54.5-UNIT-002 [RED] AC5：decompose frontmatter allowed-tools = intent 四工具 + Bash + fs 全集。
 func TestATDD_54_5_AC5_DecomposeFrontmatter_ToolNames(t *testing.T) {
-	t.Skip(atdd545RedSkip)
 	info := atdd545LoadSkill(t, "decompose")
 	assertAllowedTools(t, "decompose", info.Manifest.AllowedTools(),
 		[]string{"IntentDecompose", "IntentConfirm", "IntentExecute", "IntentStatus", "Bash", "Read", "Write", "Edit", "Glob", "Grep"})
@@ -85,7 +82,6 @@ func TestATDD_54_5_AC5_DecomposeFrontmatter_ToolNames(t *testing.T) {
 
 // 54.5-UNIT-003 [RED] AC6：using-rnix frontmatter allowed-tools = [Bash]。
 func TestATDD_54_5_AC6_UsingRnixFrontmatter_ToolName(t *testing.T) {
-	t.Skip(atdd545RedSkip)
 	info := atdd545LoadSkill(t, "using-rnix")
 	assertAllowedTools(t, "using-rnix", info.Manifest.AllowedTools(), []string{"Bash"})
 }
@@ -94,7 +90,6 @@ func TestATDD_54_5_AC6_UsingRnixFrontmatter_ToolName(t *testing.T) {
 // 精确等价 story 验收：`grep "/dev/" lib/skills/{code-analysis,decompose,using-rnix}/SKILL.md`
 // 在 allowed-tools 行零命中（设备路径已全部语义名化）。
 func TestATDD_54_5_AC456_FrontmatterAllowedToolsLine_NoDevicePaths(t *testing.T) {
-	t.Skip(atdd545RedSkip)
 	for _, name := range []string{"code-analysis", "decompose", "using-rnix"} {
 		data := atdd545ReadFile(t, atdd545LibSkillsDir+"/"+name+"/SKILL.md")
 		sawAllowedTools := false
@@ -118,7 +113,6 @@ func TestATDD_54_5_AC456_FrontmatterAllowedToolsLine_NoDevicePaths(t *testing.T)
 
 // 54.5-UNIT-005 [RED] AC7a：docs/skills.md 推翻旧 Decision 44 论述、立 Decision 45 语义名立场。
 func TestATDD_54_5_AC7_DocsAdoptsDecision45(t *testing.T) {
-	t.Skip(atdd545RedSkip)
 	content := atdd545ReadFile(t, atdd545DocsSkillsMd)
 	// 旧 Decision 44 论断须消失（baseline 501cee6 的 :462 表述）。
 	stale := []string{
@@ -138,7 +132,6 @@ func TestATDD_54_5_AC7_DocsAdoptsDecision45(t *testing.T) {
 
 // 54.5-UNIT-006 [RED] AC7c：skills/types.go AllowedTools() 注释从「device paths」改为「语义工具名」。
 func TestATDD_54_5_AC7_TypesGoCommentSemanticToolNames(t *testing.T) {
-	t.Skip(atdd545RedSkip)
 	content := atdd545ReadFile(t, atdd545TypesGo)
 	if strings.Contains(content, "allowed tool device paths") {
 		t.Error(`types.go AllowedTools() 注释仍为 "allowed tool device paths"（AC7c：须改为语义工具名）`)

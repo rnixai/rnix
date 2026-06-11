@@ -275,20 +275,33 @@ func (k *KernelImpl) Spawn(intent string, agent *agents.AgentInfo, opts SpawnOpt
 		proc.SkillBodies = skillBodies
 		proc.SkillDirs = skillDirs
 
-		// Aggregate AllowedTools from all Skills
+		// Aggregate AllowedTools from all Skills. Story 54.5: a skill/agent may now
+		// declare semantic tool names ("Read", "Bash", "IntentDecompose", …) instead
+		// of device paths. Normalize the declared values into the device ROOTS they
+		// resolve to (→ AllowedDevices, for routing / buildToolDefs / parent-constraint
+		// intersection) and the authoritative tool names (→ AllowedTools, set just
+		// below). Legacy device-path declarations still pass through unchanged.
 		agentAllowed := agent.AllowedTools()
-		if len(opts.AllowedDevices) > 0 && len(agentAllowed) > 0 {
-			inter := intersectDevices(opts.AllowedDevices, agentAllowed)
+		agentTools, agentDevices := k.normalizeDeclaredAllowedTools(agentAllowed)
+		if len(opts.AllowedDevices) > 0 && len(agentDevices) > 0 {
+			inter := intersectDevices(opts.AllowedDevices, agentDevices)
 			if len(inter) == 0 {
 				return 0, fmt.Errorf("spawn: agent %q allowed devices %v have no overlap with parent constraint %v",
-					agent.Manifest.Name, agentAllowed, opts.AllowedDevices)
+					agent.Manifest.Name, agentDevices, opts.AllowedDevices)
 			}
 			proc.AllowedDevices = inter
 		} else if len(opts.AllowedDevices) > 0 {
 			proc.AllowedDevices = append([]string(nil), opts.AllowedDevices...)
 		} else {
-			proc.AllowedDevices = agentAllowed
+			proc.AllowedDevices = agentDevices
 		}
+		// Story 54.5: record the declared tool names as the authoritative whitelist.
+		// The post-derivation block below narrows these to the finalized
+		// AllowedDevices (a parent device constraint dropping /dev/shell also drops
+		// Bash — AC2) and to any opts.AllowedTools tool-level parent constraint
+		// (AC8.4), while preserving a declared subset (never re-expanded to the
+		// device's full tool set).
+		proc.AllowedTools = agentTools
 
 		// Populate deferred skill metadata for discover_skill scoring
 		if len(agent.DeferredSkills) > 0 {
@@ -409,28 +422,43 @@ func (k *KernelImpl) Spawn(intent string, agent *agents.AgentInfo, opts SpawnOpt
 		proc.AllowedDevices = append([]string(nil), opts.AllowedDevices...)
 	}
 
-	// Story 54.1: derive the authoritative tool-name whitelist from the finalized
-	// AllowedDevices (this point follows both the agent-aggregation branch above
-	// and the no-agent inherit branch, so it covers every spawn shape). Tool-level
-	// enforcement gates by tool name; building it from the already device-narrowed
-	// set keeps the child tool set ⊆ parent automatically. An explicit
-	// opts.AllowedTools (a tool-level parent constraint, e.g. an ActionSpawn child)
-	// narrows it further. MCP mounts appended later expose dynamic tool names and
-	// contribute no base tools here, so deriving before that append is correct.
-	// Guard the DeviceRegistry lookup: SkipReasonLoop script-runner spawns use a
-	// nil VFS and carry no device whitelist, so there is nothing to expand.
+	// Story 54.1/54.5: finalize the authoritative tool-name whitelist. This point
+	// follows both the agent-aggregation branch above (which already set
+	// proc.AllowedTools from the agent's normalized declaration) and the no-agent
+	// inherit branch (which leaves it nil), so it covers every spawn shape.
+	//   - proc.AllowedTools == nil → no agent declaration: derive it from the
+	//     finalized AllowedDevices (no-agent inherit / legacy device-path expansion),
+	//     keeping the child tool set ⊆ parent automatically.
+	//   - proc.AllowedTools != nil → agent declared tool names (Story 54.5): narrow
+	//     them to the finalized AllowedDevices so a parent device constraint that
+	//     dropped a device also drops its tools (AC2), while preserving a declared
+	//     subset (intersection never re-expands to the device's full tool set).
+	// An explicit opts.AllowedTools (a tool-level parent constraint, e.g. an
+	// ActionSpawn child) then narrows further (AC8.4). MCP mounts appended later
+	// expose dynamic tool names and contribute no base tools here, so finalizing
+	// before that append is correct. Guard the DeviceRegistry lookup: SkipReasonLoop
+	// script-runner spawns use a nil VFS and carry no device whitelist.
 	if len(proc.AllowedDevices) > 0 || len(opts.AllowedTools) > 0 {
-		var tools []string
+		var deviceTools []string
 		if len(proc.AllowedDevices) > 0 && k.vfs != nil {
-			tools = expandDevicesToTools(k.vfs.DeviceRegistry(), proc.AllowedDevices)
+			deviceTools = expandDevicesToTools(k.vfs.DeviceRegistry(), proc.AllowedDevices)
 		}
 		switch {
-		case len(tools) > 0 && len(opts.AllowedTools) > 0:
-			proc.AllowedTools = intersectDevices(opts.AllowedTools, tools)
-		case len(tools) > 0:
-			proc.AllowedTools = tools
-		case len(opts.AllowedTools) > 0:
-			proc.AllowedTools = append([]string(nil), opts.AllowedTools...)
+		case proc.AllowedTools == nil:
+			proc.AllowedTools = deviceTools
+		case len(deviceTools) > 0:
+			// Narrow agent-declared tools to the finalized device set. Meta tool
+			// names (no device backing) are absent from deviceTools and only get
+			// narrowed when the process carries a device whitelist — the
+			// device-constrained case AC2 covers.
+			proc.AllowedTools = intersectDevices(deviceTools, proc.AllowedTools)
+		}
+		if len(opts.AllowedTools) > 0 {
+			if len(proc.AllowedTools) > 0 {
+				proc.AllowedTools = intersectDevices(opts.AllowedTools, proc.AllowedTools)
+			} else {
+				proc.AllowedTools = append([]string(nil), opts.AllowedTools...)
+			}
 		}
 	}
 

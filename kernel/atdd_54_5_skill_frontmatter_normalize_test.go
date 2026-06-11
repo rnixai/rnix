@@ -70,7 +70,6 @@ func newNormalizeKernel(t *testing.T) *KernelImpl {
 // RED：normalizeDeclaredAllowedTools 骨架 return nil,nil → 移除 t.Skip 后全部失败。
 // dev 实现「设备路径直通 + 工具名反查设备根 + 各自去重」后转绿。
 func TestATDD_54_5_010_NormalizeDeclaredAllowedTools_Matrix(t *testing.T) {
-	t.Skip("54.5 RED 脚手架：normalizeDeclaredAllowedTools 待实现（Task 1）；dev-story 移除此 Skip 验 RED→GREEN。")
 	k := newNormalizeKernel(t)
 
 	t.Run("device_fullset_tool_names", func(t *testing.T) {
@@ -140,7 +139,6 @@ func TestATDD_54_5_010_NormalizeDeclaredAllowedTools_Matrix(t *testing.T) {
 // 54.5-UNIT-002 [RED] AC8.1 等价性：设备全集工具名声明归一化的 tools，与旧设备路径声明经
 // expandDevicesToTools 的结果集合相等（逐位等价 → 零行为变更）。
 func TestATDD_54_5_020_NormalizeEquivalenceWithLegacyDeviceDecl(t *testing.T) {
-	t.Skip("54.5 RED 脚手架：normalizeDeclaredAllowedTools 待实现（Task 1）；dev-story 移除此 Skip 验 RED→GREEN。")
 	k := newNormalizeKernel(t)
 	reg := k.deviceRegistry()
 
@@ -164,7 +162,6 @@ func TestATDD_54_5_020_NormalizeEquivalenceWithLegacyDeviceDecl(t *testing.T) {
 //
 // RED：spawn 未接线归一化 → 声明工具名污染 AllowedDevices、AllowedTools=nil（见 story Dev Notes 推演）。
 func TestATDD_54_5_100_TopLevelSpawn_ToolNameDecl_Normalized(t *testing.T) {
-	t.Skip("54.5 RED 脚手架：spawn 声明值归一化待接线（Task 2）；dev-story 移除此 Skip 验 RED→GREEN。")
 	k := newNormalizeKernel(t)
 	agent := agentWithAllowedTools("Read Write Edit Glob Grep Bash") // 设备全集工具名（54.5 后 code-analysis 形态）
 
@@ -211,7 +208,6 @@ func TestATDD_54_5_100_TopLevelSpawn_ToolNameDecl_Normalized(t *testing.T) {
 //
 // RED：未归一化 → intersectDevices([/dev/fs], [Read,...]) = 空 → spawn.go:283 报 no overlap。
 func TestATDD_54_5_110_ParentConstrainedSpawn_ToolNameDecl_Intersects(t *testing.T) {
-	t.Skip("54.5 RED 脚手架：spawn 声明值归一化待接线（Task 2）；dev-story 移除此 Skip 验 RED→GREEN。")
 	k := newNormalizeKernel(t)
 	agent := agentWithAllowedTools("Read Write Edit Glob Grep Bash") // agent 想要 fs+shell
 
@@ -281,7 +277,6 @@ func TestATDD_54_5_130_NormalizedSpawn_ChildToolsSubsetOfParent(t *testing.T) {
 // RED：specialize 未接线归一化（tool_exec.go:1000 直接 append 声明值 "Bash" 到 AllowedDevices
 // + expandDevicesToTools(["Bash"])=nil）→ AllowedTools 不含 Bash、AllowedDevices 含 "Bash" 污染。
 func TestATDD_54_5_120_Specialize_ToolNameDecl_Normalized(t *testing.T) {
-	t.Skip("54.5 RED 脚手架：specialize 声明值归一化待接线（Task 3）；dev-story 移除此 Skip 验 RED→GREEN。")
 	k := newNormalizeKernel(t)
 	k.SetSkillLoader(func(name string) (*skills.SkillInfo, error) {
 		return &skills.SkillInfo{

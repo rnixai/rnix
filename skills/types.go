@@ -18,7 +18,11 @@ type SkillManifest struct {
 	SearchHint      string            `yaml:"search_hint,omitempty"` // keyword hint for discover_skill scoring
 }
 
-// AllowedTools returns the list of allowed tool device paths.
+// AllowedTools returns the declared semantic tool names (e.g. Read, Bash,
+// IntentDecompose). Legacy device-path declarations (/dev/fs, /dev/shell …) are
+// still accepted during the Story 54.1 compatibility period; the kernel's
+// spawn/specialize normalization maps either form to the process's AllowedTools
+// (tool-level enforcement) + AllowedDevices (device-root routing) per Story 54.5.
 // The raw value is a space-separated string per Agent Skills standard.
 func (m *SkillManifest) AllowedTools() []string {
 	if m.AllowedToolsRaw == "" {

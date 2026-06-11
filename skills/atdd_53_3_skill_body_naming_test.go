@@ -121,15 +121,16 @@ func TestATDD_53_3_AC2_CodeAnalysisBody_UsesBashToolName(t *testing.T) {
 	}
 }
 
-// --- 53.3-INT-006: [P1] AC2 code-analysis allowed-tools 不变（范围红线护栏）---
-// 🟢 护栏: 当前即绿。allowed-tools 是 Layer 1 设备权限，53.2 已定，改之破坏 enforcement。
+// --- 53.3-INT-006: [P1] AC2 code-analysis allowed-tools 语义工具名（Story 54.5 更新）---
+// 🟢 护栏: code-analysis 的 allowed-tools 由 Story 54.5 从设备路径 [/dev/fs /dev/shell]
+// 改为设备全集语义工具名（Decision 45，归一化后逐位等价 → 零行为变更）。此护栏锁定预期工具名集合。
 
 func TestATDD_53_3_AC2_CodeAnalysisAllowedTools_Unchanged(t *testing.T) {
 	info := atdd533LoadSkill(t, "code-analysis")
 	got := info.Manifest.AllowedTools()
-	want := []string{"/dev/fs", "/dev/shell"}
+	want := []string{"Read", "Write", "Edit", "Glob", "Grep", "Bash"}
 	if !slices.Equal(got, want) {
-		t.Errorf("code-analysis allowed-tools = %v, want %v (范围红线: Layer 1 设备路径必须保持不变，本 story 只改 body)", got, want)
+		t.Errorf("code-analysis allowed-tools = %v, want %v (Story 54.5: allowed-tools 语义工具名化，设备路径已内化)", got, want)
 	}
 }
 
@@ -184,15 +185,15 @@ func TestATDD_53_3_AC3_DecomposeBody_PreservesMethodology(t *testing.T) {
 	}
 }
 
-// --- 53.3-INT-011: [P1] AC3 decompose allowed-tools 不变（范围红线护栏）---
-// 🟢 护栏: 当前即绿。
+// --- 53.3-INT-011: [P1] AC3 decompose allowed-tools 语义工具名（Story 54.5 更新）---
+// 🟢 护栏: decompose 的 allowed-tools 由 Story 54.5 从设备路径改为设备全集语义工具名（Decision 45）。
 
 func TestATDD_53_3_AC3_DecomposeAllowedTools_Unchanged(t *testing.T) {
 	info := atdd533LoadSkill(t, "decompose")
 	got := info.Manifest.AllowedTools()
-	want := []string{"/dev/intent", "/dev/shell", "/dev/fs"}
+	want := []string{"IntentDecompose", "IntentConfirm", "IntentExecute", "IntentStatus", "Bash", "Read", "Write", "Edit", "Glob", "Grep"}
 	if !slices.Equal(got, want) {
-		t.Errorf("decompose allowed-tools = %v, want %v (范围红线: Layer 1 设备路径必须保持不变，本 story 只改 body + description)", got, want)
+		t.Errorf("decompose allowed-tools = %v, want %v (Story 54.5: allowed-tools 语义工具名化，设备路径已内化)", got, want)
 	}
 }
 

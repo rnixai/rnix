@@ -459,9 +459,9 @@ rnix skill list
 
 写入 `.agents/skills/` 的 SKILL.md 应只使用 [agentskills.io specification](https://agentskills.io/specification.md) 定义的标准字段（`name`、`description`、`allowed-tools` 等），避免 rnix-only 扩展字段。
 
-**`allowed-tools` 的值是 Layer 1 资源路径，不是工具语义名。** frontmatter 的 `allowed-tools` 列出的是设备路径（`/dev/fs`、`/dev/shell`、`/dev/intent`、`/mnt/mcp/*` 等），用于能力声明与权限执行（agent 多 skill 先 union + 去重；spawn 时仅在父进程传入继承约束时再取交集；运行时设备过滤）。Rnix **没有** `Read → /dev/fs` 这样的映射层——[`skills/manager.go`](../skills/manager.go) 的 `validateFrontmatter` 强制每个值以 `/dev/` 或 `/mnt/mcp/` 前缀，写成 `Read` 会被直接拒绝（[`skills/types.go`](../skills/types.go) 亦将其注释为 "allowed tool **device paths**"）。这一分层由 [Architecture Decision 44](../_bmad-output/planning-artifacts/architecture/core-architectural-decisions.md#decision-44-工具命名双层原则--capability-资源路径--llm-语义名) 固化：**Layer 1** = 资源路径（`allowed-tools` 属此层，用于 enforcement）；**Layer 2** = `ToolDef.Name`（LLM 经 function-calling 实际看到的呈现名，如 `Read` / `Bash`）。
+**`allowed-tools` 的值是语义工具名，不是设备路径。** frontmatter 的 `allowed-tools` 列出 LLM 实际看到的工具名（`Read`、`Write`、`Edit`、`Glob`、`Grep`、`Bash`、`IntentDecompose` 等），用于能力声明与**工具级**权限执行（agent 多 skill 先 union + 去重；spawn / specialize 时把声明的工具名归一化为进程的 `AllowedTools`〔权威判定〕+ `AllowedDevices`〔设备根路由〕；父进程传入继承约束时在设备根层取交集）。[`skills/manager.go`](../skills/manager.go) 的 `validateFrontmatter` 校验每个值是已知工具名**或**设备路径（兼容期仍接受 `/dev/` 前缀的旧式声明），enforcement 按工具名判定——`allowed-tools: Read` 只放行 `Read`，不放行同设备的 `Write`。这一方向由 [Architecture Decision 45](../_bmad-output/planning-artifacts/architecture/core-architectural-decisions.md#decision-45-设备路径纯内部化--应用层统一语义工具名decision-44-部分-superseded) 固化（部分推翻 Decision 44 的应用层露出）：设备路径已**内化为内核实现**——内核在 spawn / specialize 处归一化工具名↔设备根，应用层（skill frontmatter、agent instructions、prompt、docs）一律用语义工具名。
 
-**跨平台可移植性的真正落点**不是改 `allowed-tools` 的值（那会破坏 enforcement 闭环，且 `Read` 本身也只是某一平台的工具词汇，并无行业统一标准），而是 ① 让 **skill body 工具中立化**（见下节《Skill body 工具引用规范》）+ ② 把 skill 放进 `.agents/skills/` 共享路径并 commit。如此一份 SKILL.md 在 Rnix / Cursor / OpenCode 中均可被消费。
+**跨平台可移植性**由三件事共同落地：① `allowed-tools` 用语义工具名（Decision 45）——`Read` / `Bash` 等是跨 agent 生态通用的工具词汇，设备路径已内化故不再露出，enforcement 闭环不破（内核归一化工具名↔设备根，仍经 `ToolDef.Name` 映射）；② 让 **skill body 工具中立化**（见下节《Skill body 工具引用规范》）；③ 把 skill 放进 `.agents/skills/` 共享路径并 commit。如此一份 SKILL.md 在 Rnix / Cursor / OpenCode 中均可被消费。
 
 ### Skill body 工具引用规范
 
@@ -473,7 +473,7 @@ SKILL.md 的 **body**（frontmatter 之下的 markdown 正文）会被注入 age
 4. **不在 body 重述 `ToolDef.Parameters`**：工具的参数 schema 由 driver 自动暴露给 LLM（function-calling 的结构化 Parameters），body 再逐字段重述（如 `{intent, model, provider}`）只是冗余，且易与真实 schema 漂移。
 5. **body 主体是领域知识 + 流程判断**：工具名仅在需要点名某项能力时出现；body 的核心价值是领域方法论、判断标准、工作流程，而非把每一步翻译成工具调用。
 
-> 一句话：**`allowed-tools`（frontmatter）= Layer 1 设备路径**（enforcement 用）；**body 引用工具 = Layer 2 `ToolDef.Name`**（通用名）**或工具中立方法论**（Rnix 独有能力）。两者分属不同层，互不混用。
+> 一句话：**`allowed-tools`（frontmatter）= 语义工具名**（工具级 enforcement）；**body 引用工具 = Layer 2 `ToolDef.Name`**（通用名）**或工具中立方法论**（Rnix 独有能力）。两者分属不同层，互不混用。
 
 ## `using-rnix` 能力 skill 维护约定
 
@@ -492,7 +492,8 @@ SKILL.md 的 **body**（frontmatter 之下的 markdown 正文）会被注入 age
 - [Architecture Decision 7](../_bmad-output/planning-artifacts/architecture/core-architectural-decisions.md#decision-7-agent-抽象层与-skill-标准化) — Agent 抽象层与 Skill 标准化（基于 agentskills.io 行业标准设计 Agent 层）
 - [Architecture Decision 17](../_bmad-output/planning-artifacts/architecture/core-architectural-decisions.md#decision-17-agentskill-shadow-策略) — Agent/Skill Shadow 策略（project 完全替代 user）
 - [Architecture Decision 18](../_bmad-output/planning-artifacts/architecture/core-architectural-decisions.md#decision-18-embedfs-嵌入策略) — embed.FS 嵌入策略（`lib/` 运行时不再作为查找路径）
-- [Architecture Decision 44](../_bmad-output/planning-artifacts/architecture/core-architectural-decisions.md#decision-44-工具命名双层原则--capability-资源路径--llm-语义名) — 工具命名双层原则（Layer 1 资源路径用于 enforcement / Layer 2 `ToolDef.Name` 用于 LLM 呈现；skill body 工具引用规范的依据）
+- [Architecture Decision 44](../_bmad-output/planning-artifacts/architecture/core-architectural-decisions.md#decision-44-工具命名双层原则--capability-资源路径--llm-语义名) — 工具命名双层原则（Layer 1 资源路径用于 enforcement / Layer 2 `ToolDef.Name` 用于 LLM 呈现；skill body 工具引用规范的依据；**应用层露出部分已由 Decision 45 推翻**）
+- [Architecture Decision 45](../_bmad-output/planning-artifacts/architecture/core-architectural-decisions.md#decision-45-设备路径纯内部化--应用层统一语义工具名decision-44-部分-superseded) — 设备路径纯内部化（应用层统一语义工具名：`allowed-tools` 与 body 均用工具名，设备路径内化为内核 spawn / specialize 归一化实现；部分推翻 Decision 44 的应用层露出）
 
 ### 外部规范
 

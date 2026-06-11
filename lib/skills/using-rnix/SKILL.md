@@ -10,7 +10,7 @@ description: >-
   says "spawn an agent", "orchestrate agents", "run rnix", or names a `rnix`
   subcommand. Gives you the rnix capability map and exact, verified CLI usage so
   you produce correct commands without reading rnix's source.
-allowed-tools: /dev/shell
+allowed-tools: Bash
 metadata:
   author: rnix
   version: "1.0"

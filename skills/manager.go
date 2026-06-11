@@ -173,6 +173,13 @@ func isKnownToolName(v string) bool {
 	return ok
 }
 
+// IsKnownToolName reports whether v is a recognized semantic tool name. Exported
+// for the kernel's spawn/specialize declared-value normalization (Story 54.5):
+// it must distinguish a known meta tool (Complete / Agent — no device backing, so
+// tools-only) from an unknown value (skipped), without duplicating this curated
+// tool-name mirror in the kernel package.
+func IsKnownToolName(v string) bool { return isKnownToolName(v) }
+
 // isDevicePath reports whether v is a legacy device-path form of allowed-tools
 // (accepted during the Story 54.1 compatibility period).
 func isDevicePath(v string) bool {

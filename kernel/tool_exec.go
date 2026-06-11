@@ -997,14 +997,22 @@ func (k *KernelImpl) executeMetaAction(proc *Process, tc llmToolCall, mapping to
 			return true
 		}
 		proc.Skills = append(proc.Skills, skillName)
-		proc.AllowedDevices = append(proc.AllowedDevices, skillInfo.Manifest.AllowedTools()...)
-		// Story 54.1: mirror the device append at tool level. Expand the skill's
-		// declared allowed-tools (device paths today) into tool names and add them
-		// to the authoritative whitelist, de-duplicated — keeping AllowedTools in
-		// lockstep with AllowedDevices so enforcement stays tool-granular after
-		// specialize. (A process that was unrestricted becomes restricted to the
-		// skill's tools, exactly as the device-level append above already does.)
-		for _, tool := range expandDevicesToTools(k.deviceRegistry(), skillInfo.Manifest.AllowedTools()) {
+		// Story 54.5: normalize the skill's declared allowed-tools (semantic tool
+		// names or legacy device paths) into device ROOTS (→ AllowedDevices, for
+		// routing / presentation) and authoritative tool names (→ AllowedTools),
+		// appending each de-duplicated. Replaces the Story 54.1 "append declared
+		// values verbatim to AllowedDevices + expandDevicesToTools(declared) to
+		// AllowedTools", which only handled device-path declarations and would
+		// pollute AllowedDevices with raw tool names. Keeps the two whitelists in
+		// lockstep so enforcement stays tool-granular after specialize (an
+		// unrestricted process becomes restricted to the skill's tools).
+		declTools, declDevices := k.normalizeDeclaredAllowedTools(skillInfo.Manifest.AllowedTools())
+		for _, dev := range declDevices {
+			if !slices.Contains(proc.AllowedDevices, dev) {
+				proc.AllowedDevices = append(proc.AllowedDevices, dev)
+			}
+		}
+		for _, tool := range declTools {
 			if !slices.Contains(proc.AllowedTools, tool) {
 				proc.AllowedTools = append(proc.AllowedTools, tool)
 			}
@@ -1073,29 +1081,32 @@ func (k *KernelImpl) executeMetaAction(proc *Process, tc llmToolCall, mapping to
 				proc.Skills = slices.DeleteFunc(proc.Skills, func(s string) bool { return s == skillName })
 				delete(proc.SkillBodies, skillName)
 				delete(proc.SkillDirs, skillName)
-				removedTools := skillInfo.Manifest.AllowedTools()
-				if len(removedTools) > 0 {
-					removeSet := make(map[string]struct{}, len(removedTools))
-					for _, t := range removedTools {
-						removeSet[t] = struct{}{}
+				// Story 54.5: normalize the skill's declared allowed-tools the same
+				// way the append above did, so the rollback removes the exact device
+				// ROOTS and tool names it contributed — symmetric for both semantic
+				// tool-name and legacy device-path declarations.
+				removedTools, removedDevices := k.normalizeDeclaredAllowedTools(skillInfo.Manifest.AllowedTools())
+				if len(removedDevices) > 0 {
+					devRemoveSet := make(map[string]struct{}, len(removedDevices))
+					for _, d := range removedDevices {
+						devRemoveSet[d] = struct{}{}
 					}
 					proc.AllowedDevices = slices.DeleteFunc(proc.AllowedDevices, func(d string) bool {
-						_, rm := removeSet[d]
+						_, rm := devRemoveSet[d]
 						return rm
 					})
-					// Story 54.1: symmetric tool-level rollback — drop the tool names
-					// this skill contributed, mirroring the device removal above.
-					removedToolNames := expandDevicesToTools(k.deviceRegistry(), removedTools)
-					if len(removedToolNames) > 0 {
-						toolRemoveSet := make(map[string]struct{}, len(removedToolNames))
-						for _, t := range removedToolNames {
-							toolRemoveSet[t] = struct{}{}
-						}
-						proc.AllowedTools = slices.DeleteFunc(proc.AllowedTools, func(t string) bool {
-							_, rm := toolRemoveSet[t]
-							return rm
-						})
+				}
+				// Symmetric tool-level rollback — drop the normalized tool names this
+				// skill contributed, mirroring the device removal above.
+				if len(removedTools) > 0 {
+					toolRemoveSet := make(map[string]struct{}, len(removedTools))
+					for _, t := range removedTools {
+						toolRemoveSet[t] = struct{}{}
 					}
+					proc.AllowedTools = slices.DeleteFunc(proc.AllowedTools, func(t string) bool {
+						_, rm := toolRemoveSet[t]
+						return rm
+					})
 				}
 				proc.mu.Unlock()
 				k.emitEvent(proc, "SpecializeRollback", map[string]any{"skill": skillName, "reason": "context_full"}, nil, nil, 0)

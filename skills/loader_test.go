@@ -169,14 +169,16 @@ func TestSkillLoader_LoadFull_RealCodeAnalysis(t *testing.T) {
 	}
 
 	tools := info.Manifest.AllowedTools()
-	if len(tools) != 2 {
-		t.Fatalf("AllowedTools length = %d, want 2", len(tools))
+	// Story 54.5: code-analysis allowed-tools 从设备路径 [/dev/fs /dev/shell] 改为
+	// 设备全集语义工具名 [Read Write Edit Glob Grep Bash]（Decision 45）。
+	wantTools := []string{"Read", "Write", "Edit", "Glob", "Grep", "Bash"}
+	if len(tools) != len(wantTools) {
+		t.Fatalf("AllowedTools length = %d, want %d", len(tools), len(wantTools))
 	}
-	if tools[0] != "/dev/fs" {
-		t.Errorf("AllowedTools[0] = %q, want %q", tools[0], "/dev/fs")
-	}
-	if tools[1] != "/dev/shell" {
-		t.Errorf("AllowedTools[1] = %q, want %q", tools[1], "/dev/shell")
+	for i, w := range wantTools {
+		if tools[i] != w {
+			t.Errorf("AllowedTools[%d] = %q, want %q", i, tools[i], w)
+		}
 	}
 
 	if info.Body == "" {

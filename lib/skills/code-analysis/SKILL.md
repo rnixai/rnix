@@ -4,7 +4,7 @@ description: >
   Analyze code quality, identify bugs, performance issues and security
   vulnerabilities. Use when the user wants to review code files or
   find problems in source code.
-allowed-tools: /dev/fs /dev/shell
+allowed-tools: Read Write Edit Glob Grep Bash
 metadata:
   author: rnix
   version: "1.0"

@@ -4,6 +4,7 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/rnixai/rnix/skills"
 	"github.com/rnixai/rnix/vfs"
 )
 
@@ -166,10 +167,98 @@ func (k *KernelImpl) restoreAllowedTools(proc *Process, persisted []string) {
 // the registry via RangeDrivers and return the driver's registered device ROOT
 // (e.g. /dev/intent), NOT toolMap[name].VFSPath which for multiplex devices carries
 // the subpath (/dev/intent/decompose) and would break stripOrchestrationDevices.
-//
-// Story 54.5 — SKELETON ONLY (ATDD red-phase scaffold). Returns (nil, nil) until
-// dev-story fills in the logic; the kernel/atdd_54_5_*.go RED cases are t.Skip-ped
-// until then. (Mirrors the Story 54.1 expandDevicesToTools skeleton pattern.)
 func (k *KernelImpl) normalizeDeclaredAllowedTools(declared []string) (tools, devices []string) {
-	return nil, nil // 54.5 skeleton — dev-story implements
+	if len(declared) == 0 {
+		return nil, nil
+	}
+	reg := k.deviceRegistry()
+	toolRoots := toolDeviceRoots(reg)
+
+	seenTool := make(map[string]struct{}, len(declared))
+	seenDev := make(map[string]struct{}, len(declared))
+	addTool := func(t string) {
+		if _, dup := seenTool[t]; dup {
+			return
+		}
+		seenTool[t] = struct{}{}
+		tools = append(tools, t)
+	}
+	addDev := func(d string) {
+		if _, dup := seenDev[d]; dup {
+			return
+		}
+		seenDev[d] = struct{}{}
+		devices = append(devices, d)
+	}
+
+	for _, v := range declared {
+		switch {
+		case isDevicePathValue(v):
+			// Backward compat: a declared device path passes straight through and
+			// expands into its tool names (Story 54.1 expandDevicesToTools semantics).
+			addDev(v)
+			for _, t := range expandDevicesToTools(reg, []string{v}) {
+				addTool(t)
+			}
+		case toolRoots[v] != "":
+			// Semantic tool name backed by a VFS device: keep the tool name (the
+			// authoritative whitelist) and add its device ROOT (routing / intersect).
+			addTool(v)
+			addDev(toolRoots[v])
+		case skills.IsKnownToolName(v):
+			// Known tool name with no device backing (kernel meta tool: Complete /
+			// Agent / …). Tools-only — meta actions bypass VFS device enforcement.
+			addTool(v)
+		default:
+			// Unknown value: skip (lenient, mirrors the loader's tolerance).
+		}
+	}
+	// Deterministic order: AllowedTools / AllowedDevices are whitelist sets
+	// (enforcement gates by Contains, not position), but sorting keeps spawn output,
+	// persisted snapshots, and tests stable regardless of declaration order or the
+	// (map-based, unordered) RangeDrivers iteration — e.g. the agent union already
+	// sorts tool names, which would otherwise surface /dev/shell before /dev/fs.
+	slices.Sort(tools)
+	slices.Sort(devices)
+	return tools, devices
+}
+
+// isDevicePathValue reports whether an allowed-tools value is a legacy device-path
+// form (/dev/ or /mnt/mcp/ prefix). Mirrors skills.isDevicePath; kept local so the
+// two-line predicate does not force a skills export.
+func isDevicePathValue(v string) bool {
+	return strings.HasPrefix(v, "/dev/") || strings.HasPrefix(v, mcpPathPrefix)
+}
+
+// toolDeviceRoots builds a tool-name → device-ROOT reverse index by iterating the
+// registry exactly as expandDevicesToTools / buildToolDefs do (RangeDrivers). For
+// every non-LLM, non-MCP device whose driver is a vfs.ToolDescriptor it maps each
+// ToolDef.Name to the driver's registered device ROOT — the RangeDrivers key (e.g.
+// "/dev/intent"), NEVER devPath+def.Subpath ("/dev/intent/decompose"). Using the
+// subpath form (as toolMap[name].VFSPath does) would make the resulting
+// AllowedDevices entry miss stripOrchestrationDevices's "/dev/intent" comparison
+// and break orchestration stripping (Story 54.5 设备根反查坑). First registration
+// wins on name collisions. Returns an empty map for a nil registry (SkipReasonLoop
+// nil-VFS spawns).
+func toolDeviceRoots(reg *vfs.DeviceRegistry) map[string]string {
+	index := make(map[string]string)
+	if reg == nil {
+		return index
+	}
+	reg.RangeDrivers(func(devPath string, driver any) bool {
+		if strings.HasPrefix(devPath, "/dev/llm") || strings.HasPrefix(devPath, mcpPathPrefix) {
+			return true
+		}
+		td, ok := driver.(vfs.ToolDescriptor)
+		if !ok {
+			return true
+		}
+		for _, def := range td.ToolDefs() {
+			if _, dup := index[def.Name]; !dup {
+				index[def.Name] = devPath
+			}
+		}
+		return true
+	})
+	return index
 }

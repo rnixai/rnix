@@ -3,7 +3,7 @@ name: decompose
 description: >
   将高层意图分解为子任务 DAG，沿分解 → 确认 → 执行的生命周期推进。
   适用于用户需要将复杂目标拆解为可执行步骤的场景。
-allowed-tools: /dev/intent /dev/shell /dev/fs
+allowed-tools: IntentDecompose IntentConfirm IntentExecute IntentStatus Bash Read Write Edit Glob Grep
 system: true
 metadata:
   author: rnix

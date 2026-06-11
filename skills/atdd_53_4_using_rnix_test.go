@@ -52,13 +52,13 @@ func TestATDD_53_4_AC1_UsingRnix_Loadable(t *testing.T) {
 	}
 }
 
-// --- 53.4-AC1: allowed-tools 仅 /dev/shell（Layer 1 设备路径，驱动 rnix 经 shell 跑 CLI）---
+// --- 53.4-AC1: allowed-tools 语义工具名 Bash（Story 54.5 更新：原 /dev/shell 设备路径已语义名化）---
 func TestATDD_53_4_AC1_UsingRnix_AllowedToolsIsDevShell(t *testing.T) {
 	info := atdd534Load(t)
 	got := info.Manifest.AllowedTools()
-	want := []string{"/dev/shell"}
+	want := []string{"Bash"}
 	if !slices.Equal(got, want) {
-		t.Errorf("allowed-tools = %v, want %v (AC1: 驱动 rnix = 经 shell 跑 rnix CLI)", got, want)
+		t.Errorf("allowed-tools = %v, want %v (Story 54.5: 驱动 rnix = 经 Bash 跑 rnix CLI；/dev/shell 已内化为工具名 Bash)", got, want)
 	}
 }
 
