@@ -140,3 +140,36 @@ func (k *KernelImpl) restoreAllowedTools(proc *Process, persisted []string) {
 		proc.AllowedTools = expandDevicesToTools(k.deviceRegistry(), proc.AllowedDevices)
 	}
 }
+
+// normalizeDeclaredAllowedTools normalizes a skill/agent's declared allowed-tools
+// values into two orthogonal projections. After Story 54.5 a declaration may use
+// semantic tool names ("Read", "Bash", "IntentDecompose", …) instead of device
+// paths, so the spawn/specialize paths must translate them:
+//
+//   - tools:   the authoritative tool-name whitelist (→ proc.AllowedTools, the
+//     tool-level enforcement source of truth).
+//   - devices: the device ROOTS those tools resolve to (→ proc.AllowedDevices,
+//     used for routing, buildToolDefs presentation, and parent-constraint
+//     intersection).
+//
+// Rules (dev-story implements — Story 54.5 Task 1):
+//   - value is a device path (isDevicePath: /dev/ or /mnt/mcp/ prefix) →
+//     devices += value;  tools += expandDevicesToTools([value])   (backward compat)
+//   - value is a known tool name with a resolvable device root →
+//     tools += value;    devices += deviceRoot(value)
+//   - value is a known meta tool with no device (Complete / Agent …) → tools += value
+//   - unknown value → skipped (lenient, mirrors loader tolerance)
+//
+// tools and devices are each de-duplicated.
+//
+// CRITICAL (设备根反查坑): the tool-name → device-root reverse lookup MUST iterate
+// the registry via RangeDrivers and return the driver's registered device ROOT
+// (e.g. /dev/intent), NOT toolMap[name].VFSPath which for multiplex devices carries
+// the subpath (/dev/intent/decompose) and would break stripOrchestrationDevices.
+//
+// Story 54.5 — SKELETON ONLY (ATDD red-phase scaffold). Returns (nil, nil) until
+// dev-story fills in the logic; the kernel/atdd_54_5_*.go RED cases are t.Skip-ped
+// until then. (Mirrors the Story 54.1 expandDevicesToTools skeleton pattern.)
+func (k *KernelImpl) normalizeDeclaredAllowedTools(declared []string) (tools, devices []string) {
+	return nil, nil // 54.5 skeleton — dev-story implements
+}
