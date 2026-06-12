@@ -403,6 +403,14 @@ func (e *ScriptExecutor) executeStatement(ctx context.Context, stmt Statement,
 		if expandErr != nil {
 			return false, 0, fmt.Errorf("line %d: %w", stmt.Line, expandErr)
 		}
+		expandedAgent, expandErr := e.env.ExpandStrict(stmt.Spawn.Agent)
+		if expandErr != nil {
+			return false, 0, fmt.Errorf("line %d: --agent: %w", stmt.Line, expandErr)
+		}
+		expandedModel, expandErr := e.env.ExpandStrict(stmt.Spawn.Model)
+		if expandErr != nil {
+			return false, 0, fmt.Errorf("line %d: --model: %w", stmt.Line, expandErr)
+		}
 		if e.OnStageStart != nil {
 			e.OnStageStart(*stageNum, totalStages, expandedIntent)
 		}
@@ -412,12 +420,12 @@ func (e *ScriptExecutor) executeStatement(ctx context.Context, stmt Statement,
 		if e.OnEvent != nil {
 			e.emitEvent(ScriptSpawn, stmt.Line, expandedIntent, map[string]any{
 				"intent": expandedIntent,
-				"agent":  stmt.Spawn.Agent,
-				"model":  stmt.Spawn.Model,
+				"agent":  expandedAgent,
+				"model":  expandedModel,
 				"assign": stmt.Assign,
 			})
 		}
-		res, exitCode, tokens, spawnErr := e.spawner.SpawnAndWait(ctx, expandedIntent, stmt.Spawn.Agent, stmt.Spawn.Model)
+		res, exitCode, tokens, spawnErr := e.spawner.SpawnAndWait(ctx, expandedIntent, expandedAgent, expandedModel)
 		if spawnErr != nil {
 			return false, 0, fmt.Errorf("spawn: %w", spawnErr)
 		}
@@ -444,11 +452,19 @@ func (e *ScriptExecutor) executeStatement(ctx context.Context, stmt Statement,
 			if hExpandErr != nil {
 				return false, 0, fmt.Errorf("line %d: on-error: %w", stmt.Line, hExpandErr)
 			}
+			hAgent, hExpandErr := e.env.ExpandStrict(stmt.OnError.Agent)
+			if hExpandErr != nil {
+				return false, 0, fmt.Errorf("line %d: on-error: --agent: %w", stmt.Line, hExpandErr)
+			}
+			hModel, hExpandErr := e.env.ExpandStrict(stmt.OnError.Model)
+			if hExpandErr != nil {
+				return false, 0, fmt.Errorf("line %d: on-error: --model: %w", stmt.Line, hExpandErr)
+			}
 			if e.OnStageStart != nil {
 				e.OnStageStart(*stageNum, totalStages, hIntent)
 			}
 			hRes, hExitCode, hTokens, hErr := e.spawner.SpawnAndWait(
-				ctx, hIntent, stmt.OnError.Agent, stmt.OnError.Model)
+				ctx, hIntent, hAgent, hModel)
 			if hErr != nil {
 				return false, 0, fmt.Errorf("on-error: %w", hErr)
 			}
@@ -482,7 +498,7 @@ func (e *ScriptExecutor) executeStatement(ctx context.Context, stmt Statement,
 
 	case StmtPipeline:
 		*stageNum++
-		expanded, expandErr := expandPipelineIntentsStrict(e.env, stmt.Pipeline)
+		expanded, expandErr := expandPipelineCommandsStrict(e.env, stmt.Pipeline)
 		if expandErr != nil {
 			return false, 0, fmt.Errorf("line %d: %w", stmt.Line, expandErr)
 		}
@@ -508,11 +524,19 @@ func (e *ScriptExecutor) executeStatement(ctx context.Context, stmt Statement,
 			if hExpandErr != nil {
 				return false, 0, fmt.Errorf("line %d: on-error: %w", stmt.Line, hExpandErr)
 			}
+			hAgent, hExpandErr := e.env.ExpandStrict(stmt.OnError.Agent)
+			if hExpandErr != nil {
+				return false, 0, fmt.Errorf("line %d: on-error: --agent: %w", stmt.Line, hExpandErr)
+			}
+			hModel, hExpandErr := e.env.ExpandStrict(stmt.OnError.Model)
+			if hExpandErr != nil {
+				return false, 0, fmt.Errorf("line %d: on-error: --model: %w", stmt.Line, hExpandErr)
+			}
 			if e.OnStageStart != nil {
 				e.OnStageStart(*stageNum, totalStages, hIntent)
 			}
 			hRes, hExitCode, hTokens, hErr := e.spawner.SpawnAndWait(
-				ctx, hIntent, stmt.OnError.Agent, stmt.OnError.Model)
+				ctx, hIntent, hAgent, hModel)
 			if hErr != nil {
 				return false, 0, fmt.Errorf("on-error: %w", hErr)
 			}
@@ -840,11 +864,15 @@ func (e *ScriptExecutor) executeBuiltin(ctx context.Context, stmt *BuiltinStmt, 
 }
 
 type parallelTask struct {
-	idx              int
-	stmt             Statement
-	expandedIntent   string
-	expandedOnError  string
-	expandedPipeline *Pipeline
+	idx                int
+	stmt               Statement
+	expandedIntent     string
+	expandedAgent      string
+	expandedModel      string
+	expandedOnError    string
+	expandedOnErrAgent string
+	expandedOnErrModel string
+	expandedPipeline   *Pipeline
 }
 
 type parallelResult struct {
@@ -871,15 +899,31 @@ func (e *ScriptExecutor) executeParallel(ctx context.Context, stmt Statement, re
 				return fmt.Errorf("line %d: %w", s.Line, err)
 			}
 			task.expandedIntent = expanded
+			task.expandedAgent, err = e.env.ExpandStrict(s.Spawn.Agent)
+			if err != nil {
+				return fmt.Errorf("line %d: --agent: %w", s.Line, err)
+			}
+			task.expandedModel, err = e.env.ExpandStrict(s.Spawn.Model)
+			if err != nil {
+				return fmt.Errorf("line %d: --model: %w", s.Line, err)
+			}
 			if s.OnError != nil {
 				expandedOnErr, err := e.env.ExpandStrict(s.OnError.Intent)
 				if err != nil {
 					return fmt.Errorf("line %d: on-error: %w", s.Line, err)
 				}
 				task.expandedOnError = expandedOnErr
+				task.expandedOnErrAgent, err = e.env.ExpandStrict(s.OnError.Agent)
+				if err != nil {
+					return fmt.Errorf("line %d: on-error: --agent: %w", s.Line, err)
+				}
+				task.expandedOnErrModel, err = e.env.ExpandStrict(s.OnError.Model)
+				if err != nil {
+					return fmt.Errorf("line %d: on-error: --model: %w", s.Line, err)
+				}
 			}
 		case StmtPipeline:
-			expanded, err := expandPipelineIntentsStrict(e.env, s.Pipeline)
+			expanded, err := expandPipelineCommandsStrict(e.env, s.Pipeline)
 			if err != nil {
 				return fmt.Errorf("line %d: %w", s.Line, err)
 			}
@@ -904,13 +948,13 @@ func (e *ScriptExecutor) executeParallel(ctx context.Context, stmt Statement, re
 				if e.OnEvent != nil {
 					e.emitEvent(ScriptSpawn, t.stmt.Line, t.expandedIntent, map[string]any{
 						"intent":   t.expandedIntent,
-						"agent":    t.stmt.Spawn.Agent,
-						"model":    t.stmt.Spawn.Model,
+						"agent":    t.expandedAgent,
+						"model":    t.expandedModel,
 						"assign":   t.stmt.Assign,
 						"parallel": true,
 					})
 				}
-				res, exitCode, tokens, err := e.spawner.SpawnAndWait(ctx, t.expandedIntent, t.stmt.Spawn.Agent, t.stmt.Spawn.Model)
+				res, exitCode, tokens, err := e.spawner.SpawnAndWait(ctx, t.expandedIntent, t.expandedAgent, t.expandedModel)
 				if err == nil && t.stmt.Spawn.ResultLastLine {
 					res = extractLastLine(res)
 				}
@@ -918,14 +962,14 @@ func (e *ScriptExecutor) executeParallel(ctx context.Context, stmt Statement, re
 					if e.OnEvent != nil {
 						e.emitEvent(ScriptSpawn, t.stmt.Line, t.expandedOnError, map[string]any{
 							"intent":   t.expandedOnError,
-							"agent":    t.stmt.OnError.Agent,
-							"model":    t.stmt.OnError.Model,
+							"agent":    t.expandedOnErrAgent,
+							"model":    t.expandedOnErrModel,
 							"assign":   t.stmt.Assign,
 							"parallel": true,
 							"on_error": true,
 						})
 					}
-					hRes, hExitCode, hTokens, hErr := e.spawner.SpawnAndWait(ctx, t.expandedOnError, t.stmt.OnError.Agent, t.stmt.OnError.Model)
+					hRes, hExitCode, hTokens, hErr := e.spawner.SpawnAndWait(ctx, t.expandedOnError, t.expandedOnErrAgent, t.expandedOnErrModel)
 					if hErr == nil {
 						if t.stmt.OnError.ResultLastLine {
 							hRes = extractLastLine(hRes)

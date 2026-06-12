@@ -1,6 +1,9 @@
 package shell
 
-import "strings"
+import (
+	"fmt"
+	"strings"
+)
 
 func countExecutableStages(script *Script) int {
 	return countStagesInBlock(script.Statements)
@@ -51,18 +54,26 @@ func countStagesInBlock(stmts []Statement) int {
 	return n
 }
 
-func expandPipelineIntentsStrict(env *Environment, p *Pipeline) (*Pipeline, error) {
+func expandPipelineCommandsStrict(env *Environment, p *Pipeline) (*Pipeline, error) {
 	expanded := &Pipeline{Commands: make([]Command, len(p.Commands))}
 	for i, cmd := range p.Commands {
 		intent, err := env.ExpandStrict(cmd.Intent)
 		if err != nil {
-			return nil, err
+			return nil, fmt.Errorf("stage %d: %w", i+1, err)
+		}
+		agent, err := env.ExpandStrict(cmd.Agent)
+		if err != nil {
+			return nil, fmt.Errorf("stage %d: --agent: %w", i+1, err)
+		}
+		model, err := env.ExpandStrict(cmd.Model)
+		if err != nil {
+			return nil, fmt.Errorf("stage %d: --model: %w", i+1, err)
 		}
 		expanded.Commands[i] = Command{
 			Type:           cmd.Type,
 			Intent:         intent,
-			Agent:          cmd.Agent,
-			Model:          cmd.Model,
+			Agent:          agent,
+			Model:          model,
 			ResultLastLine: cmd.ResultLastLine,
 		}
 	}
