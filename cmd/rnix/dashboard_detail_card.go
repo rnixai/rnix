@@ -351,11 +351,26 @@ func fitLine(s string, width int) string {
 	if lipgloss.Width(s) <= width {
 		return s
 	}
+	// Append an ellipsis so truncation is visible — a silent hard cut can land
+	// mid-token and misrepresent data (e.g. "deepseek-v4-flash-free" rendering
+	// as "deepseek-v4-flash", see investigations/dashboard-model-mismatch).
+	// NOTE: plain-text input only — the rune-stripping loop is not ANSI-safe;
+	// for styled strings use truncateAnsi (dashboard_timeline.go) instead.
+	ellipsis := "…"
+	if ui.IsASCIIMode() {
+		ellipsis = "..."
+	}
+	target := width - lipgloss.Width(ellipsis)
+	if target <= 0 {
+		// Degenerate width: no room for a marker, fall back to a hard cut.
+		target = width
+		ellipsis = ""
+	}
 	runes := []rune(s)
-	for lipgloss.Width(string(runes)) > width && len(runes) > 0 {
+	for lipgloss.Width(string(runes)) > target && len(runes) > 0 {
 		runes = runes[:len(runes)-1]
 	}
-	return string(runes)
+	return string(runes) + ellipsis
 }
 
 // safeRepeat calls strings.Repeat with n clamped to >= 0.
