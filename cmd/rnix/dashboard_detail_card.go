@@ -55,8 +55,10 @@ func renderDetailCardLeft(m *dashboardModel, width, height int) string {
 	if len(d.AllowedDevices) > 0 {
 		deviceList = strings.Join(d.AllowedDevices, ", ")
 	}
-	line1 := fmt.Sprintf("  Provider: %s │ Model: %s%s │ Devices: %s", inspector.DashIfEmpty(d.Provider), inspector.DashIfEmpty(d.Model), startedSeg, deviceList)
-	line1 = fitLine(line1, width)
+	line1 := fitLinePreferHead(
+		fmt.Sprintf("  Provider: %s │ Model: %s", inspector.DashIfEmpty(d.Provider), inspector.DashIfEmpty(d.Model)),
+		fmt.Sprintf("%s │ Devices: %s", startedSeg, deviceList),
+		width)
 
 	// Line 2: Skills + Orchestration info
 	var skillNames []string
@@ -165,8 +167,10 @@ func renderDeadDetailCard(m *dashboardModel, proc *selectedProcRef, width, heigh
 	if len(d.AllowedDevices) > 0 {
 		deadDeviceList = strings.Join(d.AllowedDevices, ", ")
 	}
-	line2 := fmt.Sprintf("  Provider: %s │ Model: %s │ Devices: %s", inspector.DashIfEmpty(d.Provider), inspector.DashIfEmpty(d.Model), deadDeviceList)
-	line2 = fitLine(line2, width)
+	line2 := fitLinePreferHead(
+		fmt.Sprintf("  Provider: %s │ Model: %s", inspector.DashIfEmpty(d.Provider), inspector.DashIfEmpty(d.Model)),
+		" │ Devices: "+deadDeviceList,
+		width)
 
 	content := lipgloss.NewStyle().Width(width).Height(height).Render(
 		lipgloss.JoinVertical(lipgloss.Left, line1, line2),
@@ -371,6 +375,24 @@ func fitLine(s string, width int) string {
 		runes = runes[:len(runes)-1]
 	}
 	return string(runes) + ellipsis
+}
+
+// fitLinePreferHead fits "head+tail" into width, preserving head intact and
+// truncating tail first (with fitLine's ellipsis marker). Only when head alone
+// exceeds width does head itself get truncated. Field-priority rationale: the
+// head carries identity data (Provider/Model) that must not be cut mid-token,
+// while the tail (Started/Devices) degrades gracefully — see
+// investigations/dashboard-model-mismatch Follow-up S2/S3.
+// NOTE: plain-text input only (same constraint as fitLine).
+func fitLinePreferHead(head, tail string, width int) string {
+	if lipgloss.Width(head)+lipgloss.Width(tail) <= width {
+		return head + tail
+	}
+	headW := lipgloss.Width(head)
+	if headW >= width {
+		return fitLine(head, width)
+	}
+	return head + fitLine(tail, width-headW)
 }
 
 // safeRepeat calls strings.Repeat with n clamped to >= 0.

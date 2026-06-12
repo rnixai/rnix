@@ -4,6 +4,8 @@ import (
 	"strings"
 
 	"github.com/charmbracelet/lipgloss"
+
+	"github.com/rnixai/rnix/internal/ui"
 )
 
 // renderFixedPanel renders content inside a rigid bordered container.
@@ -21,10 +23,25 @@ func renderFixedPanel(content string, width, height int, borderColor lipgloss.Co
 	innerH := max(height-2, 1)
 
 	// Step 1: truncate each line to innerW (prevent wrapping)
+	//
+	// Truncation appends an ellipsis so the cut is visible — a silent hard
+	// clip can land mid-token and misrepresent data (e.g. "deepseek-v4-flash-free"
+	// rendering as "deepseek-v4-flash", see investigations/dashboard-model-mismatch
+	// Follow-up S4). MaxWidth is ANSI-safe; the marker inherits no style.
+	ellipsis := "…"
+	if ui.IsASCIIMode() {
+		ellipsis = "..."
+	}
+	ellipsisW := lipgloss.Width(ellipsis)
 	lines := strings.Split(content, "\n")
 	for i, line := range lines {
 		if lipgloss.Width(line) > innerW {
-			lines[i] = lipgloss.NewStyle().MaxWidth(innerW).Render(line)
+			if innerW > ellipsisW {
+				lines[i] = lipgloss.NewStyle().MaxWidth(innerW-ellipsisW).Render(line) + ellipsis
+			} else {
+				// Degenerate width: no room for a marker, fall back to a hard cut.
+				lines[i] = lipgloss.NewStyle().MaxWidth(innerW).Render(line)
+			}
 		}
 	}
 

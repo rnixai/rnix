@@ -134,6 +134,11 @@ func (m dashboardModel) renderDashboardTitle() string {
 
 	candidates := []candidate{}
 
+	maxW := m.width
+	if maxW == 0 {
+		maxW = 120
+	}
+
 	// Level 5 (full): left + counts + ctx + budget + elapsed
 	if elapsedSeg != "" {
 		candidates = append(candidates, candidate{
@@ -156,6 +161,21 @@ func (m dashboardModel) renderDashboardTitle() string {
 		leftPart + sep + countSeg,
 		leftPlain + sep + countPlain,
 	})
+	// Level 1.5: provider kept + model truncated (dashboard-model-mismatch
+	// Follow-up S1)：仅 model 超长导致 Level 2 不命中时，截 model 保 provider，
+	// 避免 provider/model 整段消失。带色轨 model 仍走 dim 样式，省略号由 fitLine
+	// 追加（plain 串，满足其 plain-text-only 约束）。
+	if providerStyled != "" && selectedProc.Model != "" {
+		availForModel := maxW - lipgloss.Width(base+" "+selectedProc.Provider+"/") - lipgloss.Width(sep+countPlain)
+		if availForModel > 1 && availForModel < lipgloss.Width(selectedProc.Model) {
+			truncModel := fitLine(selectedProc.Model, availForModel)
+			modelDim := lipgloss.NewStyle().Foreground(lipgloss.Color(ui.ColorMuted))
+			candidates = append(candidates, candidate{
+				base + " " + providerStyled + modelDim.Render("/"+truncModel) + sep + countSeg,
+				base + " " + selectedProc.Provider + "/" + truncModel + sep + countPlain,
+			})
+		}
+	}
 	// Level 1 (minimum): base + NP ME (no provider, no W)
 	minEPart := fmt.Sprintf("%dE", m.errorCount)
 	if m.errorCount > 0 {
@@ -166,11 +186,6 @@ func (m dashboardModel) renderDashboardTitle() string {
 		base + " " + minCount,
 		fmt.Sprintf("%s %dP %dE", base, active, m.errorCount),
 	})
-
-	maxW := m.width
-	if maxW == 0 {
-		maxW = 120
-	}
 
 	var titleLine string
 	for _, c := range candidates {
