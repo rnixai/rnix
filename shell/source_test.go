@@ -790,7 +790,7 @@ func TestParseScript_Source_RejectedInParallel(t *testing.T) {
 	}
 }
 
-// --- 18.5-COMB-007: [P0] countStagesInBlock source 本身 count 为 0 ---
+// --- 18.5-COMB-007: [P0] 含 source 的脚本 total 不可信 → 0 ---
 
 func TestCountStages_SourceZero(t *testing.T) {
 	input := "source ./lib.ash\nspawn \"main\""
@@ -800,8 +800,8 @@ func TestCountStages_SourceZero(t *testing.T) {
 	}
 
 	total := countExecutableStages(script)
-	if total != 1 {
-		t.Errorf("stage count = %d, want 1 (source counts as 0, spawn counts as 1)", total)
+	if total != 0 {
+		t.Errorf("stage count = %d, want 0 (source makes the total untrusted → no denominator)", total)
 	}
 }
 

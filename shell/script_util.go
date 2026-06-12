@@ -5,12 +5,38 @@ import (
 	"strings"
 )
 
+// countExecutableStages computes the progress denominator (Total) for a script.
+// It returns 0 ("untrusted", no denominator shown downstream) when the total
+// cannot be statically determined: the script contains a source statement, a
+// fn call without a resolvable definition, a recursive fn-call cycle, an
+// expansion exceeding MaxCallDepth, or a conditional early return.
 func countExecutableStages(script *Script) int {
-	return countStagesInBlock(script.Statements)
+	if containsSourceStmt(script.Statements) {
+		return 0 // sourced script stages are unknown at parse time
+	}
+	n, trusted, _ := countStagesInBlock(script.Statements, script.Functions, map[string]bool{}, 0)
+	if !trusted {
+		return 0
+	}
+	return n
 }
 
-func countStagesInBlock(stmts []Statement) int {
-	n := 0
+// countStagesInBlock counts executable stages in a statement block.
+// fns is the script's function table used to expand StmtFnCall bodies;
+// visiting tracks fn names on the current expansion path for cycle detection;
+// depth guards against exponential expansion of diamond-shaped call chains
+// (no cycle, but O(2^n) paths) — mirrors the runtime MaxCallDepth limit.
+// trusted=false means the count cannot be statically determined (missing fn
+// definition, recursive cycle, depth overflow, or conditional early return)
+// and must propagate up to the caller.
+// returned=true means the block ends in an unconditional top-level return:
+// counting stopped there, which is exact for the block itself; callers that
+// embed the block conditionally (If/For/While/Parallel) must degrade to
+// untrusted, while FnCall expansion treats it as a normal fn exit.
+func countStagesInBlock(stmts []Statement, fns map[string]*FnDef, visiting map[string]bool, depth int) (n int, trusted bool, returned bool) {
+	if depth > MaxCallDepth {
+		return 0, false, false // expansion too deep — statically unknowable
+	}
 	for _, stmt := range stmts {
 		switch stmt.Kind {
 		case StmtSpawn:
@@ -24,14 +50,27 @@ func countStagesInBlock(stmts []Statement) int {
 				n++
 			}
 		case StmtIf:
-			thenCount := countStagesInBlock(stmt.If.Then)
-			elseCount := countStagesInBlock(stmt.If.Else)
+			thenCount, ok, ret := countStagesInBlock(stmt.If.Then, fns, visiting, depth)
+			if !ok || ret {
+				// conditional return: whether later statements run is unknowable
+				return 0, false, false
+			}
+			elseCount, ok, ret := countStagesInBlock(stmt.If.Else, fns, visiting, depth)
+			if !ok || ret {
+				return 0, false, false
+			}
 			n += max(thenCount, elseCount)
 		case StmtFor:
-			bodyCount := countStagesInBlock(stmt.For.Body)
+			bodyCount, ok, ret := countStagesInBlock(stmt.For.Body, fns, visiting, depth)
+			if !ok || ret {
+				return 0, false, false
+			}
 			n += len(stmt.For.List) * bodyCount
 		case StmtWhile:
-			bodyCount := countStagesInBlock(stmt.While.Body)
+			bodyCount, ok, ret := countStagesInBlock(stmt.While.Body, fns, visiting, depth)
+			if !ok || ret {
+				return 0, false, false
+			}
 			n += 10 * bodyCount
 		case StmtBuiltin:
 			if stmt.Builtin.Command == "wait" {
@@ -40,18 +79,46 @@ func countStagesInBlock(stmts []Statement) int {
 		case StmtFnDef:
 			// 0 — definition doesn't count as a stage
 		case StmtFnCall:
-			n++
+			if _, isBuiltin := builtinFunctions[stmt.FnCall.Name]; isBuiltin {
+				break // builtin fns (len/append/keys) don't spawn — 0 stages
+			}
+			fnDef, ok := fns[stmt.FnCall.Name]
+			if !ok || visiting[stmt.FnCall.Name] {
+				// missing definition (may live in a sourced file) or
+				// recursive cycle — expansion count is statically unknown
+				return 0, false, false
+			}
+			visiting[stmt.FnCall.Name] = true
+			// body returned=true is a normal fn exit here, not an early-return leak
+			bodyCount, bodyOK, _ := countStagesInBlock(fnDef.Body, fns, visiting, depth+1)
+			delete(visiting, stmt.FnCall.Name)
+			if !bodyOK {
+				return 0, false, false
+			}
+			n += bodyCount
 		case StmtReturn:
-			// 0
+			// unconditional return at this block level: nothing after it runs,
+			// so the count so far is exact — stop here
+			return n, true, true
 		case StmtParallel:
-			n += countStagesInBlock(stmt.Parallel.Body)
+			bodyCount, ok, ret := countStagesInBlock(stmt.Parallel.Body, fns, visiting, depth)
+			if !ok || ret {
+				return 0, false, false
+			}
+			n += bodyCount
 		case StmtArrayLit, StmtMapLit, StmtAssignIndex, StmtAssignProp:
 			// 0 — pure assignments, no spawn
 		case StmtSource:
-			// 0 — sourced script stages are unknown at parse time
+			// handled by containsSourceStmt in countExecutableStages;
+			// defensive here: source makes the total untrusted
+			return 0, false, false
+		default:
+			// fail-safe: a future StatementKind not handled here degrades to
+			// untrusted instead of silently undercounting the denominator
+			return 0, false, false
 		}
 	}
-	return n
+	return n, true, false
 }
 
 func expandPipelineCommandsStrict(env *Environment, p *Pipeline) (*Pipeline, error) {
