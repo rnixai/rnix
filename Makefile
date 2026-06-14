@@ -7,7 +7,7 @@ GIT_COMMIT := $(shell git rev-parse --short HEAD 2>/dev/null)$(GIT_DIRTY)
 BUILD_DATE := $(shell date -u '+%Y-%m-%dT%H:%M:%SZ')
 LDFLAGS := -X main.ldVersion=$(GIT_VERSION) -X main.ldGitCommit=$(GIT_COMMIT) -X main.ldBuildDate=$(BUILD_DATE)
 
-.PHONY: build install test lint vet modernize modernize-check clean cache-clean all release help \
+.PHONY: build install test test-cover lint vet modernize modernize-check clean cache-clean all release help \
 	gh-status gh-view gh-repo-edit gh-pr gh-pr-list gh-issue gh-issue-list gh-release-publish gh-push
 .DEFAULT_GOAL := help
 
@@ -19,6 +19,14 @@ install:
 
 test:
 	go test -race ./...
+
+# Mirrors CI's coverage stage (.github/workflows/test.yml). Coverage
+# instrumentation changes runtime behavior, so some failures only surface
+# under -cover — e.g. re-exec'd helper processes printing "GOCOVERDIR not set"
+# into combined output. Run this before pushing to catch what `make test` can't.
+test-cover:
+	go test -race -coverprofile=coverage.out -covermode=atomic ./...
+	@echo "Coverage profile → coverage.out (view: go tool cover -html=coverage.out)"
 
 lint:
 	golangci-lint run --allow-parallel-runners ./...
@@ -101,6 +109,7 @@ help: ## Show this help
 	@printf "  \033[36m%-18s\033[0m %s\n" "build"           "Build binary → ./$(BINARY)"
 	@printf "  \033[36m%-18s\033[0m %s\n" "install"         "Install binary to GOPATH/bin"
 	@printf "  \033[36m%-18s\033[0m %s\n" "test"            "Run all tests with race detection"
+	@printf "  \033[36m%-18s\033[0m %s\n" "test-cover"      "Run tests with coverage (mirrors CI)"
 	@printf "  \033[36m%-18s\033[0m %s\n" "lint"            "Run golangci-lint"
 	@printf "  \033[36m%-18s\033[0m %s\n" "vet"             "Run go vet"
 	@printf "  \033[36m%-18s\033[0m %s\n" "modernize"       "Apply go fix modernizations"
