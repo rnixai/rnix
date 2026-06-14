@@ -22,23 +22,25 @@ var (
 // OpenAIDriver implements LLMDriver and ToolCallingDriver using the official
 // openai-go SDK (github.com/openai/openai-go/v3).
 type OpenAIDriver struct {
-	client          openai.Client
-	name            string
-	defaultModel    string
-	defaultTimeout  time.Duration
-	streamUsage     bool
+	client           openai.Client
+	name             string
+	defaultModel     string
+	defaultTimeout   time.Duration
+	streamUsage      bool
 	defaultMaxTokens int
+	reasoningEffort  string
 }
 
 // OpenAIOption configures an OpenAIDriver.
 type OpenAIOption func(*openaiDriverConfig)
 
 type openaiDriverConfig struct {
-	model        string
-	timeout      time.Duration
-	sdkOpts      []option.RequestOption
-	streamUsage  bool
-	maxTokens    int
+	model           string
+	timeout         time.Duration
+	sdkOpts         []option.RequestOption
+	streamUsage     bool
+	maxTokens       int
+	reasoningEffort string
 }
 
 func WithOpenAIModel(model string) OpenAIOption {
@@ -80,6 +82,14 @@ func WithOpenAIMaxTokens(n int) OpenAIOption {
 	return func(c *openaiDriverConfig) { c.maxTokens = n }
 }
 
+// WithOpenAIReasoningEffort sets the reasoning_effort sent on every request.
+// The value is passed through verbatim — shared.ReasoningEffort is an open
+// string type with no runtime validation, so "xhigh" (gpt-5.1-codex-max+) and
+// any future vendor level work without a code change. Empty = unset.
+func WithOpenAIReasoningEffort(effort string) OpenAIOption {
+	return func(c *openaiDriverConfig) { c.reasoningEffort = effort }
+}
+
 // WithOpenAISDKOption appends a raw SDK request option.
 func WithOpenAISDKOption(opt option.RequestOption) OpenAIOption {
 	return func(c *openaiDriverConfig) {
@@ -99,12 +109,13 @@ func NewOpenAIDriver(name string, opts ...OpenAIOption) *OpenAIDriver {
 	}
 	client := openai.NewClient(cfg.sdkOpts...)
 	return &OpenAIDriver{
-		client:          client,
-		name:            name,
-		defaultModel:    cfg.model,
-		defaultTimeout:  cfg.timeout,
-		streamUsage:     cfg.streamUsage,
+		client:           client,
+		name:             name,
+		defaultModel:     cfg.model,
+		defaultTimeout:   cfg.timeout,
+		streamUsage:      cfg.streamUsage,
 		defaultMaxTokens: cfg.maxTokens,
+		reasoningEffort:  cfg.reasoningEffort,
 	}
 }
 
@@ -221,6 +232,12 @@ func (d *OpenAIDriver) buildParams(req LLMRequest, tools []ToolDef) openai.ChatC
 		params.MaxTokens = openai.Int(int64(req.MaxTokens))
 	} else if d.defaultMaxTokens > 0 {
 		params.MaxTokens = openai.Int(int64(d.defaultMaxTokens))
+	}
+	// Passthrough: reasoning_effort sent verbatim when configured. shared.ReasoningEffort
+	// is an open string type (none/minimal/low/medium/high/xhigh predefined, no validation),
+	// so unknown/future levels pass through untouched. Empty = field omitted (omitzero).
+	if d.reasoningEffort != "" {
+		params.ReasoningEffort = shared.ReasoningEffort(d.reasoningEffort)
 	}
 	if sdkTools := convertToolDefsToSDK(tools); len(sdkTools) > 0 {
 		params.Tools = sdkTools

@@ -189,3 +189,24 @@ The `input_tokens` field has driver-dependent semantics:
 - **CLI drivers** (claude-cli / cursor-cli / codex-cli): use OpenAI fallback semantics
 
 See `internal/dashboard/inspector/meta_lens.go:ComputeCacheHitRate` for branching.
+
+## Reasoning Effort (Epic 55)
+
+`ProviderConfig.reasoning_effort` (`drivers/llm/config.go`) configures discrete reasoning strength — the离散等级语义 that OpenAI/Anthropic/Gemini newest models have converged on, replacing the legacy `thinking_budget(int)`. **透传语义（spec owner 决策 2026-06-14）**：rnix 原样下发该字符串，**不校验、不映射、不维护规范等级集**。SDK 的 effort 字段均为开放 `string` 类型且无运行时校验，因此 `xhigh`（OpenAI gpt-5.1-codex-max+）及厂商未来新增等级无需改代码即可透传——实现禁止 `switch`/枚举白名单。写错的值由底层 API/CLI 自行报错或降级。
+
+各 driver 的 effort 支持形态对照（详见 `_bmad-output/implementation-artifacts/investigations/llm-driver-effort-level-investigation.md`）：
+
+| Driver | 机制 | 写入位置 | 已知取值 | 备注 |
+|--------|------|----------|----------|------|
+| `openai` | API 参数 | `ChatCompletionNewParams.ReasoningEffort` | none/minimal/low/medium/high/**xhigh**（小写） | 空=省略字段 |
+| `openai-compat` | 请求 body | `reasoning_effort` 字段 | 同 OpenAI（DeepSeek V4 等原生接受） | 与 `thinking_budget` **正交可共存**（DeepSeek 多轮工具调用需 budget） |
+| `anthropic` | API 参数 | `MessageNewParams.OutputConfig.Effort`（stable 非 beta） | low/medium/high/max（小写） | **迁移**：effort 优先；`thinking_budget` 路径**保留为降级**（DeepSeek V4 Anthropic-兼容端点多轮工具调用必需，缺失 HTTP 400） |
+| `gemini` | API 参数 | `ThinkingConfig.ThinkingLevel` | **MINIMAL/LOW/MEDIUM/HIGH（大写！）** | **迁移**：level 与 `thinking_budget` **互斥**（Gemini 3 同传两者报错）；level 非空时不传 budget；budget 保留给 Gemini ≤2.5 |
+| `claude-cli` | CLI flag | `--effort <value>`（内置 args → effort → extraArgs） | 透传 | 旧版 CLI 不识别 `--effort` 会自行报错（见「Claude CLI Driver 兼容性约定」，MVP 不做 probe） |
+| `codex-cli` | CLI flag | `-c model_reasoning_effort=<value>` | 透传 | 空=不追加 |
+| `cursor-cli` | **不支持（no-op + warning）** | — | — | thinking level 绑在 model 名后缀（如 `sonnet-4.5-thinking-high`），无独立 effort 参数；factory 配置非空时记 warning |
+| `qwen-cli` | **不支持（no-op + warning）** | — | — | Qwen3-Coder 无 effort 概念（仅 non-thinking）；factory 配置非空时记 warning |
+
+⚠️ **大小写不统一陷阱**：透传语义下 rnix 不转换大小写——Gemini 的 `ThinkingLevel` 是**大写**（`HIGH`），OpenAI/Anthropic 是**小写**（`high`）。为 gemini provider 配 `reasoning_effort` 必须写大写。
+
+配置文档与示例见 [docs/reasoning-effort.md](docs/reasoning-effort.md)。

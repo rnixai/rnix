@@ -21,15 +21,16 @@ var (
 // OpenAICompatDriver implements LLMDriver and ToolCallingDriver for any
 // OpenAI-compatible /v1/chat/completions endpoint (Ollama, Groq, DeepSeek, etc).
 type OpenAICompatDriver struct {
-	baseURL         string
-	apiKey          string
-	name            string
-	defaultModel    string
-	defaultTimeout  time.Duration
-	httpClient      *http.Client
-	streamUsage     bool
+	baseURL          string
+	apiKey           string
+	name             string
+	defaultModel     string
+	defaultTimeout   time.Duration
+	httpClient       *http.Client
+	streamUsage      bool
 	defaultMaxTokens int
-	thinkingBudget  int
+	thinkingBudget   int
+	reasoningEffort  string
 }
 
 // CompatOption configures an OpenAICompatDriver.
@@ -71,6 +72,14 @@ func WithCompatMaxTokens(n int) CompatOption {
 // without it, the API returns HTTP 400 "reasoning_content must be passed back".
 func WithCompatThinkingBudget(n int) CompatOption {
 	return func(d *OpenAICompatDriver) { d.thinkingBudget = n }
+}
+
+// WithCompatReasoningEffort sets the reasoning_effort field sent in the request
+// body. The value is passed through verbatim (DeepSeek V4 etc. accept it
+// natively); rnix does not validate or map it. Empty = field omitted. Orthogonal
+// to thinking_budget — both may be set; newest models prefer effort.
+func WithCompatReasoningEffort(effort string) CompatOption {
+	return func(d *OpenAICompatDriver) { d.reasoningEffort = effort }
 }
 
 // NewOpenAICompatDriver creates a new driver for an OpenAI-compatible endpoint.
@@ -123,14 +132,15 @@ func (d *OpenAICompatDriver) HealthCheck(ctx context.Context) error {
 // --- Internal OpenAI API types (unexported) ---
 
 type oaiRequest struct {
-	Model         string            `json:"model"`
-	Messages      []oaiMessage      `json:"messages"`
-	Temperature   *float64          `json:"temperature,omitempty"`
-	MaxTokens     *int              `json:"max_tokens,omitempty"`
-	Stream        bool              `json:"stream"`
-	StreamOptions *oaiStreamOptions `json:"stream_options,omitempty"`
-	Tools         []oaiTool         `json:"tools,omitempty"`
-	Thinking      *oaiThinking      `json:"thinking,omitempty"`
+	Model           string            `json:"model"`
+	Messages        []oaiMessage      `json:"messages"`
+	Temperature     *float64          `json:"temperature,omitempty"`
+	MaxTokens       *int              `json:"max_tokens,omitempty"`
+	Stream          bool              `json:"stream"`
+	StreamOptions   *oaiStreamOptions `json:"stream_options,omitempty"`
+	Tools           []oaiTool         `json:"tools,omitempty"`
+	Thinking        *oaiThinking      `json:"thinking,omitempty"`
+	ReasoningEffort string            `json:"reasoning_effort,omitempty"`
 }
 
 type oaiThinking struct {
@@ -399,6 +409,11 @@ func (d *OpenAICompatDriver) buildOAIRequest(req LLMRequest, stream bool, tools 
 			Type:         "enabled",
 			BudgetTokens: d.thinkingBudget,
 		}
+	}
+	// Passthrough: reasoning_effort sent verbatim when configured. Orthogonal to
+	// the thinking_budget path above (both may coexist); rnix does not validate.
+	if d.reasoningEffort != "" {
+		oai.ReasoningEffort = d.reasoningEffort
 	}
 	return oai, nil
 }

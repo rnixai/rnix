@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **`reasoning_effort` passthrough across all LLM drivers (Epic 55)**: `providers.yaml` gains a `reasoning_effort` field per provider, passed through verbatim (no validation/mapping — open string, so `xhigh` and future vendor levels work without a code change) to each driver's native surface: OpenAI `ChatCompletionNewParams.ReasoningEffort`, openai-compat request body `reasoning_effort`, Anthropic `OutputConfig.Effort`, Gemini `ThinkingConfig.ThinkingLevel`, claude-cli `--effort`, codex-cli `-c model_reasoning_effort=`. cursor-cli and qwen-cli have no effort parameter and intentionally no-op with a warning (cursor expresses level via model-name suffix; Qwen3-Coder has no effort concept). See [docs/reasoning-effort.md](docs/reasoning-effort.md).
+
+### Changed
+
+- **Anthropic / Gemini `thinking_budget` → effort migration (Epic 55)**: the legacy `thinking_budget(int)` path is retained but effort now takes priority where set. For Anthropic, `reasoning_effort` writes `OutputConfig.Effort` while `thinking_budget` stays as the fallback required by DeepSeek V4 Anthropic-compat endpoints (its removal triggers HTTP 400 on multi-turn tool calls). For Gemini, `thinking_level` and `thinking_budget` are mutually exclusive (Gemini 3 rejects both), so effort suppresses the budget; the budget path remains for Gemini ≤2.5. ⚠️ Gemini levels are UPPERCASE (`HIGH`) while OpenAI/Anthropic are lowercase (`high`) — passthrough does not normalize case.
+
 ## [0.9.4] - 2026-06-14
 
 Theme: **Feature Profiles, Tool Naming Standardization & Device-Path Internalization (Epics 52, 53, 54)** — feature flags become a first-class runtime profile surfaced through a new `rnix config` command; tool names converge on a uniform PascalCase convention aligned with the broader agent ecosystem; and device paths (`/dev/*`) become a pure internal routing concern, no longer leaking into prompts, agent instructions, or skill manifests.

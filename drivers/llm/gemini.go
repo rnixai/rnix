@@ -25,6 +25,7 @@ type GeminiDriver struct {
 	defaultModel   string
 	defaultTimeout time.Duration
 	thinkingBudget int
+	thinkingLevel  string
 }
 
 // GeminiOption configures a GeminiDriver.
@@ -35,6 +36,7 @@ type geminiDriverConfig struct {
 	timeout        time.Duration
 	apiKey         string
 	thinkingBudget int
+	thinkingLevel  string
 }
 
 func WithGeminiModel(model string) GeminiOption {
@@ -53,6 +55,16 @@ func WithGeminiThinkingBudget(budget int) GeminiOption {
 	return func(c *geminiDriverConfig) { c.thinkingBudget = budget }
 }
 
+// WithGeminiThinkingLevel sets ThinkingConfig.ThinkingLevel (migration target
+// replacing thinking_budget for Gemini 3). When set it takes priority and the
+// budget is NOT sent — Gemini 3 rejects requests carrying both level and budget
+// (mutually exclusive). ThinkingLevel is an open string type whose Gemini enums
+// are UPPERCASE (MINIMAL/LOW/MEDIUM/HIGH); the value is passed through verbatim,
+// so a gemini provider must configure uppercase. Empty = unset.
+func WithGeminiThinkingLevel(level string) GeminiOption {
+	return func(c *geminiDriverConfig) { c.thinkingLevel = level }
+}
+
 // NewGeminiDriver creates a new driver backed by the official genai SDK.
 func NewGeminiDriver(name string, opts ...GeminiOption) *GeminiDriver {
 	cfg := geminiDriverConfig{timeout: DefaultTimeout}
@@ -65,6 +77,7 @@ func NewGeminiDriver(name string, opts ...GeminiOption) *GeminiDriver {
 		defaultModel:   cfg.model,
 		defaultTimeout: cfg.timeout,
 		thinkingBudget: cfg.thinkingBudget,
+		thinkingLevel:  cfg.thinkingLevel,
 	}
 }
 
@@ -121,7 +134,18 @@ func (d *GeminiDriver) buildConfig(req LLMRequest, tools []ToolDef) *genai.Gener
 		t := float32(*req.Temperature)
 		cfg.Temperature = &t
 	}
-	if d.thinkingBudget > 0 {
+	// Reasoning effort (migration target): ThinkingLevel takes priority when set.
+	// Gemini 3 rejects requests carrying BOTH thinking_level and thinking_budget
+	// (mutually exclusive) → when level is set the budget is intentionally NOT
+	// sent. The budget path is RETAINED for Gemini ≤2.5. ThinkingLevel is an open
+	// string type → passed through verbatim (note: Gemini enums are UPPERCASE).
+	switch {
+	case d.thinkingLevel != "":
+		cfg.ThinkingConfig = &genai.ThinkingConfig{
+			IncludeThoughts: true,
+			ThinkingLevel:   genai.ThinkingLevel(d.thinkingLevel),
+		}
+	case d.thinkingBudget > 0:
 		budget := int32(d.thinkingBudget)
 		cfg.ThinkingConfig = &genai.ThinkingConfig{
 			IncludeThoughts: true,

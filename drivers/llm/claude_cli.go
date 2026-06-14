@@ -71,6 +71,7 @@ type ClaudeCliDriver struct {
 	cmdBuilder     CommandBuilder
 	extraArgs      []string
 	permissionMode string
+	effort         string
 
 	capsOnce            sync.Once
 	caps                claudeCapabilities
@@ -131,6 +132,18 @@ func WithCommandBuilder(cb CommandBuilder) ClaudeCliOption {
 func WithExtraArgs(args []string) ClaudeCliOption {
 	return func(d *ClaudeCliDriver) {
 		d.extraArgs = args
+	}
+}
+
+// WithClaudeEffort appends `--effort <value>` to every invocation when set.
+// The value is passed through verbatim (no validation/mapping). Older Claude
+// CLI versions that do not recognize --effort will error out themselves —
+// that is acceptable MVP behavior (see CLAUDE.md "Claude CLI Driver 兼容性约定
+// (Epic 40)"; this flag is appended before extraArgs and is not part of the
+// default-args sequence, so it does not affect the no-effort path). Empty = no flag.
+func WithClaudeEffort(effort string) ClaudeCliOption {
+	return func(d *ClaudeCliDriver) {
+		d.effort = effort
 	}
 }
 
@@ -683,6 +696,13 @@ func (d *ClaudeCliDriver) buildArgs(req LLMRequest, outputFormat string) ([]stri
 		} else {
 			log.Printf("[llm] debug: claude-cli %s lacks --add-dir; skills bundle at %s left unannounced (skills are still injected via system prompt)", d.cliCommand, bundleRoot)
 		}
+	}
+
+	// Reasoning effort: appended after built-in args and before extraArgs, only
+	// when configured (passthrough, no validation). Keeps the default-args
+	// sequence unchanged for the no-effort path (TestClaudeCliDriver_Call_DefaultArgs).
+	if d.effort != "" {
+		args = append(args, "--effort", d.effort)
 	}
 
 	args = append(args, d.extraArgs...)

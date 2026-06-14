@@ -15,6 +15,12 @@ const (
 )
 
 // CursorCliDriver implements LLMDriver by invoking the Cursor CLI (agent --print).
+//
+// Reasoning effort: Cursor CLI has NO standalone effort parameter — the thinking
+// level is bound to the model-name suffix (e.g. "sonnet-4.5-thinking-high"). This
+// driver therefore intentionally does NOT wire reasoning_effort; the factory logs
+// a warning when it is configured (see factory.go DriverCursorCLI case). Express
+// effort via default_model instead. (Story 55.1 AC #9)
 type CursorCliDriver struct {
 	cliCommand     string
 	defaultModel   string

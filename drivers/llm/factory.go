@@ -48,6 +48,9 @@ func CreateDriverWithEnv(cfg ProviderConfig, envLookup func(string) string) (LLM
 		if cfg.PermissionMode != "" {
 			opts = append(opts, WithPermissionMode(cfg.PermissionMode))
 		}
+		if cfg.ReasoningEffort != "" {
+			opts = append(opts, WithClaudeEffort(cfg.ReasoningEffort))
+		}
 		return NewClaudeCliDriver(opts...), nil
 
 	case DriverCursorCLI:
@@ -63,6 +66,16 @@ func CreateDriverWithEnv(cfg ProviderConfig, envLookup func(string) string) (LLM
 		}
 		if cfg.GraceSec > 0 {
 			opts = append(opts, CursorWithGrace(cfg.GraceSec))
+		}
+		// Cursor CLI has no standalone effort parameter — the thinking level is
+		// bound to the model-name suffix (e.g. "sonnet-4.5-thinking-high"). We do
+		// NOT fake support: reasoning_effort is a no-op here, with a warning so
+		// the user knows to express it via the model name instead.
+		if cfg.ReasoningEffort != "" {
+			log.Printf("[llm] warning: provider %q (cursor-cli): reasoning_effort=%q ignored — "+
+				"Cursor CLI expresses thinking level via the model-name suffix "+
+				"(e.g. default_model: sonnet-4.5-thinking-high), not a separate effort flag",
+				cfg.Name, cfg.ReasoningEffort)
 		}
 		return NewCursorCliDriver(opts...), nil
 
@@ -83,6 +96,13 @@ func CreateDriverWithEnv(cfg ProviderConfig, envLookup func(string) string) (LLM
 		if cfg.GraceSec > 0 {
 			opts = append(opts, QwenWithGrace(cfg.GraceSec))
 		}
+		// Qwen3-Coder has no reasoning-effort concept (non-thinking only). We do
+		// NOT fake support: reasoning_effort is a no-op here, with a warning.
+		if cfg.ReasoningEffort != "" {
+			log.Printf("[llm] warning: provider %q (qwen-cli): reasoning_effort=%q ignored — "+
+				"Qwen3-Coder has no reasoning-effort concept (non-thinking only)",
+				cfg.Name, cfg.ReasoningEffort)
+		}
 		return NewQwenCliDriver(opts...), nil
 
 	case DriverCodexCLI:
@@ -101,6 +121,9 @@ func CreateDriverWithEnv(cfg ProviderConfig, envLookup func(string) string) (LLM
 		}
 		if cfg.GraceSec > 0 {
 			opts = append(opts, CodexWithGrace(cfg.GraceSec))
+		}
+		if cfg.ReasoningEffort != "" {
+			opts = append(opts, CodexWithReasoningEffort(cfg.ReasoningEffort))
 		}
 		return NewCodexCliDriver(opts...), nil
 
@@ -124,6 +147,9 @@ func CreateDriverWithEnv(cfg ProviderConfig, envLookup func(string) string) (LLM
 		}
 		if cfg.ThinkingBudget > 0 {
 			opts = append(opts, WithCompatThinkingBudget(cfg.ThinkingBudget))
+		}
+		if cfg.ReasoningEffort != "" {
+			opts = append(opts, WithCompatReasoningEffort(cfg.ReasoningEffort))
 		}
 		return NewOpenAICompatDriver(cfg.Name, cfg.BaseURL, opts...), nil
 
@@ -159,6 +185,9 @@ func CreateDriverWithEnv(cfg ProviderConfig, envLookup func(string) string) (LLM
 		if cfg.TimeoutSec > 0 {
 			opts = append(opts, WithOpenAITimeout(time.Duration(cfg.TimeoutSec)*time.Second))
 		}
+		if cfg.ReasoningEffort != "" {
+			opts = append(opts, WithOpenAIReasoningEffort(cfg.ReasoningEffort))
+		}
 		return NewOpenAIDriver(cfg.Name, opts...), nil
 
 	case DriverGemini:
@@ -168,6 +197,9 @@ func CreateDriverWithEnv(cfg ProviderConfig, envLookup func(string) string) (LLM
 		}
 		if cfg.ThinkingBudget > 0 {
 			opts = append(opts, WithGeminiThinkingBudget(cfg.ThinkingBudget))
+		}
+		if cfg.ReasoningEffort != "" {
+			opts = append(opts, WithGeminiThinkingLevel(cfg.ReasoningEffort))
 		}
 		if cfg.APIKeyEnv != "" {
 			if key := envLookup(cfg.APIKeyEnv); key != "" {
@@ -191,6 +223,9 @@ func CreateDriverWithEnv(cfg ProviderConfig, envLookup func(string) string) (LLM
 		}
 		if cfg.ThinkingBudget > 0 {
 			opts = append(opts, WithAnthropicThinkingBudget(cfg.ThinkingBudget))
+		}
+		if cfg.ReasoningEffort != "" {
+			opts = append(opts, WithAnthropicEffort(cfg.ReasoningEffort))
 		}
 		if cfg.BaseURL != "" {
 			opts = append(opts, WithAnthropicBaseURL(cfg.BaseURL))

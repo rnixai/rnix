@@ -28,6 +28,7 @@ type AnthropicDriver struct {
 	defaultTimeout   time.Duration
 	defaultMaxTokens int
 	thinkingBudget   int
+	effort           string
 }
 
 // AnthropicOption configures an AnthropicDriver.
@@ -39,6 +40,7 @@ type anthropicDriverConfig struct {
 	sdkOpts        []option.RequestOption
 	maxTokens      int
 	thinkingBudget int
+	effort         string
 }
 
 func WithAnthropicModel(model string) AnthropicOption {
@@ -76,6 +78,18 @@ func WithAnthropicThinkingBudget(n int) AnthropicOption {
 	return func(c *anthropicDriverConfig) { c.thinkingBudget = n }
 }
 
+// WithAnthropicEffort sets MessageNewParams.OutputConfig.Effort (the migration
+// target replacing thinking_budget for Opus 4.6/Sonnet 4.6+). The value is
+// passed through verbatim — OutputConfigEffort is an open string type with no
+// runtime validation, so vendor-future levels work without a code change; the
+// SDK predefined constants (low/medium/high/max) are reference only, NOT a
+// whitelist. When set it takes priority and the thinkingBudget path is skipped;
+// the budget path is RETAINED as the fallback for DeepSeek V4 Anthropic-compat
+// endpoints (see WithAnthropicThinkingBudget). Empty = unset.
+func WithAnthropicEffort(effort string) AnthropicOption {
+	return func(c *anthropicDriverConfig) { c.effort = effort }
+}
+
 // WithAnthropicSDKOption appends a raw SDK request option.
 func WithAnthropicSDKOption(opt option.RequestOption) AnthropicOption {
 	return func(c *anthropicDriverConfig) {
@@ -101,6 +115,7 @@ func NewAnthropicDriver(name string, opts ...AnthropicOption) *AnthropicDriver {
 		defaultTimeout:   cfg.timeout,
 		defaultMaxTokens: cfg.maxTokens,
 		thinkingBudget:   cfg.thinkingBudget,
+		effort:           cfg.effort,
 	}
 }
 
@@ -262,7 +277,15 @@ func (d *AnthropicDriver) buildParams(req LLMRequest, tools []ToolDef) anthropic
 		MaxTokens: maxTokens,
 	}
 
-	if d.thinkingBudget > 0 {
+	// Reasoning effort (migration target): OutputConfig.Effort takes priority
+	// when set; the thinkingBudget path is RETAINED as the fallback (required by
+	// DeepSeek V4 Anthropic-compat endpoints — see WithAnthropicThinkingBudget,
+	// removing it triggers HTTP 400 on multi-turn tool calls). Effort is an open
+	// string type → passed through verbatim, no validation/mapping.
+	switch {
+	case d.effort != "":
+		params.OutputConfig.Effort = anthropic.OutputConfigEffort(d.effort)
+	case d.thinkingBudget > 0:
 		params.Thinking = anthropic.ThinkingConfigParamOfEnabled(int64(d.thinkingBudget))
 		if params.MaxTokens <= int64(d.thinkingBudget) {
 			params.MaxTokens = int64(d.thinkingBudget) + params.MaxTokens

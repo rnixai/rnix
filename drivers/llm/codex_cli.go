@@ -25,6 +25,7 @@ type CodexCliDriver struct {
 	graceSec       int
 	cmdBuilder     CommandBuilder
 	extraArgs      []string
+	effort         string
 }
 
 // CodexCliOption configures a CodexCliDriver.
@@ -70,6 +71,16 @@ func CodexWithCommandBuilder(cb CommandBuilder) CodexCliOption {
 func CodexWithExtraArgs(args []string) CodexCliOption {
 	return func(d *CodexCliDriver) {
 		d.extraArgs = args
+	}
+}
+
+// CodexWithReasoningEffort appends `-c model_reasoning_effort=<value>` to every
+// invocation when set. The value is passed through verbatim (no validation/
+// mapping); Codex itself validates. Appended before extraArgs and the prompt.
+// Empty = no flag.
+func CodexWithReasoningEffort(effort string) CodexCliOption {
+	return func(d *CodexCliDriver) {
+		d.effort = effort
 	}
 }
 
@@ -384,6 +395,12 @@ func (d *CodexCliDriver) buildArgs(req LLMRequest, jsonMode bool) []string {
 	}
 	if model != "" {
 		args = append(args, "-m", model)
+	}
+
+	// Reasoning effort: passthrough via `-c model_reasoning_effort=<value>`,
+	// only when configured (no validation). Before extraArgs and prompt.
+	if d.effort != "" {
+		args = append(args, "-c", "model_reasoning_effort="+d.effort)
 	}
 
 	args = append(args, d.extraArgs...)

@@ -18,6 +18,11 @@ const (
 )
 
 // QwenCliDriver implements LLMDriver by invoking the Qwen Code CLI.
+//
+// Reasoning effort: Qwen3-Coder has NO reasoning-effort concept (non-thinking
+// only). This driver therefore intentionally does NOT wire reasoning_effort; the
+// factory logs a warning when it is configured (see factory.go DriverQwenCLI
+// case). (Story 55.1 AC #10)
 type QwenCliDriver struct {
 	cliCommand     string
 	defaultModel   string
