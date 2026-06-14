@@ -22,6 +22,7 @@ Theme: **Feature Profiles, Tool Naming Standardization & Device-Path Internaliza
 - **`Glob` for directory listing**: directory enumeration is now expressed as a glob pattern via `Glob` rather than a separate `list_dir` tool; this is one tool fewer, with strictly more expressive matching.
 - **Smart sync of embedded agents and skills**: on daemon startup, embedded agents and skills are synced into the workspace with content-aware diffing — local edits are preserved while upstream additions and updates land automatically.
 - **`rnix apply` auto-resume**: orchestrator-driven apply runs reconnect to the daemon and auto-resume in-flight processes after transient disconnects, with clearer error messaging when orchestrator startup fails.
+- **`make test-cover`**: a Makefile target mirroring CI's coverage path (`go test -race -coverprofile -covermode=atomic ./...`), so failures that only surface under coverage instrumentation can be reproduced locally before pushing.
 
 ### Changed
 
@@ -46,6 +47,7 @@ Theme: **Feature Profiles, Tool Naming Standardization & Device-Path Internaliza
 - **Inspector content wrapping**: inspector content now wraps to viewport width across all panes.
 - **diffmemory**: `Lookup` validates the available-skill count before use, and recording/lookup now track that count accurately.
 - **llm**: skip binary resolution when a custom command builder is supplied, avoiding spurious PATH lookups for embedded / test drivers.
+- **Test isolation from host env / coverage mode**: the `claude-cli` fallback binary-resolution tests now use an injectable extended-search-dir seam (new `WithExtendedBinDirs` option) instead of the host's real `$HOME`/`$NVM_DIR`, so a real `~/.local/bin/claude` no longer shadows the sandboxed candidates; and the `drivers/shell` helper-process test injects a throwaway `GOCOVERDIR` so the re-exec'd child's exit-time coverage warning no longer pollutes the merged output under `go test -cover`. Both are test-only fixes; runtime behavior is unchanged.
 
 ### Removed
 
