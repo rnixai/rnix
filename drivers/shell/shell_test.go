@@ -627,11 +627,18 @@ func TestShellFile_Write_InjectsSpawnDepthEnv(t *testing.T) {
 
 func TestShellFile_Write_SpawnDepthEnvPropagation(t *testing.T) {
 	// Use a helper process that echoes RNIX_SPAWN_DEPTH
+	// Coverage-instrumented test binaries flush coverage data at exit; when
+	// re-exec'd as a helper without a writable GOCOVERDIR, the runtime prints
+	// "GOCOVERDIR not set" to stderr. The driver merges stdout+stderr, so under
+	// `go test -cover` that warning would corrupt the RNIX_SPAWN_DEPTH output.
+	// Point the helper at a throwaway GOCOVERDIR to silence it — without
+	// inheriting the parent env, which would defeat this test's isolation.
+	gocovDir := t.TempDir()
 	builder := func(ctx context.Context, name string, args ...string) *exec.Cmd {
 		cs := []string{"-test.run=TestHelperProcess", "--"}
 		cs = append(cs, args...)
 		cmd := exec.CommandContext(ctx, os.Args[0], cs...)
-		cmd.Env = []string{"GO_TEST_PROCESS=1", "GO_TEST_CASE=env_spawn_depth"}
+		cmd.Env = []string{"GO_TEST_PROCESS=1", "GO_TEST_CASE=env_spawn_depth", "GOCOVERDIR=" + gocovDir}
 		return cmd
 	}
 
