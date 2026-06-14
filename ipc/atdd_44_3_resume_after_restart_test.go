@@ -7,8 +7,10 @@ import (
 	"testing"
 	"time"
 
+	rnixctx "github.com/rnixai/rnix/context"
 	"github.com/rnixai/rnix/internal/types"
 	"github.com/rnixai/rnix/kernel"
+	"github.com/rnixai/rnix/vfs"
 )
 
 // =============================================================================
@@ -179,8 +181,26 @@ func TestATDD_44_3_040_ResumeAfterRestart_FallbackToHistoryWhenNoCheckpoint(t *t
 // LoadSuspendedFromDisk, then call ResumeWithOpts(parent.UUID) and assert
 // the child transitions to Running.
 func TestATDD_44_3_041_ResumeAfterRestart_TriggersSubtreeResume(t *testing.T) {
-	srv, _, _ := setupTestServer(t)
-	_, projBase := kernel.TestSetupDataDir(t, srv.kern)
+	// Build kernel inline (skip setupTestServer) so we can register a
+	// parkOnRead-gated mockLLMFile instead of the noopLLMFile that
+	// setupTestServer uses. Without the gate, the resumed parent and
+	// subtree-woken child complete instantly on a Read returning nil,
+	// transitioning Suspended → Running → Zombie between polls — exactly
+	// the race that flaked this test on coverage-instrumented CI runners.
+	mockFile := &mockLLMFile{}
+	reached, release := mockFile.parkOnRead()
+	defer close(release)
+
+	devReg := vfs.NewDeviceRegistry()
+	_ = devReg.Register("/dev/llm/claude", func(_ string, _ vfs.OpenFlag, _ string) (vfs.VFSFile, error) {
+		return mockFile, nil
+	})
+	vfsInst := vfs.NewVFS(devReg)
+	ctxMgr := rnixctx.NewManager()
+	kern := kernel.NewKernel(vfsInst, ctxMgr, nil)
+	t.Cleanup(kern.Shutdown)
+
+	_, projBase := kernel.TestSetupDataDir(t, kern)
 
 	parentUUID := uuidIPCForTest("par041")
 	childUUID := uuidIPCForTest("chl041")
@@ -214,10 +234,10 @@ func TestATDD_44_3_041_ResumeAfterRestart_TriggersSubtreeResume(t *testing.T) {
 		IsPaused:      true,
 	}, true, true)
 
-	if _, err := srv.kern.LoadSuspendedFromDisk(); err != nil {
+	if _, err := kern.LoadSuspendedFromDisk(); err != nil {
 		t.Fatalf("LoadSuspendedFromDisk: %v", err)
 	}
-	childProc, ok := srv.kern.GetProcessByUUID(childUUID)
+	childProc, ok := kern.GetProcessByUUID(childUUID)
 	if !ok {
 		t.Fatal("child UUID not reloaded by LoadSuspendedFromDisk")
 	}
@@ -225,17 +245,26 @@ func TestATDD_44_3_041_ResumeAfterRestart_TriggersSubtreeResume(t *testing.T) {
 		t.Fatalf("child state before parent resume = %s, want Suspended", got)
 	}
 
-	if _, err := srv.kern.ResumeWithOpts(parentUUID, kernel.ResumeOpts{}); err != nil {
+	if _, err := kern.ResumeWithOpts(parentUUID, kernel.ResumeOpts{}); err != nil {
 		t.Fatalf("ResumeWithOpts(parent): %v", err)
 	}
 
-	// Wait up to 500ms for the subtree resume side-effect to propagate.
-	deadline := time.Now().Add(500 * time.Millisecond)
+	// Wait for at least one process to enter LLM Read — confirms parent
+	// (and shortly thereafter the subtree-resumed child) reached Running.
+	select {
+	case <-reached:
+	case <-time.After(2 * time.Second):
+		t.Fatalf("no process entered LLM Read within 2s — subtree wakeup may not have triggered")
+	}
+
+	// Now poll for the child specifically. Both processes are gated in
+	// Read so they cannot escape Running until close(release) below.
+	deadline := time.Now().Add(2 * time.Second)
 	for time.Now().Before(deadline) {
 		if childProc.GetState() == types.StateRunning {
 			break
 		}
-		time.Sleep(10 * time.Millisecond)
+		time.Sleep(20 * time.Millisecond)
 	}
 	if got := childProc.GetState(); got != types.StateRunning {
 		t.Errorf("child state after parent resume = %s, want Running (subtree wakeup expected per AC#4)", got)

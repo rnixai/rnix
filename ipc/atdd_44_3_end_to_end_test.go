@@ -100,11 +100,20 @@ func TestATDD_44_3_080_EndToEnd_DaemonRestart_SuspendedPersist_Resume(t *testing
 	// but switch the test focus to a freshly-built KernelImpl pointing at
 	// the same stepDataDir, with its own VFS + ContextManager (no public
 	// accessors exist on KernelImpl for those, so we construct fresh ones).
+	//
+	// The freshly-built kernel registers a parkOnRead-gated mockLLMFile
+	// (instead of noopLLMFile) so resumed parent + subtree-resumed child
+	// processes block in their first Read after entering Running, instead
+	// of completing instantly and racing the Step 9 polling loop. CI
+	// (coverage-instrumented, shared runners) is slow enough that the
+	// child can transition Suspended → Running → Zombie between two 20ms
+	// polls; this gate eliminates that race.
+	mockFile := &mockLLMFile{}
+	reached, release := mockFile.parkOnRead()
+	defer close(release)
 	freshReg := vfs.NewDeviceRegistry()
-	// Register the same noopLLMFile mock setupTestServer uses, so the
-	// freshly-built kernel can open /dev/llm/claude during Resume.
 	_ = freshReg.Register("/dev/llm/claude", func(_ string, _ vfs.OpenFlag, _ string) (vfs.VFSFile, error) {
-		return &noopLLMFile{}, nil
+		return mockFile, nil
 	})
 	freshVFS := vfs.NewVFS(freshReg)
 	freshCtxMgr := rnixctx.NewManager()
@@ -181,12 +190,24 @@ func TestATDD_44_3_080_EndToEnd_DaemonRestart_SuspendedPersist_Resume(t *testing
 		t.Fatalf("Step 8: ResumeWithOpts(parent): %v", err)
 	}
 
-	// Step 9: wait up to 1s for the subtree wakeup to land on the child.
+	// Step 9: wait up to 2s for the subtree wakeup to land on the child.
+	// The mockLLMFile gate ensures both parent and child block in Read once
+	// they enter reasonStep, so they cannot transition Suspended → Running
+	// → Zombie between polls (the race that flaked this assertion on CI).
 	childProc, ok := freshKern.GetProcessByUUID(childUUID)
 	if !ok {
 		t.Fatalf("Step 9: child placeholder missing")
 	}
-	waitDeadline := time.Now().Add(1 * time.Second)
+	// Wait for at least one process to enter Read — this confirms the
+	// parent (and shortly thereafter the subtree-resumed child) has
+	// reached Running. Bounded by select so a wakeup miss surfaces as a
+	// clear timeout rather than a silent 2s spin.
+	select {
+	case <-reached:
+	case <-time.After(2 * time.Second):
+		t.Fatalf("Step 9: no process entered LLM Read within 2s — subtree wakeup may not have triggered")
+	}
+	waitDeadline := time.Now().Add(2 * time.Second)
 	for time.Now().Before(waitDeadline) {
 		if childProc.GetState() == types.StateRunning {
 			break
