@@ -77,11 +77,12 @@ type ClaudeCliDriver struct {
 	capsProbeDurationMs int64 // capability probe wall-clock duration (ms); set inside capsOnce
 	capsWarnedOnce      sync.Once
 
-	resolvedBin     string
-	resolvedBinOnce sync.Once
-	resolvedBinErr  error
-	fallbackBins    []string
-	skipBinResolve  bool
+	resolvedBin       string
+	resolvedBinOnce   sync.Once
+	resolvedBinErr    error
+	fallbackBins      []string
+	extendedBinDirsFn func() []string // injectable seam for extended bin dirs (test isolation); defaults to extendedBinDirs
+	skipBinResolve    bool
 }
 
 // ClaudeCliOption configures a ClaudeCliDriver.
@@ -142,6 +143,22 @@ func WithFallbackBins(bins []string) ClaudeCliOption {
 	}
 }
 
+// WithExtendedBinDirs overrides the extended install directories searched
+// during binary resolution (npm global, nvm, bun). It exists primarily as a
+// test seam: injecting a function that returns nil decouples resolution from
+// the host's real $HOME/$NVM_DIR so PATH-sandboxed tests are not shadowed by a
+// genuine claude install. A nil fn is normalized to "return nil" to avoid a
+// nil-call panic. Production code never calls this option, so the field keeps
+// its constructor default (extendedBinDirs).
+func WithExtendedBinDirs(fn func() []string) ClaudeCliOption {
+	return func(d *ClaudeCliDriver) {
+		if fn == nil {
+			fn = func() []string { return nil }
+		}
+		d.extendedBinDirsFn = fn
+	}
+}
+
 // WithPermissionMode sets the --permission-mode value the driver passes to
 // Claude CLI when the locally installed binary supports the flag. An empty
 // mode is treated as "no override" (default applies). Invalid values are
@@ -162,12 +179,13 @@ func WithPermissionMode(mode string) ClaudeCliOption {
 // NewClaudeCliDriver creates a new ClaudeCliDriver with the given options.
 func NewClaudeCliDriver(opts ...ClaudeCliOption) *ClaudeCliDriver {
 	d := &ClaudeCliDriver{
-		cliCommand:     "claude",
-		defaultModel:   DefaultModel,
-		defaultTimeout: DefaultTimeout,
-		cmdBuilder:     defaultCommandBuilder,
-		permissionMode: DefaultPermissionMode,
-		fallbackBins:   []string{"claude", "openclaude"},
+		cliCommand:        "claude",
+		defaultModel:      DefaultModel,
+		defaultTimeout:    DefaultTimeout,
+		cmdBuilder:        defaultCommandBuilder,
+		permissionMode:    DefaultPermissionMode,
+		fallbackBins:      []string{"claude", "openclaude"},
+		extendedBinDirsFn: extendedBinDirs,
 	}
 	for _, opt := range opts {
 		opt(d)
@@ -876,7 +894,7 @@ func (d *ClaudeCliDriver) resolveClaudeBinary() (string, error) {
 		if p, err := exec.LookPath(bin); err == nil {
 			return p, nil
 		}
-		for _, dir := range extendedBinDirs() {
+		for _, dir := range d.extendedBinDirsFn() {
 			full := filepath.Join(dir, bin)
 			if fi, err := os.Stat(full); err == nil && !fi.IsDir() && fi.Mode().Perm()&0o111 != 0 {
 				return full, nil

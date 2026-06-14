@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
 	"syscall"
 	"testing"
@@ -218,7 +219,12 @@ func TestATDD_40_2_AC3_FallbackBins_SecondCandidate(t *testing.T) {
 
 	t.Setenv("PATH", tmpDir)
 
-	d := NewClaudeCliDriver(WithCommandBuilder(mockCmdBuilder("success")))
+	// Inject empty extended dirs so a real host ~/.local/bin/claude cannot
+	// shadow the PATH-sandboxed openclaude (decouples test from host env).
+	d := NewClaudeCliDriver(
+		WithCommandBuilder(mockCmdBuilder("success")),
+		WithExtendedBinDirs(func() []string { return nil }),
+	)
 	resolved, err := d.resolveClaudeBinary()
 	if err != nil {
 		t.Fatalf("AC3 FAIL: resolveClaudeBinary returned error: %v", err)
@@ -237,10 +243,13 @@ func TestATDD_40_2_AC3_FallbackBins_AllFail(t *testing.T) {
 	// THEN:  返回包含 "no claude-compatible CLI found in PATH" 的错误
 
 	t.Setenv("PATH", t.TempDir()) // empty dir, no binaries
-	t.Setenv("HOME", t.TempDir()) // no ~/.local/bin etc.
-	t.Setenv("NVM_DIR", "")       // no nvm
 
-	d := NewClaudeCliDriver(WithCommandBuilder(mockCmdBuilder("success")))
+	// Inject empty extended dirs instead of the fragile Setenv(HOME/NVM_DIR)
+	// host-isolation hack: the test now depends only on its own PATH sandbox.
+	d := NewClaudeCliDriver(
+		WithCommandBuilder(mockCmdBuilder("success")),
+		WithExtendedBinDirs(func() []string { return nil }),
+	)
 	_, err := d.resolveClaudeBinary()
 	if err == nil {
 		t.Fatal("AC3 FAIL: expected error when no binary found, got nil")
@@ -269,6 +278,8 @@ func TestATDD_40_2_AC3_FallbackBins_CustomOption(t *testing.T) {
 	d := NewClaudeCliDriver(
 		WithCommandBuilder(mockCmdBuilder("success")),
 		WithFallbackBins([]string{"my-claude"}),
+		// Inject empty extended dirs: decouple from host ~/.local/bin/claude.
+		WithExtendedBinDirs(func() []string { return nil }),
 	)
 	resolved, err := d.resolveClaudeBinary()
 	if err != nil {
@@ -312,6 +323,82 @@ func TestATDD_40_2_AC3_ResolvedBinOnce_SingleExecution(t *testing.T) {
 	// All should have resolved to the same path
 	if d.resolvedBin == "" {
 		t.Error("AC3 FAIL: resolvedBin should be set after resolveBinaryIfNeeded")
+	}
+}
+
+func TestATDD_40_2_AC3_ExtendedBinDirs_ControlledHome(t *testing.T) {
+	// no t.Parallel: t.Setenv modifies shared process environment
+
+	// GIVEN: 受控 HOME 下存在 .local/bin、.bun/bin 与多个 nvm node 版本目录
+	// WHEN:  直接调用 extendedBinDirs() 纯函数
+	// THEN:  返回含 .local/bin、.bun/bin，且 nvm 取最新版本目录（v2）
+	//
+	// 注入 seam 后对 extendedBinDirs 真实实现的直接单元覆盖：现有
+	// _ExtendedBinDirs_LocalBin（AC4）仅经默认 fn 覆盖 .local/bin 分支，
+	// 此处补上 nvm 排序 + .bun/bin 两个此前无人覆盖的分支。
+
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("NVM_DIR", "") // 空 → extendedBinDirs 回退到 ~/.nvm
+
+	for _, rel := range []string{
+		".local/bin",
+		".bun/bin",
+		".nvm/versions/node/v1/bin",
+		".nvm/versions/node/v2/bin",
+	} {
+		if err := os.MkdirAll(filepath.Join(home, rel), 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	dirs := extendedBinDirs()
+
+	wantLocal := filepath.Join(home, ".local", "bin")
+	wantBun := filepath.Join(home, ".bun", "bin")
+	wantNvmLatest := filepath.Join(home, ".nvm", "versions", "node", "v2", "bin")
+	notWantNvmOld := filepath.Join(home, ".nvm", "versions", "node", "v1", "bin")
+
+	if !slices.Contains(dirs, wantLocal) {
+		t.Errorf("expected dirs to contain .local/bin %q, got %v", wantLocal, dirs)
+	}
+	if !slices.Contains(dirs, wantBun) {
+		t.Errorf("expected dirs to contain .bun/bin %q, got %v", wantBun, dirs)
+	}
+	if !slices.Contains(dirs, wantNvmLatest) {
+		t.Errorf("expected nvm latest version %q, got %v", wantNvmLatest, dirs)
+	}
+	if slices.Contains(dirs, notWantNvmOld) {
+		t.Errorf("did not expect older nvm version %q, got %v", notWantNvmOld, dirs)
+	}
+}
+
+func TestATDD_40_2_AC3_WithExtendedBinDirs_NilNormalized(t *testing.T) {
+	// no t.Parallel: t.Setenv modifies shared process environment
+
+	// GIVEN: WithExtendedBinDirs(nil) —— option 须把 nil 归一化为"返回 nil 的函数"
+	// AND:   PATH 沙盒仅含 "openclaude"
+	// WHEN:  resolveClaudeBinary 执行
+	// THEN:  不 panic，且等价于"无扩展目录"——仅靠 PATH 沙盒解析到 openclaude
+	//        （守护 AC③；即便宿主 ~/.local/bin/claude 真实存在也不得被命中）
+
+	tmpDir := t.TempDir()
+	openclaude := filepath.Join(tmpDir, "openclaude")
+	if err := os.WriteFile(openclaude, []byte("#!/bin/sh\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", tmpDir)
+
+	d := NewClaudeCliDriver(
+		WithCommandBuilder(mockCmdBuilder("success")),
+		WithExtendedBinDirs(nil), // nil 必须被归一化，调用时不得 panic
+	)
+	resolved, err := d.resolveClaudeBinary()
+	if err != nil {
+		t.Fatalf("AC3 FAIL: nil-normalized WithExtendedBinDirs returned error: %v", err)
+	}
+	if !strings.HasSuffix(resolved, "openclaude") {
+		t.Errorf("AC3 FAIL: expected resolve to openclaude via PATH sandbox, got %q", resolved)
 	}
 }
 
