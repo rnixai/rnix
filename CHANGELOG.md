@@ -7,18 +7,58 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-Theme (draft 0.9.4): **Feature Profiles & Runtime Introspection (Epic 52)** — feature flags become a first-class, conditionally-injected runtime profile, and a new `rnix config` command surfaces the active profile straight from the daemon.
+## [0.9.4] - 2026-06-14
+
+Theme: **Feature Profiles, Tool Naming Standardization & Device-Path Internalization (Epics 52, 53, 54)** — feature flags become a first-class runtime profile surfaced through a new `rnix config` command; tool names converge on a uniform PascalCase convention aligned with the broader agent ecosystem; and device paths (`/dev/*`) become a pure internal routing concern, no longer leaking into prompts, agent instructions, or skill manifests.
 
 ### Added
 
 - **Feature flags & profiles (Epic 52)**: a `FeatureFlags` / `FeatureProfile` model now controls which emergent subsystems are active at runtime. Named profiles (`baseline`, `core`, `adaptive`, `full`, `custom`) map to flag sets, and `custom` applies only the flags explicitly listed (the rest default to enabled). Conditional injection wires these flags into process management and tool definitions at the kernel layer, so a disabled subsystem adds no prompt or tool-definition overhead.
-- **`rnix config` command**: `rnix config show` displays the active feature profile and individual flags, reading live state from the running daemon and falling back to the global config file when the daemon is down. Daemon status responses now include the feature profile for observability.
-- **Unknown feature-key warning**: unrecognized keys under a `custom:` profile now emit a warning instead of being silently ignored; feature values sourced from environment variables are trimmed of surrounding whitespace.
+- **`rnix config` command**: `rnix config show` displays the active feature profile and individual flags, reading live state from the running daemon and falling back to the global config file when the daemon is down. Daemon status responses now include the feature profile.
+- **`rnix daemon start` command**: explicit foreground start command complements the existing auto-start-from-CLI path, with a deterministic shutdown sequence and timeout.
+- **Tool-level enforcement (Epic 54)**: process permission is now evaluated at the **tool granularity** rather than the device granularity. Declaring `allowed-tools: Read` on a skill grants `Read` but not `Write`, even though both belong to the same underlying device. MCP tools continue to use additive-permit semantics so dynamic tool surfaces from MCP servers are unaffected.
+- **`using-rnix` capability skill (Epic 53)**: a new built-in skill (`lib/skills/using-rnix/`) gives external agents a portable capability map and verified CLI usage for driving Rnix from the outside — spawning agents, orchestrating workflows, decomposing intents, inspecting and resuming processes — without having to read Rnix source.
+- **`.agents/skills/` scope at spawn time**: spawn now loads skills from both project (`<projectDir>/.agents/skills/`) and user (`~/.agents/skills/`) scopes, completing the runtime loop for the agentskills-style cross-tool skill convention.
+- **`Glob` for directory listing**: directory enumeration is now expressed as a glob pattern via `Glob` rather than a separate `list_dir` tool; this is one tool fewer, with strictly more expressive matching.
+- **Smart sync of embedded agents and skills**: on daemon startup, embedded agents and skills are synced into the workspace with content-aware diffing — local edits are preserved while upstream additions and updates land automatically.
+- **`rnix apply` auto-resume**: orchestrator-driven apply runs reconnect to the daemon and auto-resume in-flight processes after transient disconnects, with clearer error messaging when orchestrator startup fails.
+
+### Changed
+
+- **Tool naming convention — PascalCase across the board (Epic 53/54, ADR 44/45)**: every public tool name (driver registrations, ToolDef metadata, skill `allowed-tools`, agent instructions, system-prompt templates) now uses PascalCase semantic names — `Read`, `Write`, `Edit`, `Glob`, `Grep`, `Bash`, `WebFetch`, `WebSearch`, `MemoryCommit`, `MemoryRecall`, `IntentDecompose`, `IntentConfirm`, `IntentExecute`, `IntentStatus`, etc. The naming convention is now codified as an ADR.
+- **Device paths are pure internal routing keys**: `/dev/*` paths no longer appear in user-facing or LLM-facing surfaces. System-prompt templates, `ToolDef.Description` text, runtime tool result/error messages, agent instructions for `orchestrator` and `playwright-demo`, and built-in skill `allowed-tools` frontmatter all reference semantic tool names instead. Device paths remain in place internally for routing and as an additive-permit channel for MCP mounts.
+- **Spawn device-inheritance unified (Epic 37)**: child processes spawned via `ActionSpawn` now derive their device set the same way `IntentDecompose` children do — orchestration-only devices are stripped, leaving only executable devices, with recursive-orchestration prevented through a denylist. This eliminates a class of spawn-storm dead-locks where pure-orchestrator parents would propagate non-executable device sets to children.
+- **Per-project memory isolation**: project-scope memory now resolves consistently from the project's data directory regardless of daemon working directory, preventing cross-project bleed.
+- **Cumulative tool-error breaker decays on success**: instead of resetting to zero on the first successful tool call, the breaker decays gradually, preserving signal across mixed success/failure streams.
 
 ### Fixed
 
+- **Intent provider inheritance**: intent decomposition now correctly inherits the calling process's LLM provider, supports project-level provider configuration, and propagates project context to reconciler-spawned children.
+- **Intent recursive escape blocked**: intent-spawned processes can no longer re-enter `IntentDecompose` or shell out to `rnix apply` to escape the orchestration sandbox.
+- **Intent `auto_start` daemon-restart guard**: declarative intents that would self-trigger a daemon restart are now detected and refused with a clear error instead of silently looping.
+- **Resume preserves `DeniedDevices`**: the device denylist is now persisted alongside the allowlist so recursive-orchestration guards survive checkpoint/reap/resume cycles.
+- **`rnix ps` records observation data without project config**: step and event data are now persisted for every process, even those running outside an initialized project — Dashboard inspection works uniformly.
+- **`rnix apply` recursive-escape blocked**: shell processes can no longer recursively invoke `rnix apply` to bypass spawn-recursion limits.
+- **Dashboard agent tree by UUID**: the agent tree now keys on UUID rather than PID, eliminating cross-merge artifacts when PIDs are reused after daemon restart.
+- **Dashboard model display robustness**: long model identifiers no longer overflow the inspector pane; truncation appends an ellipsis to make the truncation visible rather than silently dropping characters.
+- **Shell `spawn --agent`/`--model` strict variable expansion**: agent/model arguments to `spawn` now follow the same strict-expansion rules as the rest of AgentShell, surfacing missing variables instead of substituting empty strings.
+- **Shell stage counting**: nested function calls are now recursively expanded when counting pipeline stages, so progress reporting falls back to an unbounded indicator only when the total is genuinely unknowable.
+- **Inspector content wrapping**: inspector content now wraps to viewport width across all panes.
 - **diffmemory**: `Lookup` validates the available-skill count before use, and recording/lookup now track that count accurately.
-- **llm**: skip binary resolution when a custom `CommandBuilder` is supplied, avoiding spurious PATH lookups for embedded / test drivers.
+- **llm**: skip binary resolution when a custom command builder is supplied, avoiding spurious PATH lookups for embedded / test drivers.
+
+### Removed
+
+- **`list_dir` tool**: directory listing is now expressed via `Glob`. Skills and agents that previously declared `list_dir` should declare `Glob` instead.
+
+### Breaking Changes
+
+> Upgrade note: the following changes affect skill manifests, agent instructions, and any external automation that hard-codes tool names or device paths
+
+- **Tool names converged on PascalCase**: skills, agent `instructions.md`, and any external scripts that reference tool names by string need to use the new PascalCase forms (e.g. `read_file` → `Read`, `shell` → `Bash`, `list_dir` → `Glob`, `memory_commit` → `MemoryCommit`). Built-in skills and agents have already been migrated.
+- **`list_dir` removed**: replace with `Glob` plus a pattern such as `*` or `**/*`.
+- **`allowed-tools` semantics tightened**: declaring a tool name no longer transitively grants every tool on the same device. If a skill needs both `Read` and `Write`, both must be declared explicitly. Existing manifests that use device paths (e.g. `allowed-tools: /dev/fs`) continue to work via a backward-compatibility expansion but should be migrated to semantic tool names.
+- **Device paths removed from user-facing text**: prompts, error messages, and built-in skill/agent text no longer reference `/dev/*` paths. Custom tooling that pattern-matches on device-path strings in LLM output should switch to matching on the semantic tool name.
 
 ## [0.9.3] - 2026-06-02
 
@@ -459,6 +499,7 @@ Theme: **Process lifecycle reshape** — resume from history, unified subtree pa
 - **IPC Protocol**: NDJSON over Unix socket request/response protocol
 - **VFS Devices**: `/dev/llm/claude`, `/dev/fs`, `/dev/shell` device implementations
 
+[0.9.4]: https://github.com/rnixai/rnix/compare/v0.9.3...v0.9.4
 [0.9.3]: https://github.com/rnixai/rnix/compare/v0.9.2...v0.9.3
 [0.9.2]: https://github.com/rnixai/rnix/compare/v0.9.1...v0.9.2
 [0.9.1]: https://github.com/rnixai/rnix/compare/v0.9.0...v0.9.1
