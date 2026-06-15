@@ -463,6 +463,16 @@ func (k *KernelImpl) reasonStep(proc *Process, llmFD types.FD, opts SpawnOpts) {
 		if override := proc.GetGdbModelOverride(); override != "" {
 			model = override
 		}
+		// eventModel resolves the model for observability events only: opts.Model
+		// is empty when no explicit model was requested (the driver applies its
+		// own default), but that resolved default is captured on proc.Model at
+		// spawn — fall back to it so strace Write events report the actual model
+		// instead of "". The request model (Model: model below) is intentionally
+		// left untouched to preserve the "empty → driver default" contract.
+		eventModel := model
+		if eventModel == "" {
+			eventModel = proc.Model
+		}
 		sysPrompt := promptResult.SystemPrompt
 
 		// When sections are NOT used, manually append dynamic prompt parts (legacy path)
@@ -578,7 +588,7 @@ func (k *KernelImpl) reasonStep(proc *Process, llmFD types.FD, opts SpawnOpts) {
 				continue // retry current step
 			}
 
-			k.emitEvent(proc, "Write", map[string]any{"fd": llmFD, "size": len(reqJSON), "model": model, "reasoning_effort": proc.ReasoningEffort}, nil, err, time.Since(writeStart))
+			k.emitEvent(proc, "Write", map[string]any{"fd": llmFD, "size": len(reqJSON), "model": eventModel, "reasoning_effort": proc.ReasoningEffort}, nil, err, time.Since(writeStart))
 			fbData, fbErr := k.attemptFallback(proc, req, proc.PrimaryDevice, err, step)
 			if fbErr != nil {
 				reason := "llm write failed"
@@ -598,7 +608,7 @@ func (k *KernelImpl) reasonStep(proc *Process, llmFD types.FD, opts SpawnOpts) {
 			stepCancel()
 			consecutiveTransientRetries = 0 // reset on success
 
-			k.emitEvent(proc, "Write", map[string]any{"fd": llmFD, "size": len(reqJSON), "model": model, "reasoning_effort": proc.ReasoningEffort}, nil, nil, time.Since(writeStart))
+			k.emitEvent(proc, "Write", map[string]any{"fd": llmFD, "size": len(reqJSON), "model": eventModel, "reasoning_effort": proc.ReasoningEffort}, nil, nil, time.Since(writeStart))
 			readStart := time.Now()
 			var readErr error
 			respData, readErr = k.vfs.Read(proc.PID, llmFD, 1<<20)
