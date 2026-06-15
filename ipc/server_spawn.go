@@ -91,7 +91,7 @@ func (s *Server) handleSpawn(conn net.Conn, rawPayload json.RawMessage) {
 		writeStreamEvent(conn, StreamEvent{Type: StreamError, Payload: marshalJSON(ErrorPayload{Code: "INTERNAL", Message: "process vanished after spawn"})})
 		return
 	}
-	spawnPP := ProgressPayload{Event: "spawn", PID: pid, Intent: req.Intent, Provider: proc.Provider, Model: proc.Model, UUID: proc.UUID}
+	spawnPP := ProgressPayload{Event: "spawn", PID: pid, Intent: req.Intent, Provider: proc.Provider, Model: proc.Model, ReasoningEffort: proc.ReasoningEffort, UUID: proc.UUID}
 	spawnPayload, _ := json.Marshal(spawnPP)
 	select {
 	case eventCh <- StreamEvent{Type: StreamProgress, Payload: spawnPayload}:

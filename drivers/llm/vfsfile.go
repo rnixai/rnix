@@ -40,6 +40,13 @@ func (f *LLMFile) DefaultModel() string {
 	return f.driver.Info().DefaultModel
 }
 
+// ReasoningEffort returns the driver's configured reasoning-effort/level string.
+// Implements vfs.ReasoningEffortProvider (Story 55.2). Empty for drivers without
+// an effort concept (cursor-cli/qwen-cli) or when unset.
+func (f *LLMFile) ReasoningEffort() string {
+	return f.driver.Info().ReasoningEffort
+}
+
 // DriverMeta returns runtime metadata from the underlying driver, if it
 // implements DriverMetaProvider. Returns nil otherwise.
 func (f *LLMFile) DriverMeta() map[string]string {

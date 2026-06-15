@@ -118,6 +118,15 @@ type ModelInfoProvider interface {
 	DefaultModel() string
 }
 
+// ReasoningEffortProvider is an optional interface for VFSFile implementations
+// that can report the reasoning-effort/level configured for their driver
+// (Story 55.2). The kernel uses this at spawn time to snapshot
+// Process.ReasoningEffort, mirroring ModelInfoProvider for Model. Returns ""
+// for drivers without an effort concept or when unset.
+type ReasoningEffortProvider interface {
+	ReasoningEffort() string
+}
+
 // VFSFileFactory creates a VFSFile for a given subpath and open flags.
 // subpath is the remaining path after prefix matching (empty for exact matches).
 // workDir is the per-process working directory; empty string means no workDir set.

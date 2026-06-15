@@ -121,10 +121,11 @@ func NewOpenAIDriver(name string, opts ...OpenAIOption) *OpenAIDriver {
 
 func (d *OpenAIDriver) Info() DriverInfo {
 	return DriverInfo{
-		Name:         d.name,
-		Provider:     d.name,
-		DefaultModel: d.defaultModel,
-		DriverType:   DriverOpenAI,
+		Name:            d.name,
+		Provider:        d.name,
+		DefaultModel:    d.defaultModel,
+		DriverType:      DriverOpenAI,
+		ReasoningEffort: d.reasoningEffort,
 	}
 }
 

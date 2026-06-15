@@ -43,62 +43,65 @@ type MCPMountSnapshot struct {
 // ProcInfo is a snapshot of process information at a point in time.
 // Value type (not a reference to *Process) to avoid concurrency issues and cross-package dependencies.
 type ProcInfo struct {
-	PID            types.PID
-	UUID           string
-	OriginUUID     string // non-empty when forked from another process (resume --fork)
-	ResumedFromStep int   // step number from which this process was resumed
-	ExitReason     string // exit reason (e.g. "context_full", "complete", ...) — used by resume to detect context_full
-	CtxSize        int    // context message slot limit at allocation (preserves original size on resume)
-	PPID           types.PID
-	ParentUUID     string // UUID of parent process — used for accurate tree building across PID reuse
-	State          types.ProcessState
-	Intent         string
-	Skills         []string
+	PID             types.PID
+	UUID            string
+	OriginUUID      string // non-empty when forked from another process (resume --fork)
+	ResumedFromStep int    // step number from which this process was resumed
+	ExitReason      string // exit reason (e.g. "context_full", "complete", ...) — used by resume to detect context_full
+	CtxSize         int    // context message slot limit at allocation (preserves original size on resume)
+	PPID            types.PID
+	ParentUUID      string // UUID of parent process — used for accurate tree building across PID reuse
+	State           types.ProcessState
+	Intent          string
+	Skills          []string
 	TokensUsed      int
 	LastInputTokens int
 	ContextBudget   int
-	MaxTokens      int64
-	MaxCost        float64
-	UsedCost       float64
-	MaxSteps       int
-	CreatedAt      time.Time
-	DeadAt         time.Time
-	CtxID          types.CtxID
-	Result         string
-	AllowedDevices []string
+	MaxTokens       int64
+	MaxCost         float64
+	UsedCost        float64
+	MaxSteps        int
+	CreatedAt       time.Time
+	DeadAt          time.Time
+	CtxID           types.CtxID
+	Result          string
+	AllowedDevices  []string
 	// DeniedDevices is the process device blocklist, checked before AllowedDevices
 	// in kernel tool dispatch. Persisted alongside AllowedDevices (Story 37.6) so
 	// resume / daemon-restart revival keeps the anti-recursive-orchestration guard
 	// (deny /dev/intent) that Story 37-5 installs on spawned children — without
 	// this the blocklist resumes as nil and the guard silently lapses.
-	DeniedDevices  []string
+	DeniedDevices []string
 	// AllowedTools is the process authoritative tool-name whitelist (Story 54.1),
 	// persisted alongside AllowedDevices so resume / daemon-restart revival keeps
 	// tool-level enforcement. Empty on legacy snapshots → rebuilt from AllowedDevices.
-	AllowedTools   []string
-	Provider       string
-	Model          string
+	AllowedTools []string
+	Provider     string
+	Model        string
+	// ReasoningEffort is the reasoning-effort/level snapshotted from the LLM
+	// driver at spawn (Story 55.2); "" = unset / driver has no effort concept.
+	ReasoningEffort string
 	// PrimaryDevice is the LLM VFS device path (e.g. "/dev/llm/claude") this
 	// process was wired to at spawn / resume time. Persisted to proc-info.json so
 	// daemon-restart placeholder revival (kernel/load_suspended.go) can route
 	// reasonStep-driven processes back through openLLMDeviceForResume instead of
 	// being misclassified as script-runners (PrimaryDevice == "" branch in
 	// kernel/subtree.go:resumeOneForSubtree).
-	PrimaryDevice  string
+	PrimaryDevice string
 	// ProjectDir is the absolute path to the project root the process was
 	// spawned from (parent of .rnix/). Persisted so LoadSuspendedFromDisk can
 	// invoke the kernel's projectConfigLoader to re-attach a full ProjectConfig
 	// — without this, dashboard `r` against a placeholder using a project-only
 	// LLM provider (e.g. EchoMatrix's opencodego) fails with `device not
 	// found: /dev/llm/<provider>` because the global VFS has no such device.
-	ProjectDir     string
-	ContextWindow  int
-	LastHeartbeat  time.Time
-	StepTimeout    time.Duration
-	SuspendReason  string
-	IsPaused       bool          // true when SIGPAUSE is active (reasoning loop blocked)
-	PausedAt       time.Time     // when pause started; zero if not paused
-	PausedTotal    time.Duration // accumulated paused duration across all pause/resume cycles
+	ProjectDir    string
+	ContextWindow int
+	LastHeartbeat time.Time
+	StepTimeout   time.Duration
+	SuspendReason string
+	IsPaused      bool          // true when SIGPAUSE is active (reasoning loop blocked)
+	PausedAt      time.Time     // when pause started; zero if not paused
+	PausedTotal   time.Duration // accumulated paused duration across all pause/resume cycles
 
 	// Orchestration metadata (Story 34.7)
 	ComposeNode   string   // compose node name (e.g. "summarizer"), empty = not compose
@@ -130,8 +133,8 @@ type ProcInfo struct {
 	// resolved binary path, permission mode, capability flags). Populated at
 	// spawn time via DriverMetaProvider interface; nil for drivers that don't
 	// implement it.
-	DriverMeta      map[string]string `json:"driver_meta,omitempty"`
-	FeatureProfile  string            `json:"feature_profile,omitempty"`
+	DriverMeta     map[string]string `json:"driver_meta,omitempty"`
+	FeatureProfile string            `json:"feature_profile,omitempty"`
 }
 
 // ProcFS implements a read-only /proc filesystem that exposes process runtime state.
@@ -256,31 +259,33 @@ func stateToString(s types.ProcessState) string {
 
 // statusJSON is the JSON structure for /proc/{pid}/status.
 type statusJSON struct {
-	PID            types.PID `json:"pid"`
-	PPID           types.PID `json:"ppid"`
-	State          string    `json:"state"`
-	Intent         string    `json:"intent"`
-	Skills         []string  `json:"skills"`
-	TokensUsed     int       `json:"tokens_used"`
-	ContextBudget  int       `json:"context_budget,omitempty"`
-	ElapsedMs      int64     `json:"elapsed_ms"`
-	AllowedDevices []string  `json:"allowed_devices"`
-	DeniedDevices  []string  `json:"denied_devices,omitempty"`
+	PID             types.PID `json:"pid"`
+	PPID            types.PID `json:"ppid"`
+	State           string    `json:"state"`
+	ReasoningEffort string    `json:"reasoning_effort,omitempty"`
+	Intent          string    `json:"intent"`
+	Skills          []string  `json:"skills"`
+	TokensUsed      int       `json:"tokens_used"`
+	ContextBudget   int       `json:"context_budget,omitempty"`
+	ElapsedMs       int64     `json:"elapsed_ms"`
+	AllowedDevices  []string  `json:"allowed_devices"`
+	DeniedDevices   []string  `json:"denied_devices,omitempty"`
 }
 
 // buildStatusJSON generates the JSON content for /proc/{pid}/status.
 func buildStatusJSON(info *ProcInfo) ([]byte, error) {
 	s := statusJSON{
-		PID:            info.PID,
-		PPID:           info.PPID,
-		State:          stateToString(info.State),
-		Intent:         info.Intent,
-		Skills:         info.Skills,
-		TokensUsed:     info.TokensUsed,
-		ContextBudget:  info.ContextBudget,
-		ElapsedMs:      time.Since(info.CreatedAt).Milliseconds(),
-		AllowedDevices: info.AllowedDevices,
-		DeniedDevices:  info.DeniedDevices,
+		PID:             info.PID,
+		PPID:            info.PPID,
+		State:           stateToString(info.State),
+		ReasoningEffort: info.ReasoningEffort,
+		Intent:          info.Intent,
+		Skills:          info.Skills,
+		TokensUsed:      info.TokensUsed,
+		ContextBudget:   info.ContextBudget,
+		ElapsedMs:       time.Since(info.CreatedAt).Milliseconds(),
+		AllowedDevices:  info.AllowedDevices,
+		DeniedDevices:   info.DeniedDevices,
 	}
 	if s.Skills == nil {
 		s.Skills = []string{}

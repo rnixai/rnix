@@ -730,6 +730,12 @@ func (k *KernelImpl) Spawn(intent string, agent *agents.AgentInfo, opts SpawnOpt
 			if dmp, ok := file.(driverMetaProvider); ok {
 				proc.DriverMeta = dmp.DriverMeta()
 			}
+			// Snapshot ReasoningEffort from the driver (Story 55.2). The provider
+			// config is the sole source (no CLI/agent override path like Model),
+			// so it is taken verbatim from the driver — empty when unset.
+			if rep, ok := file.(vfs.ReasoningEffortProvider); ok {
+				proc.ReasoningEffort = rep.ReasoningEffort()
+			}
 		}
 
 		if k.contextWindowFunc != nil {
@@ -759,6 +765,9 @@ func (k *KernelImpl) Spawn(intent string, agent *agents.AgentInfo, opts SpawnOpt
 			"provider_source": providerSource,
 			"model":           proc.Model,
 			"model_source":    modelSource,
+		}
+		if proc.ReasoningEffort != "" {
+			configArgs["reasoning_effort"] = proc.ReasoningEffort
 		}
 		projectDefault := k.defaultProvider
 		if opts.ProjectConfig != nil && opts.ProjectConfig.DefaultProvider != "" {

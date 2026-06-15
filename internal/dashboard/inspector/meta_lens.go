@@ -378,7 +378,7 @@ func DashIfEmpty(s string) string {
 //     drivers (which expose no DriverMeta) render cleanly without blank lines.
 //
 // Pure function: inputs are strings/maps, output is a slice of styled lines.
-func RenderModelSectionLines(provider, model, driverType string, meta map[string]string) []string {
+func RenderModelSectionLines(provider, model, effort, driverType string, meta map[string]string) []string {
 	dim := lipgloss.NewStyle().Foreground(lipgloss.Color(ui.ColorMuted))
 	line := func(label, value string) string {
 		return fmt.Sprintf("%s %s", dim.Render(fmt.Sprintf("%10s", label)), value)
@@ -387,6 +387,7 @@ func RenderModelSectionLines(provider, model, driverType string, meta map[string
 	out := []string{
 		line("Provider:", DashIfEmpty(provider)),
 		line("Model:", DashIfEmpty(model)),
+		line("Effort:", DashIfEmpty(effort)),
 		line("Driver:", DashIfEmpty(driverType)),
 	}
 

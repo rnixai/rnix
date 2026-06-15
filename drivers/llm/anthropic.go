@@ -121,10 +121,11 @@ func NewAnthropicDriver(name string, opts ...AnthropicOption) *AnthropicDriver {
 
 func (d *AnthropicDriver) Info() DriverInfo {
 	return DriverInfo{
-		Name:         d.name,
-		Provider:     d.name,
-		DefaultModel: d.defaultModel,
-		DriverType:   DriverAnthropic,
+		Name:            d.name,
+		Provider:        d.name,
+		DefaultModel:    d.defaultModel,
+		DriverType:      DriverAnthropic,
+		ReasoningEffort: d.effort,
 	}
 }
 

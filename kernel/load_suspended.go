@@ -69,6 +69,7 @@ func (k *KernelImpl) LoadSuspendedFromDisk() (int, error) {
 		proc.MaxSteps = info.MaxSteps
 		proc.Provider = info.Provider
 		proc.Model = info.Model
+		proc.ReasoningEffort = info.ReasoningEffort
 		// PrimaryDevice — Epic 44 follow-up fix: persist + restore so a
 		// daemon-restart placeholder routes through resumeOneForSubtree's
 		// reasonStep-driven branch instead of falling into the PrimaryDevice==""

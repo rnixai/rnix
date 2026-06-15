@@ -39,10 +39,11 @@ type doctorCheck struct {
 
 // doctorProviderResult groups all checks for a single provider.
 type doctorProviderResult struct {
-	Provider string        `json:"provider"`
-	Driver   string        `json:"driver"`
-	Status   string        `json:"status"` // pass | warn | fail
-	Checks   []doctorCheck `json:"checks"`
+	Provider        string        `json:"provider"`
+	Driver          string        `json:"driver"`
+	ReasoningEffort string        `json:"reasoning_effort,omitempty"`
+	Status          string        `json:"status"` // pass | warn | fail
+	Checks          []doctorCheck `json:"checks"`
 }
 
 // doctorReport is the full doctor output.
@@ -235,8 +236,9 @@ func loadProvidersForDoctor() (*llm.ProvidersConfig, *doctorCheck) {
 // checkProvider runs all applicable checks for a single provider.
 func checkProvider(ctx context.Context, p llm.ProviderConfig, probe bool) doctorProviderResult {
 	result := doctorProviderResult{
-		Provider: p.Name,
-		Driver:   p.Driver,
+		Provider:        p.Name,
+		Driver:          p.Driver,
+		ReasoningEffort: p.ReasoningEffort,
 	}
 
 	// 1. Command resolvability (CLI drivers only)
@@ -517,7 +519,11 @@ func renderDoctorHuman(w io.Writer, r doctorReport) {
 	fmt.Fprintln(w)
 
 	for _, pr := range r.Providers {
-		fmt.Fprintf(w, "[provider: %s (%s)] — %s\n", pr.Provider, pr.Driver, strings.ToUpper(pr.Status))
+		header := fmt.Sprintf("[provider: %s (%s)]", pr.Provider, pr.Driver)
+		if pr.ReasoningEffort != "" {
+			header = fmt.Sprintf("[provider: %s (%s), effort: %s]", pr.Provider, pr.Driver, pr.ReasoningEffort)
+		}
+		fmt.Fprintf(w, "%s — %s\n", header, strings.ToUpper(pr.Status))
 		for _, c := range pr.Checks {
 			fmt.Fprintln(w, formatCheck(c))
 		}

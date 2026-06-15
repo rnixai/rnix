@@ -181,14 +181,14 @@ func runE2E(t *testing.T, intent string, driver llm.LLMDriver, mode ui.OutputMod
 	elapsed := time.Since(start)
 
 	if exit.Code == 0 {
-		outputSuccess(renderer, mode, pid, proc.Result, proc.TokensUsed, elapsed, proc.Provider, proc.Model)
+		outputSuccess(renderer, mode, pid, proc.Result, proc.TokensUsed, elapsed, proc.Provider, proc.Model, proc.ReasoningEffort)
 	} else {
 		reason := exit.Reason
 		if exit.Err != nil {
 			reason = exit.Err.Error()
 		}
 		outputError(renderer, mode, "/dev/llm/claude", reason, "智能体执行失败", "检查意图描述或重试")
-		ui.RenderSummary(renderer, pid, exit.Code, proc.TokensUsed, elapsed, proc.Provider, proc.Model)
+		ui.RenderSummary(renderer, pid, exit.Code, proc.TokensUsed, elapsed, proc.Provider, proc.Model, proc.ReasoningEffort)
 	}
 
 	return e2eResult{
@@ -691,7 +691,7 @@ func TestE2E_WithAgent_InjectsInstructions(t *testing.T) {
 	}
 
 	elapsed := time.Since(start)
-	outputSuccess(renderer, ui.ModeDefault, pid, proc.Result, proc.TokensUsed, elapsed, proc.Provider, proc.Model)
+	outputSuccess(renderer, ui.ModeDefault, pid, proc.Result, proc.TokensUsed, elapsed, proc.Provider, proc.Model, proc.ReasoningEffort)
 
 	if len(proc.AllowedDevices) != 2 {
 		t.Errorf("expected 2 AllowedDevices from agent skills, got %d: %v", len(proc.AllowedDevices), proc.AllowedDevices)
@@ -759,7 +759,7 @@ func TestE2E_CodeAnalystAgent(t *testing.T) {
 	}
 
 	elapsed := time.Since(start)
-	outputSuccess(renderer, ui.ModeDefault, pid, proc.Result, proc.TokensUsed, elapsed, proc.Provider, proc.Model)
+	outputSuccess(renderer, ui.ModeDefault, pid, proc.Result, proc.TokensUsed, elapsed, proc.Provider, proc.Model, proc.ReasoningEffort)
 
 	lastReq := driver.LastRequest()
 	if !strings.Contains(lastReq.SystemPrompt, "Code Analyst") {

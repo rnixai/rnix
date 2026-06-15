@@ -177,43 +177,44 @@ func (h *ProcessHistory) SeedRemovedUUIDs(uuids map[string]struct{}) {
 
 // procInfoDisk is the JSON-serializable representation of ProcInfo on disk.
 type procInfoDisk struct {
-	PID            uint64   `json:"pid"`
-	UUID           string   `json:"uuid"`
-	OriginUUID     string   `json:"origin_uuid,omitempty"`
-	ResumedFromStep int     `json:"resumed_from_step,omitempty"`
-	ExitReason     string   `json:"exit_reason,omitempty"`
-	CtxSize        int      `json:"ctx_size,omitempty"`
-	PPID           uint64   `json:"ppid"`
-	ParentUUID     string   `json:"parent_uuid,omitempty"`
-	State          string   `json:"state"`
-	Intent         string   `json:"intent"`
-	Skills         []string `json:"skills,omitempty"`
-	TokensUsed      int `json:"tokens_used"`
-	LastInputTokens int `json:"last_input_tokens,omitempty"`
-	ContextBudget   int `json:"context_budget,omitempty"`
-	MaxSteps       int      `json:"max_steps,omitempty"`
-	CreatedAt      string   `json:"created_at"`
-	DeadAt         string   `json:"dead_at,omitempty"`
-	PausedTotalMs  int64    `json:"paused_total_ms,omitempty"`
+	PID             uint64   `json:"pid"`
+	UUID            string   `json:"uuid"`
+	OriginUUID      string   `json:"origin_uuid,omitempty"`
+	ResumedFromStep int      `json:"resumed_from_step,omitempty"`
+	ExitReason      string   `json:"exit_reason,omitempty"`
+	CtxSize         int      `json:"ctx_size,omitempty"`
+	PPID            uint64   `json:"ppid"`
+	ParentUUID      string   `json:"parent_uuid,omitempty"`
+	State           string   `json:"state"`
+	Intent          string   `json:"intent"`
+	Skills          []string `json:"skills,omitempty"`
+	TokensUsed      int      `json:"tokens_used"`
+	LastInputTokens int      `json:"last_input_tokens,omitempty"`
+	ContextBudget   int      `json:"context_budget,omitempty"`
+	MaxSteps        int      `json:"max_steps,omitempty"`
+	CreatedAt       string   `json:"created_at"`
+	DeadAt          string   `json:"dead_at,omitempty"`
+	PausedTotalMs   int64    `json:"paused_total_ms,omitempty"`
 	// Story 44.3 AC#1 — suspend metadata persisted across daemon restart so
 	// LoadSuspendedFromDisk can recreate accurate Suspended placeholders.
 	// SuspendReason intentionally typed as string (not enum) to stay
 	// decoupled from Epic 45's planned HeartbeatMonitor removal.
-	SuspendReason  string   `json:"suspend_reason,omitempty"`
-	PausedAt       string   `json:"paused_at,omitempty"`
-	IsPaused       bool     `json:"is_paused,omitempty"`
-	CtxID          uint64   `json:"ctx_id"`
-	Result         string   `json:"result,omitempty"`
-	AllowedDevices []string `json:"allowed_devices,omitempty"`
-	DeniedDevices  []string `json:"denied_devices,omitempty"`
-	AllowedTools   []string `json:"allowed_tools,omitempty"` // Story 54.1: authoritative tool whitelist; omitempty keeps legacy proc-info.json clean
-	Provider       string   `json:"provider,omitempty"`
-	Model          string   `json:"model,omitempty"`
+	SuspendReason   string   `json:"suspend_reason,omitempty"`
+	PausedAt        string   `json:"paused_at,omitempty"`
+	IsPaused        bool     `json:"is_paused,omitempty"`
+	CtxID           uint64   `json:"ctx_id"`
+	Result          string   `json:"result,omitempty"`
+	AllowedDevices  []string `json:"allowed_devices,omitempty"`
+	DeniedDevices   []string `json:"denied_devices,omitempty"`
+	AllowedTools    []string `json:"allowed_tools,omitempty"` // Story 54.1: authoritative tool whitelist; omitempty keeps legacy proc-info.json clean
+	Provider        string   `json:"provider,omitempty"`
+	Model           string   `json:"model,omitempty"`
+	ReasoningEffort string   `json:"reasoning_effort,omitempty"` // Story 55.2: snapshotted reasoning-effort/level
 	// PrimaryDevice — Epic 44 follow-up: persist the LLM VFS path so daemon
 	// restart can rebuild reasonStep-driven placeholders. Without this,
 	// LoadSuspendedFromDisk leaves PrimaryDevice="" and resumeOneForSubtree
 	// silently routes the placeholder into the script-runner branch.
-	PrimaryDevice  string   `json:"primary_device,omitempty"`
+	PrimaryDevice string `json:"primary_device,omitempty"`
 	// ProjectDir — Epic 44 follow-up: persist the project root so
 	// LoadSuspendedFromDisk can call the injected projectConfigLoader to
 	// rebuild a full ProjectConfig (LLMFileOpener / AgentLoader / SkillLoader)
@@ -221,12 +222,12 @@ type procInfoDisk struct {
 	// provider (e.g. opencodego) cannot reopen their LLM device after a
 	// daemon restart — see EchoMatrix `device not found: /dev/llm/opencodego`
 	// regression.
-	ProjectDir     string   `json:"project_dir,omitempty"`
-	ContextWindow  int      `json:"context_window,omitempty"`
-	ComposeNode    string   `json:"compose_node,omitempty"`
-	ComposeDeps    []string `json:"compose_deps,omitempty"`
-	PipelineIndex  int      `json:"pipeline_index"`
-	PipelineTotal  int      `json:"pipeline_total"`
+	ProjectDir    string   `json:"project_dir,omitempty"`
+	ContextWindow int      `json:"context_window,omitempty"`
+	ComposeNode   string   `json:"compose_node,omitempty"`
+	ComposeDeps   []string `json:"compose_deps,omitempty"`
+	PipelineIndex int      `json:"pipeline_index"`
+	PipelineTotal int      `json:"pipeline_total"`
 	// Authoritative exit signal: 0 = success, non-zero = failure.
 	// ExitCodeSet=false (zero value, e.g. legacy snapshots without these fields)
 	// means dashboard must fall back to result-text heuristic.
@@ -265,32 +266,33 @@ func procInfoToDisk(info vfs.ProcInfo) procInfoDisk {
 		CtxSize:         info.CtxSize,
 		PPID:            uint64(info.PPID),
 		ParentUUID:      info.ParentUUID,
-		State:          info.State.String(),
-		Intent:         info.Intent,
-		Skills:         info.Skills,
+		State:           info.State.String(),
+		Intent:          info.Intent,
+		Skills:          info.Skills,
 		TokensUsed:      info.TokensUsed,
 		LastInputTokens: info.LastInputTokens,
 		ContextBudget:   info.ContextBudget,
-		MaxSteps:       info.MaxSteps,
-		CreatedAt:      info.CreatedAt.Format(time.RFC3339Nano),
-		CtxID:          uint64(info.CtxID),
-		Result:         info.Result,
-		AllowedDevices: info.AllowedDevices,
-		DeniedDevices:  info.DeniedDevices,
-		AllowedTools:   info.AllowedTools,
-		Provider:       info.Provider,
-		Model:          info.Model,
-		PrimaryDevice:  info.PrimaryDevice,
-		ProjectDir:     info.ProjectDir,
-		ContextWindow:  info.ContextWindow,
-		ComposeNode:    info.ComposeNode,
-		ComposeDeps:    append([]string(nil), info.ComposeDeps...),
-		PipelineIndex:  info.PipelineIndex,
-		PipelineTotal:  info.PipelineTotal,
+		MaxSteps:        info.MaxSteps,
+		CreatedAt:       info.CreatedAt.Format(time.RFC3339Nano),
+		CtxID:           uint64(info.CtxID),
+		Result:          info.Result,
+		AllowedDevices:  info.AllowedDevices,
+		DeniedDevices:   info.DeniedDevices,
+		AllowedTools:    info.AllowedTools,
+		Provider:        info.Provider,
+		Model:           info.Model,
+		ReasoningEffort: info.ReasoningEffort,
+		PrimaryDevice:   info.PrimaryDevice,
+		ProjectDir:      info.ProjectDir,
+		ContextWindow:   info.ContextWindow,
+		ComposeNode:     info.ComposeNode,
+		ComposeDeps:     append([]string(nil), info.ComposeDeps...),
+		PipelineIndex:   info.PipelineIndex,
+		PipelineTotal:   info.PipelineTotal,
 		// Story 44.3 AC#1 — persist suspend metadata so daemon restart can
 		// reload Suspended placeholders into procTable.
-		SuspendReason: info.SuspendReason,
-		IsPaused:      info.IsPaused,
+		SuspendReason:  info.SuspendReason,
+		IsPaused:       info.IsPaused,
 		ExitCode:       info.ExitCode,
 		ExitCodeSet:    info.ExitCodeSet,
 		DriverMeta:     info.DriverMeta,
@@ -327,32 +329,33 @@ func procInfoFromDisk(d procInfoDisk) vfs.ProcInfo {
 		CtxSize:         d.CtxSize,
 		PPID:            types.PID(d.PPID),
 		ParentUUID:      d.ParentUUID,
-		State:          parseProcessState(d.State),
-		Intent:         d.Intent,
-		Skills:         d.Skills,
+		State:           parseProcessState(d.State),
+		Intent:          d.Intent,
+		Skills:          d.Skills,
 		TokensUsed:      d.TokensUsed,
 		LastInputTokens: d.LastInputTokens,
 		ContextBudget:   d.ContextBudget,
-		MaxSteps:       d.MaxSteps,
-		CtxID:          types.CtxID(d.CtxID),
-		Result:         d.Result,
-		AllowedDevices: d.AllowedDevices,
-		DeniedDevices:  d.DeniedDevices,
-		AllowedTools:   d.AllowedTools,
-		Provider:       d.Provider,
-		Model:          d.Model,
-		PrimaryDevice:  d.PrimaryDevice,
-		ProjectDir:     d.ProjectDir,
-		ContextWindow:  d.ContextWindow,
-		ComposeNode:    d.ComposeNode,
-		ComposeDeps:    d.ComposeDeps,
-		PipelineIndex:  d.PipelineIndex,
-		PipelineTotal:  d.PipelineTotal,
+		MaxSteps:        d.MaxSteps,
+		CtxID:           types.CtxID(d.CtxID),
+		Result:          d.Result,
+		AllowedDevices:  d.AllowedDevices,
+		DeniedDevices:   d.DeniedDevices,
+		AllowedTools:    d.AllowedTools,
+		Provider:        d.Provider,
+		Model:           d.Model,
+		ReasoningEffort: d.ReasoningEffort,
+		PrimaryDevice:   d.PrimaryDevice,
+		ProjectDir:      d.ProjectDir,
+		ContextWindow:   d.ContextWindow,
+		ComposeNode:     d.ComposeNode,
+		ComposeDeps:     d.ComposeDeps,
+		PipelineIndex:   d.PipelineIndex,
+		PipelineTotal:   d.PipelineTotal,
 		// Story 44.3 AC#1 — restore suspend metadata. SuspendReason is a
 		// transparent string passthrough; PausedAt parses best-effort and
 		// stays zero on parse failure.
-		SuspendReason: d.SuspendReason,
-		IsPaused:      d.IsPaused,
+		SuspendReason:  d.SuspendReason,
+		IsPaused:       d.IsPaused,
 		ExitCode:       d.ExitCode,
 		ExitCodeSet:    d.ExitCodeSet,
 		DriverMeta:     d.DriverMeta,

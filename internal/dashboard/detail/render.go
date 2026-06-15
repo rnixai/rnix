@@ -107,6 +107,9 @@ func Render(state DetailState, ctx RenderContext, innerW int) string {
 	fmt.Fprintf(&b, "  PID: %d  UUID: %s\n", d.PID, d.UUID)
 	fmt.Fprintf(&b, "  State: %s  Intent: %s\n", d.State, TruncateStr(d.Intent, 40))
 	fmt.Fprintf(&b, "  Provider: %s  Model: %s\n", d.Provider, d.Model)
+	if d.ReasoningEffort != "" {
+		fmt.Fprintf(&b, "  Effort: %s\n", d.ReasoningEffort)
+	}
 	if d.FeatureProfile != "" && d.FeatureProfile != "full" {
 		fmt.Fprintf(&b, "  Profile: %s\n", d.FeatureProfile)
 	}

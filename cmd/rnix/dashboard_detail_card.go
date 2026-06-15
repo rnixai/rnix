@@ -56,7 +56,7 @@ func renderDetailCardLeft(m *dashboardModel, width, height int) string {
 		deviceList = strings.Join(d.AllowedDevices, ", ")
 	}
 	line1 := fitLinePreferHead(
-		fmt.Sprintf("  Provider: %s │ Model: %s", inspector.DashIfEmpty(d.Provider), inspector.DashIfEmpty(d.Model)),
+		fmt.Sprintf("  Provider: %s │ Model: %s │ Effort: %s", inspector.DashIfEmpty(d.Provider), inspector.DashIfEmpty(d.Model), inspector.DashIfEmpty(d.ReasoningEffort)),
 		fmt.Sprintf("%s │ Devices: %s", startedSeg, deviceList),
 		width)
 
@@ -168,7 +168,7 @@ func renderDeadDetailCard(m *dashboardModel, proc *selectedProcRef, width, heigh
 		deadDeviceList = strings.Join(d.AllowedDevices, ", ")
 	}
 	line2 := fitLinePreferHead(
-		fmt.Sprintf("  Provider: %s │ Model: %s", inspector.DashIfEmpty(d.Provider), inspector.DashIfEmpty(d.Model)),
+		fmt.Sprintf("  Provider: %s │ Model: %s │ Effort: %s", inspector.DashIfEmpty(d.Provider), inspector.DashIfEmpty(d.Model), inspector.DashIfEmpty(d.ReasoningEffort)),
 		" │ Devices: "+deadDeviceList,
 		width)
 

@@ -373,10 +373,11 @@ func (d *CodexCliDriver) Stream(ctx context.Context, req LLMRequest) (<-chan Str
 // Info returns metadata about this driver.
 func (d *CodexCliDriver) Info() DriverInfo {
 	return DriverInfo{
-		Name:         "codex-cli",
-		Provider:     "codex",
-		DefaultModel: d.defaultModel,
-		DriverType:   DriverCodexCLI,
+		Name:            "codex-cli",
+		Provider:        "codex",
+		DefaultModel:    d.defaultModel,
+		DriverType:      DriverCodexCLI,
+		ReasoningEffort: d.effort,
 	}
 }
 

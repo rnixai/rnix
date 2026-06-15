@@ -473,11 +473,12 @@ func TestRenderModelSectionLines_ClaudeCliFullMeta(t *testing.T) {
 		"probe_duration_ms":    "12",
 	}
 	got := stripANSIMeta(strings.Join(
-		RenderModelSectionLines("claude", "claude-opus-4-8", "claude-cli", meta), "\n"))
+		RenderModelSectionLines("claude", "claude-opus-4-8", "high", "claude-cli", meta), "\n"))
 
 	for _, want := range []string{
 		"Provider:", "claude",
 		"Model:", "claude-opus-4-8",
+		"Effort:", "high",
 		"Driver:", "claude-cli",
 		"Binary:", "/usr/local/bin/claude",
 		"Permission:", "bypassPermissions",
@@ -498,7 +499,7 @@ func TestRenderModelSectionLines_ClaudeCliFullMeta(t *testing.T) {
 // 非 CLI driver：DriverMeta 为 nil → 三项 + "(无运行时诊断)"，无诊断字段、无空行。
 func TestRenderModelSectionLines_NonCLINilMeta(t *testing.T) {
 	t.Setenv("RNIX_ASCII", "")
-	lines := RenderModelSectionLines("deepseek", "deepseek-v4", "openai-compat", nil)
+	lines := RenderModelSectionLines("deepseek", "deepseek-v4", "", "openai-compat", nil)
 	got := stripANSIMeta(strings.Join(lines, "\n"))
 
 	for _, want := range []string{"deepseek", "deepseek-v4", "openai-compat", "(无运行时诊断)"} {
@@ -509,9 +510,9 @@ func TestRenderModelSectionLines_NonCLINilMeta(t *testing.T) {
 	if strings.Contains(got, "Binary:") || strings.Contains(got, "Cap:") {
 		t.Errorf("NonCLI (nil meta) should not render diagnostic fields:\n%s", got)
 	}
-	// 4 行：Provider / Model / Driver / 诊断提示——无多余空行。
-	if len(lines) != 4 {
-		t.Errorf("NonCLI nil meta line count = %d, want 4", len(lines))
+	// 5 行：Provider / Model / Effort / Driver / 诊断提示——无多余空行。
+	if len(lines) != 5 {
+		t.Errorf("NonCLI nil meta line count = %d, want 5", len(lines))
 	}
 	for i, ln := range lines {
 		if strings.TrimSpace(stripANSIMeta(ln)) == "" {
@@ -524,7 +525,7 @@ func TestRenderModelSectionLines_NonCLINilMeta(t *testing.T) {
 func TestRenderModelSectionLines_EmptyModelDash(t *testing.T) {
 	t.Setenv("RNIX_ASCII", "")
 	got := stripANSIMeta(strings.Join(
-		RenderModelSectionLines("claude", "", "claude-cli", nil), "\n"))
+		RenderModelSectionLines("claude", "", "", "claude-cli", nil), "\n"))
 	if !strings.Contains(got, "Model:") || !strings.Contains(got, "—") {
 		t.Errorf("empty Model should render \"—\" placeholder:\n%s", got)
 	}
@@ -534,7 +535,7 @@ func TestRenderModelSectionLines_EmptyModelDash(t *testing.T) {
 func TestRenderModelSectionLines_ASCIIMode(t *testing.T) {
 	t.Setenv("RNIX_ASCII", "1")
 	got := stripANSIMeta(strings.Join(
-		RenderModelSectionLines("", "", "", nil), "\n"))
+		RenderModelSectionLines("", "", "", "", nil), "\n"))
 	if strings.Contains(got, "—") {
 		t.Errorf("ASCII mode must not contain em-dash \"—\":\n%s", got)
 	}
@@ -548,7 +549,7 @@ func TestRenderModelSectionLines_UnknownKeyFallback(t *testing.T) {
 	t.Setenv("RNIX_ASCII", "")
 	meta := map[string]string{"future_field": "xyz"}
 	got := stripANSIMeta(strings.Join(
-		RenderModelSectionLines("p", "m", "d", meta), "\n"))
+		RenderModelSectionLines("p", "m", "", "d", meta), "\n"))
 	if !strings.Contains(got, "future_field:") || !strings.Contains(got, "xyz") {
 		t.Errorf("unknown key should fall back to raw name:\n%s", got)
 	}

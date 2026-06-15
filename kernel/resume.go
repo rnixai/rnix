@@ -47,15 +47,15 @@ type ResumeOpts struct {
 // resolveResumeProjectConfig determines the effective ProjectConfig for a resume,
 // mirroring the Spawn path's project-level provider escape hatch (spawn.go:588).
 // Priority:
-//   1. opts.ProjectConfig — caller-supplied (apply's handleResume rebuilds it
-//      via resolveProjectContext).
-//   2. oldProc.ProjectConfig — placeholder rebuilt by LoadSuspendedFromDisk.
-//      AutoResumeDaemonShutdown resumes with an empty ResumeOpts{}, so for
-//      daemon-self-start auto-resume of a project-level provider this is the
-//      only in-memory source.
-//   3. projectConfigLoader(projectDir) — last-resort rebuild from the on-disk
-//      project_dir. History path only; checkpoint ProcState carries no
-//      ProjectDir, so callers pass "" there.
+//  1. opts.ProjectConfig — caller-supplied (apply's handleResume rebuilds it
+//     via resolveProjectContext).
+//  2. oldProc.ProjectConfig — placeholder rebuilt by LoadSuspendedFromDisk.
+//     AutoResumeDaemonShutdown resumes with an empty ResumeOpts{}, so for
+//     daemon-self-start auto-resume of a project-level provider this is the
+//     only in-memory source.
+//  3. projectConfigLoader(projectDir) — last-resort rebuild from the on-disk
+//     project_dir. History path only; checkpoint ProcState carries no
+//     ProjectDir, so callers pass "" there.
 //
 // Returns nil when none yields a config — callers then fall through to the
 // global resolveLLMDevice validation, preserving back-compat for global
@@ -478,6 +478,7 @@ func (k *KernelImpl) resumeFromCheckpoint(uuid string, opts ResumeOpts, start ti
 	k.restoreParentLinkage(proc, cp.ParentUUID)
 	proc.Provider = cp.Provider
 	proc.Model = cp.Model
+	proc.ReasoningEffort = cp.ReasoningEffort
 	proc.AllowedDevices = append([]string(nil), cp.AllowedDevices...)
 	proc.DeniedDevices = append([]string(nil), cp.DeniedDevices...)
 	// Story 54.1 (NFR87) — restore the tool-name whitelist; legacy checkpoints
@@ -712,6 +713,7 @@ func (k *KernelImpl) resumeFromHistory(uuid string, opts ResumeOpts, start time.
 	}
 	proc.Provider = provider
 	proc.Model = diskInfo.Model
+	proc.ReasoningEffort = diskInfo.ReasoningEffort
 	proc.PrimaryDevice = llmDevice // must be set before rehydrate so the caller
 	// can route reasonStep-driven processes correctly on later resume legs.
 	proc.AllowedDevices = append([]string(nil), diskInfo.AllowedDevices...)
@@ -988,10 +990,10 @@ func (k *KernelImpl) parseStepsJSONL(path string, maxStep int) (int, []rnixctx.M
 	}
 	defer f.Close()
 
-	var lastStep int           // highest step considered for messages (bounded by maxStep)
-	var totalSteps int         // highest step across the entire file (for range validation)
+	var lastStep int   // highest step considered for messages (bounded by maxStep)
+	var totalSteps int // highest step across the entire file (for range validation)
 	var lastMessagesRaw json.RawMessage
-	var seenInWindow bool      // true once we encountered any record within [0..maxStep]
+	var seenInWindow bool // true once we encountered any record within [0..maxStep]
 	scanner := bufio.NewScanner(f)
 	scanner.Buffer(make([]byte, 1024*1024), 1024*1024)
 

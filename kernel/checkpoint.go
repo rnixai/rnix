@@ -28,6 +28,7 @@ type CheckpointProcState struct {
 	PID                   types.PID         `json:"pid"`
 	Provider              string            `json:"provider"`
 	Model                 string            `json:"model"`
+	ReasoningEffort       string            `json:"reasoning_effort,omitempty"`
 	Skills                []string          `json:"skills"`
 	AllowedDevices        []string          `json:"allowed_devices"`
 	DeniedDevices         []string          `json:"denied_devices,omitempty"`
@@ -133,6 +134,7 @@ func buildCheckpointData(proc *Process, step int, contextSnapshot json.RawMessag
 			PID:                   proc.PID,
 			Provider:              proc.Provider,
 			Model:                 proc.Model,
+			ReasoningEffort:       proc.ReasoningEffort,
 			Skills:                skills,
 			AllowedDevices:        allowedDevices,
 			DeniedDevices:         deniedDevices,

@@ -27,7 +27,6 @@ func nextPID() types.PID {
 	return types.PID(pidCounter.Add(1))
 }
 
-
 // ProcessBudget tracks per-process resource budget for cost/token limiting.
 // When a budget limit is reached, the process is suspended (not terminated).
 type ProcessBudget struct {
@@ -61,37 +60,37 @@ type DeferredSkillMeta struct {
 
 // Process represents an agent process.
 type Process struct {
-	PID            types.PID
-	UUID           string // UUID v7 — immutable after creation, globally unique across daemon restarts
-	OriginUUID     string // non-empty when this process was forked from another UUID (resume --fork)
-	ResumedFromStep int   // step number from which this process was resumed (0 = fresh spawn)
-	PPID           types.PID
-	Depth          int    // spawn-chain depth for the recursion guard; 0 = top-level. Set from SpawnOpts.Depth; only ActionSpawn accumulates (parent.Depth+1).
-	ParentUUID     string // UUID of parent process — immutable after creation
-	State          types.ProcessState // guarded by mu
-	Intent         string             // immutable after creation
-	Skills         []string
-	DeferredSkills []DeferredSkillMeta // metadata-only skills for discover_skill scoring
-	SkillBodies    map[string]string   // skill name → body content (mu protected); updated by spawn + specialize
-	SkillDirs      map[string]string   // skill name → absolute source directory (mu protected); used for claude-cli bundle symlinks
-	Children       []types.PID
-	FDTable        map[types.FD]vfs.VFSFile // per architecture doc; VFS manages actual FD state internally
-	DebugChan      chan types.SyscallEvent
-	LogChan        chan types.LogEntry
-	Done           chan ExitStatus
-	CreatedAt      time.Time
-	DeadAt         time.Time   // set by reapProcess, used for TTL cleanup
-	Exit           *ExitStatus // non-nil in Zombie/Dead
-	CtxID          types.CtxID // context allocated by Spawn
-	Result         string      // final output from reasoning
-	TokensUsed      int // cumulative token consumption
-	LastInputTokens int // most recent LLM call's prompt input tokens (for context_budget check)
-	ContextBudget   int // 0 = no limit; >0 = suspend when single-step InputTokens >= ContextBudget
-	CtxSize        int            // context message slot limit used at allocation (for checkpoint)
-	Budget         ProcessBudget // per-process resource budget (mu protected); suspend when exhausted
-	MaxSteps       int            // max reasoning steps for this process (from SpawnOpts.MaxTurns or DefaultMaxSteps)
-	AllowedDevices []string    // nil/empty = all devices allowed; non-empty = whitelist only
-	DeniedDevices  []string    // device blacklist; checked before AllowedDevices; blocks access regardless of whitelist
+	PID             types.PID
+	UUID            string // UUID v7 — immutable after creation, globally unique across daemon restarts
+	OriginUUID      string // non-empty when this process was forked from another UUID (resume --fork)
+	ResumedFromStep int    // step number from which this process was resumed (0 = fresh spawn)
+	PPID            types.PID
+	Depth           int                // spawn-chain depth for the recursion guard; 0 = top-level. Set from SpawnOpts.Depth; only ActionSpawn accumulates (parent.Depth+1).
+	ParentUUID      string             // UUID of parent process — immutable after creation
+	State           types.ProcessState // guarded by mu
+	Intent          string             // immutable after creation
+	Skills          []string
+	DeferredSkills  []DeferredSkillMeta // metadata-only skills for discover_skill scoring
+	SkillBodies     map[string]string   // skill name → body content (mu protected); updated by spawn + specialize
+	SkillDirs       map[string]string   // skill name → absolute source directory (mu protected); used for claude-cli bundle symlinks
+	Children        []types.PID
+	FDTable         map[types.FD]vfs.VFSFile // per architecture doc; VFS manages actual FD state internally
+	DebugChan       chan types.SyscallEvent
+	LogChan         chan types.LogEntry
+	Done            chan ExitStatus
+	CreatedAt       time.Time
+	DeadAt          time.Time     // set by reapProcess, used for TTL cleanup
+	Exit            *ExitStatus   // non-nil in Zombie/Dead
+	CtxID           types.CtxID   // context allocated by Spawn
+	Result          string        // final output from reasoning
+	TokensUsed      int           // cumulative token consumption
+	LastInputTokens int           // most recent LLM call's prompt input tokens (for context_budget check)
+	ContextBudget   int           // 0 = no limit; >0 = suspend when single-step InputTokens >= ContextBudget
+	CtxSize         int           // context message slot limit used at allocation (for checkpoint)
+	Budget          ProcessBudget // per-process resource budget (mu protected); suspend when exhausted
+	MaxSteps        int           // max reasoning steps for this process (from SpawnOpts.MaxTurns or DefaultMaxSteps)
+	AllowedDevices  []string      // nil/empty = all devices allowed; non-empty = whitelist only
+	DeniedDevices   []string      // device blacklist; checked before AllowedDevices; blocks access regardless of whitelist
 	// AllowedTools is the process-level AUTHORITATIVE tool-name whitelist (Story 54.1).
 	// nil/empty = no tool-level constraint; non-empty = only these base-device tools
 	// (by tc.Name, e.g. "Read") may run — so allowed-tools:Read permits Read but denies
@@ -100,8 +99,8 @@ type Process struct {
 	// raw values (device paths today); SkillInfoWire.AllowedTools is a dashboard wire
 	// field. This is the runtime-enforced tool set. MCP tools are NOT gated here (their
 	// names are dynamic) — they stay path-gated via AllowedDevices. (mu protected)
-	AllowedTools   []string
-	MCPMounts      []string    // MCP mount paths auto-mounted by Spawn
+	AllowedTools []string
+	MCPMounts    []string // MCP mount paths auto-mounted by Spawn
 	// mcpReusedMounts contains MCP paths this process did NOT mount itself
 	// (Story 48.1 AC7 — fork-resume collision: an existing mount under the
 	// shared `/mnt/mcp/<original-pid>-<server>` path is reused rather than
@@ -121,11 +120,11 @@ type Process struct {
 	// server so the kernel emits mcp.reconnect exactly once per delta (Story
 	// 48.5 AC3 / §易错点 13). Protected by proc.mu.
 	mcpReconnectSeen map[string]int
-	TraceID        types.TraceID
-	SpanID         types.SpanID
-	ParentSpanID   types.SpanID
-	HasToolError   bool // true if any tool call failed (mu protected)
-	failedChildren int  // F2: count of spawned children that exited non-zero (mu protected)
+	TraceID          types.TraceID
+	SpanID           types.SpanID
+	ParentSpanID     types.SpanID
+	HasToolError     bool // true if any tool call failed (mu protected)
+	failedChildren   int  // F2: count of spawned children that exited non-zero (mu protected)
 
 	// Log history ring buffer (mu protected)
 	logHistory []types.LogEntry
@@ -172,19 +171,20 @@ type Process struct {
 	gdbExtraSkills   []string
 
 	// Fallback configuration (Story 23.5)
-	FallbackModel    string // fallback model name
-	FallbackProvider string // fallback provider name; "" = same as primary
-	FallbackDevice   string // resolved fallback VFS device path; "" = no fallback
-	PrimaryDevice    string // primary VFS device path (e.g. "/dev/llm/claude")
-	Provider         string            // resolved provider name (immutable after spawn)
-	Model            string            // resolved model name (immutable after spawn)
-	DriverMeta       map[string]string // runtime metadata from DriverMetaProvider (immutable after spawn)
-	AgentTemplate    string // agent manifest name (immutable after spawn; Story 51.4)
-	ContextWindow    int    // per-model context window size (immutable after spawn); 0 = use fallback
-	PlanningEnabled    bool         // deprecated: use FeatureFlags.Planning; kept for agent manifest override compat
-	FeatureFlags       FeatureFlags // per-process feature flags; copied from kernel at spawn time
-	CompactionDisabled bool         // true = skip autoCompactIfNeeded (derived from FeatureFlags.Compaction==false)
-	Language           string       // preferred response language (from agent manifest); empty = no preference
+	FallbackModel      string            // fallback model name
+	FallbackProvider   string            // fallback provider name; "" = same as primary
+	FallbackDevice     string            // resolved fallback VFS device path; "" = no fallback
+	PrimaryDevice      string            // primary VFS device path (e.g. "/dev/llm/claude")
+	Provider           string            // resolved provider name (immutable after spawn)
+	Model              string            // resolved model name (immutable after spawn)
+	ReasoningEffort    string            // resolved reasoning-effort/level snapshotted from driver (immutable after spawn; Story 55.2); "" = unset
+	DriverMeta         map[string]string // runtime metadata from DriverMetaProvider (immutable after spawn)
+	AgentTemplate      string            // agent manifest name (immutable after spawn; Story 51.4)
+	ContextWindow      int               // per-model context window size (immutable after spawn); 0 = use fallback
+	PlanningEnabled    bool              // deprecated: use FeatureFlags.Planning; kept for agent manifest override compat
+	FeatureFlags       FeatureFlags      // per-process feature flags; copied from kernel at spawn time
+	CompactionDisabled bool              // true = skip autoCompactIfNeeded (derived from FeatureFlags.Compaction==false)
+	Language           string            // preferred response language (from agent manifest); empty = no preference
 
 	// Observation system (Story 27.1)
 	FinalSystemPrompt string       // Full system prompt captured on first reasonStep (mu protected)
@@ -205,8 +205,8 @@ type Process struct {
 
 	// Checkpoint system (Story 30.2) — fire-and-forget async write per step
 	checkpointErrCh chan error // buffered cap=1; carries last async write error
-	stepsDir        string    // resolved directory for checkpoint writes; "" = no checkpoint
-	scratchDir      string    // per-process temp directory for intermediate files; "" = not created
+	stepsDir        string     // resolved directory for checkpoint writes; "" = no checkpoint
+	scratchDir      string     // per-process temp directory for intermediate files; "" = not created
 
 	// Periodic checkpoint throttling (Story 42.2) — mu protected
 	lastCheckpointStep int       // last step at which checkpoint was written (0 = never)
@@ -224,8 +224,8 @@ type Process struct {
 	PipelineTotal int      // total stages in pipeline, 0 = not pipeline
 
 	// Suspend system (Story 30.3) — atomic flag for graceful suspend
-	suspendRequested atomic.Bool   // set by Suspend(), checked by reasonStep
-	SuspendReason    string        // reason for suspension (mu protected)
+	suspendRequested atomic.Bool // set by Suspend(), checked by reasonStep
+	SuspendReason    string      // reason for suspension (mu protected)
 
 	// Resume notification (Story 44.2) — mu protected. resumedCh is closed by
 	// Unsuspend() so a parked script-runner ScriptExecutor (waiting at a
@@ -246,19 +246,19 @@ type Process struct {
 	LastCompletedStep atomic.Int64
 
 	// Context compact (Story 31.2) — mu protected
-	CompactThreshold     float64                       // 0 = use default (80.0); >0 = trigger compact when TokenUsage > threshold
-	SlotCompactThreshold  float64                       // 0 = use default (80.0); >0 = trigger compact when slot usage% > threshold
-	BackpressureThreshold float64                       // 0 = use default (70.0); >0 = inject backpressure section when slot usage% > threshold
-	CompactTimeout        time.Duration                  // 0 = use default (30s); >0 = timeout for compact LLM call
-	ReadFileState    map[string]rnixctx.ReadFileEntry   // tracks recently read files for post-compact restore
-	compactMu        sync.Mutex                         // prevents concurrent compact operations (auto + manual IPC)
+	CompactThreshold      float64                          // 0 = use default (80.0); >0 = trigger compact when TokenUsage > threshold
+	SlotCompactThreshold  float64                          // 0 = use default (80.0); >0 = trigger compact when slot usage% > threshold
+	BackpressureThreshold float64                          // 0 = use default (70.0); >0 = inject backpressure section when slot usage% > threshold
+	CompactTimeout        time.Duration                    // 0 = use default (30s); >0 = timeout for compact LLM call
+	ReadFileState         map[string]rnixctx.ReadFileEntry // tracks recently read files for post-compact restore
+	compactMu             sync.Mutex                       // prevents concurrent compact operations (auto + manual IPC)
 
 	// Step-level cancel (Story 30.6) — cancel current LLM call without killing process
 	stepCancel context.CancelFunc // mu protected; cancel for current step's LLM call
 
 	// Tool calling support (immutable after Spawn)
-	HasSections       bool                // true when SectionRegistry is attached to context
-	sections          *rnixctx.SectionRegistry // prompt section registry (nil for bare spawns)
+	HasSections bool                     // true when SectionRegistry is attached to context
+	sections    *rnixctx.SectionRegistry // prompt section registry (nil for bare spawns)
 	// synthesizedPrompt records whether this process's system prompt was
 	// produced by rehydrate.go's fallback path (no process-meta.json on
 	// disk, sections re-registered from skill registry + mcpConfigs).
@@ -268,21 +268,21 @@ type Process struct {
 	// Story 48.1 code-review P5. Protected by proc.mu.
 	synthesizedPrompt bool
 	toolMap           map[string]toolMapping // tool name → VFS path mapping; immutable after Spawn
-	nativeToolDefs    []vfs.ToolDef       // collected ToolDefs for req.Tools; immutable after Spawn
-	mcpDevicePaths    []string            // MCP device paths for mixed mode text injection; immutable after Spawn
-	mcpConfigs        []vfs.MCPConfig     // MCP server configs for Instructions injection; immutable after Spawn
+	nativeToolDefs    []vfs.ToolDef          // collected ToolDefs for req.Tools; immutable after Spawn
+	mcpDevicePaths    []string               // MCP device paths for mixed mode text injection; immutable after Spawn
+	mcpConfigs        []vfs.MCPConfig        // MCP server configs for Instructions injection; immutable after Spawn
 
 	// Project configuration (Story 25.3) — immutable after spawn, no locking needed
 	ProjectConfig *config.ProjectConfig
 
-	mu             sync.Mutex
-	cancel         context.CancelFunc
-	ctx            context.Context
-	wg             sync.WaitGroup
-	reapOnce       sync.Once  // ensures reap executes at most once
-	writebackOnce  sync.Once  // ensures writeback submit runs at most once (Story 35.3)
-	terminateOnce  sync.Once  // ensures terminated channel is closed exactly once
-	terminated     chan struct{} // closed when process transitions to Zombie; broadcast to all waiters
+	mu            sync.Mutex
+	cancel        context.CancelFunc
+	ctx           context.Context
+	wg            sync.WaitGroup
+	reapOnce      sync.Once     // ensures reap executes at most once
+	writebackOnce sync.Once     // ensures writeback submit runs at most once (Story 35.3)
+	terminateOnce sync.Once     // ensures terminated channel is closed exactly once
+	terminated    chan struct{} // closed when process transitions to Zombie; broadcast to all waiters
 }
 
 // NewProcess creates a new process in the Created state with a unique PID.
@@ -402,38 +402,39 @@ func (p *Process) GetFDSnapshot() []FDSnapshot {
 
 // GetDetailSnapshot returns a thread-safe snapshot of process fields needed for detail view.
 type DetailSnapshot struct {
-	PID            types.PID
-	UUID           string
-	PPID           types.PID
-	State          types.ProcessState
-	Intent         string
-	Provider       string
-	Model          string
-	CreatedAt      time.Time
-	DeadAt         time.Time
-	PausedTotal    time.Duration
-	Skills         []string
-	AllowedDevices []string
+	PID             types.PID
+	UUID            string
+	PPID            types.PID
+	State           types.ProcessState
+	Intent          string
+	Provider        string
+	Model           string
+	ReasoningEffort string // Story 55.2: snapshotted reasoning-effort/level for detail view
+	CreatedAt       time.Time
+	DeadAt          time.Time
+	PausedTotal     time.Duration
+	Skills          []string
+	AllowedDevices  []string
 	// DeniedDevices mirrors AllowedDevices in this observability snapshot so the
 	// detail view reflects a resumed process's device blocklist (Story 37.6). It
 	// is captured at the kernel layer for symmetry; IPC/dashboard surfacing stays
 	// out of this story's kernel/+vfs/ persistence scope.
-	DeniedDevices  []string
+	DeniedDevices []string
 	// AllowedTools mirrors the process authoritative tool-name whitelist
 	// (Story 54.1) into the observability snapshot so the detail view / IPC
 	// wire can surface a process's runtime tool set alongside AllowedDevices.
-	AllowedTools   []string
-	CtxID          types.CtxID
+	AllowedTools    []string
+	CtxID           types.CtxID
 	TokensUsed      int
 	LastInputTokens int
 	ContextBudget   int
 	MaxTokens       int64
-	MaxCost        float64
-	UsedCost       float64
-	ComposeNode    string
-	ComposeDeps    []string
-	PipelineIndex  int
-	PipelineTotal  int
+	MaxCost         float64
+	UsedCost        float64
+	ComposeNode     string
+	ComposeDeps     []string
+	PipelineIndex   int
+	PipelineTotal   int
 
 	// Story 42.3 — resume lineage fields (populated when process is the result
 	// of a fork/resume operation; empty otherwise).
@@ -455,6 +456,7 @@ func (p *Process) GetDetailSnapshot() DetailSnapshot {
 		Intent:          p.Intent,
 		Provider:        p.Provider,
 		Model:           p.Model,
+		ReasoningEffort: p.ReasoningEffort,
 		CreatedAt:       p.CreatedAt,
 		DeadAt:          p.DeadAt,
 		PausedTotal:     p.pausedTotal,

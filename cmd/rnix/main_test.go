@@ -9,13 +9,13 @@ import (
 	"testing"
 	"time"
 
-	"github.com/spf13/cobra"
 	rnixctx "github.com/rnixai/rnix/context"
 	"github.com/rnixai/rnix/internal/types"
 	"github.com/rnixai/rnix/internal/ui"
 	"github.com/rnixai/rnix/ipc"
 	"github.com/rnixai/rnix/kernel"
 	"github.com/rnixai/rnix/vfs"
+	"github.com/spf13/cobra"
 )
 
 func TestResolveOutputMode(t *testing.T) {
@@ -137,7 +137,7 @@ func TestOutputSuccess_JSON(t *testing.T) {
 	var buf bytes.Buffer
 	renderer := &ui.Renderer{Writer: &buf, OutputMode: ui.ModeJSON, Profile: ui.TerminalProfile{ColorLevel: 0}}
 
-	outputSuccess(renderer, ui.ModeJSON, 1, "test result", 100, 5*time.Second, "claude", "sonnet")
+	outputSuccess(renderer, ui.ModeJSON, 1, "test result", 100, 5*time.Second, "claude", "sonnet", "")
 
 	var resp JSONResponse
 	if err := json.Unmarshal(buf.Bytes(), &resp); err != nil {
@@ -174,7 +174,7 @@ func TestOutputSuccess_Default(t *testing.T) {
 	var buf bytes.Buffer
 	renderer := &ui.Renderer{Writer: &buf, OutputMode: ui.ModeDefault, Profile: ui.TerminalProfile{Width: 80, ColorLevel: 0}}
 
-	outputSuccess(renderer, ui.ModeDefault, 1, "分析完成", 50, 2*time.Second, "claude", "haiku")
+	outputSuccess(renderer, ui.ModeDefault, 1, "分析完成", 50, 2*time.Second, "claude", "haiku", "")
 
 	output := buf.String()
 	if !strings.Contains(output, "分析完成") {

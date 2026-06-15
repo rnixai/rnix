@@ -624,10 +624,11 @@ func (d *ClaudeCliDriver) Stream(ctx context.Context, req LLMRequest) (<-chan St
 // Info returns metadata about this driver.
 func (d *ClaudeCliDriver) Info() DriverInfo {
 	return DriverInfo{
-		Name:         "claude-cli",
-		Provider:     "claude",
-		DefaultModel: d.defaultModel,
-		DriverType:   DriverClaudeCLI,
+		Name:            "claude-cli",
+		Provider:        "claude",
+		DefaultModel:    d.defaultModel,
+		DriverType:      DriverClaudeCLI,
+		ReasoningEffort: d.effort,
 	}
 }
 

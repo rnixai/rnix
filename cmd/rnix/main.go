@@ -24,18 +24,18 @@ import (
 	"github.com/rnixai/rnix/agents"
 	rnixctx "github.com/rnixai/rnix/context"
 	"github.com/rnixai/rnix/debug"
+	"github.com/rnixai/rnix/drivers/cron"
 	"github.com/rnixai/rnix/drivers/fs"
+	intentdriver "github.com/rnixai/rnix/drivers/intent"
 	"github.com/rnixai/rnix/drivers/llm"
 	"github.com/rnixai/rnix/drivers/lsp"
 	"github.com/rnixai/rnix/drivers/mcp"
-	drivershell "github.com/rnixai/rnix/drivers/shell"
-	"github.com/rnixai/rnix/drivers/tty"
-	"github.com/rnixai/rnix/drivers/tasks"
-	"github.com/rnixai/rnix/drivers/cron"
 	driversmemory "github.com/rnixai/rnix/drivers/memory"
+	drivershell "github.com/rnixai/rnix/drivers/shell"
 	driverskills "github.com/rnixai/rnix/drivers/skills"
+	"github.com/rnixai/rnix/drivers/tasks"
+	"github.com/rnixai/rnix/drivers/tty"
 	"github.com/rnixai/rnix/drivers/web"
-	intentdriver "github.com/rnixai/rnix/drivers/intent"
 	"github.com/rnixai/rnix/intent"
 	"github.com/rnixai/rnix/internal/config"
 	"github.com/rnixai/rnix/internal/types"
@@ -595,7 +595,7 @@ func runRoot(cmd *cobra.Command, args []string) error {
 	defer signal.Stop(sigCh)
 
 	var spawnedPID atomic.Uint64
-	var spawnProvider, spawnModel string
+	var spawnProvider, spawnModel, spawnEffort string
 	cancelClient, _ := ipc.Dial(ipc.SocketPath())
 	if cancelClient != nil {
 		defer cancelClient.Close()
@@ -636,14 +636,19 @@ func runRoot(cmd *cobra.Command, args []string) error {
 		case "spawn":
 			spawnProvider = pp.Provider
 			spawnModel = pp.Model
+			spawnEffort = pp.ReasoningEffort
 			uuidShort := pp.UUID
 			if len(uuidShort) > 12 {
 				uuidShort = uuidShort[:12] + "..."
 			}
+			effortSuffix := ""
+			if pp.ReasoningEffort != "" {
+				effortSuffix = ", effort: " + pp.ReasoningEffort
+			}
 			if pp.Provider != "" && pp.Model != "" {
-				progress.KernelMessage("spawning PID %d (uuid: %s, %s/%s)...", pp.PID, uuidShort, pp.Provider, pp.Model)
+				progress.KernelMessage("spawning PID %d (uuid: %s, %s/%s%s)...", pp.PID, uuidShort, pp.Provider, pp.Model, effortSuffix)
 			} else if pp.Provider != "" {
-				progress.KernelMessage("spawning PID %d (uuid: %s, %s)...", pp.PID, uuidShort, pp.Provider)
+				progress.KernelMessage("spawning PID %d (uuid: %s, %s%s)...", pp.PID, uuidShort, pp.Provider, effortSuffix)
 			} else {
 				progress.KernelMessage("spawning PID %d (uuid: %s)...", pp.PID, uuidShort)
 			}
@@ -686,7 +691,7 @@ func runRoot(cmd *cobra.Command, args []string) error {
 	elapsed := time.Since(start)
 
 	if final != nil && final.ExitCode == 0 {
-		outputSuccess(renderer, mode, pid, final.Result, final.TokensUsed, elapsed, spawnProvider, spawnModel)
+		outputSuccess(renderer, mode, pid, final.Result, final.TokensUsed, elapsed, spawnProvider, spawnModel, spawnEffort)
 	} else {
 		reason := "unknown error"
 		if final != nil {
@@ -700,7 +705,7 @@ func runRoot(cmd *cobra.Command, args []string) error {
 		if final != nil {
 			tokensUsed = final.TokensUsed
 		}
-		ui.RenderSummary(renderer, pid, 1, tokensUsed, elapsed, spawnProvider, spawnModel)
+		ui.RenderSummary(renderer, pid, 1, tokensUsed, elapsed, spawnProvider, spawnModel, spawnEffort)
 		exitCode = 1
 	}
 
@@ -799,7 +804,7 @@ func runPipeline(renderer *ui.Renderer, mode ui.OutputMode, progress *ui.Progres
 		for _, s := range pipeResp.Stages {
 			totalTokens += s.TokensUsed
 		}
-		ui.RenderSummary(renderer, lastStage.PID, lastStage.ExitCode, totalTokens, elapsed, "", "")
+		ui.RenderSummary(renderer, lastStage.PID, lastStage.ExitCode, totalTokens, elapsed, "", "", "")
 		exitCode = 1
 		return
 	}
@@ -808,7 +813,7 @@ func runPipeline(renderer *ui.Renderer, mode ui.OutputMode, progress *ui.Progres
 	for _, s := range pipeResp.Stages {
 		totalTokens += s.TokensUsed
 	}
-	outputSuccess(renderer, mode, lastStage.PID, lastStage.Result, totalTokens, elapsed, "", "")
+	outputSuccess(renderer, mode, lastStage.PID, lastStage.Result, totalTokens, elapsed, "", "", "")
 }
 
 func runScript(renderer *ui.Renderer, mode ui.OutputMode, progress *ui.ProgressReporter, client *ipc.Client, intent string, start time.Time, projectDir string) {
@@ -878,12 +883,12 @@ func runScript(renderer *ui.Renderer, mode ui.OutputMode, progress *ui.ProgressR
 	}
 
 	if scriptResp.LastExitCode == 0 {
-		outputSuccess(renderer, mode, 0, scriptResp.LastResult, scriptResp.TotalTokens, elapsed, "", "")
+		outputSuccess(renderer, mode, 0, scriptResp.LastResult, scriptResp.TotalTokens, elapsed, "", "", "")
 	} else {
 		outputError(renderer, mode, "shell/script",
 			fmt.Sprintf("script failed (exit %d)", scriptResp.LastExitCode),
 			"script execution interrupted", "check spawn commands in script")
-		ui.RenderSummary(renderer, 0, scriptResp.LastExitCode, scriptResp.TotalTokens, elapsed, "", "")
+		ui.RenderSummary(renderer, 0, scriptResp.LastExitCode, scriptResp.TotalTokens, elapsed, "", "", "")
 		exitCode = 1
 	}
 }
@@ -932,7 +937,7 @@ func outputPipelineJSON(renderer *ui.Renderer, resp *ipc.SpawnPipelineResponse, 
 	fmt.Fprintln(renderer.Writer, string(data))
 }
 
-func outputSuccess(renderer *ui.Renderer, mode ui.OutputMode, pid types.PID, result string, tokensUsed int, elapsed time.Duration, provider, model string) {
+func outputSuccess(renderer *ui.Renderer, mode ui.OutputMode, pid types.PID, result string, tokensUsed int, elapsed time.Duration, provider, model, effort string) {
 	if mode == ui.ModeJSON {
 		resp := JSONResponse{
 			OK: true,
@@ -950,7 +955,7 @@ func outputSuccess(renderer *ui.Renderer, mode ui.OutputMode, pid types.PID, res
 	}
 
 	ui.RenderResult(renderer, "Result", result)
-	ui.RenderSummary(renderer, pid, 0, tokensUsed, elapsed, provider, model)
+	ui.RenderSummary(renderer, pid, 0, tokensUsed, elapsed, provider, model, effort)
 }
 
 func outputError(renderer *ui.Renderer, mode ui.OutputMode, device string, reason string, impact string, suggestion string) {
@@ -1533,7 +1538,6 @@ func runDaemon(cmd *cobra.Command, args []string) error {
 
 	// /dev/memory/* devices are registered after dataDir resolution below, so
 	// project memory can land under the per-project data root (Fix H).
-
 
 	ctxMgr := rnixctx.NewManager()
 	skillLoader := skills.NewSkillLoader([]string{filepath.Join(globalDir, "skills")})

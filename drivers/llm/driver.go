@@ -70,11 +70,11 @@ func configureCommandGrace(cmd *exec.Cmd, graceSec int) {
 // ContentBlockUnion shape; ThoughtSignature is base64-encoded by encoding/json
 // for []byte and round-trips cleanly through context persistence.
 type ReasoningBlock struct {
-	Type             string `json:"type"`                         // "thinking" | "redacted_thinking" | "thought"
-	Thinking         string `json:"thinking,omitempty"`           // raw thinking text (Type="thinking" | "thought")
-	Signature        string `json:"signature,omitempty"`          // Anthropic tamper-evident signature (Type="thinking")
-	Data             string `json:"data,omitempty"`               // Anthropic opaque payload (Type="redacted_thinking")
-	ThoughtSignature []byte `json:"thought_signature,omitempty"`  // Gemini opaque thought signature (Type="thought")
+	Type             string `json:"type"`                        // "thinking" | "redacted_thinking" | "thought"
+	Thinking         string `json:"thinking,omitempty"`          // raw thinking text (Type="thinking" | "thought")
+	Signature        string `json:"signature,omitempty"`         // Anthropic tamper-evident signature (Type="thinking")
+	Data             string `json:"data,omitempty"`              // Anthropic opaque payload (Type="redacted_thinking")
+	ThoughtSignature []byte `json:"thought_signature,omitempty"` // Gemini opaque thought signature (Type="thought")
 }
 
 // Message represents a single message in a conversation.
@@ -94,8 +94,8 @@ type Message struct {
 // drivers see skill bodies auto-merged into SystemPrompt by the VFS layer.
 type Skill struct {
 	Name string `json:"name"`
-	Body string `json:"body"`           // raw SKILL.md body (no frontmatter)
-	Dir  string `json:"dir,omitempty"`  // absolute path to the source skill directory
+	Body string `json:"body"`          // raw SKILL.md body (no frontmatter)
+	Dir  string `json:"dir,omitempty"` // absolute path to the source skill directory
 }
 
 // LLMRequest represents a request to an LLM driver.
@@ -149,6 +149,11 @@ type DriverInfo struct {
 	Provider     string `json:"provider"`
 	DefaultModel string `json:"default_model"`
 	DriverType   string `json:"driver_type"`
+	// ReasoningEffort is the driver's configured reasoning-effort/level string
+	// (Story 55.2), surfaced verbatim from the provider config (55.1 passthrough)
+	// so the kernel can snapshot it onto the process for display. Empty for
+	// drivers without an effort concept (cursor-cli/qwen-cli) or when unset.
+	ReasoningEffort string `json:"reasoning_effort,omitempty"`
 }
 
 // LLMDriver is the interface that all LLM drivers must implement.

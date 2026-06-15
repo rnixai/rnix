@@ -166,18 +166,18 @@ type ErrorPayload struct {
 
 // SpawnRequest is the payload for MethodSpawn.
 type SpawnRequest struct {
-	Intent           string `json:"intent"`
-	Agent            string `json:"agent,omitempty"`
-	Model            string `json:"model,omitempty"`
-	Provider         string `json:"provider,omitempty"`
-	FallbackModel    string `json:"fallback_model,omitempty"`
-	FallbackProvider string `json:"fallback_provider,omitempty"`
-	MaxSteps         int    `json:"max_steps,omitempty"`
-	ContextBudget    int    `json:"context_budget,omitempty"`
-	MaxTokens        int64  `json:"max_tokens,omitempty"`
-	TimeoutMs        int64  `json:"timeout_ms,omitempty"`
-	TraceID          string `json:"trace_id,omitempty"`
-	ParentSpanID     string `json:"parent_span_id,omitempty"`
+	Intent           string   `json:"intent"`
+	Agent            string   `json:"agent,omitempty"`
+	Model            string   `json:"model,omitempty"`
+	Provider         string   `json:"provider,omitempty"`
+	FallbackModel    string   `json:"fallback_model,omitempty"`
+	FallbackProvider string   `json:"fallback_provider,omitempty"`
+	MaxSteps         int      `json:"max_steps,omitempty"`
+	ContextBudget    int      `json:"context_budget,omitempty"`
+	MaxTokens        int64    `json:"max_tokens,omitempty"`
+	TimeoutMs        int64    `json:"timeout_ms,omitempty"`
+	TraceID          string   `json:"trace_id,omitempty"`
+	ParentSpanID     string   `json:"parent_span_id,omitempty"`
 	ProjectDir       string   `json:"project_dir,omitempty"`
 	RnixEnv          string   `json:"rnix_env,omitempty"`
 	ComposeNode      string   `json:"compose_node,omitempty"`
@@ -226,6 +226,7 @@ type ProcInfoWire struct {
 	MaxSteps        int                `json:"max_steps,omitempty"`
 	Provider        string             `json:"provider,omitempty"`
 	Model           string             `json:"model,omitempty"`
+	ReasoningEffort string             `json:"reasoning_effort,omitempty"`
 	LastHeartbeatMs int64              `json:"last_heartbeat_ms,omitempty"`
 	StepTimeoutMs   int64              `json:"step_timeout_ms,omitempty"`
 	SuspendReason   string             `json:"suspend_reason,omitempty"`
@@ -275,33 +276,34 @@ func ProcInfoToWire(p vfs.ProcInfo) ProcInfoWire {
 		ExitReason:      p.ExitReason,
 		CtxSize:         p.CtxSize,
 		PPID:            p.PPID,
-		ParentUUID:    p.ParentUUID,
-		State:         p.State,
-		Intent:        p.Intent,
-		Skills:        skills,
+		ParentUUID:      p.ParentUUID,
+		State:           p.State,
+		Intent:          p.Intent,
+		Skills:          skills,
 		TokensUsed:      p.TokensUsed,
 		LastInputTokens: p.LastInputTokens,
 		CreatedAt:       p.CreatedAt.UnixMilli(),
-		CtxID:         p.CtxID,
-		Result:        p.Result,
-		ContextBudget: p.ContextBudget,
-		MaxTokens:     p.MaxTokens,
-		MaxCost:       p.MaxCost,
-		UsedCost:      p.UsedCost,
-		MaxSteps:      p.MaxSteps,
-		Provider:      p.Provider,
-		Model:         p.Model,
-		StepTimeoutMs: p.StepTimeout.Milliseconds(),
-		SuspendReason: p.SuspendReason,
-		IsPaused:      p.IsPaused,
-		ComposeNode:   p.ComposeNode,
-		ComposeDeps:   append([]string(nil), p.ComposeDeps...),
-		PipelineIndex: p.PipelineIndex,
-		PipelineTotal: p.PipelineTotal,
-		ExitCode:       p.ExitCode,
-		ExitCodeSet:    p.ExitCodeSet,
-		DriverMeta:     p.DriverMeta,
-		FeatureProfile: p.FeatureProfile,
+		CtxID:           p.CtxID,
+		Result:          p.Result,
+		ContextBudget:   p.ContextBudget,
+		MaxTokens:       p.MaxTokens,
+		MaxCost:         p.MaxCost,
+		UsedCost:        p.UsedCost,
+		MaxSteps:        p.MaxSteps,
+		Provider:        p.Provider,
+		Model:           p.Model,
+		ReasoningEffort: p.ReasoningEffort,
+		StepTimeoutMs:   p.StepTimeout.Milliseconds(),
+		SuspendReason:   p.SuspendReason,
+		IsPaused:        p.IsPaused,
+		ComposeNode:     p.ComposeNode,
+		ComposeDeps:     append([]string(nil), p.ComposeDeps...),
+		PipelineIndex:   p.PipelineIndex,
+		PipelineTotal:   p.PipelineTotal,
+		ExitCode:        p.ExitCode,
+		ExitCodeSet:     p.ExitCodeSet,
+		DriverMeta:      p.DriverMeta,
+		FeatureProfile:  p.FeatureProfile,
 	}
 	if !p.DeadAt.IsZero() {
 		w.DeadAt = p.DeadAt.UnixMilli()
@@ -328,33 +330,34 @@ func WireToProcInfo(w ProcInfoWire) vfs.ProcInfo {
 		ExitReason:      w.ExitReason,
 		CtxSize:         w.CtxSize,
 		PPID:            w.PPID,
-		ParentUUID:    w.ParentUUID,
-		State:         w.State,
-		Intent:        w.Intent,
-		Skills:        w.Skills,
+		ParentUUID:      w.ParentUUID,
+		State:           w.State,
+		Intent:          w.Intent,
+		Skills:          w.Skills,
 		TokensUsed:      w.TokensUsed,
 		LastInputTokens: w.LastInputTokens,
 		CreatedAt:       unixMilliToTime(w.CreatedAt),
-		CtxID:         w.CtxID,
-		Result:        w.Result,
-		ContextBudget: w.ContextBudget,
-		MaxTokens:     w.MaxTokens,
-		MaxCost:       w.MaxCost,
-		UsedCost:      w.UsedCost,
-		MaxSteps:      w.MaxSteps,
-		Provider:      w.Provider,
-		Model:         w.Model,
-		StepTimeout:   time.Duration(w.StepTimeoutMs) * time.Millisecond,
-		SuspendReason: w.SuspendReason,
-		IsPaused:      w.IsPaused,
-		ComposeNode:   w.ComposeNode,
-		ComposeDeps:   w.ComposeDeps,
-		PipelineIndex: w.PipelineIndex,
-		PipelineTotal: w.PipelineTotal,
-		ExitCode:       w.ExitCode,
-		ExitCodeSet:    w.ExitCodeSet,
-		DriverMeta:     w.DriverMeta,
-		FeatureProfile: w.FeatureProfile,
+		CtxID:           w.CtxID,
+		Result:          w.Result,
+		ContextBudget:   w.ContextBudget,
+		MaxTokens:       w.MaxTokens,
+		MaxCost:         w.MaxCost,
+		UsedCost:        w.UsedCost,
+		MaxSteps:        w.MaxSteps,
+		Provider:        w.Provider,
+		Model:           w.Model,
+		ReasoningEffort: w.ReasoningEffort,
+		StepTimeout:     time.Duration(w.StepTimeoutMs) * time.Millisecond,
+		SuspendReason:   w.SuspendReason,
+		IsPaused:        w.IsPaused,
+		ComposeNode:     w.ComposeNode,
+		ComposeDeps:     w.ComposeDeps,
+		PipelineIndex:   w.PipelineIndex,
+		PipelineTotal:   w.PipelineTotal,
+		ExitCode:        w.ExitCode,
+		ExitCodeSet:     w.ExitCodeSet,
+		DriverMeta:      w.DriverMeta,
+		FeatureProfile:  w.FeatureProfile,
 	}
 	if w.DeadAt != 0 {
 		p.DeadAt = unixMilliToTime(w.DeadAt)
@@ -680,10 +683,11 @@ type ProgressPayload struct {
 	PID   types.PID `json:"pid"`
 
 	// OnSpawn
-	Intent   string `json:"intent,omitempty"`
-	Provider string `json:"provider,omitempty"`
-	Model    string `json:"model,omitempty"`
-	UUID     string `json:"uuid,omitempty"`
+	Intent          string `json:"intent,omitempty"`
+	Provider        string `json:"provider,omitempty"`
+	Model           string `json:"model,omitempty"`
+	ReasoningEffort string `json:"reasoning_effort,omitempty"`
+	UUID            string `json:"uuid,omitempty"`
 
 	// OnStep / OnStepComplete
 	Step  int `json:"step,omitempty"`
@@ -764,13 +768,13 @@ type PingResponse struct {
 //
 // Wire field naming follows project convention: JSON snake_case + Go PascalCase.
 type DaemonStatusResponse struct {
-	Version         string          `json:"version"`                   // SemVer (e.g. "0.8.0")
-	DaemonCommit    string          `json:"daemon_commit"`             // short SHA (e.g. "abc1234" or "abc1234+dirty")
-	DaemonBuildDate string          `json:"daemon_build_date"`         // RFC3339 (e.g. "2026-05-23T10:00:00Z") or ""
-	DaemonPID       int             `json:"daemon_pid,omitempty"`      // daemon's OS PID (informational)
-	StartedAt       int64           `json:"started_at_ms,omitempty"`   // daemon start time (UnixMilli)
-	FeatureProfile  string          `json:"feature_profile"`           // active feature profile name
-	FeatureFlags    map[string]bool `json:"feature_flags,omitempty"`   // per-flag status map for CLI rendering
+	Version         string          `json:"version"`                 // SemVer (e.g. "0.8.0")
+	DaemonCommit    string          `json:"daemon_commit"`           // short SHA (e.g. "abc1234" or "abc1234+dirty")
+	DaemonBuildDate string          `json:"daemon_build_date"`       // RFC3339 (e.g. "2026-05-23T10:00:00Z") or ""
+	DaemonPID       int             `json:"daemon_pid,omitempty"`    // daemon's OS PID (informational)
+	StartedAt       int64           `json:"started_at_ms,omitempty"` // daemon start time (UnixMilli)
+	FeatureProfile  string          `json:"feature_profile"`         // active feature profile name
+	FeatureFlags    map[string]bool `json:"feature_flags,omitempty"` // per-flag status map for CLI rendering
 }
 
 // --- Spawn Pipeline ---
@@ -1215,26 +1219,26 @@ type GetStepDetailRequest struct {
 
 // GetStepDetailResponse is the response for MethodGetStepDetail.
 type GetStepDetailResponse struct {
-	SystemPrompt      string                 `json:"system_prompt"`
-	Tools             []ToolDefWire          `json:"tools"`
-	Step              int                    `json:"step"`
-	Messages          []MessageWire          `json:"messages"`
-	MessageCount      int                    `json:"message_count"`
-	TokenCount        int                    `json:"token_count"`
-	RawResponse       string                 `json:"raw_response"`
-	Action            string                 `json:"action"`
-	Summary           string                 `json:"summary"`
-	ToolPath          string                 `json:"tool_path,omitempty"`
-	ToolInput         string                 `json:"tool_input,omitempty"`
-	ToolResult        string                 `json:"tool_result,omitempty"`
-	ToolError         string                 `json:"tool_error,omitempty"`
-	ToolDurationMs    float64                `json:"tool_duration_ms,omitempty"`
-	RequestTokens     int                    `json:"request_tokens"`
-	ResponseTokens    int                    `json:"response_tokens"`
-	InputTokens       int                    `json:"input_tokens,omitempty"`
-	OutputTokens      int                    `json:"output_tokens,omitempty"`
-	CachedInputTokens int                    `json:"cached_input_tokens,omitempty"`
-	ToolCalls         []ToolCallDetailWire   `json:"tool_calls,omitempty"`
+	SystemPrompt      string               `json:"system_prompt"`
+	Tools             []ToolDefWire        `json:"tools"`
+	Step              int                  `json:"step"`
+	Messages          []MessageWire        `json:"messages"`
+	MessageCount      int                  `json:"message_count"`
+	TokenCount        int                  `json:"token_count"`
+	RawResponse       string               `json:"raw_response"`
+	Action            string               `json:"action"`
+	Summary           string               `json:"summary"`
+	ToolPath          string               `json:"tool_path,omitempty"`
+	ToolInput         string               `json:"tool_input,omitempty"`
+	ToolResult        string               `json:"tool_result,omitempty"`
+	ToolError         string               `json:"tool_error,omitempty"`
+	ToolDurationMs    float64              `json:"tool_duration_ms,omitempty"`
+	RequestTokens     int                  `json:"request_tokens"`
+	ResponseTokens    int                  `json:"response_tokens"`
+	InputTokens       int                  `json:"input_tokens,omitempty"`
+	OutputTokens      int                  `json:"output_tokens,omitempty"`
+	CachedInputTokens int                  `json:"cached_input_tokens,omitempty"`
+	ToolCalls         []ToolCallDetailWire `json:"tool_calls,omitempty"`
 	// Story 41.2 AC#3: step-level provider/driver info,used to compute cache
 	// hit rate with correct driver-specific formula (Anthropic vs OpenAI 语义)。
 	// wire-backward compatible · 旧 daemon 不填这两字段时 dashboard 走 fallback。
@@ -1328,26 +1332,27 @@ type GetProcDetailRequest struct {
 
 // GetProcDetailResponse is the response for MethodGetProcDetail.
 type GetProcDetailResponse struct {
-	PID            types.PID         `json:"pid"`
-	UUID           string            `json:"uuid"`
-	PPID           types.PID         `json:"ppid"`
-	State          string            `json:"state"`
-	Intent         string            `json:"intent"`
-	Provider       string            `json:"provider"`
-	Model          string            `json:"model"`
-	CreatedAtMs    int64             `json:"created_at_ms"`
-	DeadAtMs       int64             `json:"dead_at_ms,omitempty"`
-	PausedTotalMs  int64             `json:"paused_total_ms,omitempty"`
-	Skills         []SkillInfoWire   `json:"skills"`
-	AllowedDevices []string          `json:"allowed_devices"`
-	AllowedTools   []string          `json:"allowed_tools,omitempty"` // Story 54.1: authoritative tool whitelist (DISTINCT from SkillInfoWire.AllowedTools below)
-	EnvSnapshot    map[string]string `json:"env_snapshot"`
-	FDTable        []FDEntryWire     `json:"fd_table"`
-	ContextStats   ContextStatsWire  `json:"context_stats"`
-	ComposeNode    string            `json:"compose_node,omitempty"`
-	ComposeDeps    []string          `json:"compose_deps,omitempty"`
-	PipelineIndex  int               `json:"pipeline_index"`
-	PipelineTotal  int               `json:"pipeline_total"`
+	PID             types.PID         `json:"pid"`
+	UUID            string            `json:"uuid"`
+	PPID            types.PID         `json:"ppid"`
+	State           string            `json:"state"`
+	Intent          string            `json:"intent"`
+	Provider        string            `json:"provider"`
+	Model           string            `json:"model"`
+	ReasoningEffort string            `json:"reasoning_effort,omitempty"`
+	CreatedAtMs     int64             `json:"created_at_ms"`
+	DeadAtMs        int64             `json:"dead_at_ms,omitempty"`
+	PausedTotalMs   int64             `json:"paused_total_ms,omitempty"`
+	Skills          []SkillInfoWire   `json:"skills"`
+	AllowedDevices  []string          `json:"allowed_devices"`
+	AllowedTools    []string          `json:"allowed_tools,omitempty"` // Story 54.1: authoritative tool whitelist (DISTINCT from SkillInfoWire.AllowedTools below)
+	EnvSnapshot     map[string]string `json:"env_snapshot"`
+	FDTable         []FDEntryWire     `json:"fd_table"`
+	ContextStats    ContextStatsWire  `json:"context_stats"`
+	ComposeNode     string            `json:"compose_node,omitempty"`
+	ComposeDeps     []string          `json:"compose_deps,omitempty"`
+	PipelineIndex   int               `json:"pipeline_index"`
+	PipelineTotal   int               `json:"pipeline_total"`
 
 	// Story 42.3 — Resume lineage fields (mirrored from proc.OriginUUID /
 	// proc.ResumedFromStep for active procs, procInfoDisk for history).

@@ -13,7 +13,7 @@ import (
 
 // Compile-time interface checks.
 var (
-	_ LLMDriver        = (*OpenAICompatDriver)(nil)
+	_ LLMDriver         = (*OpenAICompatDriver)(nil)
 	_ ToolCallingDriver = (*OpenAICompatDriver)(nil)
 	_ HealthChecker     = (*OpenAICompatDriver)(nil)
 )
@@ -99,10 +99,11 @@ func NewOpenAICompatDriver(name, baseURL string, opts ...CompatOption) *OpenAICo
 // Info returns metadata about this driver.
 func (d *OpenAICompatDriver) Info() DriverInfo {
 	return DriverInfo{
-		Name:         d.name,
-		Provider:     d.name,
-		DefaultModel: d.defaultModel,
-		DriverType:   DriverOpenAICompat,
+		Name:            d.name,
+		Provider:        d.name,
+		DefaultModel:    d.defaultModel,
+		DriverType:      DriverOpenAICompat,
+		ReasoningEffort: d.reasoningEffort,
 	}
 }
 

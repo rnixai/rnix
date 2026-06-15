@@ -124,6 +124,14 @@ func (m dashboardModel) renderDashboardTitle() string {
 			leftPart += modelDim.Render("/" + selectedProc.Model)
 			leftPlain += "/" + selectedProc.Model
 		}
+		// Story 55.2: append reasoning effort after model when configured. Lives
+		// inside leftPart/leftPlain so it rides the existing multi-level trim —
+		// dropped first (with provider/model) on narrow widths.
+		if selectedProc.ReasoningEffort != "" {
+			effortDim := lipgloss.NewStyle().Foreground(lipgloss.Color(ui.ColorMuted))
+			leftPart += effortDim.Render(" (" + selectedProc.ReasoningEffort + ")")
+			leftPlain += " (" + selectedProc.ReasoningEffort + ")"
+		}
 	}
 
 	// Build candidates from widest to narrowest (trim order: elapsed → budget → ctx → provider)
@@ -215,7 +223,8 @@ func (m dashboardModel) renderDashboardTitle() string {
 // Layer 2 KeyLayer.ActiveModesFn (Story 38.1 AC#6).
 //
 // Format: "  ⌥ filter:tool · sort:time · follow:on" (UTF-8) or
-//         "  [M] filter:tool | sort:time | follow:on" (ASCII).
+//
+//	"  [M] filter:tool | sort:time | follow:on" (ASCII).
 //
 // Returns empty string when no modes are active (caller should skip the line).
 func (m dashboardModel) renderModeStrip() string {

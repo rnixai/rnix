@@ -377,6 +377,7 @@ func (k *KernelImpl) GetProcInfo(pid types.PID) (*vfs.ProcInfo, error) {
 		AllowedTools:    append([]string(nil), proc.AllowedTools...),
 		Provider:        proc.Provider,
 		Model:           proc.Model,
+		ReasoningEffort: proc.ReasoningEffort,
 		PrimaryDevice:   proc.PrimaryDevice,
 		ContextWindow:   proc.ContextWindow,
 		LastHeartbeat:   proc.LastHeartbeat,
@@ -455,6 +456,7 @@ func (k *KernelImpl) ListProcs() []vfs.ProcInfo {
 			AllowedTools:    append([]string(nil), proc.AllowedTools...),
 			Provider:        proc.Provider,
 			Model:           proc.Model,
+			ReasoningEffort: proc.ReasoningEffort,
 			PrimaryDevice:   proc.PrimaryDevice,
 			ContextWindow:   proc.ContextWindow,
 			LastHeartbeat:   proc.LastHeartbeat,
@@ -545,11 +547,11 @@ func (k *KernelImpl) checkBudgetWarning(proc *Process, step, inputTokens, budget
 		fmt.Sprintf("Context %s: %d/%d input tokens (%.0f%% of budget)",
 			level, inputTokens, budget, usagePct), "")
 	k.emitEvent(proc, "ReasonStep", map[string]any{
-		"step":        step,
-		"action":      "budget_warning",
+		"step":         step,
+		"action":       "budget_warning",
 		"input_tokens": inputTokens,
-		"budget":      budget,
-		"usage_pct":   usagePct,
-		"alert_level": level,
+		"budget":       budget,
+		"usage_pct":    usagePct,
+		"alert_level":  level,
 	}, nil, nil, 0)
 }

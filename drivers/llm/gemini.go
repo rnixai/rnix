@@ -90,10 +90,11 @@ func (d *GeminiDriver) newClient(ctx context.Context) (*genai.Client, error) {
 
 func (d *GeminiDriver) Info() DriverInfo {
 	return DriverInfo{
-		Name:         d.name,
-		Provider:     d.name,
-		DefaultModel: d.defaultModel,
-		DriverType:   DriverGemini,
+		Name:            d.name,
+		Provider:        d.name,
+		DefaultModel:    d.defaultModel,
+		DriverType:      DriverGemini,
+		ReasoningEffort: d.thinkingLevel,
 	}
 }
 

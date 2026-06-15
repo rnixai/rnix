@@ -1534,6 +1534,7 @@ func (m dashboardModel) buildMetaLens(detail *ipc.GetStepDetailResponse) string 
 
 	// Resolve dynamic context window: IPC detail → prefix lookup → 200k fallback
 	modelName := ""
+	modelEffort := ""
 	var modelProvider string
 	var driverMeta map[string]string
 	for _, p := range m.processes {
@@ -1550,6 +1551,7 @@ func (m dashboardModel) buildMetaLens(detail *ipc.GetStepDetailResponse) string 
 		if match {
 			modelName = p.Model
 			modelProvider = p.Provider
+			modelEffort = p.ReasoningEffort
 			driverMeta = p.DriverMeta
 			break
 		}
@@ -1561,7 +1563,7 @@ func (m dashboardModel) buildMetaLens(detail *ipc.GetStepDetailResponse) string 
 	headerWidth := metaSectionHeaderWidth(m.width)
 	b.WriteString(renderMetaSectionHeader("Model", headerWidth))
 	b.WriteString("\n")
-	for _, ln := range inspector.RenderModelSectionLines(modelProvider, modelName, detail.DriverType, driverMeta) {
+	for _, ln := range inspector.RenderModelSectionLines(modelProvider, modelName, modelEffort, detail.DriverType, driverMeta) {
 		b.WriteString(ln)
 		b.WriteString("\n")
 	}

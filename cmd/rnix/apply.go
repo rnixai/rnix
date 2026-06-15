@@ -84,7 +84,7 @@ func runApply(cmd *cobra.Command, args []string) error {
 		RnixEnv:          os.Getenv("RNIX_ENV"),
 	}
 
-	var spawnProvider, spawnModel string
+	var spawnProvider, spawnModel, spawnEffort string
 	var spawnUUID string
 
 	pid, final, spawnErr := client.SpawnAndWatch(req, func(ev ipc.StreamEvent) {
@@ -106,15 +106,20 @@ func runApply(cmd *cobra.Command, args []string) error {
 		case "spawn":
 			spawnProvider = pp.Provider
 			spawnModel = pp.Model
+			spawnEffort = pp.ReasoningEffort
 			spawnUUID = pp.UUID
 			uuidShort := pp.UUID
 			if len(uuidShort) > 12 {
 				uuidShort = uuidShort[:12] + "..."
 			}
+			effortSuffix := ""
+			if pp.ReasoningEffort != "" {
+				effortSuffix = ", effort: " + pp.ReasoningEffort
+			}
 			if pp.Provider != "" && pp.Model != "" {
-				progress.KernelMessage("spawning orchestrator PID %d (uuid: %s, %s/%s)...", pp.PID, uuidShort, pp.Provider, pp.Model)
+				progress.KernelMessage("spawning orchestrator PID %d (uuid: %s, %s/%s%s)...", pp.PID, uuidShort, pp.Provider, pp.Model, effortSuffix)
 			} else if pp.Provider != "" {
-				progress.KernelMessage("spawning orchestrator PID %d (uuid: %s, %s)...", pp.PID, uuidShort, pp.Provider)
+				progress.KernelMessage("spawning orchestrator PID %d (uuid: %s, %s%s)...", pp.PID, uuidShort, pp.Provider, effortSuffix)
 			} else {
 				progress.KernelMessage("spawning orchestrator PID %d (uuid: %s)...", pp.PID, uuidShort)
 			}
@@ -149,7 +154,7 @@ func runApply(cmd *cobra.Command, args []string) error {
 	}
 
 	if final.ExitCode == 0 {
-		outputSuccess(renderer, mode, pid, final.Result, final.TokensUsed, elapsed, spawnProvider, spawnModel)
+		outputSuccess(renderer, mode, pid, final.Result, final.TokensUsed, elapsed, spawnProvider, spawnModel, spawnEffort)
 	} else {
 		reason := final.ExitReason
 		if final.ErrorMessage != "" {
@@ -159,7 +164,7 @@ func runApply(cmd *cobra.Command, args []string) error {
 			reason = "unknown error"
 		}
 		outputError(renderer, mode, "apply", reason, "intent execution failed", "check intent description or retry")
-		ui.RenderSummary(renderer, pid, 1, final.TokensUsed, elapsed, spawnProvider, spawnModel)
+		ui.RenderSummary(renderer, pid, 1, final.TokensUsed, elapsed, spawnProvider, spawnModel, spawnEffort)
 		exitCode = 1
 	}
 
