@@ -278,6 +278,11 @@ type KernelImpl struct {
 	gcCfg GcConfig
 	gcMu  sync.Mutex // serializes RunGc so CLI + daemon ticker don't double-count
 
+	// LLM raw request/response capture policy (Story 56.1; Epic 56 CAP-4).
+	// Default-on (DefaultRawCaptureConfig); orthogonal to FeatureFlags so
+	// baseline profile does NOT disable raw capture (CAP-4 红线).
+	rawCaptureCfg RawCaptureConfig
+
 	// Heartbeat monitor (Story 30.6)
 	heartbeatMonitor *HeartbeatMonitor
 

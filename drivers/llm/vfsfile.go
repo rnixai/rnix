@@ -56,6 +56,28 @@ func (f *LLMFile) DriverMeta() map[string]string {
 	return nil
 }
 
+// LastRawCapture returns the most recent raw request/response capture from
+// the underlying driver, if it implements the package-internal
+// rawCaptureDriver interface. Implements vfs.RawCaptureProvider (Story 56.1).
+//
+// 56.1: no driver implements rawCaptureDriver yet, so this method returns
+// nil for every driver. 56.2 (API drivers) and 56.3 (CLI drivers) populate
+// the capture inside their Call/Stream paths.
+func (f *LLMFile) LastRawCapture() *vfs.RawCapture {
+	if rcd, ok := f.driver.(rawCaptureDriver); ok {
+		return rcd.LastRawCapture()
+	}
+	return nil
+}
+
+// rawCaptureDriver is the drivers/llm package-internal counterpart to
+// vfs.RawCaptureProvider (Story 56.1). LLMFile.LastRawCapture() type-asserts
+// against this interface; drivers that opt into raw capture (56.2/56.3)
+// implement it, all others return nil for free.
+type rawCaptureDriver interface {
+	LastRawCapture() *vfs.RawCapture
+}
+
 // Write accepts a JSON-encoded LLMRequest, invokes the driver, and buffers the response.
 func (f *LLMFile) Write(ctx context.Context, data []byte) error {
 	if f.closed {
