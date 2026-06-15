@@ -65,6 +65,15 @@ func WithAnthropicBaseURL(baseURL string) AnthropicOption {
 	}
 }
 
+// WithAnthropicHTTPClient sets a custom HTTP client (useful for testing).
+// Story 56.2 added this so httptest can be injected directly without relying
+// on the SDK to construct its default client.
+func WithAnthropicHTTPClient(client option.HTTPClient) AnthropicOption {
+	return func(c *anthropicDriverConfig) {
+		c.sdkOpts = append(c.sdkOpts, option.WithHTTPClient(client))
+	}
+}
+
 // WithAnthropicMaxTokens sets the default max output tokens.
 func WithAnthropicMaxTokens(n int) AnthropicOption {
 	return func(c *anthropicDriverConfig) { c.maxTokens = n }
@@ -107,6 +116,10 @@ func NewAnthropicDriver(name string, opts ...AnthropicOption) *AnthropicDriver {
 	for _, o := range opts {
 		o(&cfg)
 	}
+	// 56.2 raw capture: anthropic-sdk-go 的 option.Middleware 是 type alias 到
+	// 同款 func 签名（drivers/llm/raw_capture.go 共享函数）；middleware 与
+	// SDK base url / api key 注入正交，不影响测试 httptest 路径。
+	cfg.sdkOpts = append(cfg.sdkOpts, option.WithMiddleware(captureMiddlewareFunc))
 	client := anthropic.NewClient(cfg.sdkOpts...)
 	return &AnthropicDriver{
 		client:           client,

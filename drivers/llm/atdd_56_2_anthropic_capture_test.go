@@ -2,51 +2,197 @@ package llm
 
 // ATDD coverage for Story 56.2 — anthropic (官方 SDK) 经
 // option.WithMiddleware 捕获原始 HTTP 请求与底层原始响应。
-//
-// 范式参考：anthropic_test.go + WithAnthropicBaseURL（指向 httptest.Server）
-// + atdd_55_1_reasoning_effort_test.go（output_config.effort 与 thinking
-// budget 降级双路径）。注意 anthropic-sdk-go 的 option 包与 openai-go 同名
-// 但是不同类型，captureMiddleware 工厂需各 driver 独立或经泛型适配。
 
 import (
+	"encoding/json"
+	"net/http"
+	"net/http/httptest"
+	"strings"
 	"testing"
 )
 
+// anthropic 端点返回的最小完整 Message 形态——供 httptest 直接吐回。
+const anthropicOKResp = `{
+	"id": "msg_test",
+	"type": "message",
+	"role": "assistant",
+	"content": [{"type":"text","text":"ok"}],
+	"model": "claude-test",
+	"stop_reason": "end_turn",
+	"stop_sequence": null,
+	"usage": {"input_tokens": 5, "output_tokens": 3}
+}`
+
 // ============================================================================
 // 56-2-INT-011 — anthropic Call: CAP-1 (effort 优先) + CAP-2 (原始 JSON)
-//                + 主脱敏 (AC #1, #3, #4, #5, #6, #7)
 // ============================================================================
 
-func TestATDD_56_2_INT011_AnthropicCall_EffortPath_RED(t *testing.T) {
-	t.Skip("56.2 dev 阶段移除：anthropic NewAnthropicDriver 追加 captureMiddleware（anthropic-sdk-go option 包独立）后断言 " +
-		"(a) Kind == \"api\"；" +
-		"(b) Request.body 含 output_config.effort=\"high\" 且 max_tokens 真实值（55.1 透传路径）；" +
-		"(c) Request.headers[\"x-api-key\"] = redacted(...)，Authorization/api-key/x-api-key 三键全部主脱敏；" +
-		"(d) Response.status==200 且 Response.body 等于 httptest 返回的完整 Anthropic-style JSON 原文；" +
-		"(e) effort 模式下不应同时 send thinking budget（55.1 行为）— 通过 raw body 检查再次 verify。")
+func TestATDD_56_2_INT011_AnthropicCall_EffortPath(t *testing.T) {
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(anthropicOKResp))
+	}))
+	defer ts.Close()
+
+	d := NewAnthropicDriver("test",
+		WithAnthropicModel("claude-opus-4-7"),
+		WithAnthropicBaseURL(ts.URL),
+		WithAnthropicHTTPClient(ts.Client()),
+		WithAnthropicKey("sk-ant-test-1234567890abcdef"),
+		WithAnthropicEffort("high"),
+		WithAnthropicMaxTokens(1024),
+	)
+
+	f := openLLMFile(t, d, ModeCall)
+	defer f.Close()
+	writeStringReq(t, f, `{"intent":"hi"}`)
+
+	cap := f.LastRawCapture()
+	if cap == nil {
+		t.Fatal("(a) LastRawCapture() == nil; want non-nil")
+	}
+	if cap.Kind != "api" {
+		t.Errorf("(a) Kind = %q, want api", cap.Kind)
+	}
+
+	body := captureReqBody(t, cap)
+	// (b) effort 路径：output_config.effort=high
+	if !strings.Contains(body, `"effort":"high"`) {
+		t.Errorf("(b) body missing output_config.effort=high:\n%s", body)
+	}
+	if !strings.Contains(body, `"max_tokens":1024`) {
+		t.Errorf("(b) body missing max_tokens=1024:\n%s", body)
+	}
+
+	// (c) 主脱敏 — anthropic 用 x-api-key header；SDK 实际写哪个 key 取决
+	// 于版本，验「无明文 + 任何脱敏 header 都不含 sk-ant-test 明文」。
+	hdrs, _ := cap.Request["headers"].(map[string]string)
+	for k, v := range hdrs {
+		if strings.Contains(v, "sk-ant-test-1234567890") {
+			t.Errorf("(c) header %q leaks plaintext API key: %q", k, v)
+		}
+	}
+
+	if got := captureRespStatus(t, cap); got != 200 {
+		t.Errorf("(d) status = %d, want 200", got)
+	}
+	if got := captureRespBody(t, cap); got != anthropicOKResp {
+		t.Errorf("(d) response body mismatch:\n got=%q\nwant=%q", got, anthropicOKResp)
+	}
+
+	// (e) effort 模式不应同时 send thinking budget（55.1 优先级行为）。
+	if strings.Contains(body, `"thinking"`) && strings.Contains(body, `"budget_tokens"`) {
+		t.Errorf("(e) effort path leaked thinking.budget_tokens:\n%s", body)
+	}
 }
 
 // ============================================================================
-// 56-2-INT-012 — anthropic Call: budget 降级路径捕获 (AC #3 budget 降级)
-//
-// 当 effort 未配置 / DeepSeek V4 Anthropic-compat 端点要求 budget 时，rnix
-// 走 thinking budget 路径——本测试要求 raw capture 反映该真实 body。
+// 56-2-INT-012 — anthropic Call: budget 降级路径 (AC #3 budget 降级)
 // ============================================================================
 
-func TestATDD_56_2_INT012_AnthropicCall_BudgetFallback_RED(t *testing.T) {
-	t.Skip("56.2 dev 阶段移除：仅 WithAnthropicThinkingBudget(2048) 不带 effort 配置时，断言 " +
-		"(a) Request.body 含 thinking.type=\"enabled\" 与 thinking.budget_tokens=2048（55.1 budget 降级保留）；" +
-		"(b) Request.body 不含 output_config.effort（effort 未设置时不应出现）；" +
-		"(c) Response.body 仍是原样 JSON（CAP-2 不被 effort 路径影响）。")
+func TestATDD_56_2_INT012_AnthropicCall_BudgetFallback(t *testing.T) {
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(anthropicOKResp))
+	}))
+	defer ts.Close()
+
+	d := NewAnthropicDriver("test",
+		WithAnthropicModel("deepseek-v4-anthropic"),
+		WithAnthropicBaseURL(ts.URL),
+		WithAnthropicHTTPClient(ts.Client()),
+		WithAnthropicKey("sk-ant-test"),
+		WithAnthropicThinkingBudget(2048),
+	)
+
+	f := openLLMFile(t, d, ModeCall)
+	defer f.Close()
+	writeStringReq(t, f, `{"intent":"hi"}`)
+
+	cap := f.LastRawCapture()
+	body := captureReqBody(t, cap)
+
+	// (a) budget 降级路径：thinking.type=enabled + budget_tokens=2048
+	if !strings.Contains(body, `"type":"enabled"`) {
+		t.Errorf("(a) body missing thinking.type=enabled:\n%s", body)
+	}
+	if !strings.Contains(body, `"budget_tokens":2048`) {
+		t.Errorf("(a) body missing thinking.budget_tokens=2048:\n%s", body)
+	}
+
+	// (b) effort 未设置不应出现 output_config.effort（55.1 行为）。
+	if strings.Contains(body, `"effort"`) {
+		t.Errorf("(b) body unexpectedly contains effort key when not set:\n%s", body)
+	}
+
+	// (c) Response 仍是原样 JSON。
+	if got := captureRespBody(t, cap); got != anthropicOKResp {
+		t.Errorf("(c) response body mismatch")
+	}
 }
 
 // ============================================================================
 // 56-2-INT-013 — anthropic Stream: CAP-2 原样 SSE (AC #4, #6, #11)
 // ============================================================================
 
-func TestATDD_56_2_INT013_AnthropicStream_RawSSE_RED(t *testing.T) {
-	t.Skip("56.2 dev 阶段移除：anthropic Stream 路径 captureMiddleware 经 TeeReader 包 resp.Body 后断言 " +
-		"(a) LLMFile.LastRawCapture().Response.body 是原样 Anthropic SSE 文本（含 message_start / content_block_delta / message_stop 至少 3 段事件）；" +
-		"(b) Request.body 含 stream:true；" +
-		"(c) headers 全部主脱敏。")
+func TestATDD_56_2_INT013_AnthropicStream_RawSSE(t *testing.T) {
+	// Anthropic SSE 是命名事件流，最小完整集合：message_start →
+	// content_block_start → content_block_delta → content_block_stop →
+	// message_delta → message_stop。
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		fl, _ := w.(http.Flusher)
+		emit := func(event, data string) {
+			_, _ = w.Write([]byte("event: " + event + "\ndata: " + data + "\n\n"))
+			if fl != nil {
+				fl.Flush()
+			}
+		}
+		emit("message_start", `{"type":"message_start","message":{"id":"msg","type":"message","role":"assistant","content":[],"model":"claude","stop_reason":null,"stop_sequence":null,"usage":{"input_tokens":5,"output_tokens":0}}}`)
+		emit("content_block_start", `{"type":"content_block_start","index":0,"content_block":{"type":"text","text":""}}`)
+		emit("content_block_delta", `{"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"ok"}}`)
+		emit("content_block_stop", `{"type":"content_block_stop","index":0}`)
+		emit("message_delta", `{"type":"message_delta","delta":{"stop_reason":"end_turn"},"usage":{"output_tokens":1}}`)
+		emit("message_stop", `{"type":"message_stop"}`)
+	}))
+	defer ts.Close()
+
+	d := NewAnthropicDriver("test",
+		WithAnthropicModel("claude-test"),
+		WithAnthropicBaseURL(ts.URL),
+		WithAnthropicHTTPClient(ts.Client()),
+		WithAnthropicKey("sk-ant-stream"),
+		WithAnthropicMaxTokens(128),
+	)
+	f := openLLMFile(t, d, "")
+	defer f.Close()
+	writeStringReq(t, f, `{"intent":"hi"}`)
+
+	cap := f.LastRawCapture()
+	if cap == nil {
+		t.Fatal("LastRawCapture() == nil")
+	}
+	respBody := captureRespBody(t, cap)
+
+	// (a) 原样 SSE 至少含 message_start / content_block_delta / message_stop。
+	for _, evt := range []string{"event: message_start", "event: content_block_delta", "event: message_stop"} {
+		if !strings.Contains(respBody, evt) {
+			t.Errorf("(a) response body missing %q:\n%s", evt, respBody)
+		}
+	}
+
+	// (b) Request.body 含 stream:true
+	var reqBody map[string]any
+	_ = json.Unmarshal([]byte(captureReqBody(t, cap)), &reqBody)
+	if reqBody["stream"] != true {
+		t.Errorf("(b) request body missing stream:true: %+v", reqBody["stream"])
+	}
+
+	// (c) headers 主脱敏（任何包含明文 key 的都失败）。
+	hdrs, _ := cap.Request["headers"].(map[string]string)
+	for k, v := range hdrs {
+		if strings.Contains(v, "sk-ant-stream") {
+			t.Errorf("(c) header %q leaks plaintext API key: %q", k, v)
+		}
+	}
 }

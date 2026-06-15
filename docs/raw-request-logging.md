@@ -1,15 +1,15 @@
 # Raw LLM Request/Response Logging
 
-> Story 56.1 地基；Epic 56 余 story 在此基础上填充各 driver 的捕获实现。
+> Story 56.1 地基；Story 56.2 接通 4 个 API driver（openai / openai-compat / anthropic / gemini）；CLI driver 由 56.3 后续填充。
 
-Rnix 自 Epic 56 起为每个进程的 LLM 调用记录原始请求与响应（HTTP body / CLI argv+stdin+stdout 的字节流），用于回答“这个 reasoning_effort / thinking_budget / temperature 究竟有没有提交给 LLM？”这类透传可观察问题。
+Rnix 自 Epic 56 起为每个进程的 LLM 调用记录原始请求与响应（HTTP body / CLI argv+stdin+stdout 的字节流），用于回答"这个 reasoning_effort / thinking_budget / temperature 究竟有没有提交给 LLM？"这类透传可观察问题。
 
 ## 默认行为
 
 - **默认开启**（CAP-4 红线）。`raw_capture.enabled: true`。
 - 每次 `reasonStep` 内一次成功的 LLM 读响应后，kernel 把当次原始请求 / 响应追加为 **一行 NDJSON** 到 `<dataDir>/steps/<uuid>/raw.jsonl`。
 - `raw.jsonl` 与 `steps.jsonl` / `events.jsonl` / `ctx-profile.json` / `process-meta.json` 同目录、同生命周期，受现有 gc 策略统一清理。
-- 56.1 是地基 story：**没有任何 driver 实现捕获**。`raw.jsonl` 文件采用 **lazy creation**——首次成功写入才 `O_CREATE`；driver 一次都不 opt-in 时该文件不会出现，避免在 `<uuid>/` 目录留空文件。56.2（API driver）/ 56.3（CLI driver）后续填充。
+- 56.2 起 4 个 API driver（openai / openai-compat / anthropic / gemini）的 Call 与 Stream 路径都会产生 `raw.jsonl`；其余 driver（CLI 族）等 56.3 后填充。`raw.jsonl` 文件采用 **lazy creation**——首次成功写入才 `O_CREATE`；driver 一次都没产生 capture 时该文件不会出现，避免在 `<uuid>/` 目录留空文件。
 
 ## 配置（`~/.config/rnix/config.yaml`）
 
@@ -41,16 +41,16 @@ raw_capture:
 
 | 族 | `kind` | `request` 通用形状 | `response` 通用形状 |
 |----|-------|-------------------|---------------------|
-| API driver | `"api"` | `method` / `url` / `headers`（已脱敏）/ `body` | `status` / `headers` / `body`（含原始 SSE 字节流） |
+| API driver | `"api"` | `method` / `url` / `headers`（已脱敏）/ `body`（实际发送的 HTTP body 字符串） | `status` / `headers`（已脱敏）/ `body`（含原始 SSE 字节流） |
 | CLI driver | `"cli"` | `argv` / `stdin` / `env`（已脱敏） | `stdout` / `stderr` / `exit_code` |
 
-具体字段名 56.1 不锁死，由 56.2 / 56.3 填充。
+API driver 的字段在 56.2 已锁死并由 4 个 driver 共享填充；CLI driver 的字段 56.3 填充。
 
 ## 脱敏（写盘前横切）
 
 `vfs.RedactHeaders` / `vfs.RedactCredential` 是纯函数：
 
-- 凭据 header（`Authorization` / `proxy-authorization` / `api-key` / `x-api-key` / `x-auth-token` / `cookie` / `set-cookie`）大小写不敏感匹配。
+- 凭据 header（`Authorization` / `proxy-authorization` / `api-key` / `x-api-key` / `x-goog-api-key` / `x-auth-token` / `cookie` / `set-cookie`）大小写不敏感匹配。
 - `"Bearer <secret>"` / `"Basic <secret>"` 之类 scheme-token 形式保留 scheme，只把 secret 部分换成指纹。
 - 指纹形态：`redacted(len=<N>,prefix=<前 3 字节>,sha256=<sha256 前 12 hex>)`。包含足够区分凭据形态的线索（长度、prefix、hash），但**不可逆推原值**。
 - **幂等**：`Redact(Redact(x)) == Redact(x)`，driver 已脱敏 + kernel 二次脱敏不会嵌套。
@@ -79,7 +79,8 @@ raw_capture:
 
 - `Enabled=false` → 不创建 `raw.jsonl`，hook 在 cfg 检查处直接退出。
 - 写盘失败 → 仅 `log.Printf` 一行 `[raw_writer] write error pid=… step=…: …`，**reasonStep 继续执行**（best-effort 可观察）。
-- driver 未实现 `vfs.RawCaptureProvider` → 56.1 全部 driver 当前状态——hook 在 type-assert 处返回 nil，不写任何记录。
+- driver 未实现 `vfs.RawCaptureProvider` → CLI driver 当前状态（56.3 待填充）——hook 在 type-assert 处返回 nil，不写任何记录。
+- API driver 调 driver.Call/Stream 出错 → sink 已落入的 Request 形态保留（便于审计排错），Response 字段缺失。
 
 ## 接口与代码锚点
 
@@ -89,7 +90,32 @@ raw_capture:
 - `kernel.RawCaptureConfig` + `SetRawCaptureConfig` / `RawCaptureCfg` — kernel 级开关（`kernel/raw_capture_config.go`）
 - `kernel.RawWriter` + `NewRawWriter` / `WriteRaw` / `ReadAllRaw` / `ReadRawForStep` — NDJSON writer（`kernel/raw_writer.go`）
 - `kernel.captureRawLLMCall` — reasonStep 钩子（`kernel/raw_writer.go`，落点 LLM Read 事件之后；review patch P6 自 Write 事件后挪到 Read 事件后，以便未来 Stream-style driver 在 Read 期间累积响应）
-- `LLMFile.LastRawCapture()` — driver 层委托（`drivers/llm/vfsfile.go`），driver 实现 `rawCaptureDriver`（`drivers/llm` 内部接口）即可填充
+- `LLMFile.LastRawCapture()` — field-first / fallback-委托（`drivers/llm/vfsfile.go`）：优先返回 per-Open `f.lastRawCapture`，nil 时 fallback 委托 `rawCaptureDriver`
+- `drivers/llm/raw_capture.go` — 56.2 引入的 driver 层共享设施：
+  - `rawCaptureSink` + `withRawSink` / `rawSinkFromContext` — ctx-scoped sink（裁决 1 并发铁律：driver 是跨进程共享单例，capture 不能存 driver 字段）
+  - `captureMiddlewareFunc` — openai-go / anthropic-sdk-go 的 `option.Middleware` 共享函数（两 SDK Middleware 都是 type alias 同底层签名）
+  - `captureRoundTripper` + `wrapHTTPClientWithCapture` — gemini SDK 与 openai-compat 共用的 RoundTripper 包装
+
+## 各 API driver 的捕获机制（56.2）
+
+| Driver | 类型 | 捕获机制 | 注入点 |
+|--------|------|---------|--------|
+| `openai-compat` | 手写 HTTP | `wrapHTTPClientWithCapture` 包装 `d.httpClient.Transport` 为 `captureRoundTripper` | `NewOpenAICompatDriver` |
+| `openai` | SDK（openai-go v3） | `option.WithMiddleware(captureMiddlewareFunc)` 追加到 `cfg.sdkOpts` | `NewOpenAIDriver` |
+| `anthropic` | SDK（anthropic-sdk-go） | `option.WithMiddleware(captureMiddlewareFunc)` 追加到 `cfg.sdkOpts` | `NewAnthropicDriver` |
+| `gemini` | SDK（genai） | `wrapHTTPClientWithCapture(d.httpClient)` → `ClientConfig.HTTPClient` | `GeminiDriver.newClient`（per-Call/Stream） |
+
+**SDK middleware / 自定义 HTTPClient 仍属「driver 层捕获」**，不违反 SPEC Constraint「捕获点在 driver 层、不在网络层；不引入 MITM 代理或网络层抓包」——它在 driver 代码内、针对 driver 自有的 SDK client 配置（不是独立代理进程，不解密 TLS，不 hook 全局 `net.Dial`）。它是兑现 CAP-2「SSE 原样字节」的唯一途径——SDK 内部已解析掉 SSE，driver 代码层取不到原始字节，只有在 HTTP 层 tee `resp.Body` 才能取到原样字节流。
+
+## 时序铁律（streaming SSE）
+
+streaming 路径下捕获原始 SSE 字节流要点：
+
+1. **不能 `io.ReadAll(resp.Body)`** —— 那会一次性吞掉流，SDK 读不到、阻塞流。
+2. **必须 `io.TeeReader` 包 `resp.Body`** —— SDK 读 SSE 的同时 tee 进 sinkBuf。`captureResponseBody.Read` 实际就是 `tee.Read`。
+3. **sink.Response 在 `resp.Body.Close()` 时才落入** —— SDK 读完 stream goroutine 退出（`defer close(ch)` 之前 `defer resp.Body.Close()`/`stream.Close()`），`captureResponseBody.Close` 把累积的 sinkBuf 字节落入 cap.Response。
+4. **LLMFile 在 `range ch` 结束后归集 sink** —— happens-before 链：driver goroutine `defer close(ch)` 晚于 `defer Body.Close`，所以 LLMFile range 退出时 sink 已为终态。
+5. **request body 重置** —— middleware/RoundTripper 读 `req.Body` 拿真实发送字节后，必须用 `req.GetBody()`（标准约定）或 `io.NopCloser(bytes.NewReader)` 重置，否则 SDK 实际发送拿到空 body。`readAndResetReqBody` 优先 GetBody，fallback 到重置。
 
 ## 与现有归一化层的关系
 

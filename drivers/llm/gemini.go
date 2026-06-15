@@ -28,6 +28,7 @@ type GeminiDriver struct {
 	thinkingBudget int
 	thinkingLevel  string
 	httpClient     *http.Client
+	baseURL        string
 }
 
 // GeminiOption configures a GeminiDriver.
@@ -40,6 +41,7 @@ type geminiDriverConfig struct {
 	thinkingBudget int
 	thinkingLevel  string
 	httpClient     *http.Client
+	baseURL        string
 }
 
 func WithGeminiModel(model string) GeminiOption {
@@ -74,10 +76,14 @@ func WithGeminiThinkingLevel(level string) GeminiOption {
 //  1. 测试 — httptest.NewServer 的 client 经此注入，无需起真网；
 //  2. 生产 — 56.2 dev 接线后，gemini driver 用包了「捕获 RoundTripper」的
 //     client 在 HTTP 层 tee 真实请求字节与原始 SSE 响应字节流（裁决 2）。
-//
-// 56.2 dev 完整生效；当前作为 RED 阶段编译占位（newClient 还没消费此字段）。
 func WithGeminiHTTPClient(client *http.Client) GeminiOption {
 	return func(c *geminiDriverConfig) { c.httpClient = client }
+}
+
+// WithGeminiBaseURL overrides the default Gemini base URL via
+// HTTPOptions.BaseURL — primarily for testing with httptest.NewServer.
+func WithGeminiBaseURL(baseURL string) GeminiOption {
+	return func(c *geminiDriverConfig) { c.baseURL = baseURL }
 }
 
 // NewGeminiDriver creates a new driver backed by the official genai SDK.
@@ -94,14 +100,25 @@ func NewGeminiDriver(name string, opts ...GeminiOption) *GeminiDriver {
 		thinkingBudget: cfg.thinkingBudget,
 		thinkingLevel:  cfg.thinkingLevel,
 		httpClient:     cfg.httpClient,
+		baseURL:        cfg.baseURL,
 	}
 }
 
 func (d *GeminiDriver) newClient(ctx context.Context) (*genai.Client, error) {
-	return genai.NewClient(ctx, &genai.ClientConfig{
-		APIKey:  d.apiKey,
-		Backend: genai.BackendGeminiAPI,
-	})
+	// 56.2 raw capture: 装载捕获 RoundTripper 到 ClientConfig.HTTPClient。
+	// gemini SDK 是 per-Call/Stream newClient，每次构造都装上；ctx-scoped
+	// sink 经 req.Context() 取，无 sink 时 RoundTrip fallback 到 base 转发。
+	// nil-safe：d.httpClient 未注入也走 default transport（生产场景）。
+	httpClient := wrapHTTPClientWithCapture(d.httpClient)
+	cfg := &genai.ClientConfig{
+		APIKey:     d.apiKey,
+		Backend:    genai.BackendGeminiAPI,
+		HTTPClient: httpClient,
+	}
+	if d.baseURL != "" {
+		cfg.HTTPOptions = genai.HTTPOptions{BaseURL: d.baseURL}
+	}
+	return genai.NewClient(ctx, cfg)
 }
 
 func (d *GeminiDriver) Info() DriverInfo {

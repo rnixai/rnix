@@ -107,6 +107,11 @@ func NewOpenAIDriver(name string, opts ...OpenAIOption) *OpenAIDriver {
 	for _, o := range opts {
 		o(&cfg)
 	}
+	// 56.2 raw capture: 把捕获 middleware 追加到 sdkOpts。option.Middleware
+	// 是 type alias 到同款 func 签名（drivers/llm/raw_capture.go 共享函数），
+	// 在 SDK 默认 HTTP client 之上做 tee；不覆盖 WithOpenAIHTTPClient 测试
+	// 注入（middleware 与 client 注入正交）。
+	cfg.sdkOpts = append(cfg.sdkOpts, option.WithMiddleware(captureMiddlewareFunc))
 	client := openai.NewClient(cfg.sdkOpts...)
 	return &OpenAIDriver{
 		client:           client,

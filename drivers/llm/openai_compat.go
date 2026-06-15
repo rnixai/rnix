@@ -93,6 +93,11 @@ func NewOpenAICompatDriver(name, baseURL string, opts ...CompatOption) *OpenAICo
 	for _, opt := range opts {
 		opt(d)
 	}
+	// 56.2 raw capture: 把 httpClient 的 Transport 包成 captureRoundTripper，
+	// 自动给 Call/Stream 路径产生 RawCapture。Transport 包装是透明的——保留
+	// 原 client 的 Timeout/Jar/Redirect 等其它配置，且对未挂 ctx-sink 的调用
+	// （HealthCheck）零开销 fallback 到 base RoundTrip。
+	d.httpClient = wrapHTTPClientWithCapture(d.httpClient)
 	return d
 }
 

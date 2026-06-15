@@ -311,8 +311,14 @@ func TestLLMFile_Write_ContextPropagated(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if driver.callCtx != ctx {
-		t.Error("expected driver.Call to receive the same context passed to Write")
+	// 56.2 接线后 LLMFile.writeCall 用 context.WithValue 挂 raw-capture sink，
+	// 所以 driver.callCtx 是 ctx 派生而非 ctx 本身。验「ctx value 透传」语义
+	// 即可——sink wrap 不影响 user value 可见性。
+	if driver.callCtx == nil {
+		t.Fatal("driver.Call did not receive a context")
+	}
+	if got, _ := driver.callCtx.Value(contextKey("test")).(string); got != "value" {
+		t.Errorf("ctx value not propagated: got %q, want %q", got, "value")
 	}
 }
 

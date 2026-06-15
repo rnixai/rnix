@@ -143,6 +143,12 @@ func (f *LLMFile) maybeMergeSkillsIntoPrompt(req *LLMRequest) {
 
 // writeCall uses the synchronous Call API.
 func (f *LLMFile) writeCall(ctx context.Context, req LLMRequest) error {
+	// 56.2 裁决 1：在调用栈内挂 ctx-scoped sink；driver 出口（手写 HTTP /
+	// SDK middleware / RoundTripper）经 rawSinkFromContext 取出填充。
+	// 共享 driver 函数体本身保持无状态——sink 是 per-call 容器。
+	sink := &rawCaptureSink{}
+	ctx = withRawSink(ctx, sink)
+
 	var resp *LLMResponse
 	var err error
 
@@ -156,6 +162,12 @@ func (f *LLMFile) writeCall(ctx context.Context, req LLMRequest) error {
 		resp, err = f.driver.Call(ctx, req)
 	}
 
+	// 调用返回后归集 sink → per-Open 字段（即便 err != nil 也保留 Request
+	// 形态，便于审计排错；err 路径下 Response 可能缺失，那就只有 Request）。
+	if c := sink.get(); c != nil {
+		f.lastRawCapture = c
+	}
+
 	if err != nil {
 		return err
 	}
@@ -164,6 +176,13 @@ func (f *LLMFile) writeCall(ctx context.Context, req LLMRequest) error {
 
 // writeStream uses the streaming API, accumulating content and forwarding intermediate events.
 func (f *LLMFile) writeStream(ctx context.Context, req LLMRequest) error {
+	// 56.2 裁决 1：sink 经 ctx 下传给 driver；driver goroutine 在 stream
+	// 全部读完（resp.Body Close 时刻）通过 captureResponseBody.Close 写入
+	// sink.cap.Response。LLMFile 在「range ch 结束」之后归集——channel
+	// close 与 Body Close 都 happens-before 那一点，sink 已为终态。
+	sink := &rawCaptureSink{}
+	ctx = withRawSink(ctx, sink)
+
 	var ch <-chan StreamEvent
 	var err error
 
@@ -177,6 +196,10 @@ func (f *LLMFile) writeStream(ctx context.Context, req LLMRequest) error {
 		ch, err = f.driver.Stream(ctx, req)
 	}
 	if err != nil {
+		// Stream 启动失败也尽量保留 sink 中已落入的 Request 形态。
+		if c := sink.get(); c != nil {
+			f.lastRawCapture = c
+		}
 		return err
 	}
 
@@ -259,6 +282,13 @@ func (f *LLMFile) writeStream(ctx context.Context, req LLMRequest) error {
 		CostUSD:           costUSD,
 		StopReason:        stopReason,
 		ToolCalls:         toolCalls,
+	}
+	// 56.2: 归集 sink → per-Open 字段。range ch 已结束意味着 driver
+	// goroutine 已退出（defer close(ch)）；driver goroutine 退出前会
+	// defer resp.Body.Close()——captureResponseBody.Close 此时已把原样
+	// 字节落入 cap.Response，sink.get() 是终态。
+	if c := sink.get(); c != nil {
+		f.lastRawCapture = c
 	}
 	return f.bufferResponse(resp)
 }

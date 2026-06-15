@@ -15,6 +15,7 @@ var credentialHeaderSet = map[string]struct{}{
 	"proxy-authorization": {},
 	"api-key":             {},
 	"x-api-key":           {},
+	"x-goog-api-key":      {}, // Gemini SDK (genai) ships API key under this key.
 	"x-auth-token":        {},
 	"cookie":              {},
 	"set-cookie":          {},
