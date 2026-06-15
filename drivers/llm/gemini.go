@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"net/http"
 	"strings"
 	"time"
 
@@ -26,6 +27,7 @@ type GeminiDriver struct {
 	defaultTimeout time.Duration
 	thinkingBudget int
 	thinkingLevel  string
+	httpClient     *http.Client
 }
 
 // GeminiOption configures a GeminiDriver.
@@ -37,6 +39,7 @@ type geminiDriverConfig struct {
 	apiKey         string
 	thinkingBudget int
 	thinkingLevel  string
+	httpClient     *http.Client
 }
 
 func WithGeminiModel(model string) GeminiOption {
@@ -65,6 +68,18 @@ func WithGeminiThinkingLevel(level string) GeminiOption {
 	return func(c *geminiDriverConfig) { c.thinkingLevel = level }
 }
 
+// WithGeminiHTTPClient injects a custom *http.Client into ClientConfig.HTTPClient
+// (Story 56.2 AC#10 注入口）。两个用途：
+//
+//  1. 测试 — httptest.NewServer 的 client 经此注入，无需起真网；
+//  2. 生产 — 56.2 dev 接线后，gemini driver 用包了「捕获 RoundTripper」的
+//     client 在 HTTP 层 tee 真实请求字节与原始 SSE 响应字节流（裁决 2）。
+//
+// 56.2 dev 完整生效；当前作为 RED 阶段编译占位（newClient 还没消费此字段）。
+func WithGeminiHTTPClient(client *http.Client) GeminiOption {
+	return func(c *geminiDriverConfig) { c.httpClient = client }
+}
+
 // NewGeminiDriver creates a new driver backed by the official genai SDK.
 func NewGeminiDriver(name string, opts ...GeminiOption) *GeminiDriver {
 	cfg := geminiDriverConfig{timeout: DefaultTimeout}
@@ -78,6 +93,7 @@ func NewGeminiDriver(name string, opts ...GeminiOption) *GeminiDriver {
 		defaultTimeout: cfg.timeout,
 		thinkingBudget: cfg.thinkingBudget,
 		thinkingLevel:  cfg.thinkingLevel,
+		httpClient:     cfg.httpClient,
 	}
 }
 

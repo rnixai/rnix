@@ -19,6 +19,11 @@ type LLMFile struct {
 	offset     int
 	closed     bool
 	onEvent    func(event map[string]any) // stream event handler (set via SetStreamHandler)
+	// lastRawCapture 是 56.2 「裁决 1 并发铁律」 的 per-Open 落点：driver 是
+	// 跨进程共享单例，不可在 driver 字段存 per-call 数据；改由 LLMFile 在
+	// writeCall/writeStream 调用栈内经 ctx-scoped sink 注入、driver 出口填充、
+	// 调用返回后归集到本字段。56.2 dev 接线后填充；56.1/未开通的 driver 留 nil。
+	lastRawCapture *vfs.RawCapture
 }
 
 // SetStreamHandler sets a callback for intermediate stream events (e.g., tool_call).
@@ -56,14 +61,21 @@ func (f *LLMFile) DriverMeta() map[string]string {
 	return nil
 }
 
-// LastRawCapture returns the most recent raw request/response capture from
-// the underlying driver, if it implements the package-internal
-// rawCaptureDriver interface. Implements vfs.RawCaptureProvider (Story 56.1).
+// LastRawCapture returns the most recent raw request/response capture.
+// Implements vfs.RawCaptureProvider (Story 56.1).
 //
-// 56.1: no driver implements rawCaptureDriver yet, so this method returns
-// nil for every driver. 56.2 (API drivers) and 56.3 (CLI drivers) populate
-// the capture inside their Call/Stream paths.
+// 56.2 接线后采用 field-first / fallback-委托：
+//
+//  1. 优先返回 per-Open `f.lastRawCapture`（API driver 经 raw_capture.go 的
+//     ctx-scoped sink 在调用出口填充，调用返回后归集到此字段——「裁决 1 并发
+//     铁律」：跨进程共享 driver 不可存 per-call 数据）。
+//  2. 字段为 nil 时 fallback 委托 `rawCaptureDriver`——保 56.1 委托语义
+//     与 INT-001 全绿不破：56.1/未开通的 driver 走原路径返回 nil，opt-in
+//     test 的 fake driver 仍能通过反射 verify 委托正确性。
 func (f *LLMFile) LastRawCapture() *vfs.RawCapture {
+	if f.lastRawCapture != nil {
+		return f.lastRawCapture
+	}
 	if rcd, ok := f.driver.(rawCaptureDriver); ok {
 		return rcd.LastRawCapture()
 	}
