@@ -342,8 +342,14 @@ func TestClaudeCliDriver_Effort_OrderBeforeExtraArgs(t *testing.T) {
 	}
 	effortIdx := indexOf(capturedArgs, "--effort")
 	extraIdx := indexOf(capturedArgs, "--sentinel-extra")
-	if effortIdx < 0 || extraIdx < 0 {
+	modelIdx := indexOf(capturedArgs, "--model")
+	if effortIdx < 0 || extraIdx < 0 || modelIdx < 0 {
 		t.Fatalf("missing flags: %s", strings.Join(capturedArgs, " "))
+	}
+	// AC #7 ordering: built-in args (e.g. --model) → --effort → extraArgs.
+	// Lock BOTH halves: effort must follow the built-ins and precede extraArgs.
+	if modelIdx > effortIdx {
+		t.Errorf("--effort (%d) must follow built-in args like --model (%d): %s", effortIdx, modelIdx, strings.Join(capturedArgs, " "))
 	}
 	if effortIdx > extraIdx {
 		t.Errorf("--effort (%d) must precede extraArgs (%d): %s", effortIdx, extraIdx, strings.Join(capturedArgs, " "))
@@ -382,6 +388,38 @@ func TestCodexCliDriver_ReasoningEffort_Empty_NoRegression(t *testing.T) {
 	}
 	if strings.Contains(strings.Join(capturedArgs, " "), "model_reasoning_effort") {
 		t.Errorf("unexpected model_reasoning_effort when unset, got: %s", strings.Join(capturedArgs, " "))
+	}
+}
+
+// TestCodexCliDriver_Effort_OrderBeforeExtraArgsAndPrompt verifies the effort
+// flag precedes extraArgs AND that the prompt remains the trailing argument
+// (`codex exec [OPTIONS] [PROMPT]`) — so the injected -c pair cannot displace
+// the prompt from last position.
+func TestCodexCliDriver_Effort_OrderBeforeExtraArgsAndPrompt(t *testing.T) {
+	var capturedArgs []string
+	d := NewCodexCliDriver(
+		CodexWithReasoningEffort("high"),
+		CodexWithExtraArgs([]string{"--sentinel-extra"}),
+		CodexWithCommandBuilder(func(ctx context.Context, name string, args ...string) *exec.Cmd {
+			capturedArgs = args
+			return codexMockCmdBuilder("codex_call_success")(ctx, name, args...)
+		}),
+	)
+	if _, err := d.Call(context.Background(), LLMRequest{Intent: "hi"}); err != nil {
+		t.Fatalf("Call: %v", err)
+	}
+	effortIdx := indexOf(capturedArgs, "model_reasoning_effort=high")
+	extraIdx := indexOf(capturedArgs, "--sentinel-extra")
+	if effortIdx < 0 || extraIdx < 0 {
+		t.Fatalf("missing flags: %s", strings.Join(capturedArgs, " "))
+	}
+	if effortIdx > extraIdx {
+		t.Errorf("effort (%d) must precede extraArgs (%d): %s", effortIdx, extraIdx, strings.Join(capturedArgs, " "))
+	}
+	// Prompt must be the last argument; neither effort nor extraArgs may be last.
+	last := len(capturedArgs) - 1
+	if effortIdx == last || extraIdx == last {
+		t.Errorf("prompt must be the trailing arg (effort/extraArgs must precede it): %s", strings.Join(capturedArgs, " "))
 	}
 }
 
@@ -471,8 +509,11 @@ func TestCursorFactory_ReasoningEffort_NoOpWithWarning(t *testing.T) {
 	got := captureFactoryLog(t, ProviderConfig{
 		Name: "cursor", Driver: DriverCursorCLI, ReasoningEffort: "high",
 	})
-	if !strings.Contains(got, "cursor") || !strings.Contains(got, "reasoning_effort") {
-		t.Errorf("expected cursor reasoning_effort warning, got: %q", got)
+	// Assert the driver-type token "cursor-cli" and the verb "ignored" — NOT the
+	// bare provider name "cursor" (which the config sets, so it would echo even on
+	// a wrong-driver/wrong-text log line and mask a broken warning).
+	if !strings.Contains(got, "cursor-cli") || !strings.Contains(got, "ignored") || !strings.Contains(got, "reasoning_effort") {
+		t.Errorf("expected cursor-cli reasoning_effort ignored warning, got: %q", got)
 	}
 }
 
@@ -482,8 +523,9 @@ func TestQwenFactory_ReasoningEffort_NoOpWithWarning(t *testing.T) {
 	got := captureFactoryLog(t, ProviderConfig{
 		Name: "qwen", Driver: DriverQwenCLI, ReasoningEffort: "high",
 	})
-	if !strings.Contains(got, "qwen") || !strings.Contains(got, "reasoning_effort") {
-		t.Errorf("expected qwen reasoning_effort warning, got: %q", got)
+	// Assert "qwen-cli" + "ignored" (not the bare provider name "qwen").
+	if !strings.Contains(got, "qwen-cli") || !strings.Contains(got, "ignored") || !strings.Contains(got, "reasoning_effort") {
+		t.Errorf("expected qwen-cli reasoning_effort ignored warning, got: %q", got)
 	}
 }
 

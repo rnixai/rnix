@@ -263,6 +263,29 @@ func initProject(projectDir string) error {
 	return nil
 }
 
+// reasoningEffortYAMLComment is appended to the generated providers.yaml as an
+// inline, copy-pasteable reference for the reasoning_effort passthrough field
+// (Story 55.1 AC #13). Pure YAML comment — does not affect parsing.
+const reasoningEffortYAMLComment = `
+# ---------------------------------------------------------------------------
+# reasoning_effort（推理强度，Epic 55）— 可选，按需为某个 provider 添加。
+# 纯透传：rnix 不校验、不映射，原样下发底层 API/CLI；省略或 "" = 不设置。
+# ⚠️ 大小写陷阱：gemini 用大写（MINIMAL/LOW/MEDIUM/HIGH），
+#    openai/anthropic 用小写（none/minimal/low/medium/high/xhigh、max）。
+# 示例：
+#   - name: openai-high
+#     driver: openai
+#     default_model: gpt-5.1
+#     reasoning_effort: high          # 小写
+#   - name: gemini-high
+#     driver: gemini
+#     default_model: gemini-3-pro
+#     reasoning_effort: HIGH          # 大写！
+# cursor-cli / qwen-cli 无独立 effort 参数：配置会被忽略并打印 warning。
+# 详见 docs/reasoning-effort.md。
+# ---------------------------------------------------------------------------
+`
+
 func writeDefaultProviders(dir string) error {
 	providersPath := filepath.Join(dir, "providers.yaml")
 	if _, err := os.Stat(providersPath); err == nil {
@@ -274,6 +297,9 @@ func writeDefaultProviders(dir string) error {
 	if err != nil {
 		return err
 	}
+	// Append the reasoning_effort guide so the generated providers.yaml carries
+	// an inline reference + per-driver example (Story 55.1 AC #13).
+	data = append(data, reasoningEffortYAMLComment...)
 	return os.WriteFile(providersPath, data, 0o644)
 }
 
