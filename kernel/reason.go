@@ -578,7 +578,7 @@ func (k *KernelImpl) reasonStep(proc *Process, llmFD types.FD, opts SpawnOpts) {
 				continue // retry current step
 			}
 
-			k.emitEvent(proc, "Write", map[string]any{"fd": llmFD, "size": len(reqJSON), "model": model}, nil, err, time.Since(writeStart))
+			k.emitEvent(proc, "Write", map[string]any{"fd": llmFD, "size": len(reqJSON), "model": model, "reasoning_effort": proc.ReasoningEffort}, nil, err, time.Since(writeStart))
 			fbData, fbErr := k.attemptFallback(proc, req, proc.PrimaryDevice, err, step)
 			if fbErr != nil {
 				reason := "llm write failed"
@@ -598,7 +598,7 @@ func (k *KernelImpl) reasonStep(proc *Process, llmFD types.FD, opts SpawnOpts) {
 			stepCancel()
 			consecutiveTransientRetries = 0 // reset on success
 
-			k.emitEvent(proc, "Write", map[string]any{"fd": llmFD, "size": len(reqJSON), "model": model}, nil, nil, time.Since(writeStart))
+			k.emitEvent(proc, "Write", map[string]any{"fd": llmFD, "size": len(reqJSON), "model": model, "reasoning_effort": proc.ReasoningEffort}, nil, nil, time.Since(writeStart))
 			readStart := time.Now()
 			var readErr error
 			respData, readErr = k.vfs.Read(proc.PID, llmFD, 1<<20)
