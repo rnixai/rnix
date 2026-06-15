@@ -5,6 +5,7 @@ package llm
 // captureMiddlewareFunc，无需测试侧额外配置。
 
 import (
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -134,9 +135,10 @@ func TestATDD_56_2_INT008_OpenAIMiddleware_HTTPClientCompat(t *testing.T) {
 	// 共存（middleware tee resp.Body，httptest client 提供网络层）。
 	var gotBody string
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		buf := make([]byte, 1024)
-		n, _ := r.Body.Read(buf)
-		gotBody = string(buf[:n])
+		// review F4: io.ReadAll 而非单次 Read（Read 不保证读完整 body，
+		// SDK 未来 padding 越界会静默截断）。
+		raw, _ := io.ReadAll(r.Body)
+		gotBody = string(raw)
 		w.Header().Set("Content-Type", "application/json")
 		_, _ = w.Write([]byte(`{"id":"c","choices":[{"index":0,"message":{"role":"assistant","content":"ok"},"finish_reason":"stop"}],"usage":{}}`))
 	}))

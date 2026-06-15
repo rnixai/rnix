@@ -12,6 +12,8 @@ package llm
 
 import (
 	"context"
+	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -211,9 +213,11 @@ func TestATDD_56_2_INT005_LLMFile_ConcurrentNoCrossTalk(t *testing.T) {
 	// 单 httptest server 模拟真实生产端点；mux 根据请求 body 里的 effort
 	// 字段决定响应（这样我们能 verify capture 关联到正确的请求）。
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		buf := make([]byte, 4096)
-		n, _ := r.Body.Read(buf)
-		body := string(buf[:n])
+		// review F2/F4: io.ReadAll 才能保证读到完整请求 body（短读会让
+		// effort 提取静默失败 → "unknown" → 双工 worker 都得到同样的
+		// "echo-unknown" 响应，cross-talk 检测沦为空操作）。
+		raw, _ := io.ReadAll(r.Body)
+		body := string(raw)
 		// 把请求里的 effort 值原样 echo 回去，capture 比对时可识别。
 		effort := "unknown"
 		if _, after, ok := strings.Cut(body, `"reasoning_effort":"`); ok {
@@ -248,25 +252,28 @@ func TestATDD_56_2_INT005_LLMFile_ConcurrentNoCrossTalk(t *testing.T) {
 				effort = "high"
 			}
 			req := `{"intent":"hi-` + effort + `","_pad":"` + strings.Repeat("x", idx%5) + `"}`
-			// effort 通过 driver 配置注入；不同 worker 需要不同 effort
-			// 才能验「串味」——但 driver 是共享的不能改配置。
-			// 改用 LLMRequest 自定义字段不行（不在 LLMRequest 结构）。
-			// 改换办法：把 sentinel 放在 intent 里，验 cap.Request.body
-			// 的 messages → user content 含本 worker 的 sentinel。
+			// 把 sentinel 放在 intent 里，验 cap.Request.body 的 messages
+			// → user content 含本 worker 的 sentinel；driver 共享 = 不可
+			// 改配置 → effort 字段实质走 LLMRequest 文本而非 driver
+			// passthrough，但这条 sentinel 仍是唯一识别 cross-talk 的标志。
 			if err := f.Write(t.Context(), []byte(req)); err != nil {
 				errCh <- err
 				return
 			}
 			cap := f.LastRawCapture()
+			// review F2: cap == nil 必须报错（旧版 errCh <- nil 静默通过 →
+			// 整条 capture pipeline 崩了也不会失败）。
 			if cap == nil {
-				errCh <- nil
+				errCh <- fmt.Errorf("worker %d: LastRawCapture() == nil", idx)
 				return
 			}
 			gotBody := captureReqBody(t, cap)
 			wantSentinel := "hi-" + effort
+			// review F2: sentinel 缺失也必须报错（旧版 errCh <- nil 同样静默）。
 			if !strings.Contains(gotBody, wantSentinel) {
-				errCh <- nil
-				_ = wantSentinel
+				errCh <- fmt.Errorf("worker %d: body 不含自身 sentinel %q:\n%s",
+					idx, wantSentinel, gotBody)
+				return
 			}
 			// 每个 worker 应该看到自己的 sentinel —— 串味则会看到别 worker 的。
 			otherSentinel := "hi-low"
@@ -274,11 +281,19 @@ func TestATDD_56_2_INT005_LLMFile_ConcurrentNoCrossTalk(t *testing.T) {
 				otherSentinel = "hi-high"
 			}
 			if strings.Contains(gotBody, otherSentinel) {
-				t.Errorf("worker %d: cross-talk detected — body contains both %q and %q:\n%s",
+				errCh <- fmt.Errorf("worker %d: cross-talk detected — body contains both %q and %q:\n%s",
 					idx, wantSentinel, otherSentinel, gotBody)
 			}
 		}(i)
 	}
 	wg.Wait()
+	// review F2: 必须 drain errCh —— 旧版 wg.Wait() 后直接返回，
+	// 所有 worker 的 errCh 投递被 GC 丢弃，真实回归零可见。
+	close(errCh)
+	for err := range errCh {
+		if err != nil {
+			t.Error(err)
+		}
+	}
 }
 

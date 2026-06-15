@@ -145,12 +145,18 @@ func readAndResetReqBody(req *http.Request) ([]byte, error) {
 		defer rc.Close()
 		return io.ReadAll(rc)
 	}
-	data, err := io.ReadAll(req.Body)
-	if err != nil {
-		return nil, err
-	}
+	data, readErr := io.ReadAll(req.Body)
+	// 即使 ReadAll 失败也必须重置 Body —— 部分被消费的 reader 若交给 SDK
+	// 的 next(req) 会把残缺字节作为请求体发出去（review F1）。把已读到的
+	// bytes 放回 NopCloser，让发送至少基于已读那段，再向上抛错给调用方
+	// 决定是否继续。当前调用方（captureMiddlewareFunc / RoundTrip）忽略此
+	// 错误以保持 best-effort 捕获语义，对应 cap.Request.body 会偏短但不
+	// 会向 LLM 端点提交脏数据。
 	_ = req.Body.Close()
 	req.Body = io.NopCloser(bytes.NewReader(data))
+	if readErr != nil {
+		return data, readErr
+	}
 	return data, nil
 }
 
@@ -266,11 +272,13 @@ func (c *captureResponseBody) Read(p []byte) (int, error) {
 }
 
 func (c *captureResponseBody) Close() error {
-	err := c.inner.Close()
+	// 守卫顺序：先判 closed 再 Close inner（review F3）。某些自定义/包装
+	// Body 不保证 Close 幂等，二次 Close 必须短路。
 	if c.closed {
-		return err
+		return nil
 	}
 	c.closed = true
+	err := c.inner.Close()
 	// SDK 读完 → Close → 此刻 buf 已含原始字节流（含 SSE 全部 chunk）。
 	// 落入 cap.Response 并重新 set sink（cap 是同一指针，set 是幂等
 	// publish，让 LLMFile 在 driver 返回后 get 到的就是终态 cap）。
