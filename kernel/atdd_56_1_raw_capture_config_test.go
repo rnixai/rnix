@@ -2,6 +2,7 @@ package kernel
 
 import (
 	"reflect"
+	"strings"
 	"testing"
 )
 
@@ -32,8 +33,6 @@ func TestATDD_56_1_006_DefaultRawCaptureConfig_EnabledAnd4MB(t *testing.T) {
 
 // 56-1-UNIT-007: SetRawCaptureConfig normalize — 零值 / 负值 兜底为默认。
 func TestATDD_56_1_007_SetRawCaptureConfig_Normalizes(t *testing.T) {
-	t.Skip("RED: 56-1 dev-story removes this skip after implementing normalizeRawCaptureConfig")
-
 	const wantDefault = int64(4 * 1024 * 1024)
 
 	cases := []struct {
@@ -97,7 +96,7 @@ func TestATDD_56_1_008_RawCapture_OrthogonalToFeatureFlags(t *testing.T) {
 	for f := range rt.Fields() {
 		name := f.Name
 		// 任何包含 "Raw" / "Capture" 的 FeatureFlags 字段都视作违反正交红线
-		if containsAny(name, "Raw", "Capture") {
+		if strings.Contains(name, "Raw") || strings.Contains(name, "Capture") {
 			t.Errorf("FeatureFlags has forbidden field %q — RawCaptureConfig must be orthogonal "+
 				"(Dev Notes 红线: ProfileBaseline 全 false 会让 CAP-4 默认开失效)", name)
 		}
@@ -111,26 +110,4 @@ func TestATDD_56_1_008_RawCapture_OrthogonalToFeatureFlags(t *testing.T) {
 		t.Errorf("zero-value KernelImpl.RawCaptureCfg().Enabled = false, "+
 			"want true (CAP-4 默认开)；got cfg=%+v", cfg)
 	}
-}
-
-func containsAny(s string, subs ...string) bool {
-	for _, sub := range subs {
-		if len(sub) == 0 {
-			continue
-		}
-		if indexOf(s, sub) >= 0 {
-			return true
-		}
-	}
-	return false
-}
-
-func indexOf(s, sub string) int {
-	n, m := len(s), len(sub)
-	for i := 0; i+m <= n; i++ {
-		if s[i:i+m] == sub {
-			return i
-		}
-	}
-	return -1
 }

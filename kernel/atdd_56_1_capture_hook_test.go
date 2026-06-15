@@ -55,6 +55,9 @@ func newRawCaptureTestKernel(t *testing.T, llmFile vfs.VFSFile, cfg RawCaptureCo
 		EventWriterFactory: func(proc *Process) (*EventWriter, error) {
 			return NewEventWriter(baseDir, proc.UUID)
 		},
+		RawWriterFactory: func(proc *Process) (*RawWriter, error) {
+			return NewRawWriter(baseDir, proc.UUID)
+		},
 	})
 	if err != nil {
 		t.Fatalf("Spawn failed: %v", err)
@@ -69,9 +72,7 @@ func newRawCaptureTestKernel(t *testing.T, llmFile vfs.VFSFile, cfg RawCaptureCo
 
 // 56-1-INT-002 (P0): fake provider + Enabled=true → raw.jsonl 写出一条 NDJSON。
 func TestATDD_56_1_INT002_CaptureHook_WritesRawJsonl(t *testing.T) {
-	t.Skip("RED: 56-1 dev-story removes this skip after wiring kernel reason.go hook + Process.rawWriter")
-
-	cap := &vfs.RawCapture{
+	rec := &vfs.RawCapture{
 		TsMs:     1000,
 		Step:     1,
 		Kind:     "api",
@@ -80,7 +81,7 @@ func TestATDD_56_1_INT002_CaptureHook_WritesRawJsonl(t *testing.T) {
 	}
 	llm := &fakeRawLLMFile{
 		mockLLMFile: mockLLMFile{readData: makeLLMResponse("done", 5)},
-		capture:     cap,
+		capture:     rec,
 	}
 	cfg := RawCaptureConfig{Enabled: true, MaxOutputBytes: 4 << 20}
 	_, proc, baseDir := newRawCaptureTestKernel(t, llm, cfg)
@@ -104,12 +105,10 @@ func TestATDD_56_1_INT002_CaptureHook_WritesRawJsonl(t *testing.T) {
 
 // 56-1-INT-003 (P0): Enabled=false → 无 raw.jsonl 文件 / 空文件。
 func TestATDD_56_1_INT003_CaptureHook_DisabledSkipsWrite(t *testing.T) {
-	t.Skip("RED: 56-1 dev-story removes this skip after wiring kernel reason.go hook gating on RawCaptureCfg().Enabled")
-
-	cap := &vfs.RawCapture{TsMs: 1, Step: 1, Kind: "api"}
+	rec := &vfs.RawCapture{TsMs: 1, Step: 1, Kind: "api"}
 	llm := &fakeRawLLMFile{
 		mockLLMFile: mockLLMFile{readData: makeLLMResponse("done", 5)},
-		capture:     cap,
+		capture:     rec,
 	}
 	cfg := RawCaptureConfig{Enabled: false, MaxOutputBytes: 4 << 20}
 	_, proc, baseDir := newRawCaptureTestKernel(t, llm, cfg)
@@ -122,14 +121,12 @@ func TestATDD_56_1_INT003_CaptureHook_DisabledSkipsWrite(t *testing.T) {
 
 // 56-1-INT-004: 超 MaxOutputBytes → Truncated=true + OriginalBytes 正确，进程不 crash。
 func TestATDD_56_1_INT004_CaptureHook_TruncatesOverMaxBytes(t *testing.T) {
-	t.Skip("RED: 56-1 dev-story removes this skip after implementing truncation in the hook")
-
 	const oversize = 1024
 	bigBody := make([]byte, oversize)
 	for i := range bigBody {
 		bigBody[i] = 'A'
 	}
-	cap := &vfs.RawCapture{
+	rec := &vfs.RawCapture{
 		TsMs:     1,
 		Step:     1,
 		Kind:     "api",
@@ -138,7 +135,7 @@ func TestATDD_56_1_INT004_CaptureHook_TruncatesOverMaxBytes(t *testing.T) {
 	}
 	llm := &fakeRawLLMFile{
 		mockLLMFile: mockLLMFile{readData: makeLLMResponse("done", 5)},
-		capture:     cap,
+		capture:     rec,
 	}
 	cfg := RawCaptureConfig{Enabled: true, MaxOutputBytes: 16}
 	_, proc, baseDir := newRawCaptureTestKernel(t, llm, cfg)
@@ -151,32 +148,68 @@ func TestATDD_56_1_INT004_CaptureHook_TruncatesOverMaxBytes(t *testing.T) {
 	if len(records) != 1 {
 		t.Fatalf("len(records) = %d, want 1", len(records))
 	}
-	rec := records[0]
-	if !rec.Truncated {
+	got := records[0]
+	if !got.Truncated {
 		t.Errorf("Truncated = false, want true (body=%d > MaxOutputBytes=16)", oversize)
 	}
-	if rec.OriginalBytes < int64(oversize) {
-		t.Errorf("OriginalBytes = %d, want >= %d", rec.OriginalBytes, oversize)
+	if got.OriginalBytes < int64(oversize) {
+		t.Errorf("OriginalBytes = %d, want >= %d", got.OriginalBytes, oversize)
 	}
 }
 
 // 56-1-INT-005: 写盘错误 → 仅 log，reasonStep 继续完成（fault-tolerance）。
+// Review patch P11: 真正注入会失败的 RawWriter——构造一个 spawn 前已 Close 的
+// writer，hook 内 WriteRaw 必然返回 "write after close" 错误。断言：
+// (a) 进程到达 Done 且 Exit.Code == 0；(b) hook 内的 log 不会让 reasonStep 中断。
 func TestATDD_56_1_INT005_CaptureHook_WriteErrorNonFatal(t *testing.T) {
-	t.Skip("RED: 56-1 dev-story removes this skip after wiring failure-non-fatal handling (仿 EventWriterFactory spawn.go:863-869)")
-
-	cap := &vfs.RawCapture{TsMs: 1, Step: 1, Kind: "api"}
+	rec := &vfs.RawCapture{TsMs: 1, Step: 1, Kind: "api"}
 	llm := &fakeRawLLMFile{
 		mockLLMFile: mockLLMFile{readData: makeLLMResponse("done", 5)},
-		capture:     cap,
+		capture:     rec,
 	}
-	cfg := RawCaptureConfig{Enabled: true, MaxOutputBytes: 4 << 20}
-	// 注入一个写盘失败的 RawWriter（dev-story 决定如何注入：可能加 SpawnOpts.RawWriterFactory）
-	// 这里只断言进程到达 Done — 即使 hook 写盘 panic 也必须被 recover 成 log。
-	_, proc, _ := newRawCaptureTestKernel(t, llm, cfg)
+
+	reg := vfs.NewDeviceRegistry()
+	_ = reg.Register("/dev/llm/claude", func(_ string, _ vfs.OpenFlag, _ string) (vfs.VFSFile, error) {
+		return llm, nil
+	})
+	v := vfs.NewVFS(reg)
+	ctxMgr := rnixctx.NewManager()
+
+	baseDir := t.TempDir()
+	k := NewKernel(v, ctxMgr, nil)
+	k.dataDir = baseDir
+	k.SetRawCaptureConfig(RawCaptureConfig{Enabled: true, MaxOutputBytes: 4 << 20})
+	t.Cleanup(k.Shutdown)
+
+	pid, err := k.Spawn("56.1 INT-005 raw-write fail", nil, SpawnOpts{
+		EventWriterFactory: func(proc *Process) (*EventWriter, error) {
+			return NewEventWriter(baseDir, proc.UUID)
+		},
+		// 注入一个已经 Close 的 RawWriter — 之后的 WriteRaw 必返回 "write after close"。
+		RawWriterFactory: func(proc *Process) (*RawWriter, error) {
+			rw, err := NewRawWriter(baseDir, proc.UUID)
+			if err != nil {
+				return nil, err
+			}
+			_ = rw.Close()
+			return rw, nil
+		},
+	})
+	if err != nil {
+		t.Fatalf("Spawn: %v", err)
+	}
+	proc, ok := k.GetProcess(pid)
+	if !ok {
+		t.Fatalf("process %d not found after spawn", pid)
+	}
+	<-proc.Done
 
 	if proc.GetState() == types.StateDead && proc.Exit != nil && proc.Exit.Code != 0 {
 		t.Errorf("process exited non-zero after raw-write error; raw-capture must be best-effort, "+
 			"got code=%d reason=%q", proc.Exit.Code, proc.Exit.Reason)
+	}
+	if proc.Exit == nil {
+		t.Errorf("process Done but Exit is nil; expected normal completion despite raw-write failure")
 	}
 }
 
@@ -237,9 +270,7 @@ func TestATDD_56_1_INT006_WriteEvent_NormalizationLayerUnchanged(t *testing.T) {
 
 // 56-1-INT-007: raw.jsonl 内 JSON tag 全 snake_case（外部合约）。
 func TestATDD_56_1_INT007_RawCapture_SnakeCaseTag(t *testing.T) {
-	t.Skip("RED: 56-1 dev-story removes this skip after wiring the hook so a record actually lands on disk")
-
-	cap := &vfs.RawCapture{
+	rec := &vfs.RawCapture{
 		TsMs: 42, Step: 7, Kind: "api",
 		Request:       map[string]any{"k": "v"},
 		Response:      map[string]any{"status": float64(200)},
@@ -248,7 +279,7 @@ func TestATDD_56_1_INT007_RawCapture_SnakeCaseTag(t *testing.T) {
 	}
 	llm := &fakeRawLLMFile{
 		mockLLMFile: mockLLMFile{readData: makeLLMResponse("done", 5)},
-		capture:     cap,
+		capture:     rec,
 	}
 	cfg := RawCaptureConfig{Enabled: true, MaxOutputBytes: 4 << 20}
 	_, proc, baseDir := newRawCaptureTestKernel(t, llm, cfg)
@@ -282,4 +313,117 @@ func sliceEqual(a, b []string) bool {
 		}
 	}
 	return true
+}
+
+// 56-1-INT-008 (P0, CAP-4 default-on E2E, review patch P12): Spawn 时不传
+// RawWriterFactory → 走 kernel/spawn.go 的 auto-attach 兜底分支 → 真实落盘
+// raw.jsonl。这是 production 路径（CLI 直接 spawn / IPC server / intent /
+// compose 都不传 factory），ATDD 其余用例都 inject factory 跳过这条分支。
+func TestATDD_56_1_INT008_AutoAttach_DefaultOnE2E(t *testing.T) {
+	rec := &vfs.RawCapture{
+		TsMs:     1234,
+		Step:     1,
+		Kind:     "api",
+		Request:  map[string]any{"url": "https://api.example/v1"},
+		Response: map[string]any{"status": float64(200), "body": "auto-attach ok"},
+	}
+	llm := &fakeRawLLMFile{
+		mockLLMFile: mockLLMFile{readData: makeLLMResponse("done", 5)},
+		capture:     rec,
+	}
+
+	reg := vfs.NewDeviceRegistry()
+	_ = reg.Register("/dev/llm/claude", func(_ string, _ vfs.OpenFlag, _ string) (vfs.VFSFile, error) {
+		return llm, nil
+	})
+	v := vfs.NewVFS(reg)
+	ctxMgr := rnixctx.NewManager()
+
+	baseDir := t.TempDir()
+	k := NewKernel(v, ctxMgr, nil)
+	k.dataDir = baseDir
+	// 使用默认 cfg（Enabled=true 由 DefaultRawCaptureConfig 保证），不显式 Set。
+	t.Cleanup(k.Shutdown)
+
+	pid, err := k.Spawn("56.1 INT-008 auto-attach default-on", nil, SpawnOpts{
+		// 关键：不传 RawWriterFactory — 走 spawn.go:887-895 的 auto-attach。
+		EventWriterFactory: func(proc *Process) (*EventWriter, error) {
+			return NewEventWriter(baseDir, proc.UUID)
+		},
+	})
+	if err != nil {
+		t.Fatalf("Spawn: %v", err)
+	}
+	proc, ok := k.GetProcess(pid)
+	if !ok {
+		t.Fatalf("process %d not found after spawn", pid)
+	}
+	<-proc.Done
+
+	// auto-attach 走 ResolveStepBaseDir → GlobalDataDir(baseDir) for procs
+	// without ProjectConfig.
+	stepBaseDir := k.ResolveStepBaseDir(proc)
+	if stepBaseDir == "" {
+		t.Fatalf("ResolveStepBaseDir returned empty — auto-attach gating depends on this being non-empty")
+	}
+	rawPath := filepath.Join(stepBaseDir, "steps", proc.UUID, "raw.jsonl")
+	if _, err := os.Stat(rawPath); err != nil {
+		t.Fatalf("raw.jsonl not created at %s — spawn auto-attach branch did not fire: %v", rawPath, err)
+	}
+	records, err := ReadAllRaw(rawPath)
+	if err != nil {
+		t.Fatalf("ReadAllRaw: %v", err)
+	}
+	if len(records) == 0 {
+		t.Fatalf("raw.jsonl empty — auto-attach RawWriter not properly hooked to captureRawLLMCall")
+	}
+	if records[0].Kind != "api" {
+		t.Errorf("Kind = %q, want %q", records[0].Kind, "api")
+	}
+	if r, ok := records[0].Response["body"].(string); !ok || r != "auto-attach ok" {
+		t.Errorf("Response body = %v, want %q", records[0].Response["body"], "auto-attach ok")
+	}
+}
+
+// 56-1-INT-009 (review patch P1): lazy file creation — driver 不实现
+// RawCaptureProvider 时（real-world 56.1 状态）spawn 走 auto-attach 仍**不**
+// 应在 <uuid>/ 目录留下空 raw.jsonl 文件。
+func TestATDD_56_1_INT009_LazyFileCreation_NoEmptyFile(t *testing.T) {
+	// mockLLMFile 不实现 RawCaptureProvider —— 与 56.1 全部真实 driver 状态一致。
+	llm := &mockLLMFile{readData: makeLLMResponse("done", 5)}
+
+	reg := vfs.NewDeviceRegistry()
+	_ = reg.Register("/dev/llm/claude", func(_ string, _ vfs.OpenFlag, _ string) (vfs.VFSFile, error) {
+		return llm, nil
+	})
+	v := vfs.NewVFS(reg)
+	ctxMgr := rnixctx.NewManager()
+
+	baseDir := t.TempDir()
+	k := NewKernel(v, ctxMgr, nil)
+	k.dataDir = baseDir
+	t.Cleanup(k.Shutdown)
+
+	pid, err := k.Spawn("56.1 INT-009 lazy creation", nil, SpawnOpts{
+		EventWriterFactory: func(proc *Process) (*EventWriter, error) {
+			return NewEventWriter(baseDir, proc.UUID)
+		},
+	})
+	if err != nil {
+		t.Fatalf("Spawn: %v", err)
+	}
+	proc, ok := k.GetProcess(pid)
+	if !ok {
+		t.Fatalf("process %d not found after spawn", pid)
+	}
+	<-proc.Done
+
+	stepBaseDir := k.ResolveStepBaseDir(proc)
+	rawPath := filepath.Join(stepBaseDir, "steps", proc.UUID, "raw.jsonl")
+	if _, err := os.Stat(rawPath); err == nil {
+		t.Errorf("raw.jsonl exists at %s — review patch P1 (lazy creation) expects no file "+
+			"when no driver implements RawCaptureProvider", rawPath)
+	} else if !os.IsNotExist(err) {
+		t.Fatalf("os.Stat: %v", err)
+	}
 }

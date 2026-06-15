@@ -2,71 +2,418 @@ package kernel
 
 import (
 	"bufio"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"log"
+	"maps"
 	"os"
+	"path/filepath"
+	"strings"
 	"sync"
 
+	"github.com/rnixai/rnix/internal/types"
 	"github.com/rnixai/rnix/vfs"
 )
 
 // RawWriter appends vfs.RawCapture records as NDJSON to
 // <baseDir>/steps/<uuid>/raw.jsonl (Story 56.1 AC#4). Mirrors EventWriter
 // (kernel/event_writer.go) — bufio + mu + O_APPEND, one Flush per write so
-// historical reads observe records immediately.
+// historical reads observe records immediately. Close is idempotent so the
+// reap path (kernel/reap.go) can call it without double-checking attachment.
 //
-// 56.1 RED skeleton: struct + method shells exist so dev-story can fill the
-// bodies without rewiring callers. All assertions in atdd_56_1_raw_writer_test.go
-// are guarded by t.Skip("RED") until dev-story removes the skip.
-//
-//nolint:unused // field shells — dev-story (WriteRaw/Close/Flush) wires them
+// Lazy file creation (review patch P1): the on-disk file is created on the
+// first successful WriteRaw, not at NewRawWriter. Story 56.1 has zero driver
+// implementing rawCaptureDriver, so eagerly creating raw.jsonl would litter
+// every <uuid>/ directory with an empty file. Lazy creation defers that cost
+// until at least one record is actually written.
 type RawWriter struct {
-	file   *os.File
-	writer *bufio.Writer
-	mu     sync.Mutex
-	path   string
+	mu       sync.Mutex
+	baseDir  string
+	procUUID string
+	dir      string
+	path     string
+	file     *os.File
+	writer   *bufio.Writer
+	closed   bool
 }
 
-// NewRawWriter creates a RawWriter pointing at <baseDir>/steps/<procUUID>/raw.jsonl.
-// 56.1 RED skeleton: returns a zero-value RawWriter so the constructor compiles.
+// NewRawWriter prepares a RawWriter pointing at <baseDir>/steps/<procUUID>/raw.jsonl.
+// The on-disk file is NOT created here — first WriteRaw call performs MkdirAll
+// + OpenFile (review patch P1, lazy creation).
 func NewRawWriter(baseDir string, procUUID string) (*RawWriter, error) {
-	_ = baseDir
-	_ = procUUID
-	return &RawWriter{}, nil
+	if baseDir == "" {
+		return nil, fmt.Errorf("raw_writer: baseDir is empty")
+	}
+	if procUUID == "" {
+		return nil, fmt.Errorf("raw_writer: procUUID is empty")
+	}
+	dir := filepath.Join(baseDir, "steps", procUUID)
+	path := filepath.Join(dir, "raw.jsonl")
+	return &RawWriter{
+		baseDir:  baseDir,
+		procUUID: procUUID,
+		dir:      dir,
+		path:     path,
+	}, nil
 }
 
-// WriteRaw appends a single RawCapture as NDJSON.
-// 56.1 RED skeleton: no-op.
-func (rw *RawWriter) WriteRaw(rec vfs.RawCapture) error {
-	_ = rec
+// openLocked materializes the on-disk file on demand (review patch P1). Must
+// be called under rw.mu. After successful return rw.file + rw.writer are
+// guaranteed non-nil.
+func (rw *RawWriter) openLocked() error {
+	if rw.file != nil {
+		return nil
+	}
+	if err := os.MkdirAll(rw.dir, 0o755); err != nil {
+		return err
+	}
+	f, err := os.OpenFile(rw.path, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644)
+	if err != nil {
+		return err
+	}
+	rw.file = f
+	rw.writer = bufio.NewWriterSize(f, 64*1024)
 	return nil
 }
 
-// Flush flushes buffered bytes to disk.
-// 56.1 RED skeleton: no-op.
-func (rw *RawWriter) Flush() error { return nil }
+// WriteRaw appends a single RawCapture as one NDJSON line + immediate flush.
+// Returns an error if the writer is already closed, json marshaling fails, or
+// the lazy file creation fails.
+func (rw *RawWriter) WriteRaw(rec vfs.RawCapture) error {
+	rw.mu.Lock()
+	defer rw.mu.Unlock()
+	if rw.closed {
+		return errors.New("raw_writer: write after close")
+	}
+	if err := rw.openLocked(); err != nil {
+		return err
+	}
+	data, err := json.Marshal(rec)
+	if err != nil {
+		return err
+	}
+	if _, err := rw.writer.Write(data); err != nil {
+		return err
+	}
+	if err := rw.writer.WriteByte('\n'); err != nil {
+		return err
+	}
+	// Match EventWriter: flush every record so historical reads observe
+	// raw.jsonl immediately on disk.
+	return rw.writer.Flush()
+}
 
-// Close flushes and closes the underlying file. Idempotent.
-// 56.1 RED skeleton: no-op.
-func (rw *RawWriter) Close() error { return nil }
+// Flush flushes the buffered writer to disk. No-op after Close or when the
+// underlying file has not yet been created (review patch P1, lazy creation).
+func (rw *RawWriter) Flush() error {
+	rw.mu.Lock()
+	defer rw.mu.Unlock()
+	if rw.closed || rw.writer == nil {
+		return nil
+	}
+	return rw.writer.Flush()
+}
 
-// Path returns the on-disk file path for this writer.
-// 56.1 RED skeleton: returns the captured path (empty in skeleton).
-func (rw *RawWriter) Path() string { return rw.path }
+// Close flushes and closes the underlying file. Idempotent — second + later
+// calls return nil so reap paths can call it unconditionally (镜像 EventWriter
+// 在 reap 的关闭路径). Also a no-op if the file was never opened (no
+// WriteRaw happened during the process's lifetime).
+func (rw *RawWriter) Close() error {
+	rw.mu.Lock()
+	defer rw.mu.Unlock()
+	if rw.closed {
+		return nil
+	}
+	rw.closed = true
+	if rw.writer == nil {
+		return nil
+	}
+	flushErr := rw.writer.Flush()
+	closeErr := rw.file.Close()
+	if flushErr != nil {
+		return flushErr
+	}
+	return closeErr
+}
 
-// ReadAllRaw scans a raw.jsonl file and returns all records in order.
-// Provided for 56.4 query path consumers.
-//
-// 56.1 RED skeleton: returns nil so dev-story can implement the scan.
+// Path returns the on-disk file path for this writer (even if the file has
+// not been created yet — caller can use this to check filesystem state).
+func (rw *RawWriter) Path() string {
+	rw.mu.Lock()
+	defer rw.mu.Unlock()
+	return rw.path
+}
+
+// ReadAllRaw scans a raw.jsonl file and returns all records in order. Lines
+// that fail to unmarshal are skipped (best-effort, mirroring ReadAllEvents).
+// A missing file returns ([]vfs.RawCapture(nil), nil) so callers can treat
+// "never captured" and "capture disabled" alike.
 func ReadAllRaw(path string) ([]vfs.RawCapture, error) {
-	_ = path
-	return nil, nil
+	f, err := os.Open(path)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil, nil
+		}
+		return nil, err
+	}
+	defer f.Close()
+
+	var records []vfs.RawCapture
+	scanner := bufio.NewScanner(f)
+	// raw bodies can be large; bump the per-line limit to 4MB (the configured
+	// MaxOutputBytes default).
+	scanner.Buffer(make([]byte, 0, 64*1024), 4*1024*1024)
+	for scanner.Scan() {
+		var rec vfs.RawCapture
+		if err := json.Unmarshal(scanner.Bytes(), &rec); err != nil {
+			continue
+		}
+		records = append(records, rec)
+	}
+	if err := scanner.Err(); err != nil {
+		return records, err
+	}
+	return records, nil
 }
 
 // ReadRawForStep returns the RawCapture record whose Step matches the given
 // step number, or nil if no such record exists.
-//
-// 56.1 RED skeleton: returns nil.
 func ReadRawForStep(path string, step int) (*vfs.RawCapture, error) {
-	_ = path
-	_ = step
+	all, err := ReadAllRaw(path)
+	if err != nil {
+		return nil, err
+	}
+	for i := range all {
+		if all[i].Step == step {
+			return &all[i], nil
+		}
+	}
 	return nil, nil
+}
+
+// captureRawLLMCall is the kernel reasonStep hook (Story 56.1 AC#6/#7). It
+// runs after a successful LLM Read (review patch P6 — moved post-Read so
+// future Stream-style drivers can populate Last with both request and full
+// response) and:
+//
+//  1. Bails out fast when raw capture is disabled or the process has no
+//     RawWriter attached (degrades to no-op).
+//  2. Type-asserts the LLM file against vfs.RawCaptureProvider and pulls
+//     the most recent capture; nil = driver did not opt into raw capture
+//     (true for *all* drivers in 56.1).
+//  3. Deep-copies Request / Response maps (review patch P4) so the kernel
+//     never mutates the driver's cached struct in place.
+//  4. Stamps Step (if zero) so the step number always matches the reason
+//     loop iteration that produced the capture.
+//  5. Truncates oversize Request / Response bodies via the configured
+//     MaxOutputBytes per-record ceiling (review patch P2 — was per-field).
+//  6. Applies defense-in-depth redaction on common credential header maps
+//     so a forgetful driver never leaks plaintext (idempotent w.r.t. a
+//     driver that already redacted — vfs.RedactCredential).
+//  7. Writes the record to the per-process RawWriter.
+//
+// All failures are logged but never propagated upward; the reasonStep loop
+// is the source of truth for liveness, raw observability is best-effort.
+func (k *KernelImpl) captureRawLLMCall(proc *Process, fd types.FD, step int) {
+	cfg := k.RawCaptureCfg()
+	if !cfg.Enabled {
+		return
+	}
+	proc.mu.Lock()
+	rw := proc.rawWriter
+	proc.mu.Unlock()
+	if rw == nil {
+		return
+	}
+
+	file := k.vfs.GetFile(proc.PID, fd)
+	if file == nil {
+		return
+	}
+	provider, ok := file.(vfs.RawCaptureProvider)
+	if !ok {
+		return
+	}
+	capture := provider.LastRawCapture()
+	if capture == nil {
+		return
+	}
+
+	// Review patch P4: deep-copy Request/Response so subsequent driver-side
+	// reads never see kernel's redaction/truncation; also avoids concurrent
+	// map writes if the driver buffers Last and continues mutating during a
+	// next Call.
+	rec := *capture
+	rec.Request = deepCopyMap(capture.Request)
+	rec.Response = deepCopyMap(capture.Response)
+	if rec.Step == 0 {
+		rec.Step = step
+	}
+	maxBytes := cfg.MaxOutputBytes
+	if maxBytes <= 0 {
+		maxBytes = defaultRawCaptureMaxOutputBytes
+	}
+	rec.Request = redactCredentialFields(rec.Request)
+	rec.Response = redactCredentialFields(rec.Response)
+	// truncateRawCapture toggles Truncated + OriginalBytes itself; we discard
+	// the bool — call is for the side-effect.
+	_ = truncateRawCapture(&rec, maxBytes)
+	if err := rw.WriteRaw(rec); err != nil {
+		log.Printf("[raw_writer] write error pid=%d step=%d: %v", proc.PID, step, err)
+	}
+}
+
+// deepCopyMap returns a one-level deep copy of m. Map values that are
+// themselves maps or slices are NOT recursively cloned — review patch P4
+// scope is to break the top-level reference shared with the driver so
+// kernel-side redact/truncate doesn't leak back into the driver's cache;
+// nested mutation is out of scope (deferred to 56.2/56.3 driver shape).
+func deepCopyMap(m map[string]any) map[string]any {
+	if m == nil {
+		return nil
+	}
+	dst := make(map[string]any, len(m))
+	maps.Copy(dst, m)
+	return dst
+}
+
+// truncateRawCapture enforces the MaxOutputBytes per-record ceiling (review
+// patch P2). Implementation:
+//
+//  1. Marshal the whole record. If under maxBytes, no-op.
+//  2. Otherwise, peel off Response then Request bodies one string field at
+//     a time (largest first) until the marshaled record fits, replacing
+//     each with a `<truncated:N bytes>` marker and accumulating
+//     OriginalBytes. Sets Truncated=true.
+//  3. If after evicting every string field the marshaled record still
+//     exceeds maxBytes (small max + large non-string nested data), give up
+//     gracefully — Truncated already set, the writer's bufio.Scanner cap
+//     will surface the issue downstream rather than us crashing here.
+//
+// Mirrors drivers/mcp/transport.go::truncateResultLocked semantics
+// (truncate + flag + never crash).
+func truncateRawCapture(rec *vfs.RawCapture, maxBytes int64) bool {
+	if maxBytes <= 0 {
+		return false
+	}
+	data, err := json.Marshal(rec)
+	if err != nil || int64(len(data)) <= maxBytes {
+		return false
+	}
+	truncated := false
+	// Process Response first (typically the larger body), then Request.
+	for _, m := range []map[string]any{rec.Response, rec.Request} {
+		if m == nil {
+			continue
+		}
+		// Repeatedly drop the largest string field until under budget.
+		for {
+			data, err := json.Marshal(rec)
+			if err != nil || int64(len(data)) <= maxBytes {
+				break
+			}
+			key, sz := largestStringKey(m)
+			if key == "" {
+				break // no more string fields in this map
+			}
+			rec.OriginalBytes += int64(sz)
+			m[key] = fmt.Sprintf("<truncated: %d bytes, max=%d>", sz, maxBytes)
+			truncated = true
+		}
+		// Re-check after exhausting this map.
+		data, err = json.Marshal(rec)
+		if err == nil && int64(len(data)) <= maxBytes {
+			break
+		}
+	}
+	if truncated {
+		rec.Truncated = true
+	}
+	return truncated
+}
+
+// largestStringKey returns the key of the largest string-valued entry in m
+// along with its byte length. Returns ("", 0) when no string-valued entry
+// remains. Used by truncateRawCapture to drop fields biggest-first.
+func largestStringKey(m map[string]any) (string, int) {
+	bestKey := ""
+	bestLen := 0
+	for k, v := range m {
+		s, ok := v.(string)
+		if !ok {
+			continue
+		}
+		// Only consider strings that have not yet been replaced with a
+		// truncation marker (markers start with "<truncated:") to avoid an
+		// infinite loop re-evicting our own marker text.
+		if strings.HasPrefix(s, "<truncated:") {
+			continue
+		}
+		if len(s) > bestLen {
+			bestKey = k
+			bestLen = len(s)
+		}
+	}
+	return bestKey, bestLen
+}
+
+// redactCredentialFields is the kernel's defense-in-depth redaction pass.
+// 56.1 AC#3 mandates plaintext credentials never reach disk. Drivers (56.2/
+// 56.3) are responsible for primary redaction inside their Call/Stream
+// paths; this pass catches the case where a future driver forgets, mirroring
+// the "two layers, both safe" policy in组合矩阵第 5 行. Idempotent because
+// vfs.RedactCredential short-circuits on already-fingerprinted strings.
+//
+// Review patch P5: preserve the original headers map type (map[string]any)
+// when input is map[string]any with non-string elements (multi-value
+// []string / []any). Previous implementation type-converted to
+// map[string]string and silently dropped non-string values — defense-in-depth
+// then *lost* the secret instead of fingerprinting it.
+func redactCredentialFields(m map[string]any) map[string]any {
+	if m == nil {
+		return nil
+	}
+	switch headers := m["headers"].(type) {
+	case map[string]string:
+		m["headers"] = vfs.RedactHeaders(headers)
+	case map[string]any:
+		out := make(map[string]any, len(headers))
+		for k, v := range headers {
+			out[k] = redactHeaderAny(k, v)
+		}
+		m["headers"] = out
+	}
+	// Some CLI drivers may surface inline tokens via env / argv-tail
+	// fingerprints. We do not auto-walk those here — the spec assigns
+	// primary responsibility to the driver layer (56.3). Future hardening
+	// can add an env scan when 56.3 is implemented.
+	return m
+}
+
+// redactHeaderAny applies vfs.RedactCredential to a single header value of
+// arbitrary type. Strings get fingerprinted via RedactHeaders (single-key
+// path); slices get per-element redaction; everything else is passed
+// through (driver responsibility).
+func redactHeaderAny(key string, v any) any {
+	switch val := v.(type) {
+	case string:
+		// Reuse RedactHeaders single-key path so the credential set lookup
+		// stays the single source of truth.
+		return vfs.RedactHeaders(map[string]string{key: val})[key]
+	case []string:
+		out := make([]string, len(val))
+		for i, s := range val {
+			out[i] = vfs.RedactHeaders(map[string]string{key: s})[key]
+		}
+		return out
+	case []any:
+		out := make([]any, len(val))
+		for i, e := range val {
+			out[i] = redactHeaderAny(key, e)
+		}
+		return out
+	default:
+		return v
+	}
 }

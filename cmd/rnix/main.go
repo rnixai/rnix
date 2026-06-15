@@ -1558,6 +1558,7 @@ func runDaemon(cmd *cobra.Command, args []string) error {
 	immuneCfg := kernel.DefaultImmuneConfig()
 	checkpointCfg := kernel.DefaultCheckpointConfig()
 	gcCfg := kernel.DefaultGcConfig()
+	rawCaptureCfg := kernel.DefaultRawCaptureConfig()
 	globalConfigPath := filepath.Join(globalDir, "config.yaml")
 	if _, err := os.Stat(globalConfigPath); err == nil {
 		data, err := os.ReadFile(globalConfigPath)
@@ -1614,6 +1615,25 @@ func runDaemon(cmd *cobra.Command, args []string) error {
 							gcCfg.IntervalSeconds = n
 						} else {
 							fmt.Fprintf(os.Stderr, "[kernel] warn: gc.interval_seconds invalid (%T %v), using default %d\n", v, v, gcCfg.IntervalSeconds)
+						}
+					}
+				}
+				// Story 56.1 — raw LLM request/response capture. CAP-4 mandates
+				// default-on; users can opt out via raw_capture.enabled: false
+				// or shrink the per-record cap via raw_capture.max_output_bytes.
+				if rcRaw, ok := parsed["raw_capture"].(map[string]any); ok {
+					if v, ok := rcRaw["enabled"]; ok {
+						if b, ok := v.(bool); ok {
+							rawCaptureCfg.Enabled = b
+						} else {
+							fmt.Fprintf(os.Stderr, "[kernel] warn: raw_capture.enabled invalid (%T %v), keeping default %v\n", v, v, rawCaptureCfg.Enabled)
+						}
+					}
+					if v, ok := rcRaw["max_output_bytes"]; ok {
+						if n, ok := toInt(v); ok {
+							rawCaptureCfg.MaxOutputBytes = int64(n)
+						} else {
+							fmt.Fprintf(os.Stderr, "[kernel] warn: raw_capture.max_output_bytes invalid (%T %v), keeping default %d\n", v, v, rawCaptureCfg.MaxOutputBytes)
 						}
 					}
 				}
@@ -1791,6 +1811,7 @@ func runDaemon(cmd *cobra.Command, args []string) error {
 	k.SetDataDir(dataDir)
 	k.SetCheckpointConfig(checkpointCfg)
 	k.SetGcConfig(gcCfg)
+	k.SetRawCaptureConfig(rawCaptureCfg)
 	// Seed pidCounter from all per-project data dirs BEFORE LoadHistory /
 	// LoadSuspendedFromDisk so NewProcess draws unique PIDs after restart.
 	for _, projDir := range kernel.AllBaseDirs(dataDir) {

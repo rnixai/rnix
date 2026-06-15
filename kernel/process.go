@@ -190,6 +190,7 @@ type Process struct {
 	FinalSystemPrompt string       // Full system prompt captured on first reasonStep (mu protected)
 	stepWriter        *StepWriter  // NDJSON step recorder (mu protected)
 	eventWriter       *EventWriter // NDJSON syscall event recorder (mu protected)
+	rawWriter         *RawWriter   // NDJSON raw LLM request/response recorder (mu protected; Story 56.1)
 	// eventDropWarned ensures emitEvent logs at most one warning per process
 	// when it discovers the EventWriter is nil and a disk drop happens. This
 	// converts the previously-silent skip (observe.go:55) into a per-process
@@ -905,6 +906,25 @@ func (p *Process) AttachEventWriter(ew *EventWriter) {
 		}
 	}
 	p.eventWriter = ew
+}
+
+// AttachRawWriter installs a RawWriter on the process. Mirrors
+// AttachEventWriter; called by spawn paths (Story 56.1) so the kernel
+// reasonStep capture hook can write raw LLM request/response records to
+// <baseDir>/steps/<uuid>/raw.jsonl as soon as the first LLM Write succeeds.
+//
+// A double-attach closes the prior writer to avoid leaking the file FD; close
+// errors are logged but otherwise non-fatal. Safe to call before reap; reap
+// (kernel/reap.go) closes whichever writer happens to be attached.
+func (p *Process) AttachRawWriter(rw *RawWriter) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if p.rawWriter != nil && p.rawWriter != rw {
+		if err := p.rawWriter.Close(); err != nil {
+			log.Printf("[raw_writer] close prior writer pid=%d: %v", p.PID, err)
+		}
+	}
+	p.rawWriter = rw
 }
 
 // DetachAndCloseEventWriter flushes and closes the currently attached

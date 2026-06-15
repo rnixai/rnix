@@ -65,10 +65,17 @@ func (k *KernelImpl) reapProcess(proc *Process) {
 		proc.stepWriter = nil
 		ew := proc.eventWriter
 		proc.eventWriter = nil
+		rw := proc.rawWriter
+		proc.rawWriter = nil
 		proc.mu.Unlock()
 		if ew != nil {
 			if err := ew.Close(); err != nil {
 				log.Printf("[event_writer] close error pid=%d: %v", proc.PID, err)
+			}
+		}
+		if rw != nil {
+			if err := rw.Close(); err != nil {
+				log.Printf("[raw_writer] close error pid=%d: %v", proc.PID, err)
 			}
 		}
 		// Persist process-meta.json. Epic 44 follow-up: this used to live

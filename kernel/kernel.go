@@ -118,6 +118,14 @@ type SpawnOpts struct {
 	// A non-nil error is logged via log.Printf and Spawn proceeds without
 	// a writer (best-effort observability).
 	EventWriterFactory func(proc *Process) (*EventWriter, error)
+
+	// RawWriterFactory mirrors EventWriterFactory for the raw LLM
+	// request/response recorder (Story 56.1). When non-nil, Spawn invokes
+	// it after Process creation to attach a RawWriter writing
+	// <baseDir>/steps/<uuid>/raw.jsonl. Failure is logged and non-fatal —
+	// the kernel reasonStep capture hook silently no-ops when proc.rawWriter
+	// is nil so observability degrades cleanly.
+	RawWriterFactory func(proc *Process) (*RawWriter, error)
 }
 
 // KernelCallbacks allows the CLI layer to receive progress notifications
@@ -281,7 +289,10 @@ type KernelImpl struct {
 	// LLM raw request/response capture policy (Story 56.1; Epic 56 CAP-4).
 	// Default-on (DefaultRawCaptureConfig); orthogonal to FeatureFlags so
 	// baseline profile does NOT disable raw capture (CAP-4 红线).
+	// rawCaptureMu guards reads from the reasonStep hot path against
+	// runtime IPC reconfig (review patch P3, mirrors gcMu).
 	rawCaptureCfg RawCaptureConfig
+	rawCaptureMu  sync.RWMutex
 
 	// Heartbeat monitor (Story 30.6)
 	heartbeatMonitor *HeartbeatMonitor

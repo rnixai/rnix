@@ -19,8 +19,6 @@ import (
 
 // 56-1-UNIT-009: WriteRaw → ReadAllRaw / ReadRawForStep 一致 (round-trip)。
 func TestATDD_56_1_009_RawWriter_RoundTrip(t *testing.T) {
-	t.Skip("RED: 56-1 dev-story removes this skip after implementing RawWriter.WriteRaw + ReadAllRaw")
-
 	baseDir := t.TempDir()
 	uuid := "test-uuid-roundtrip"
 
@@ -104,8 +102,6 @@ func TestATDD_56_1_009_RawWriter_RoundTrip(t *testing.T) {
 
 // 56-1-UNIT-010: Close 幂等 + Flush 不丢数据。
 func TestATDD_56_1_010_RawWriter_CloseFlushIdempotent(t *testing.T) {
-	t.Skip("RED: 56-1 dev-story removes this skip after implementing Close idempotency + Flush")
-
 	baseDir := t.TempDir()
 	rw, err := NewRawWriter(baseDir, "uuid-close")
 	if err != nil {
@@ -135,8 +131,6 @@ func TestATDD_56_1_010_RawWriter_CloseFlushIdempotent(t *testing.T) {
 
 // 56-1-UNIT-011: 落点 = <baseDir>/steps/<uuid>/raw.jsonl（gc 复用前提）。
 func TestATDD_56_1_011_RawWriter_PathLocation(t *testing.T) {
-	t.Skip("RED: 56-1 dev-story removes this skip after implementing NewRawWriter path resolution")
-
 	baseDir := t.TempDir()
 	uuid := "uuid-path-check"
 	rw, err := NewRawWriter(baseDir, uuid)

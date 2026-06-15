@@ -62,6 +62,18 @@ func (k *KernelImpl) attachStepObservation(proc *Process) {
 			log.Printf("[observation] event writer creation failed pid=%d: %v", proc.PID, err)
 		}
 	}
+	// Review patch P7: attach RawWriter on resume / LoadSuspendedFromDisk
+	// paths so CAP-4 default-on holds for revived processes (spawn.go has
+	// the equivalent auto-attach for fresh spawns). Lazy file creation
+	// (review patch P1) means no empty raw.jsonl is created if no driver
+	// ever opts in.
+	if proc.rawWriter == nil && k.RawCaptureCfg().Enabled {
+		if rw, err := NewRawWriter(stepBaseDir, proc.UUID); err == nil {
+			proc.rawWriter = rw
+		} else {
+			log.Printf("[observation] raw writer creation failed pid=%d: %v", proc.PID, err)
+		}
+	}
 	if proc.stepsDir == "" {
 		proc.stepsDir = filepath.Join(stepBaseDir, "steps", proc.UUID)
 	}
@@ -617,6 +629,14 @@ func (k *KernelImpl) reasonStep(proc *Process, llmFD types.FD, opts SpawnOpts) {
 				readArgs["content"] = string(respData)
 			}
 			k.emitEvent(proc, "Read", readArgs, len(respData), readErr, time.Since(readStart))
+			// Story 56.1 AC#6/#7: pull raw LLM request/response capture from
+			// the LLM file (if the driver opted into vfs.RawCaptureProvider)
+			// and append a NDJSON line to <baseDir>/steps/<uuid>/raw.jsonl.
+			// Review patch P6: moved post-Read so future Stream-style drivers
+			// can populate Last with both request + accumulated response in
+			// one go. Best-effort — failures are logged via captureRawLLMCall
+			// and must NOT abort reasonStep.
+			k.captureRawLLMCall(proc, llmFD, step)
 			if readErr != nil {
 				// Story 44.5 AC1 — same suspend-vs-kill race as the Write path
 				// above. ctx cancel triggered by SIGPAUSE surfaces as a Read

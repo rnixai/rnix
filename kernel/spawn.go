@@ -869,6 +869,32 @@ func (k *KernelImpl) Spawn(intent string, agent *agents.AgentInfo, opts SpawnOpt
 		}
 	}
 
+	// Story 56.1: attach RawWriter early — same rationale as EventWriter so
+	// the very first LLM Write capture lands on disk. Best-effort: failure
+	// degrades raw observability to no-op (capture hook gates on rawWriter != nil).
+	//
+	// CAP-4 default-on: when no factory is supplied AND raw capture is
+	// enabled, the kernel auto-attaches using ResolveStepBaseDir so callers
+	// outside the IPC server (CLI direct spawn, intent decompose, compose
+	// pipelines) get raw capture for free.
+	if opts.RawWriterFactory != nil {
+		if rw, rwErr := opts.RawWriterFactory(proc); rwErr != nil {
+			log.Printf("[spawn] RawWriterFactory failed pid=%d uuid=%s: %v",
+				proc.PID, proc.UUID, rwErr)
+		} else if rw != nil {
+			proc.AttachRawWriter(rw)
+		}
+	} else if k.RawCaptureCfg().Enabled {
+		if baseDir := k.ResolveStepBaseDir(proc); baseDir != "" && proc.UUID != "" {
+			if rw, rwErr := NewRawWriter(baseDir, proc.UUID); rwErr != nil {
+				log.Printf("[spawn] auto-attach RawWriter failed pid=%d uuid=%s: %v",
+					proc.PID, proc.UUID, rwErr)
+			} else {
+				proc.AttachRawWriter(rw)
+			}
+		}
+	}
+
 	// Emit Spawn syscall event
 	spawnArgs := map[string]any{
 		"intent": intent,
