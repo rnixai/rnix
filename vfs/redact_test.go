@@ -158,8 +158,8 @@ func TestATDD_56_3_UNIT002_RedactArgv_EqualsFormRedacted(t *testing.T) {
 		"codex",
 		"exec",
 		"-c", "model_reasoning_effort=high", // 保真：effort
-		"--token=" + secret,                  // 单 token form 须脱敏
-		"--secret=ANOTHER_SECRET_VAL",         // 同形式
+		"--token=" + secret,           // 单 token form 须脱敏
+		"--secret=ANOTHER_SECRET_VAL", // 同形式
 	}
 	out := RedactArgv(argv)
 	for _, v := range out {

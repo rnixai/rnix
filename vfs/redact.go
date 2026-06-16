@@ -30,17 +30,17 @@ var credentialHeaderSet = map[string]struct{}{
 // **not** in this set — they carry transparency-critical real values that the
 // raw capture is meant to surface (CAP-1).
 var sensitiveArgFlagSet = map[string]struct{}{
-	"--api-key":     {},
-	"--apikey":      {},
-	"--token":       {},
-	"--auth-token":  {},
-	"--password":    {},
-	"--secret":      {},
-	"--bearer":      {},
-	"--access-key":  {},
+	"--api-key":      {},
+	"--apikey":       {},
+	"--token":        {},
+	"--auth-token":   {},
+	"--password":     {},
+	"--secret":       {},
+	"--bearer":       {},
+	"--access-key":   {},
 	"--access-token": {},
-	"-h":            {}, // header flag (curl-style); value form "Authorization: ..."
-	"--header":      {},
+	"-h":             {}, // header flag (curl-style); value form "Authorization: ..."
+	"--header":       {},
 }
 
 // redactedPrefix marks the start of an already-redacted fingerprint string;
@@ -133,7 +133,7 @@ func RedactCredential(s string) string {
 //
 //  1. `--flag value`     — sensitiveArgFlagSet hit ⇒ next element fingerprinted.
 //  2. `--flag=value`     — split on first `=`; if the flag head matches the
-//                          set, the tail (after `=`) is fingerprinted.
+//     set, the tail (after `=`) is fingerprinted.
 //
 // Special-case for `-H` / `--header`: the value carries an HTTP header line
 // like `Authorization: Bearer sk-xxx`. We delegate to redactHeaderValue so

@@ -208,6 +208,13 @@ func (d *CursorCliDriver) Stream(ctx context.Context, req LLMRequest) (<-chan St
 	cmd := d.cmdBuilder(ctx, d.cliCommand, args...)
 	configureCommandGrace(cmd, d.graceSec)
 
+	// 56.3 raw capture: capture stderr on the Stream path. MUST be set before
+	// cmd.Start() — os/exec wires the child's stderr fd at Start time, so a
+	// post-Start assignment is a silent no-op (story 56.3 review fix; cursor 既有
+	// 逻辑不读 stderr，此 buf 仅供 raw capture).
+	var stderrBuf bytes.Buffer
+	cmd.Stderr = &stderrBuf
+
 	stdoutPipe, err := cmd.StdoutPipe()
 	if err != nil {
 		cancel()
@@ -232,16 +239,16 @@ func (d *CursorCliDriver) Stream(ctx context.Context, req LLMRequest) (<-chan St
 		scannerSrc = io.TeeReader(stdoutPipe, &rawStdoutBuf)
 	}
 
-	// cursor 之前用 `var stderrBuf bytes.Buffer` 间接捕获？没——cursor 没设
-	// cmd.Stderr 到独立 buf。raw capture 仍需 stderr，故 Stream 路径补一个
-	// stderr buf；不影响行为（cursor 现有逻辑也不读 stderr）。
-	var stderrBuf bytes.Buffer
-	cmd.Stderr = &stderrBuf
-
 	ch := make(chan StreamEvent, streamChanBuffer)
 
 	go func() {
 		defer close(ch)
+		// Safety-net reap on ALL goroutine exit paths (story 56.3 review fix):
+		// the ctx.Done() early-returns inside the scanner loop skip the explicit
+		// cmd.Wait below, so without this defer the child process + stdout pipe
+		// fd leak on cancellation / idle-timeout. Double Wait on the main paths
+		// is harmless — "exec: Wait was already called" is ignored via _.
+		defer func() { _ = cmd.Wait() }()
 		defer cancel()
 
 		scanner := newStreamScanner(scannerSrc)

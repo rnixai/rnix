@@ -83,9 +83,9 @@ func TestATDD_56_3_INT001_CLI_ConcurrentNoCrossTalk(t *testing.T) {
 //
 // 经 CodexWithExtraArgs 注入 `--api-key sk-LEAK_PLAINTEXT_XYZ` 真实凭据，
 // 验证落 capture 的 argv 中：
-//   1. 不含原始凭据值（明文零落盘红线）
-//   2. 凭据位置已替换为 redacted(...) 指纹
-//   3. effort 真实值保真（CAP-1 透传审计）
+//  1. 不含原始凭据值（明文零落盘红线）
+//  2. 凭据位置已替换为 redacted(...) 指纹
+//  3. effort 真实值保真（CAP-1 透传审计）
 func TestATDD_56_3_INT002_ArgvCredential_Redacted(t *testing.T) {
 	t.Parallel()
 	const secretValue = "sk-LEAK_PLAINTEXT_XYZ_42"

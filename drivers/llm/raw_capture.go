@@ -3,6 +3,7 @@ package llm
 import (
 	"bytes"
 	"context"
+	"fmt"
 	"io"
 	"net/http"
 	"os/exec"
@@ -352,6 +353,14 @@ func wrapHTTPClientWithCapture(base *http.Client) *http.Client {
 // RawCapture（无 SDK / 无 HTTP middleware）。下面 helper 集中字段命名 +
 // 类型 + 主脱敏调用点（裁决 3 + 裁决 4），让四个 driver 接线代码保持极简。
 
+// maxArgvElementBytes bounds a single captured argv element. argv is []string
+// and escapes the kernel per-record truncation (largestStringKey only walks
+// string-valued map fields), so codex/cursor's prompt-in-argv could otherwise
+// produce a raw.jsonl line larger than the read scanner cap and corrupt the
+// tail of the file. 1 MiB is far above any real flag/prompt-argv yet well under
+// the 4 MiB read cap (story 56.3 review decision).
+const maxArgvElementBytes = 1 << 20
+
 // newCLIRawCapture 构造一个 Kind="cli" 的 RawCapture，已设好 TsMs。Step 留 0
 // 由 kernel hook 填（见 raw_writer.go:250-252）；Request/Response 由
 // fillCLIRequest / fillCLIResponse 填充。
@@ -378,8 +387,22 @@ func fillCLIRequest(cap *vfs.RawCapture, binary string, args []string, stdin str
 	full := make([]string, 0, len(args)+1)
 	full = append(full, binary)
 	full = append(full, args...)
+	argv := vfs.RedactArgv(full)
+	// argv is []string and therefore escapes the kernel's per-record string
+	// truncation — largestStringKey (kernel/raw_writer.go) only walks
+	// string-valued map fields. codex/cursor put the entire prompt in the last
+	// argv element, so a single element can be huge; an oversized argv line
+	// would exceed the raw.jsonl read scanner cap and break that record plus
+	// every record after it (bufio.ErrTooLong on read-back). Cap each element
+	// at the driver layer to keep the line bounded without touching kernel
+	// (story 56.3 review decision: driver-layer cap, keep []string).
+	for i, a := range argv {
+		if len(a) > maxArgvElementBytes {
+			argv[i] = fmt.Sprintf("<truncated: %d bytes, max=%d>", len(a), maxArgvElementBytes)
+		}
+	}
 	req := map[string]any{
-		"argv":  vfs.RedactArgv(full),
+		"argv":  argv,
 		"stdin": stdin,
 	}
 	if len(env) > 0 {

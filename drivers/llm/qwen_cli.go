@@ -104,14 +104,14 @@ type qwenResultUsage struct {
 
 // qwenResultMessage is the result message within the Qwen CLI JSON output array.
 type qwenResultMessage struct {
-	Type         string          `json:"type"`
-	Subtype      string          `json:"subtype"`
-	Result       string          `json:"result"`
-	IsError      bool            `json:"is_error"`
-	DurationMS   int             `json:"duration_ms"`
-	NumTurns     int             `json:"num_turns"`
-	Usage        qwenResultUsage `json:"usage"`
-	Error        *struct {
+	Type       string          `json:"type"`
+	Subtype    string          `json:"subtype"`
+	Result     string          `json:"result"`
+	IsError    bool            `json:"is_error"`
+	DurationMS int             `json:"duration_ms"`
+	NumTurns   int             `json:"num_turns"`
+	Usage      qwenResultUsage `json:"usage"`
+	Error      *struct {
 		Message string `json:"message"`
 	} `json:"error,omitempty"`
 }
@@ -128,7 +128,10 @@ func (d *QwenCliDriver) Call(ctx context.Context, req LLMRequest) (*LLMResponse,
 	args := d.buildArgs(req, "json")
 	cmd := d.cmdBuilder(ctx, d.cliCommand, args...)
 	configureCommandGrace(cmd, d.graceSec)
-	cmd.Stdin = strings.NewReader(d.buildPrompt(req))
+	// 56.3: build the prompt once and reuse for both stdin and raw capture
+	// (story 56.3 review fix: was calling d.buildPrompt(req) twice).
+	prompt := d.buildPrompt(req)
+	cmd.Stdin = strings.NewReader(prompt)
 
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout
@@ -140,7 +143,7 @@ func (d *QwenCliDriver) Call(ctx context.Context, req LLMRequest) (*LLMResponse,
 	var rawCap *vfs.RawCapture
 	if sink != nil {
 		rawCap = newCLIRawCapture()
-		fillCLIRequest(rawCap, d.cliCommand, args, d.buildPrompt(req), nil)
+		fillCLIRequest(rawCap, d.cliCommand, args, prompt, nil)
 		sink.set(rawCap)
 	}
 
@@ -253,7 +256,10 @@ func (d *QwenCliDriver) Stream(ctx context.Context, req LLMRequest) (<-chan Stre
 	args := d.buildArgs(req, "stream-json")
 	cmd := d.cmdBuilder(ctx, d.cliCommand, args...)
 	configureCommandGrace(cmd, d.graceSec)
-	cmd.Stdin = strings.NewReader(d.buildPrompt(req))
+	// 56.3: build the prompt once and reuse for both stdin and raw capture
+	// (story 56.3 review fix: was calling d.buildPrompt(req) twice).
+	prompt := d.buildPrompt(req)
+	cmd.Stdin = strings.NewReader(prompt)
 
 	stdoutPipe, err := cmd.StdoutPipe()
 	if err != nil {
@@ -277,7 +283,7 @@ func (d *QwenCliDriver) Stream(ctx context.Context, req LLMRequest) (<-chan Stre
 	scannerSrc := io.Reader(stdoutPipe)
 	if sink != nil {
 		rawCap = newCLIRawCapture()
-		fillCLIRequest(rawCap, d.cliCommand, args, d.buildPrompt(req), nil)
+		fillCLIRequest(rawCap, d.cliCommand, args, prompt, nil)
 		sink.set(rawCap)
 		scannerSrc = io.TeeReader(stdoutPipe, &rawStdoutBuf)
 	}
