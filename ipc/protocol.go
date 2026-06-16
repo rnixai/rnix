@@ -173,6 +173,9 @@ type SpawnRequest struct {
 	Provider         string   `json:"provider,omitempty"`
 	FallbackModel    string   `json:"fallback_model,omitempty"`
 	FallbackProvider string   `json:"fallback_provider,omitempty"`
+	// ReasoningEffort: per-spawn reasoning effort override (passthrough, Story 55.2).
+	// Empty = inherit driver/provider default. Verbatim — no validation/mapping/case-fold.
+	ReasoningEffort  string   `json:"reasoning_effort,omitempty"`
 	MaxSteps         int      `json:"max_steps,omitempty"`
 	ContextBudget    int      `json:"context_budget,omitempty"`
 	MaxTokens        int64    `json:"max_tokens,omitempty"`
@@ -795,6 +798,8 @@ type SpawnPipelineCommand struct {
 	Provider         string `json:"provider,omitempty"`
 	FallbackProvider string `json:"fallback_provider,omitempty"`
 	FallbackModel    string `json:"fallback_model,omitempty"`
+	// ReasoningEffort: per-stage reasoning effort override (passthrough, Story 55.2).
+	ReasoningEffort  string `json:"reasoning_effort,omitempty"`
 }
 
 // SpawnPipelineResponse is the final result of a pipeline spawn (sent as StreamComplete payload).

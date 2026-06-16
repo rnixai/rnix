@@ -21,6 +21,7 @@ type SpawnRequest struct {
 	Provider         string // --provider override; "" = inherit agent manifest / kernel default
 	FallbackProvider string // --fallback-provider override; "" = same-provider fallback
 	FallbackModel    string // --fallback-model override; "" = use agent manifest fallback
+	ReasoningEffort  string // --effort override; "" = inherit driver/provider default (passthrough, Story 55.2)
 }
 
 // KernelSpawner abstracts the kernel's spawn-and-wait operation for pipeline execution.

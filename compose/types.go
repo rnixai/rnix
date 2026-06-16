@@ -14,6 +14,8 @@ type ComposeSpec struct {
 	Intent      string                `yaml:"intent"`
 	Model       string                `yaml:"model,omitempty"`
 	Provider    string                `yaml:"provider,omitempty"`
+	// ReasoningEffort: spec-level reasoning effort default (passthrough, Story 55.2).
+	ReasoningEffort string            `yaml:"reasoning_effort,omitempty"`
 	TokenBudget int                   `yaml:"token_budget,omitempty"`
 	Agents      map[string]*AgentSpec `yaml:"agents"`
 }
@@ -24,6 +26,8 @@ type AgentSpec struct {
 	Agent         string            `yaml:"agent,omitempty"`
 	Model         string            `yaml:"model,omitempty"`
 	Provider      string            `yaml:"provider,omitempty"`
+	// ReasoningEffort: agent-level reasoning effort override (passthrough, Story 55.2).
+	ReasoningEffort string          `yaml:"reasoning_effort,omitempty"`
 	Skills        []string          `yaml:"skills,omitempty"`
 	Priority      string            `yaml:"priority,omitempty"`
 	MaxTokens     int64             `yaml:"max_tokens,omitempty"`
@@ -50,6 +54,7 @@ type DAGNode struct {
 type ComposeSpawnOpts struct {
 	Model        string
 	Provider     string
+	ReasoningEffort string // per-spawn reasoning effort override (passthrough, Story 55.2)
 	SystemPrompt string
 	ParentPID    types.PID
 	MaxTokens    int64

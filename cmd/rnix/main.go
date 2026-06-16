@@ -71,6 +71,7 @@ var (
 	flagProvider         string
 	flagFallbackModel    string
 	flagFallbackProvider string
+	flagReasoningEffort  string
 	flagIntent           string
 
 	// strace --raw 模式（Story 56.4 · CAP-3 路①）

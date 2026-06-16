@@ -34,6 +34,7 @@ type mockCall struct {
 	provider         string
 	fallbackProvider string
 	fallbackModel    string
+	reasoningEffort  string
 }
 
 func (m *mockSpawner) SpawnAndWait(ctx context.Context, req SpawnRequest) (string, int, int, error) {
@@ -44,6 +45,7 @@ func (m *mockSpawner) SpawnAndWait(ctx context.Context, req SpawnRequest) (strin
 		provider:         req.Provider,
 		fallbackProvider: req.FallbackProvider,
 		fallbackModel:    req.FallbackModel,
+		reasoningEffort:  req.ReasoningEffort,
 	})
 	idx := len(m.calls) - 1
 	if idx >= len(m.results) {

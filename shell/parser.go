@@ -14,6 +14,7 @@ type Command struct {
 	Provider         string // --provider: LLM provider override for this spawn
 	FallbackProvider string // --fallback-provider: fallback provider override
 	FallbackModel    string // --fallback-model: fallback model override
+	ReasoningEffort  string // --effort: per-spawn reasoning effort override (passthrough, Story 55.2)
 	ResultLastLine   bool   // --result-last-line: capture only last non-empty line
 }
 

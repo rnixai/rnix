@@ -39,6 +39,7 @@ func (m *concurrentMockSpawner) SpawnAndWait(_ context.Context, req SpawnRequest
 		provider:         req.Provider,
 		fallbackProvider: req.FallbackProvider,
 		fallbackModel:    req.FallbackModel,
+		reasoningEffort:  req.ReasoningEffort,
 	})
 	m.mu.Unlock()
 
