@@ -86,6 +86,7 @@ type ClaudeCliDriver struct {
 	fallbackBins      []string
 	extendedBinDirsFn func() []string // injectable seam for extended bin dirs (test isolation); defaults to extendedBinDirs
 	skipBinResolve    bool
+	commandOverridden bool // true when `command` was set via WithCommand; makes cliCommand the sole resolution candidate (no claude/openclaude fallback)
 }
 
 // ClaudeCliOption configures a ClaudeCliDriver.
@@ -113,10 +114,14 @@ func WithGrace(graceSec int) ClaudeCliOption {
 	}
 }
 
-// WithCommand sets the CLI binary name for the driver.
+// WithCommand sets the CLI binary name for the driver. Setting it marks the
+// command as explicitly overridden: binary resolution will try ONLY this name
+// (no fallback to the default claude/openclaude chain), and a missing binary
+// surfaces as a clear error rather than silently running a different CLI.
 func WithCommand(cmd string) ClaudeCliOption {
 	return func(d *ClaudeCliDriver) {
 		d.cliCommand = cmd
+		d.commandOverridden = true
 	}
 }
 
@@ -946,13 +951,27 @@ func (d *ClaudeCliDriver) warnCapabilityProbeFailure(reason string) {
 	})
 }
 
+// binaryCandidates returns the ordered list of binary names to try during
+// resolution. An explicit `command` override (via WithCommand) is authoritative:
+// it becomes the sole candidate, with no fallback to the default
+// claude/openclaude chain. Without an override, the default fallbackBins apply.
+// resolveClaudeBinary and DriverMeta share this single source of truth so the
+// resolved binary and the reported candidate list never drift.
+func (d *ClaudeCliDriver) binaryCandidates() []string {
+	if d.commandOverridden {
+		return []string{d.cliCommand}
+	}
+	return d.fallbackBins
+}
+
 // resolveClaudeBinary searches for a usable Claude-compatible CLI binary.
-// It tries each candidate in fallbackBins via exec.LookPath first, then
-// checks extended install directories (npm global, nvm, bun). The first
-// match is cached in d.resolvedBin.
+// It tries each candidate from binaryCandidates() via exec.LookPath first, then
+// checks extended install directories (npm global, nvm, bun). The first match is
+// cached in d.resolvedBin. When an explicit command override is not found, the
+// error names the override and never falls back to claude/openclaude.
 func (d *ClaudeCliDriver) resolveClaudeBinary() (string, error) {
 	var tried []string
-	for _, bin := range d.fallbackBins {
+	for _, bin := range d.binaryCandidates() {
 		tried = append(tried, bin)
 		if p, err := exec.LookPath(bin); err == nil {
 			return p, nil
@@ -963,6 +982,9 @@ func (d *ClaudeCliDriver) resolveClaudeBinary() (string, error) {
 				return full, nil
 			}
 		}
+	}
+	if d.commandOverridden {
+		return "", fmt.Errorf("claude-cli command override %q not found in PATH or extended install dirs", d.cliCommand)
 	}
 	return "", fmt.Errorf("no claude-compatible CLI found in PATH: tried %v", tried)
 }
@@ -1046,7 +1068,7 @@ func (d *ClaudeCliDriver) DriverMeta() map[string]string {
 		"cap_partial_messages": strconv.FormatBool(caps.partialMessages),
 		"cap_add_dir":          strconv.FormatBool(caps.addDir),
 		"cap_permission_mode":  strconv.FormatBool(caps.permissionMode),
-		"fallback_candidates":  strings.Join(d.fallbackBins, ","),
+		"fallback_candidates":  strings.Join(d.binaryCandidates(), ","),
 		"probe_duration_ms":    strconv.FormatInt(d.capsProbeDurationMs, 10),
 	}
 }
