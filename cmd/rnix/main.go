@@ -311,6 +311,7 @@ func init() {
 	rootCmd.PersistentFlags().StringVar(&flagProvider, "provider", "", "LLM provider override (see rnix-providers.yaml)")
 	rootCmd.PersistentFlags().StringVar(&flagFallbackModel, "fallback-model", "", "Override agent fallback model (empty = use agent manifest, auto-disabled when --provider crosses provider boundary)")
 	rootCmd.PersistentFlags().StringVar(&flagFallbackProvider, "fallback-provider", "", "Override agent fallback provider (empty = same as primary)")
+	rootCmd.PersistentFlags().StringVar(&flagReasoningEffort, "reasoning-effort", "", "Per-spawn reasoning effort override (passthrough: e.g. high/low/xhigh for OpenAI·Anthropic·CLI, HIGH/LOW for Gemini; empty = provider default)")
 	rootCmd.Flags().IntVar(&flagMaxSteps, "max-steps", 0, "Max reasoning steps (0 = infinite, default 0)")
 	rootCmd.Flags().StringVar(&flagAgent, "agent", "", "Agent definition to use (e.g., code-analyst)")
 	rootCmd.Flags().StringVarP(&flagIntent, "intent", "i", "", "Intent string to spawn an agent")
@@ -581,6 +582,7 @@ func runRoot(cmd *cobra.Command, args []string) error {
 		Provider:         flagProvider,
 		FallbackModel:    flagFallbackModel,
 		FallbackProvider: flagFallbackProvider,
+		ReasoningEffort:  flagReasoningEffort,
 		MaxSteps:         flagMaxSteps,
 		ProjectDir:       projectDir,
 		RnixEnv:          os.Getenv("RNIX_ENV"),
@@ -747,6 +749,7 @@ func runPipeline(renderer *ui.Renderer, mode ui.OutputMode, progress *ui.Progres
 			Provider:         cmd.Provider,
 			FallbackProvider: cmd.FallbackProvider,
 			FallbackModel:    cmd.FallbackModel,
+			ReasoningEffort:  cmd.ReasoningEffort,
 		}
 	}
 

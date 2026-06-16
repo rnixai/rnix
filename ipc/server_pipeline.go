@@ -52,6 +52,7 @@ func (s *Server) handleSpawnPipeline(conn net.Conn, rawPayload json.RawMessage) 
 			Provider:         c.Provider,
 			FallbackProvider: c.FallbackProvider,
 			FallbackModel:    c.FallbackModel,
+			ReasoningEffort:  c.ReasoningEffort,
 		}
 	}
 
@@ -169,6 +170,7 @@ func (s *ipcKernelSpawner) SpawnAndWait(ctx context.Context, req shell.SpawnRequ
 		Provider:         req.Provider,
 		FallbackProvider: req.FallbackProvider,
 		FallbackModel:    req.FallbackModel,
+		ReasoningEffort:  req.ReasoningEffort,
 		ProjectConfig:    s.projectConfig,
 		PipelineIndex:    len(s.pids),
 		PipelineTotal:    s.pipelineTotal,

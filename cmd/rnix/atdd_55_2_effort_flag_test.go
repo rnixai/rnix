@@ -18,7 +18,6 @@ import "testing"
 // --- 55-2-CLI-001 [P0]: --reasoning-effort persistent flag 已注册且为 string (AC #1) ---
 
 func TestEffortFlag_ReasoningEffort_Registered(t *testing.T) {
-	t.Skip("RED: Story 55-2 未实现 — main.go 尚未将 flagReasoningEffort 注册到 rootCmd.PersistentFlags()")
 
 	f := rootCmd.PersistentFlags().Lookup("reasoning-effort")
 	if f == nil {
@@ -36,7 +35,6 @@ func TestEffortFlag_ReasoningEffort_Registered(t *testing.T) {
 // --- 55-2-CLI-002 [P1]: flag 对 apply 子命令可见（persistent 继承） (AC #2) ---
 
 func TestEffortFlag_ReasoningEffort_VisibleToApply(t *testing.T) {
-	t.Skip("RED: Story 55-2 未实现 — flag 未注册，apply 子命令无法继承 --reasoning-effort")
 
 	// persistent flag 在 root 注册后所有子命令（含 apply）均可见。
 	found := false

@@ -26,7 +26,6 @@ import (
 // --- 55-2-SH-001 [P0]: parseSpawnCommand 解析 --effort=high（不报 unexpected token） (AC #4) ---
 
 func TestEffortShell_ParseSpawnCommand_EffortFlag(t *testing.T) {
-	t.Skip("RED: Story 55-2 未实现 — parseSpawnCommand 尚无 --effort= 分支（命中 else → unexpected token）")
 
 	pipeline, err := ParsePipeline(`spawn "x" --agent=a --effort=high`)
 	if err != nil {
@@ -41,7 +40,6 @@ func TestEffortShell_ParseSpawnCommand_EffortFlag(t *testing.T) {
 // --- 55-2-SH-002 [P0]: 字面量 --effort=high 透传到 SpawnRequest (AC #4) ---
 
 func TestEffortShell_LiteralEffort_Passthrough(t *testing.T) {
-	t.Skip("RED: Story 55-2 未实现 — parser 无 --effort 分支 + script_exec 未透传 effort")
 
 	spawner := &mockSpawner{results: []mockResult{{result: "ok", exitCode: 0}}}
 	script, err := ParseScript(`spawn "x" --agent=a --effort=high`)
@@ -63,7 +61,6 @@ func TestEffortShell_LiteralEffort_Passthrough(t *testing.T) {
 // --- 55-2-SH-003 [P0]: 变量展开 --effort=$e（export e=high）展开后透传 (AC #5) ---
 
 func TestEffortShell_VarExpansion(t *testing.T) {
-	t.Skip("RED: Story 55-2 未实现 — expandSpawnProviders 尚未扩展返回 effort")
 
 	spawner := &mockSpawner{results: []mockResult{{result: "ok", exitCode: 0}}}
 	script, err := ParseScript(`
@@ -85,7 +82,6 @@ spawn "x" --effort=$e
 // --- 55-2-SH-004 [P0]: 未定义变量 --effort=$nope → 报错含 line N + --effort，spawn 不发起 (AC #5) ---
 
 func TestEffortShell_UndefinedEffortVar_ErrorsBeforeSpawn(t *testing.T) {
-	t.Skip("RED: Story 55-2 未实现 — effort 尚未走 ExpandStrict 严格展开路径")
 
 	spawner := &mockSpawner{}
 	script, err := ParseScript(`spawn "x" --effort=$nope`)
@@ -133,7 +129,6 @@ func TestEffortShell_OmittedEffort_EmptyAndUnchanged(t *testing.T) {
 // --- 55-2-SH-006 [P1]: on-error 站点 fallback spawn 透传展开后 effort (AC #6) ---
 
 func TestEffortShell_OnErrorSite(t *testing.T) {
-	t.Skip("RED: Story 55-2 未实现 — on-error 执行站点未透传 effort")
 
 	spawner := &mockSpawner{results: []mockResult{
 		{result: "boom", exitCode: 1},
@@ -158,7 +153,6 @@ func TestEffortShell_OnErrorSite(t *testing.T) {
 // --- 55-2-SH-007 [P1]: pipeline 各 stage 透传 effort (AC #6) ---
 
 func TestEffortShell_PipelineStages(t *testing.T) {
-	t.Skip("RED: Story 55-2 未实现 — expandPipelineCommandsStrict 未展开 effort")
 
 	spawner := &mockSpawner{results: []mockResult{
 		{result: "a", exitCode: 0},
@@ -186,7 +180,6 @@ func TestEffortShell_PipelineStages(t *testing.T) {
 // --- 55-2-SH-008 [P1]: parallel 块 worker 收到展开后 effort (AC #6) ---
 
 func TestEffortShell_ParallelBlock(t *testing.T) {
-	t.Skip("RED: Story 55-2 未实现 — parallelTask 未携带/透传 effort 字段")
 
 	spawner := &concurrentMockSpawner{}
 	script, err := ParseScript(`

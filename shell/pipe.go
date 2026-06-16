@@ -95,6 +95,7 @@ func (e *PipelineExecutor) Execute(ctx context.Context, pipeline *Pipeline) (*Pi
 			Provider:         cmd.Provider,
 			FallbackProvider: cmd.FallbackProvider,
 			FallbackModel:    cmd.FallbackModel,
+			ReasoningEffort:  cmd.ReasoningEffort,
 		})
 		stageElapsed := time.Since(stageStart)
 

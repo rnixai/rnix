@@ -80,6 +80,7 @@ func runApply(cmd *cobra.Command, args []string) error {
 		Provider:         flagProvider,
 		FallbackModel:    flagFallbackModel,
 		FallbackProvider: flagFallbackProvider,
+		ReasoningEffort:  flagReasoningEffort,
 		ProjectDir:       projectDir,
 		RnixEnv:          os.Getenv("RNIX_ENV"),
 	}

@@ -411,7 +411,7 @@ func (e *ScriptExecutor) executeStatement(ctx context.Context, stmt Statement,
 		if expandErr != nil {
 			return false, 0, fmt.Errorf("line %d: --model: %w", stmt.Line, expandErr)
 		}
-		expandedProvider, expandedFbProvider, expandedFbModel, provErr := expandSpawnProviders(e.env, stmt.Spawn, "", stmt.Line)
+		expandedProvider, expandedFbProvider, expandedFbModel, expandedEffort, provErr := expandSpawnProviders(e.env, stmt.Spawn, "", stmt.Line)
 		if provErr != nil {
 			return false, 0, provErr
 		}
@@ -423,11 +423,12 @@ func (e *ScriptExecutor) executeStatement(ctx context.Context, stmt Statement,
 		// executeBlock fires after this returns, preserving call-site order.
 		if e.OnEvent != nil {
 			e.emitEvent(ScriptSpawn, stmt.Line, expandedIntent, map[string]any{
-				"intent":   expandedIntent,
-				"agent":    expandedAgent,
-				"model":    expandedModel,
-				"provider": expandedProvider,
-				"assign":   stmt.Assign,
+				"intent":           expandedIntent,
+				"agent":            expandedAgent,
+				"model":            expandedModel,
+				"provider":         expandedProvider,
+				"reasoning_effort": expandedEffort,
+				"assign":           stmt.Assign,
 			})
 		}
 		res, exitCode, tokens, spawnErr := e.spawner.SpawnAndWait(ctx, SpawnRequest{
@@ -437,6 +438,7 @@ func (e *ScriptExecutor) executeStatement(ctx context.Context, stmt Statement,
 			Provider:         expandedProvider,
 			FallbackProvider: expandedFbProvider,
 			FallbackModel:    expandedFbModel,
+			ReasoningEffort:  expandedEffort,
 		})
 		if spawnErr != nil {
 			return false, 0, fmt.Errorf("spawn: %w", spawnErr)
@@ -472,7 +474,7 @@ func (e *ScriptExecutor) executeStatement(ctx context.Context, stmt Statement,
 			if hExpandErr != nil {
 				return false, 0, fmt.Errorf("line %d: on-error: --model: %w", stmt.Line, hExpandErr)
 			}
-			hProvider, hFbProvider, hFbModel, hPErr := expandSpawnProviders(e.env, stmt.OnError, "on-error: ", stmt.Line)
+			hProvider, hFbProvider, hFbModel, hEffort, hPErr := expandSpawnProviders(e.env, stmt.OnError, "on-error: ", stmt.Line)
 			if hPErr != nil {
 				return false, 0, hPErr
 			}
@@ -487,6 +489,7 @@ func (e *ScriptExecutor) executeStatement(ctx context.Context, stmt Statement,
 					Provider:         hProvider,
 					FallbackProvider: hFbProvider,
 					FallbackModel:    hFbModel,
+					ReasoningEffort:  hEffort,
 				})
 			if hErr != nil {
 				return false, 0, fmt.Errorf("on-error: %w", hErr)
@@ -555,7 +558,7 @@ func (e *ScriptExecutor) executeStatement(ctx context.Context, stmt Statement,
 			if hExpandErr != nil {
 				return false, 0, fmt.Errorf("line %d: on-error: --model: %w", stmt.Line, hExpandErr)
 			}
-			hProvider, hFbProvider, hFbModel, hPErr := expandSpawnProviders(e.env, stmt.OnError, "on-error: ", stmt.Line)
+			hProvider, hFbProvider, hFbModel, hEffort, hPErr := expandSpawnProviders(e.env, stmt.OnError, "on-error: ", stmt.Line)
 			if hPErr != nil {
 				return false, 0, hPErr
 			}
@@ -570,6 +573,7 @@ func (e *ScriptExecutor) executeStatement(ctx context.Context, stmt Statement,
 					Provider:         hProvider,
 					FallbackProvider: hFbProvider,
 					FallbackModel:    hFbModel,
+					ReasoningEffort:  hEffort,
 				})
 			if hErr != nil {
 				return false, 0, fmt.Errorf("on-error: %w", hErr)
@@ -906,12 +910,14 @@ type parallelTask struct {
 	expandedProvider        string
 	expandedFbProvider      string
 	expandedFbModel         string
+	expandedEffort          string
 	expandedOnError         string
 	expandedOnErrAgent      string
 	expandedOnErrModel      string
 	expandedOnErrProvider   string
 	expandedOnErrFbProvider string
 	expandedOnErrFbModel    string
+	expandedOnErrEffort     string
 	expandedPipeline        *Pipeline
 }
 
@@ -947,7 +953,7 @@ func (e *ScriptExecutor) executeParallel(ctx context.Context, stmt Statement, re
 			if err != nil {
 				return fmt.Errorf("line %d: --model: %w", s.Line, err)
 			}
-			task.expandedProvider, task.expandedFbProvider, task.expandedFbModel, err = expandSpawnProviders(e.env, s.Spawn, "", s.Line)
+			task.expandedProvider, task.expandedFbProvider, task.expandedFbModel, task.expandedEffort, err = expandSpawnProviders(e.env, s.Spawn, "", s.Line)
 			if err != nil {
 				return err
 			}
@@ -965,7 +971,7 @@ func (e *ScriptExecutor) executeParallel(ctx context.Context, stmt Statement, re
 				if err != nil {
 					return fmt.Errorf("line %d: on-error: --model: %w", s.Line, err)
 				}
-				task.expandedOnErrProvider, task.expandedOnErrFbProvider, task.expandedOnErrFbModel, err = expandSpawnProviders(e.env, s.OnError, "on-error: ", s.Line)
+				task.expandedOnErrProvider, task.expandedOnErrFbProvider, task.expandedOnErrFbModel, task.expandedOnErrEffort, err = expandSpawnProviders(e.env, s.OnError, "on-error: ", s.Line)
 				if err != nil {
 					return err
 				}
@@ -995,12 +1001,13 @@ func (e *ScriptExecutor) executeParallel(ctx context.Context, stmt Statement, re
 				// executor goroutine.
 				if e.OnEvent != nil {
 					e.emitEvent(ScriptSpawn, t.stmt.Line, t.expandedIntent, map[string]any{
-						"intent":   t.expandedIntent,
-						"agent":    t.expandedAgent,
-						"model":    t.expandedModel,
-						"provider": t.expandedProvider,
-						"assign":   t.stmt.Assign,
-						"parallel": true,
+						"intent":           t.expandedIntent,
+						"agent":            t.expandedAgent,
+						"model":            t.expandedModel,
+						"provider":         t.expandedProvider,
+						"reasoning_effort": t.expandedEffort,
+						"assign":           t.stmt.Assign,
+						"parallel":         true,
 					})
 				}
 				res, exitCode, tokens, err := e.spawner.SpawnAndWait(ctx, SpawnRequest{
@@ -1010,6 +1017,7 @@ func (e *ScriptExecutor) executeParallel(ctx context.Context, stmt Statement, re
 					Provider:         t.expandedProvider,
 					FallbackProvider: t.expandedFbProvider,
 					FallbackModel:    t.expandedFbModel,
+					ReasoningEffort:  t.expandedEffort,
 				})
 				if err == nil && t.stmt.Spawn.ResultLastLine {
 					res = extractLastLine(res)
@@ -1017,13 +1025,14 @@ func (e *ScriptExecutor) executeParallel(ctx context.Context, stmt Statement, re
 				if exitCode != 0 && t.stmt.OnError != nil && err == nil {
 					if e.OnEvent != nil {
 						e.emitEvent(ScriptSpawn, t.stmt.Line, t.expandedOnError, map[string]any{
-							"intent":   t.expandedOnError,
-							"agent":    t.expandedOnErrAgent,
-							"model":    t.expandedOnErrModel,
-							"provider": t.expandedOnErrProvider,
-							"assign":   t.stmt.Assign,
-							"parallel": true,
-							"on_error": true,
+							"intent":           t.expandedOnError,
+							"agent":            t.expandedOnErrAgent,
+							"model":            t.expandedOnErrModel,
+							"provider":         t.expandedOnErrProvider,
+							"reasoning_effort": t.expandedOnErrEffort,
+							"assign":           t.stmt.Assign,
+							"parallel":         true,
+							"on_error":         true,
 						})
 					}
 					hRes, hExitCode, hTokens, hErr := e.spawner.SpawnAndWait(ctx, SpawnRequest{
@@ -1033,6 +1042,7 @@ func (e *ScriptExecutor) executeParallel(ctx context.Context, stmt Statement, re
 						Provider:         t.expandedOnErrProvider,
 						FallbackProvider: t.expandedOnErrFbProvider,
 						FallbackModel:    t.expandedOnErrFbModel,
+						ReasoningEffort:  t.expandedOnErrEffort,
 					})
 					if hErr == nil {
 						if t.stmt.OnError.ResultLastLine {

@@ -148,6 +148,10 @@ func expandPipelineCommandsStrict(env *Environment, p *Pipeline) (*Pipeline, err
 		if err != nil {
 			return nil, fmt.Errorf("stage %d: --fallback-model: %w", i+1, err)
 		}
+		effort, err := env.ExpandStrict(cmd.ReasoningEffort)
+		if err != nil {
+			return nil, fmt.Errorf("stage %d: --effort: %w", i+1, err)
+		}
 		expanded.Commands[i] = Command{
 			Type:             cmd.Type,
 			Intent:           intent,
@@ -156,30 +160,35 @@ func expandPipelineCommandsStrict(env *Environment, p *Pipeline) (*Pipeline, err
 			Provider:         provider,
 			FallbackProvider: fbProvider,
 			FallbackModel:    fbModel,
+			ReasoningEffort:  effort,
 			ResultLastLine:   cmd.ResultLastLine,
 		}
 	}
 	return expanded, nil
 }
 
-// expandSpawnProviders strict-expands the three provider-routing flags of a
-// spawn Command (--provider / --fallback-provider / --fallback-model). prefix
-// is prepended to the flag name in error messages (e.g. "on-error: ") so the
+// expandSpawnProviders strict-expands the provider-routing flags of a
+// spawn Command (--provider / --fallback-provider / --fallback-model / --effort).
+// prefix is prepended to the flag name in error messages (e.g. "on-error: ") so the
 // failing site is identifiable; line is the 1-based source line number.
-func expandSpawnProviders(env *Environment, cmd *Command, prefix string, line int) (provider, fbProvider, fbModel string, err error) {
+func expandSpawnProviders(env *Environment, cmd *Command, prefix string, line int) (provider, fbProvider, fbModel, effort string, err error) {
 	provider, err = env.ExpandStrict(cmd.Provider)
 	if err != nil {
-		return "", "", "", fmt.Errorf("line %d: %s--provider: %w", line, prefix, err)
+		return "", "", "", "", fmt.Errorf("line %d: %s--provider: %w", line, prefix, err)
 	}
 	fbProvider, err = env.ExpandStrict(cmd.FallbackProvider)
 	if err != nil {
-		return "", "", "", fmt.Errorf("line %d: %s--fallback-provider: %w", line, prefix, err)
+		return "", "", "", "", fmt.Errorf("line %d: %s--fallback-provider: %w", line, prefix, err)
 	}
 	fbModel, err = env.ExpandStrict(cmd.FallbackModel)
 	if err != nil {
-		return "", "", "", fmt.Errorf("line %d: %s--fallback-model: %w", line, prefix, err)
+		return "", "", "", "", fmt.Errorf("line %d: %s--fallback-model: %w", line, prefix, err)
 	}
-	return provider, fbProvider, fbModel, nil
+	effort, err = env.ExpandStrict(cmd.ReasoningEffort)
+	if err != nil {
+		return "", "", "", "", fmt.Errorf("line %d: %s--effort: %w", line, prefix, err)
+	}
+	return provider, fbProvider, fbModel, effort, nil
 }
 
 func sortStrings(s []string) {

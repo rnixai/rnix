@@ -104,6 +104,8 @@ func parseSpawnCommand(seg string) (Command, error) {
 			cmd.FallbackProvider = after
 		} else if after, ok := strings.CutPrefix(tok, "--fallback-model="); ok {
 			cmd.FallbackModel = after
+		} else if after, ok := strings.CutPrefix(tok, "--effort="); ok {
+			cmd.ReasoningEffort = after
 		} else if tok == "--result-last-line" {
 			cmd.ResultLastLine = true
 		} else if !intentFound {

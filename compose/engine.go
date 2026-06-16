@@ -156,13 +156,19 @@ func (e *Engine) executeNode(ctx context.Context, name string, traceID types.Tra
 	if provider == "" {
 		provider = e.spec.Provider
 	}
+	// ReasoningEffort priority: agent-level > spec-level > empty (driver default)
+	effort := agentSpec.ReasoningEffort
+	if effort == "" {
+		effort = e.spec.ReasoningEffort
+	}
 	opts := ComposeSpawnOpts{
-		Model:         model,
-		Provider:      provider,
-		MaxTokens:     agentSpec.MaxTokens,
-		TimeoutMs:     agentSpec.TimeoutMs,
-		TraceID:       traceID,
-		ComposeNode:   name,
+		Model:           model,
+		Provider:        provider,
+		ReasoningEffort: effort,
+		MaxTokens:       agentSpec.MaxTokens,
+		TimeoutMs:       agentSpec.TimeoutMs,
+		TraceID:         traceID,
+		ComposeNode:     name,
 	}
 	if node != nil {
 		opts.ComposeDeps = append([]string(nil), node.DependsOn...)

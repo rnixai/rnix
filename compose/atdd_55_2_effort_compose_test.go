@@ -23,7 +23,6 @@ import (
 // --- 55-2-CMP-001 [P0]: agent 级 reasoning_effort → ComposeSpawnOpts 透传 (AC #7) ---
 
 func TestEffortCompose_AgentLevel_PassedToSpawn(t *testing.T) {
-	t.Skip("RED: Story 55-2 未实现 — engine.go 未将 effort 优先级结果拷进 ComposeSpawnOpts")
 
 	data := []byte(`
 version: "1.0"
@@ -63,7 +62,6 @@ agents:
 // --- 55-2-CMP-002 [P0]: spec 级回落（agent 空 + 顶层 reasoning_effort） (AC #7) ---
 
 func TestEffortCompose_SpecLevelFallback(t *testing.T) {
-	t.Skip("RED: Story 55-2 未实现 — engine.go 无 spec 级 effort 回落解析")
 
 	data := []byte(`
 version: "1.0"
@@ -97,7 +95,6 @@ agents:
 // --- 55-2-CMP-003 [P1]: 优先级 agent 级 > spec 级 (AC #7) ---
 
 func TestEffortCompose_AgentOverridesSpec(t *testing.T) {
-	t.Skip("RED: Story 55-2 未实现 — engine.go 无 effort 优先级解析（agent > spec）")
 
 	data := []byte(`
 version: "1.0"
@@ -163,7 +160,6 @@ agents:
 // --- 55-2-CMP-005 [P1]: 透传铁律——Gemini HIGH 大写原样（不转换） (AC #8) ---
 
 func TestEffortCompose_Passthrough_UppercaseVerbatim(t *testing.T) {
-	t.Skip("RED: Story 55-2 未实现 — engine.go 未拷贝 effort（透传终点为空）")
 
 	data := []byte(`
 version: "1.0"

@@ -93,16 +93,17 @@ func (s *ipcKernelSpawner) Spawn(intent string, agent *agents.AgentInfo, opts co
 	}
 
 	req := ipc.SpawnRequest{
-		Intent:        intent,
-		Model:         opts.Model,
-		Provider:      opts.Provider,
-		MaxTokens:     opts.MaxTokens,
-		TimeoutMs:     opts.TimeoutMs,
-		TraceID:       string(opts.TraceID),
-		ParentSpanID:  string(opts.ParentSpanID),
-		ProjectDir:    s.projectDir,
-		ComposeNode:   opts.ComposeNode,
-		ComposeDeps:   opts.ComposeDeps,
+		Intent:          intent,
+		Model:           opts.Model,
+		Provider:        opts.Provider,
+		ReasoningEffort: opts.ReasoningEffort,
+		MaxTokens:       opts.MaxTokens,
+		TimeoutMs:       opts.TimeoutMs,
+		TraceID:         string(opts.TraceID),
+		ParentSpanID:    string(opts.ParentSpanID),
+		ProjectDir:      s.projectDir,
+		ComposeNode:     opts.ComposeNode,
+		ComposeDeps:     opts.ComposeDeps,
 	}
 	if agent != nil {
 		req.Agent = agent.Manifest.Name
