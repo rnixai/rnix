@@ -136,15 +136,50 @@ func expandPipelineCommandsStrict(env *Environment, p *Pipeline) (*Pipeline, err
 		if err != nil {
 			return nil, fmt.Errorf("stage %d: --model: %w", i+1, err)
 		}
+		provider, err := env.ExpandStrict(cmd.Provider)
+		if err != nil {
+			return nil, fmt.Errorf("stage %d: --provider: %w", i+1, err)
+		}
+		fbProvider, err := env.ExpandStrict(cmd.FallbackProvider)
+		if err != nil {
+			return nil, fmt.Errorf("stage %d: --fallback-provider: %w", i+1, err)
+		}
+		fbModel, err := env.ExpandStrict(cmd.FallbackModel)
+		if err != nil {
+			return nil, fmt.Errorf("stage %d: --fallback-model: %w", i+1, err)
+		}
 		expanded.Commands[i] = Command{
-			Type:           cmd.Type,
-			Intent:         intent,
-			Agent:          agent,
-			Model:          model,
-			ResultLastLine: cmd.ResultLastLine,
+			Type:             cmd.Type,
+			Intent:           intent,
+			Agent:            agent,
+			Model:            model,
+			Provider:         provider,
+			FallbackProvider: fbProvider,
+			FallbackModel:    fbModel,
+			ResultLastLine:   cmd.ResultLastLine,
 		}
 	}
 	return expanded, nil
+}
+
+// expandSpawnProviders strict-expands the three provider-routing flags of a
+// spawn Command (--provider / --fallback-provider / --fallback-model). prefix
+// is prepended to the flag name in error messages (e.g. "on-error: ") so the
+// failing site is identifiable; line is the 1-based source line number.
+func expandSpawnProviders(env *Environment, cmd *Command, prefix string, line int) (provider, fbProvider, fbModel string, err error) {
+	provider, err = env.ExpandStrict(cmd.Provider)
+	if err != nil {
+		return "", "", "", fmt.Errorf("line %d: %s--provider: %w", line, prefix, err)
+	}
+	fbProvider, err = env.ExpandStrict(cmd.FallbackProvider)
+	if err != nil {
+		return "", "", "", fmt.Errorf("line %d: %s--fallback-provider: %w", line, prefix, err)
+	}
+	fbModel, err = env.ExpandStrict(cmd.FallbackModel)
+	if err != nil {
+		return "", "", "", fmt.Errorf("line %d: %s--fallback-model: %w", line, prefix, err)
+	}
+	return provider, fbProvider, fbModel, nil
 }
 
 func sortStrings(s []string) {

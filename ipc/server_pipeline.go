@@ -45,10 +45,13 @@ func (s *Server) handleSpawnPipeline(conn net.Conn, rawPayload json.RawMessage) 
 	}
 	for i, c := range req.Commands {
 		pipeline.Commands[i] = shell.Command{
-			Type:   "spawn",
-			Intent: c.Intent,
-			Agent:  c.Agent,
-			Model:  c.Model,
+			Type:             "spawn",
+			Intent:           c.Intent,
+			Agent:            c.Agent,
+			Model:            c.Model,
+			Provider:         c.Provider,
+			FallbackProvider: c.FallbackProvider,
+			FallbackModel:    c.FallbackModel,
 		}
 	}
 
@@ -141,7 +144,10 @@ type ipcKernelSpawner struct {
 	parentPID      types.PID // script runner PID; 0 if not in a script context
 }
 
-func (s *ipcKernelSpawner) SpawnAndWait(ctx context.Context, intent, agentName, model string) (string, int, int, error) {
+func (s *ipcKernelSpawner) SpawnAndWait(ctx context.Context, req shell.SpawnRequest) (string, int, int, error) {
+	intent := req.Intent
+	agentName := req.Agent
+	model := req.Model
 	resolvedAgent := agentName
 	if resolvedAgent == "" {
 		resolvedAgent = "stem"
@@ -159,11 +165,14 @@ func (s *ipcKernelSpawner) SpawnAndWait(ctx context.Context, intent, agentName, 
 	}
 
 	pid, err := s.kernel.Spawn(intent, agentInfo, kernel.SpawnOpts{
-		Model:         model,
-		ProjectConfig: s.projectConfig,
-		PipelineIndex: len(s.pids),
-		PipelineTotal: s.pipelineTotal,
-		ParentPID:     s.parentPID,
+		Model:            model,
+		Provider:         req.Provider,
+		FallbackProvider: req.FallbackProvider,
+		FallbackModel:    req.FallbackModel,
+		ProjectConfig:    s.projectConfig,
+		PipelineIndex:    len(s.pids),
+		PipelineTotal:    s.pipelineTotal,
+		ParentPID:        s.parentPID,
 	})
 	if err != nil {
 		return "", 1, 0, err

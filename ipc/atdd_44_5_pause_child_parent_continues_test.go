@@ -7,6 +7,7 @@ import (
 
 	"github.com/rnixai/rnix/internal/types"
 	"github.com/rnixai/rnix/kernel"
+	"github.com/rnixai/rnix/shell"
 )
 
 // =============================================================================
@@ -101,7 +102,7 @@ func TestATDD_44_5_020_SpawnAndWait_PauseChild_Blocks_UntilResumed(t *testing.T)
 	resultCh := make(chan spawnAndWaitResult, 1)
 	go func() {
 		res, code, toks, err := spawner.SpawnAndWait(
-			gocontext.Background(), "atdd 44.5 — pause child", "", "")
+			gocontext.Background(), shell.SpawnRequest{Intent: "atdd 44.5 — pause child"})
 		resultCh <- spawnAndWaitResult{res, code, toks, err}
 	}()
 
@@ -185,7 +186,7 @@ func TestATDD_44_5_021_PauseChild_NoStaleOnError_StateConsistent(t *testing.T) {
 	resultCh := make(chan spawnAndWaitResult, 1)
 	go func() {
 		res, code, toks, err := spawner.SpawnAndWait(
-			gocontext.Background(), "atdd 44.5 — invariant after pause+resume", "", "")
+			gocontext.Background(), shell.SpawnRequest{Intent: "atdd 44.5 — invariant after pause+resume"})
 		resultCh <- spawnAndWaitResult{res, code, toks, err}
 	}()
 
@@ -364,7 +365,7 @@ func TestATDD_44_5_023_PausedAt_Frozen_PausedTotal_Accumulates(t *testing.T) {
 	resultCh := make(chan spawnAndWaitResult, 1)
 	go func() {
 		res, code, toks, err := spawner.SpawnAndWait(
-			gocontext.Background(), "atdd 44.5 — pausedAt/pausedTotal accounting", "", "")
+			gocontext.Background(), shell.SpawnRequest{Intent: "atdd 44.5 — pausedAt/pausedTotal accounting"})
 		resultCh <- spawnAndWaitResult{res, code, toks, err}
 	}()
 

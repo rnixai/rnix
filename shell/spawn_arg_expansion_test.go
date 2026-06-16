@@ -345,3 +345,215 @@ end
 		t.Error("no parallel task may spawn when Phase A expansion fails")
 	}
 }
+
+// ============================================================
+// spawn --provider / --fallback-provider / --fallback-model
+// Spec: spec-spawn-provider-flags.md
+//
+// 沿 agent/model 透传链平行加 provider 通道。覆盖 I/O 矩阵：
+// 字面量 / 变量展开 / 未定义报错 / 回归 / fallback flags /
+// on-error / pipeline / parallel 站点。
+// ============================================================
+
+// --- 字面量 provider 三元组透传到 SpawnRequest ---
+
+func TestSpawnProviderFlags_LiteralPassthrough(t *testing.T) {
+	spawner := &mockSpawner{results: []mockResult{{result: "ok", exitCode: 0}}}
+	script, err := ParseScript(
+		`spawn "x" --agent=a --provider=deepseek --model=deepseek-v4-flash --fallback-provider=anthropic --fallback-model=claude-x`)
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	exec := NewScriptExecutor(spawner, NewEnvironment())
+	if _, err := exec.Execute(context.Background(), script); err != nil {
+		t.Fatalf("execute: %v", err)
+	}
+	if len(spawner.calls) != 1 {
+		t.Fatalf("expected 1 spawn call, got %d", len(spawner.calls))
+	}
+	c := spawner.calls[0]
+	if c.provider != "deepseek" {
+		t.Errorf("provider = %q, want %q", c.provider, "deepseek")
+	}
+	if c.model != "deepseek-v4-flash" {
+		t.Errorf("model = %q, want %q", c.model, "deepseek-v4-flash")
+	}
+	if c.fallbackProvider != "anthropic" {
+		t.Errorf("fallbackProvider = %q, want %q", c.fallbackProvider, "anthropic")
+	}
+	if c.fallbackModel != "claude-x" {
+		t.Errorf("fallbackModel = %q, want %q", c.fallbackModel, "claude-x")
+	}
+}
+
+// --- 变量展开：--provider=$p 等三个 flag 均展开 ---
+
+func TestSpawnProviderFlags_VarExpansion(t *testing.T) {
+	spawner := &mockSpawner{results: []mockResult{{result: "ok", exitCode: 0}}}
+	script, err := ParseScript(`
+export p=deepseek
+export fp=anthropic
+export fm=claude-x
+spawn "x" --provider=$p --fallback-provider=$fp --fallback-model=$fm
+`)
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	exec := NewScriptExecutor(spawner, NewEnvironment())
+	if _, err := exec.Execute(context.Background(), script); err != nil {
+		t.Fatalf("execute: %v", err)
+	}
+	c := spawner.calls[0]
+	if c.provider != "deepseek" || c.fallbackProvider != "anthropic" || c.fallbackModel != "claude-x" {
+		t.Errorf("expanded provider triple mismatch: %+v", c)
+	}
+}
+
+// --- 未定义变量：执行报错含行号 + flag 名，spawn 不发起 ---
+
+func TestSpawnProviderFlags_UndefinedProviderVar_ErrorsBeforeSpawn(t *testing.T) {
+	spawner := &mockSpawner{}
+	script, err := ParseScript(`spawn "x" --provider=$nope`)
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	exec := NewScriptExecutor(spawner, NewEnvironment())
+	_, execErr := exec.Execute(context.Background(), script)
+	if execErr == nil {
+		t.Fatal("expected error for undefined $nope, got nil")
+	}
+	if !strings.Contains(execErr.Error(), "line 1") {
+		t.Errorf("error should contain line number, got: %v", execErr)
+	}
+	if !strings.Contains(execErr.Error(), "--provider") {
+		t.Errorf("error should mention --provider, got: %v", execErr)
+	}
+	if len(spawner.calls) != 0 {
+		t.Errorf("spawn must not fire on expansion error, got %d calls", len(spawner.calls))
+	}
+}
+
+func TestSpawnProviderFlags_UndefinedFallbackModelVar_ErrorsBeforeSpawn(t *testing.T) {
+	spawner := &mockSpawner{}
+	script, err := ParseScript(`spawn "x" --fallback-model=$gone`)
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	exec := NewScriptExecutor(spawner, NewEnvironment())
+	_, execErr := exec.Execute(context.Background(), script)
+	if execErr == nil {
+		t.Fatal("expected error for undefined $gone, got nil")
+	}
+	if !strings.Contains(execErr.Error(), "--fallback-model") {
+		t.Errorf("error should mention --fallback-model, got: %v", execErr)
+	}
+	if len(spawner.calls) != 0 {
+		t.Errorf("spawn must not fire on expansion error, got %d calls", len(spawner.calls))
+	}
+}
+
+// --- 回归：不传 provider flag 时三字段为空，行为不变 ---
+
+func TestSpawnProviderFlags_OmittedFlags_EmptyAndUnchanged(t *testing.T) {
+	spawner := &mockSpawner{results: []mockResult{{result: "ok", exitCode: 0}}}
+	script, err := ParseScript(`spawn "x" --agent=a --model=m`)
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	exec := NewScriptExecutor(spawner, NewEnvironment())
+	if _, err := exec.Execute(context.Background(), script); err != nil {
+		t.Fatalf("execute: %v", err)
+	}
+	c := spawner.calls[0]
+	if c.provider != "" || c.fallbackProvider != "" || c.fallbackModel != "" {
+		t.Errorf("omitted provider flags must stay empty, got %+v", c)
+	}
+	if c.agent != "a" || c.model != "m" {
+		t.Errorf("agent/model regression: %+v", c)
+	}
+}
+
+// --- on-error 站点：fallback spawn 透传 provider ---
+
+func TestSpawnProviderFlags_OnErrorSite(t *testing.T) {
+	spawner := &mockSpawner{results: []mockResult{
+		{result: "boom", exitCode: 1},
+		{result: "recovered", exitCode: 0},
+	}}
+	script, err := ParseScript(
+		`spawn "main" on-error spawn "fix" --provider=anthropic --fallback-provider=deepseek`)
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	exec := NewScriptExecutor(spawner, NewEnvironment())
+	if _, err := exec.Execute(context.Background(), script); err != nil {
+		t.Fatalf("execute: %v", err)
+	}
+	if len(spawner.calls) != 2 {
+		t.Fatalf("expected 2 spawn calls, got %d", len(spawner.calls))
+	}
+	if spawner.calls[1].provider != "anthropic" {
+		t.Errorf("on-error provider = %q, want %q", spawner.calls[1].provider, "anthropic")
+	}
+	if spawner.calls[1].fallbackProvider != "deepseek" {
+		t.Errorf("on-error fallbackProvider = %q, want %q", spawner.calls[1].fallbackProvider, "deepseek")
+	}
+}
+
+// --- pipeline 站点：各 stage 的 provider 均透传 ---
+
+func TestSpawnProviderFlags_PipelineStages(t *testing.T) {
+	spawner := &mockSpawner{results: []mockResult{
+		{result: "a", exitCode: 0},
+		{result: "b", exitCode: 0},
+	}}
+	script, err := ParseScript(
+		`spawn "s1" --provider=deepseek | spawn "s2" --provider=anthropic`)
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	exec := NewScriptExecutor(spawner, NewEnvironment())
+	if _, err := exec.Execute(context.Background(), script); err != nil {
+		t.Fatalf("execute: %v", err)
+	}
+	if len(spawner.calls) != 2 {
+		t.Fatalf("expected 2 spawn calls, got %d", len(spawner.calls))
+	}
+	if spawner.calls[0].provider != "deepseek" {
+		t.Errorf("stage 1 provider = %q, want %q", spawner.calls[0].provider, "deepseek")
+	}
+	if spawner.calls[1].provider != "anthropic" {
+		t.Errorf("stage 2 provider = %q, want %q", spawner.calls[1].provider, "anthropic")
+	}
+}
+
+// --- parallel 站点：worker 收到展开后的 provider，事件 payload 同步 ---
+
+func TestSpawnProviderFlags_ParallelBlock(t *testing.T) {
+	spawner := &concurrentMockSpawner{}
+	script, err := ParseScript(`
+export p=par-prov
+parallel
+  spawn "p1" --provider=$p
+  spawn "p2" --provider=other
+end
+`)
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	exec := NewScriptExecutor(spawner, NewEnvironment())
+	if _, err := exec.Execute(context.Background(), script); err != nil {
+		t.Fatalf("execute: %v", err)
+	}
+	calls := spawner.getCalls()
+	if len(calls) != 2 {
+		t.Fatalf("expected 2 parallel spawn calls, got %d", len(calls))
+	}
+	seen := map[string]bool{}
+	for _, c := range calls {
+		seen[c.provider] = true
+	}
+	if !seen["par-prov"] || !seen["other"] {
+		t.Errorf("parallel spawns missing expanded providers: %+v", calls)
+	}
+}

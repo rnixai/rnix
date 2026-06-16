@@ -789,9 +789,12 @@ type SpawnPipelineRequest struct {
 
 // SpawnPipelineCommand describes one stage of a pipeline spawn.
 type SpawnPipelineCommand struct {
-	Intent string `json:"intent"`
-	Agent  string `json:"agent,omitempty"`
-	Model  string `json:"model,omitempty"`
+	Intent           string `json:"intent"`
+	Agent            string `json:"agent,omitempty"`
+	Model            string `json:"model,omitempty"`
+	Provider         string `json:"provider,omitempty"`
+	FallbackProvider string `json:"fallback_provider,omitempty"`
+	FallbackModel    string `json:"fallback_model,omitempty"`
 }
 
 // SpawnPipelineResponse is the final result of a pipeline spawn (sent as StreamComplete payload).

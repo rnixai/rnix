@@ -7,11 +7,14 @@ import (
 
 // Command represents a single parsed command in a pipeline.
 type Command struct {
-	Type           string // "spawn"
-	Intent         string
-	Agent          string
-	Model          string
-	ResultLastLine bool // --result-last-line: capture only last non-empty line
+	Type             string // "spawn"
+	Intent           string
+	Agent            string
+	Model            string
+	Provider         string // --provider: LLM provider override for this spawn
+	FallbackProvider string // --fallback-provider: fallback provider override
+	FallbackModel    string // --fallback-model: fallback model override
+	ResultLastLine   bool   // --result-last-line: capture only last non-empty line
 }
 
 // Pipeline represents a sequence of commands connected by pipes.
@@ -94,6 +97,12 @@ func parseSpawnCommand(seg string) (Command, error) {
 			cmd.Agent = after
 		} else if after, ok := strings.CutPrefix(tok, "--model="); ok {
 			cmd.Model = after
+		} else if after, ok := strings.CutPrefix(tok, "--provider="); ok {
+			cmd.Provider = after
+		} else if after, ok := strings.CutPrefix(tok, "--fallback-provider="); ok {
+			cmd.FallbackProvider = after
+		} else if after, ok := strings.CutPrefix(tok, "--fallback-model="); ok {
+			cmd.FallbackModel = after
 		} else if tok == "--result-last-line" {
 			cmd.ResultLastLine = true
 		} else if !intentFound {

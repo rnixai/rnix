@@ -102,6 +102,34 @@ func TestParsePipeline_WithAgentAndModel(t *testing.T) {
 	}
 }
 
+// --- provider 三 flag 解析（spec-spawn-provider-flags）---
+
+func TestParseSpawnCommand_ProviderFlags(t *testing.T) {
+	pipeline, err := ParsePipeline(
+		`spawn "x" --agent=a --provider=deepseek --fallback-provider=anthropic --fallback-model=claude-x`)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	cmd := pipeline.Commands[0]
+	if cmd.Provider != "deepseek" {
+		t.Errorf("provider = %q, want %q", cmd.Provider, "deepseek")
+	}
+	if cmd.FallbackProvider != "anthropic" {
+		t.Errorf("fallbackProvider = %q, want %q", cmd.FallbackProvider, "anthropic")
+	}
+	if cmd.FallbackModel != "claude-x" {
+		t.Errorf("fallbackModel = %q, want %q", cmd.FallbackModel, "claude-x")
+	}
+}
+
+func TestParseSpawnCommand_ProviderFlag_NoLongerUnexpectedToken(t *testing.T) {
+	// Regression for the reported bug: --provider= used to be rejected at parse
+	// time with "unexpected token".
+	if _, err := ParsePipeline(`spawn "ok" --agent=counter --provider=deepseek`); err != nil {
+		t.Fatalf("--provider must parse cleanly, got: %v", err)
+	}
+}
+
 func TestParsePipeline_SingleQuotedIntent(t *testing.T) {
 	pipeline, err := ParsePipeline(`spawn '分析 A|B 的差异'`)
 	if err != nil {

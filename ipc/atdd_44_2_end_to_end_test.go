@@ -87,7 +87,7 @@ func newE2ESpawner() *e2eSpawner {
 	return &e2eSpawner{started: make(chan struct{}), release: make(chan struct{})}
 }
 
-func (e *e2eSpawner) SpawnAndWait(ctx context.Context, _, _, _ string) (string, int, int, error) {
+func (e *e2eSpawner) SpawnAndWait(ctx context.Context, _ shell.SpawnRequest) (string, int, int, error) {
 	if e.calls.Add(1) == 1 {
 		close(e.started)
 		select {
