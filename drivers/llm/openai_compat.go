@@ -371,6 +371,16 @@ func repairToolCallSequence(msgs []oaiMessage) []oaiMessage {
 	return result
 }
 
+// resolveEffort returns the per-request reasoning effort override, or the
+// driver instance default (d.reasoningEffort) when the request leaves it empty.
+// Value is passed through verbatim (no validation/mapping).
+func (d *OpenAICompatDriver) resolveEffort(req LLMRequest) string {
+	if req.ReasoningEffort != "" {
+		return req.ReasoningEffort
+	}
+	return d.reasoningEffort
+}
+
 // buildOAIRequest constructs the full OpenAI API request body.
 func (d *OpenAICompatDriver) buildOAIRequest(req LLMRequest, stream bool, tools []ToolDef) (oaiRequest, error) {
 	msgs, err := d.buildMessages(req)
@@ -418,8 +428,8 @@ func (d *OpenAICompatDriver) buildOAIRequest(req LLMRequest, stream bool, tools 
 	}
 	// Passthrough: reasoning_effort sent verbatim when configured. Orthogonal to
 	// the thinking_budget path above (both may coexist); rnix does not validate.
-	if d.reasoningEffort != "" {
-		oai.ReasoningEffort = d.reasoningEffort
+	if effort := d.resolveEffort(req); effort != "" {
+		oai.ReasoningEffort = effort
 	}
 	return oai, nil
 }

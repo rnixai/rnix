@@ -732,10 +732,15 @@ func (k *KernelImpl) Spawn(intent string, agent *agents.AgentInfo, opts SpawnOpt
 			if dmp, ok := file.(driverMetaProvider); ok {
 				proc.DriverMeta = dmp.DriverMeta()
 			}
-			// Snapshot ReasoningEffort from the driver (Story 55.2). The provider
-			// config is the sole source (no CLI/agent override path like Model),
-			// so it is taken verbatim from the driver — empty when unset.
-			if rep, ok := file.(vfs.ReasoningEffortProvider); ok {
+			// Snapshot ReasoningEffort. Two-tier like Model: a non-empty per-spawn
+			// override (opts.ReasoningEffort, from compose/intent/future CLI) wins;
+			// otherwise fall back to the driver snapshot (ProviderConfig value via
+			// ReasoningEffortProvider, Story 55.2). Passed through verbatim. The
+			// resolved value drives request construction (reason.go) and detail/
+			// strace display, so both reflect the effort actually in effect.
+			if opts.ReasoningEffort != "" {
+				proc.ReasoningEffort = opts.ReasoningEffort
+			} else if rep, ok := file.(vfs.ReasoningEffortProvider); ok {
 				proc.ReasoningEffort = rep.ReasoningEffort()
 			}
 		}

@@ -221,6 +221,16 @@ func convertToolDefsToSDK(tools []ToolDef) []openai.ChatCompletionToolUnionParam
 	return result
 }
 
+// resolveEffort returns the per-request reasoning effort override, or the
+// driver instance default (d.reasoningEffort) when the request leaves it empty.
+// Value is passed through verbatim (no validation/mapping).
+func (d *OpenAIDriver) resolveEffort(req LLMRequest) string {
+	if req.ReasoningEffort != "" {
+		return req.ReasoningEffort
+	}
+	return d.reasoningEffort
+}
+
 func (d *OpenAIDriver) buildParams(req LLMRequest, tools []ToolDef) openai.ChatCompletionNewParams {
 	model := req.Model
 	if model == "" {
@@ -242,8 +252,8 @@ func (d *OpenAIDriver) buildParams(req LLMRequest, tools []ToolDef) openai.ChatC
 	// Passthrough: reasoning_effort sent verbatim when configured. shared.ReasoningEffort
 	// is an open string type (none/minimal/low/medium/high/xhigh predefined, no validation),
 	// so unknown/future levels pass through untouched. Empty = field omitted (omitzero).
-	if d.reasoningEffort != "" {
-		params.ReasoningEffort = shared.ReasoningEffort(d.reasoningEffort)
+	if effort := d.resolveEffort(req); effort != "" {
+		params.ReasoningEffort = shared.ReasoningEffort(effort)
 	}
 	if sdkTools := convertToolDefsToSDK(tools); len(sdkTools) > 0 {
 		params.Tools = sdkTools

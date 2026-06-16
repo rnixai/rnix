@@ -152,6 +152,17 @@ func (d *GeminiDriver) resolveModel(req LLMRequest) string {
 	return d.defaultModel
 }
 
+// resolveThinkingLevel returns the per-request reasoning effort override, or the
+// driver instance default (d.thinkingLevel) when the request leaves it empty.
+// Value is passed through verbatim (note: Gemini enums are UPPERCASE; no
+// validation/mapping/case normalization). Mirrors resolveModel.
+func (d *GeminiDriver) resolveThinkingLevel(req LLMRequest) string {
+	if req.ReasoningEffort != "" {
+		return req.ReasoningEffort
+	}
+	return d.thinkingLevel
+}
+
 // buildConfig builds a GenerateContentConfig from the request.
 func (d *GeminiDriver) buildConfig(req LLMRequest, tools []ToolDef) *genai.GenerateContentConfig {
 	cfg := &genai.GenerateContentConfig{}
@@ -173,11 +184,11 @@ func (d *GeminiDriver) buildConfig(req LLMRequest, tools []ToolDef) *genai.Gener
 	// (mutually exclusive) → when level is set the budget is intentionally NOT
 	// sent. The budget path is RETAINED for Gemini ≤2.5. ThinkingLevel is an open
 	// string type → passed through verbatim (note: Gemini enums are UPPERCASE).
-	switch {
-	case d.thinkingLevel != "":
+	switch level := d.resolveThinkingLevel(req); {
+	case level != "":
 		cfg.ThinkingConfig = &genai.ThinkingConfig{
 			IncludeThoughts: true,
-			ThinkingLevel:   genai.ThinkingLevel(d.thinkingLevel),
+			ThinkingLevel:   genai.ThinkingLevel(level),
 		}
 	case d.thinkingBudget > 0:
 		budget := int32(d.thinkingBudget)

@@ -154,6 +154,18 @@ func WithClaudeEffort(effort string) ClaudeCliOption {
 	}
 }
 
+// resolveEffort returns the per-request reasoning effort override, or the
+// driver instance default (d.effort) when the request leaves it empty.
+// Value is passed through verbatim (no validation/mapping). Computed per call
+// (buildArgs already receives req), so a per-request effort is honored without
+// changing the invocation timing.
+func (d *ClaudeCliDriver) resolveEffort(req LLMRequest) string {
+	if req.ReasoningEffort != "" {
+		return req.ReasoningEffort
+	}
+	return d.effort
+}
+
 // WithFallbackBins appends additional candidate binary names to the fallback
 // resolution list. The default list is ["claude", "openclaude"]; custom
 // candidates are appended after these defaults.
@@ -749,8 +761,8 @@ func (d *ClaudeCliDriver) buildArgs(req LLMRequest, outputFormat string) ([]stri
 	// Reasoning effort: appended after built-in args and before extraArgs, only
 	// when configured (passthrough, no validation). Keeps the default-args
 	// sequence unchanged for the no-effort path (TestClaudeCliDriver_Call_DefaultArgs).
-	if d.effort != "" {
-		args = append(args, "--effort", d.effort)
+	if effort := d.resolveEffort(req); effort != "" {
+		args = append(args, "--effort", effort)
 	}
 
 	args = append(args, d.extraArgs...)

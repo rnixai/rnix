@@ -87,6 +87,17 @@ func CodexWithReasoningEffort(effort string) CodexCliOption {
 	}
 }
 
+// resolveEffort returns the per-request reasoning effort override, or the
+// driver instance default (d.effort) when the request leaves it empty.
+// Value is passed through verbatim (no validation/mapping). Computed per call
+// (buildArgs already receives req).
+func (d *CodexCliDriver) resolveEffort(req LLMRequest) string {
+	if req.ReasoningEffort != "" {
+		return req.ReasoningEffort
+	}
+	return d.effort
+}
+
 // NewCodexCliDriver creates a new CodexCliDriver with the given options.
 func NewCodexCliDriver(opts ...CodexCliOption) *CodexCliDriver {
 	d := &CodexCliDriver{
@@ -444,8 +455,8 @@ func (d *CodexCliDriver) buildArgs(req LLMRequest, jsonMode bool) []string {
 
 	// Reasoning effort: passthrough via `-c model_reasoning_effort=<value>`,
 	// only when configured (no validation). Before extraArgs and prompt.
-	if d.effort != "" {
-		args = append(args, "-c", "model_reasoning_effort="+d.effort)
+	if effort := d.resolveEffort(req); effort != "" {
+		args = append(args, "-c", "model_reasoning_effort="+effort)
 	}
 
 	args = append(args, d.extraArgs...)

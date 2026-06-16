@@ -73,18 +73,23 @@ const MaxSpawnDepth = 4
 
 // SpawnOpts configures optional parameters for Spawn.
 type SpawnOpts struct {
-	Model         string
-	SystemPrompt  string
-	MaxTurns      int
-	TimeoutMs     int64
-	ParentPID     types.PID     // parent process PID; 0 = top-level/CLI spawn
-	Depth         int           // process-tree depth for the spawn-recursion guard; 0 = top-level. Only ActionSpawn sets this (parent.Depth+1); all other spawn paths leave 0.
-	ContextBudget int           // 0 = no limit; >0 = terminate when TokensUsed >= ContextBudget
-	CtxSize       int           // 0 = use DefaultCtxSize; >0 = context message slot limit
-	MaxTokens     int64         // per-process token budget; 0 = unlimited; >0 = suspend when exhausted
-	MaxCost       float64       // per-process cost budget (USD); 0 = unlimited; >0 = suspend when exhausted
-	TraceID       types.TraceID // inherited trace ID; empty = no tracing
-	ParentSpanID  types.SpanID  // parent process span ID
+	// ReasoningEffort overrides the driver instance's configured reasoning
+	// effort/level for this process. "" = use the driver snapshot
+	// (ProviderConfig.ReasoningEffort). Passed through verbatim. Mirrors Model's
+	// per-spawn override role.
+	ReasoningEffort  string
+	Model            string
+	SystemPrompt     string
+	MaxTurns         int
+	TimeoutMs        int64
+	ParentPID        types.PID     // parent process PID; 0 = top-level/CLI spawn
+	Depth            int           // process-tree depth for the spawn-recursion guard; 0 = top-level. Only ActionSpawn sets this (parent.Depth+1); all other spawn paths leave 0.
+	ContextBudget    int           // 0 = no limit; >0 = terminate when TokensUsed >= ContextBudget
+	CtxSize          int           // 0 = use DefaultCtxSize; >0 = context message slot limit
+	MaxTokens        int64         // per-process token budget; 0 = unlimited; >0 = suspend when exhausted
+	MaxCost          float64       // per-process cost budget (USD); 0 = unlimited; >0 = suspend when exhausted
+	TraceID          types.TraceID // inherited trace ID; empty = no tracing
+	ParentSpanID     types.SpanID  // parent process span ID
 	Provider         string        // LLM provider override (from CLI --provider); "" = use agent manifest or default "claude"
 	FallbackModel    string        // CLI --fallback-model override; "" = use agent manifest fallback (or auto-disable on cross-provider)
 	FallbackProvider string        // CLI --fallback-provider override; "" = same-provider fallback
