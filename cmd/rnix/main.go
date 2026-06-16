@@ -71,6 +71,11 @@ var (
 	flagFallbackModel    string
 	flagFallbackProvider string
 	flagIntent           string
+
+	// strace --raw 模式（Story 56.4 · CAP-3 路①）
+	flagStraceRaw  bool
+	flagStraceStep int
+	flagStraceUUID string
 )
 
 // exitCode is set by runRoot and read by main() to determine the process exit code.
@@ -315,6 +320,9 @@ func init() {
 	daemonCmd.AddCommand(daemonStartCmd)
 	rootCmd.AddCommand(versionCmd)
 	rootCmd.AddCommand(straceCmd)
+	straceCmd.Flags().BoolVar(&flagStraceRaw, "raw", false, "Query persisted raw LLM request/response records for a finished process (Story 56.4)")
+	straceCmd.Flags().IntVar(&flagStraceStep, "step", 0, "Restrict --raw query to a single step (0 = all steps)")
+	straceCmd.Flags().StringVar(&flagStraceUUID, "uuid", "", "Override PID resolution with an explicit process UUID (--raw mode, locates reaped processes)")
 	psCmd.Flags().BoolVar(&flagUUID, "uuid", false, "Show UUID column in process table")
 	psCmd.Flags().BoolVarP(&flagAll, "all", "a", false, "Show all processes including completed")
 	rootCmd.AddCommand(psCmd)
@@ -1291,6 +1299,12 @@ func runStrace(cmd *cobra.Command, args []string) error {
 	}
 	pid := types.PID(pidNum)
 
+	// Story 56.4 · CAP-3 路①: --raw 进入读盘查询模式（对已结束进程），与实时
+	// AttachDebug 流互斥的顶部早分支——未传 --raw 时下方实时路径一字不动。
+	if flagStraceRaw {
+		return runStraceRaw(cmd, pid)
+	}
+
 	w := cmd.OutOrStdout()
 	mode := resolveOutputMode()
 
@@ -1369,6 +1383,32 @@ func runStrace(cmd *cobra.Command, args []string) error {
 		}
 	}
 
+	return nil
+}
+
+// runStraceRaw handles `rnix strace <pid> --raw` (Story 56.4 · CAP-3 路①):
+// reads persisted raw LLM request/response records from raw.jsonl for a
+// finished process via the get_raw_capture IPC method (NOT the live
+// AttachDebug stream). --json emits the raw vfs.RawCapture JSON; otherwise a
+// human-readable request+response render (effort 真实值可见). Missing records
+// give a friendly notice, not an error exit. ParseErrors>0 reports skipped
+// malformed lines (AC#8).
+//
+// SKELETON (Story 56.4 RED): 仅 Dial + 友好提示占位。dev 移除
+// atdd_56_4_strace_raw_test.go 的 t.Skip 后填充 client.GetRawCapture 调用 +
+// 渲染（含 --json 分支 + ParseErrors 提示），并验证 RED→GREEN。
+func runStraceRaw(cmd *cobra.Command, pid types.PID) error {
+	w := cmd.OutOrStdout()
+	client, err := ipc.Dial(ipc.SocketPath())
+	if err != nil {
+		fmt.Fprintf(w, "[strace] no active daemon (cannot query raw captures for PID %d)\n", pid)
+		return nil
+	}
+	defer client.Close()
+
+	// SKELETON placeholder — dev 替换为 client.GetRawCapture(pid, flagStraceUUID,
+	// flagStraceStep) 调用 + 渲染逻辑。
+	fmt.Fprintf(w, "[strace] no raw captures for PID %d\n", pid)
 	return nil
 }
 

@@ -383,6 +383,8 @@ func (s *Server) handleConn(conn net.Conn) {
 			s.handleListSteps(conn, req.Payload)
 		case MethodListEvents:
 			s.handleListEvents(conn, req.Payload)
+		case MethodGetRawCapture:
+			s.handleGetRawCapture(conn, req.Payload)
 		case MethodGetProcDetail:
 			s.handleGetProcDetail(conn, req.Payload)
 		case MethodTraceList:

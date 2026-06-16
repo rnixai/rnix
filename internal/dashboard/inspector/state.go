@@ -28,6 +28,7 @@ import (
 
 	"github.com/rnixai/rnix/internal/types"
 	"github.com/rnixai/rnix/ipc"
+	"github.com/rnixai/rnix/vfs"
 )
 
 // Lens 是 Step Inspector 五镜头的枚举类型。原 cmd/rnix.inspectorLens 同模式。
@@ -46,9 +47,14 @@ const (
 	LensToolIO                   // ❸ Tool call details
 	LensMeta                     // ❹ Metadata
 	LensRawJSON                  // ❺ Raw JSON
+	LensRaw                      // ❻ Raw I/O (Story 56.4 · 原始请求/响应)
 )
 
-// LensCount 是 Lens 枚举的总数（5 个）。原 cmd/rnix.inspectorLensCount 等价。
+// LensCount 是 Lens 枚举的总数。原 cmd/rnix.inspectorLensCount 等价。
+//
+// Story 56.4 RED SKELETON: 仍为 5（保持既有 [LensCount] 数组 + cmd/rnix lensNames
+// 5 元素字面量编译有效）。dev 落地 Raw lens 时把此处改为 6，同步扩 lensNames /
+// 按键 6 / viewport·content 数组，并验证 LensCount==6 守门测试 RED→GREEN。
 const LensCount = 5
 
 // SearchMatchPos identifies the byte-range location of a single search hit
@@ -143,4 +149,10 @@ type InspectorState struct {
 	// 38-3 AC#7 / AC#8
 	DiffLensMarks [LensCount]bool
 	SearchPos     []SearchMatchPos
+
+	// Raw I/O lens (Story 56.4 · CAP-3 路②懒加载缓存)
+	// 当 LensRaw 激活（或在该 lens 下切 step）时经 IPC GetRawCapture 懒加载该
+	// step 的 raw 记录并缓存于此（nil 安全 · key=step 序号）。不进 GetStepDetail
+	// 以免非 raw lens 的 step 拉取被增重。
+	RawByStep map[int]*vfs.RawCapture
 }

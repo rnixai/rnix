@@ -1214,6 +1214,21 @@ func (c *Client) ListEvents(pid types.PID, uuid string) ([]SyscallEventWire, err
 	return result.Events, nil
 }
 
+// GetRawCapture returns raw LLM request/response records from raw.jsonl for a
+// process (Story 56.4 · CAP-3 单一数据后端). step=0 取全部，step>0 取单条。
+// uuid 非空时覆盖 PID 解析以直接定位已 reaped 进程。
+func (c *Client) GetRawCapture(pid types.PID, uuid string, step int) (*GetRawCaptureResponse, error) {
+	resp, err := c.call(MethodGetRawCapture, GetRawCaptureRequest{PID: pid, UUID: uuid, Step: step})
+	if err != nil {
+		return nil, err
+	}
+	var result GetRawCaptureResponse
+	if err := json.Unmarshal(resp.Payload, &result); err != nil {
+		return nil, fmt.Errorf("ipc: unmarshal get_raw_capture: %w", err)
+	}
+	return &result, nil
+}
+
 // TraceList returns all trace summaries (Story 27.9).
 func (c *Client) TraceList() ([]TraceSummaryWire, error) {
 	resp, err := c.call(MethodTraceList, nil)

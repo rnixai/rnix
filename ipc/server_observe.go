@@ -449,6 +449,22 @@ func (s *Server) resolveEventsPath(uuid string) string {
 	return path
 }
 
+// handleGetRawCapture returns raw LLM request/response records from raw.jsonl
+// for a process (Story 56.4 · CAP-3 单一数据后端). Mirrors handleListEvents:
+// PID→UUID 解析（live GetProcess → FindHistoryByPID 回退）+ resolveRawPath +
+// kernel 读 API。无文件 / 空 uuid → {Records: []}（OK=true 空列表，不报错）。
+//
+// SKELETON (Story 56.4 RED): 返回空列表占位。dev 移除 skip 后填充 PID→UUID
+// 解析 + ReadAllRawWithErrors/ReadRawForStep 读盘逻辑，并断言 RED→GREEN。
+func (s *Server) handleGetRawCapture(conn net.Conn, rawPayload json.RawMessage) {
+	var req GetRawCaptureRequest
+	if err := json.Unmarshal(rawPayload, &req); err != nil {
+		writeResponse(conn, Response{OK: false, Error: &ErrorPayload{Code: "INVALID", Message: "invalid get_raw_capture request"}})
+		return
+	}
+	writeResponse(conn, Response{OK: true, Payload: mustMarshal(GetRawCaptureResponse{Records: []vfs.RawCapture{}})})
+}
+
 // handleCompact manually triggers context compaction for a running process (Story 31.2).
 func (s *Server) handleCompact(conn net.Conn, rawPayload json.RawMessage) {
 	var req CompactRequest

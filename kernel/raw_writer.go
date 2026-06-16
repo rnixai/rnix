@@ -149,17 +149,35 @@ func (rw *RawWriter) Path() string {
 // that fail to unmarshal are skipped (best-effort, mirroring ReadAllEvents).
 // A missing file returns ([]vfs.RawCapture(nil), nil) so callers can treat
 // "never captured" and "capture disabled" alike.
+//
+// Thin wrapper over ReadAllRawWithErrors (Story 56.4 AC#8) — existing callers
+// keep the 2-value signature; the parse-error count is discarded here.
 func ReadAllRaw(path string) ([]vfs.RawCapture, error) {
+	records, _, err := ReadAllRawWithErrors(path)
+	return records, err
+}
+
+// ReadAllRawWithErrors scans a raw.jsonl file and returns all records in order
+// plus a count of lines that failed to unmarshal (Story 56.4 AC#8 /消化
+// deferred #17). The malformed count makes "silently skipped" lines observable
+// to the三路 query consumers instead of being swallowed. A missing file returns
+// (nil, 0, nil).
+//
+// SKELETON (Story 56.4 RED): 当前直接复用既有扫描循环但 parseErrors 恒返 0。
+// dev 移除测试 skip 后在 unmarshal 失败的 continue 处累加 parseErrors，并验证
+// RED→GREEN（AC#8 计数测试）。
+func ReadAllRawWithErrors(path string) ([]vfs.RawCapture, int, error) {
 	f, err := os.Open(path)
 	if err != nil {
 		if os.IsNotExist(err) {
-			return nil, nil
+			return nil, 0, nil
 		}
-		return nil, err
+		return nil, 0, err
 	}
 	defer f.Close()
 
 	var records []vfs.RawCapture
+	parseErrors := 0
 	scanner := bufio.NewScanner(f)
 	// raw bodies can be large; bump the per-line limit to 4MB (the configured
 	// MaxOutputBytes default).
@@ -167,14 +185,15 @@ func ReadAllRaw(path string) ([]vfs.RawCapture, error) {
 	for scanner.Scan() {
 		var rec vfs.RawCapture
 		if err := json.Unmarshal(scanner.Bytes(), &rec); err != nil {
+			// SKELETON: dev 在此累加 parseErrors++（Story 56.4 AC#8）。
 			continue
 		}
 		records = append(records, rec)
 	}
 	if err := scanner.Err(); err != nil {
-		return records, err
+		return records, parseErrors, err
 	}
-	return records, nil
+	return records, parseErrors, nil
 }
 
 // ReadRawForStep returns the RawCapture record whose Step matches the given

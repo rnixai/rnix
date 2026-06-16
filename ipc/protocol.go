@@ -53,6 +53,7 @@ const (
 	MethodGetStepDetail          Method = "get_step_detail"
 	MethodListSteps              Method = "list_steps"
 	MethodListEvents             Method = "list_events"
+	MethodGetRawCapture          Method = "get_raw_capture"
 	MethodGetProcDetail          Method = "get_proc_detail"
 	MethodTraceList              Method = "trace_list"
 	MethodTraceTree              Method = "trace_tree"
@@ -1320,6 +1321,25 @@ type ListEventsRequest struct {
 // ListEventsResponse is the response for MethodListEvents.
 type ListEventsResponse struct {
 	Events []SyscallEventWire `json:"events"`
+}
+
+// --- GetRawCapture (Story 56.4 · CAP-3 单一数据后端) ---
+
+// GetRawCaptureRequest is the payload for MethodGetRawCapture. Step 缺省/0 =
+// 取该进程全部 raw 记录；Step > 0 = 仅取该 step 一条。UUID 覆盖 PID 解析以
+// 直接定位已 reaped 进程。
+type GetRawCaptureRequest struct {
+	PID  types.PID `json:"pid"`
+	UUID string    `json:"uuid,omitempty"`
+	Step int       `json:"step,omitempty"`
+}
+
+// GetRawCaptureResponse is the response for MethodGetRawCapture. 直接复用
+// vfs.RawCapture（json tag 已是 snake_case），不另造 wire 类型。ParseErrors
+// 暴露读路径跳过的 malformed 行数（AC#8 / deferred #17）。
+type GetRawCaptureResponse struct {
+	Records     []vfs.RawCapture `json:"records"`
+	ParseErrors int              `json:"parse_errors,omitempty"`
 }
 
 // --- GetProcDetail (Story 27.6) ---

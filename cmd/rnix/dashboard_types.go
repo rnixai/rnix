@@ -260,6 +260,7 @@ const (
 	lensToolIO       = inspector.LensToolIO       // ❸ Tool call details
 	lensMeta         = inspector.LensMeta         // ❹ Metadata
 	lensRawJSON      = inspector.LensRawJSON      // ❺ Raw JSON
+	lensRaw          = inspector.LensRaw          // ❻ Raw I/O (Story 56.4)
 )
 
 const inspectorLensCount = inspector.LensCount
