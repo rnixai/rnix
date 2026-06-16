@@ -309,6 +309,24 @@ func (k *KernelImpl) attemptFallback(proc *Process, req llmRequest, primaryDevic
 	}
 	defer func() { _ = k.vfs.Close(proc.PID, fbFD) }()
 
+	// Attach a heartbeat-only stream handler to the fallback FD. The primary
+	// llmFD gets the full setupDriverStreamHandler at spawn/subtree/resume time;
+	// that handler refreshes proc.LastHeartbeat (via TouchHeartbeat) on every
+	// driver stream event. Without an equivalent on the fallback FD, a long but
+	// active fallback call (one streaming events that will eventually succeed)
+	// leaves LastHeartbeat frozen at the primary-failure instant and triggers
+	// spurious HeartbeatMonitor stall warnings.
+	//
+	// We deliberately do NOT reuse setupDriverStreamHandler here: it also writes
+	// driver step records (its closure-local driverStep counter restarts at 0,
+	// colliding with the primary handler's monotonic numbering in the same
+	// steps.jsonl) and merges the fallback provider's tools into
+	// proc.nativeToolDefs. For the transient fallback FD we want heartbeat
+	// liveness only — nothing else.
+	if obs, ok := k.vfs.GetFile(proc.PID, fbFD).(vfs.StreamObserver); ok {
+		obs.SetStreamHandler(func(map[string]any) { proc.TouchHeartbeat() })
+	}
+
 	req.Model = proc.FallbackModel
 	reqJSON, err := json.Marshal(req)
 	if err != nil {
