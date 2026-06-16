@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"log"
 	"math/rand/v2"
+	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
@@ -750,7 +752,10 @@ func (k *KernelImpl) Spawn(intent string, agent *agents.AgentInfo, opts SpawnOpt
 		// (above) precedes this, so an Open failure never attaches → no orphan
 		// events.jsonl / FD leak. The two MCP auto-mount error-returns below sit
 		// AFTER this attach but BEFORE AddProcess/reap, so they each call
-		// proc.DetachAndCloseEventWriter() to release the eagerly-opened FD.
+		// proc.DetachAndCloseEventWriter() (release the eagerly-opened FD) +
+		// k.removeOrphanStepDir(proc) (drop the orphan events.jsonl + empty
+		// steps/<uuid>/ dir, which gc cannot reclaim by UUID since the process
+		// never enters procHistory).
 		//
 		// Mirrors the RawWriter auto-attach (below) but WITHOUT an Enabled gate:
 		// disk event persistence is always-on (observe.go:54). When dataDir is
@@ -832,8 +837,13 @@ func (k *KernelImpl) Spawn(intent string, agent *agents.AgentInfo, opts SpawnOpt
 			if k.mountMgr == nil {
 				_ = k.vfs.CloseAll(proc.PID)
 				// Story 56.5: release the early-attached EventWriter FD before this
-				// pre-AddProcess error-return (it never reaches reap's close path).
+				// pre-AddProcess error-return (it never reaches reap's close path),
+				// then remove the orphan steps/<uuid>/ dir. The process dies before
+				// AddProcess — it never enters procHistory, has no proc-info.json
+				// anchor, so gc cannot reclaim its dir by UUID. removeOrphanStepDir
+				// drops the early-written events.jsonl + the now-empty step dir.
 				proc.DetachAndCloseEventWriter()
+				k.removeOrphanStepDir(proc)
 				if opts.PreallocatedCtxID == 0 {
 					_ = k.ctxMgr.CtxFree(cid)
 				}
@@ -858,10 +868,14 @@ func (k *KernelImpl) Spawn(intent string, agent *agents.AgentInfo, opts SpawnOpt
 					}
 					_ = k.vfs.CloseAll(proc.PID)
 					// Story 56.5: release the early-attached EventWriter FD before
-					// this pre-AddProcess error-return. The Mount-failure event was
-					// already emitted above (lands on disk via the early writer);
-					// detach only after that emit so the diagnostic is preserved.
+					// this pre-AddProcess error-return, then remove the orphan
+					// steps/<uuid>/ dir. The Mount-failure event was already emitted
+					// above (lands on disk via the early writer); detach + remove
+					// only after that emit. The process dies before AddProcess — it
+					// never enters procHistory and gc cannot reclaim the dir by UUID,
+					// so removeOrphanStepDir drops events.jsonl + the empty dir.
 					proc.DetachAndCloseEventWriter()
+					k.removeOrphanStepDir(proc)
 					if opts.PreallocatedCtxID == 0 {
 						_ = k.ctxMgr.CtxFree(cid)
 					}
@@ -1095,6 +1109,32 @@ func (k *KernelImpl) persistInitialProcInfo(proc *Process) {
 	if saveErr := SaveProcInfo(baseDir, *info); saveErr != nil {
 		log.Printf("[spawn] pid=%d persistInitialProcInfo failed: %v", proc.PID, saveErr)
 	}
+}
+
+// removeOrphanStepDir best-effort removes the steps/<uuid>/ directory created
+// by the Story 56.5 early EventWriter auto-attach when a spawn aborts via a
+// pre-AddProcess error-return (MCP auto-mount failures). Such a process never
+// enters procHistory and has no proc-info.json anchor, so gc — which prunes by
+// reaped/historical UUID — can never reclaim the dir. NewEventWriter eagerly
+// creates events.jsonl + the dir, so without this the early-attach leaks disk
+// state on every failed MCP spawn.
+//
+// Must be called AFTER DetachAndCloseEventWriter (FD released) so the file can
+// be removed on platforms that refuse to unlink open files. Best-effort: a
+// remaining empty dir or transient error is harmless (it is just an empty dir),
+// so errors are swallowed — os.Remove on a non-empty dir is a no-op-ish error
+// we deliberately ignore to never delete a dir that unexpectedly holds data.
+func (k *KernelImpl) removeOrphanStepDir(proc *Process) {
+	baseDir := k.ResolveStepBaseDir(proc)
+	if baseDir == "" || proc == nil || proc.UUID == "" {
+		return
+	}
+	stepDir := filepath.Join(baseDir, "steps", proc.UUID)
+	// Remove the eagerly-created events.jsonl first, then the now-empty dir.
+	// os.Remove on the dir fails (and is ignored) if anything else is present,
+	// so we never clobber a dir that holds unexpected sibling data.
+	_ = os.Remove(filepath.Join(stepDir, "events.jsonl"))
+	_ = os.Remove(stepDir)
 }
 
 // intersectDevices returns devices present in both parent and child lists.

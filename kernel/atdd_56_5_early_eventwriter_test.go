@@ -127,10 +127,6 @@ func TestATDD_56_5_AC1_NormalSpawnNoFactory_EventsContainConfigResolve(t *testin
 	llm := &mockLLMFile{readData: makeLLMResponse("done", 10)}
 	k, proc := spawnEarlyEWNoFactory(t, llm)
 
-	if proc.eventWriter != nil {
-		_ = proc.eventWriter.Flush()
-	}
-
 	rows, err := ReadAllEvents(earlyEWEventsPath(k, proc))
 	if err != nil {
 		t.Fatalf("AC1 FAIL: events.jsonl 不可读: %v", err)
@@ -159,10 +155,6 @@ func TestATDD_56_5_AC8_ConfigResolveCarriesProviderModelEffort(t *testing.T) {
 		effort:      "high",
 	}
 	k, proc := spawnEarlyEWNoFactory(t, llm)
-
-	if proc.eventWriter != nil {
-		_ = proc.eventWriter.Flush()
-	}
 
 	rows, err := ReadAllEvents(earlyEWEventsPath(k, proc))
 	if err != nil {
@@ -204,10 +196,6 @@ func TestATDD_56_5_AC3_FullSpawn_SingleEventsFileNoDoubleWrite(t *testing.T) {
 	// （早挂 + attachStepObservation no-op）仍须单文件——本护栏拦截双 writer / 双文件回归。
 	llm := &mockLLMFile{readData: makeLLMResponse("done", 10)}
 	k, proc := spawnEarlyEWNoFactory(t, llm)
-
-	if proc.eventWriter != nil {
-		_ = proc.eventWriter.Flush()
-	}
 
 	if n := countEventsJSONL(k.dataDir); n != 1 {
 		t.Errorf("AC3 FAIL: steps 树下 events.jsonl 文件数 = %d, want 1（双 writer/双文件回归）", n)
@@ -277,7 +265,13 @@ func TestATDD_56_5_AC4_EmptyDataDir_NoWriterNoFileUnchanged(t *testing.T) {
 	if base := k.ResolveStepBaseDir(proc); base != "" {
 		t.Errorf("AC4 FAIL: dataDir=='' 时 ResolveStepBaseDir 应返回 \"\", got %q", base)
 	}
-	if proc.eventWriter != nil {
+	// Snapshot under proc.mu — the reaper clears proc.eventWriter under the same
+	// lock (reap.go), so a bare read here would race under -race (Story 56.5
+	// review F2). dataDir=="" means auto-attach was skipped, so this must be nil.
+	proc.mu.Lock()
+	attached := proc.eventWriter != nil
+	proc.mu.Unlock()
+	if attached {
 		t.Errorf("AC4 FAIL: dataDir=='' 不应 attach EventWriter（always-on 但无落点）")
 	}
 }
@@ -320,9 +314,6 @@ func TestATDD_56_5_AC5_SkipReasonLoopWithFactory_FactoryStillInvoked(t *testing.
 		t.Error("AC5 FAIL: EventWriterFactory 未被调用（script-runner 早挂被 auto-attach 夺权？）")
 	}
 
-	if proc.eventWriter != nil {
-		_ = proc.eventWriter.Flush()
-	}
 	rows, err := ReadAllEvents(earlyEWEventsPath(k, proc))
 	if err != nil {
 		t.Fatalf("AC5 FAIL: events.jsonl 不可读: %v", err)
@@ -336,5 +327,58 @@ func TestATDD_56_5_AC5_SkipReasonLoopWithFactory_FactoryStillInvoked(t *testing.
 	}
 	if !found {
 		t.Error("AC5 FAIL: events.jsonl 不含 Spawn 事件（factory 早挂应使 Spawn 落盘）")
+	}
+}
+
+// ---------------------------------------------------------------------------
+// 🟢 AC #2 (GREEN-guard · MCP mount 失败路径无孤儿): code-review 2026-06-16 F1 补覆盖
+//
+// 原 AC2 只测 Open 失败（return 早于早挂点，天然 0 文件）。真正会产孤儿的是
+// MCP auto-mount 失败路径——它在早挂点之后、AddProcess 之前 return，此刻
+// EventWriter 已急切建好 events.jsonl + steps/<uuid>/ 目录，且进程永不进
+// procHistory（gc 无法按 UUID 回收）。Patch 1 在该路径补 DetachAndCloseEventWriter
+// + removeOrphanStepDir，本护栏断言失败后 0 孤儿 events.jsonl。
+// ---------------------------------------------------------------------------
+
+func TestATDD_56_5_AC2_MCPMountFailure_NoOrphanEventsDir(t *testing.T) {
+	mm := newSpawnMockMountManager()
+	mm.mountFn = func(_ string, _ vfs.MCPConfig) error {
+		return errors.New("simulated mcp mount failure")
+	}
+	k := newSpawnTestKernel(t, mm)
+	k.dataDir = t.TempDir() // 关键：非空 dataDir 使 auto-attach 真的建文件
+
+	agent := testAgentWithMCP([]vfs.MCPConfig{
+		{ServerName: "broken", Command: "true"},
+	})
+
+	if _, err := k.Spawn("56.5 mcp mount failure", agent, SpawnOpts{}); err == nil {
+		t.Fatal("AC2 FAIL: 预期 MCP mount 失败使 Spawn 返回错误，got nil")
+	}
+
+	// 早挂点之后的 error-return 必须 detach + 删孤儿目录。
+	if n := countEventsJSONL(k.dataDir); n != 0 {
+		t.Errorf("AC2 FAIL: MCP mount 失败路径留下 %d 个孤儿 events.jsonl, want 0（removeOrphanStepDir 未生效）", n)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// 🟢 AC #2b (GREEN-guard · mount manager nil 路径无孤儿): 同 F1，覆盖 k.mountMgr==nil 分支
+// ---------------------------------------------------------------------------
+
+func TestATDD_56_5_AC2_MountMgrNil_NoOrphanEventsDir(t *testing.T) {
+	k := newSpawnTestKernel(t, nil) // 不设 mountMgr → k.mountMgr == nil
+	k.dataDir = t.TempDir()
+
+	agent := testAgentWithMCP([]vfs.MCPConfig{
+		{ServerName: "needs-mcp", Command: "true"},
+	})
+
+	if _, err := k.Spawn("56.5 mount mgr nil", agent, SpawnOpts{}); err == nil {
+		t.Fatal("AC2 FAIL: 预期 mountMgr==nil + agent 需 MCP 使 Spawn 返回错误，got nil")
+	}
+
+	if n := countEventsJSONL(k.dataDir); n != 0 {
+		t.Errorf("AC2 FAIL: mountMgr==nil 路径留下 %d 个孤儿 events.jsonl, want 0", n)
 	}
 }

@@ -893,10 +893,14 @@ func (p *Process) TouchHeartbeat() {
 // so a double-attach (intentional or racy with reasonStep self-init) does not
 // leak the prior FD. Close errors are logged but otherwise non-fatal.
 //
-// Reasoning processes initialise their own EventWriter inside reason.go and
-// must NOT use this setter; the two write paths are mutually exclusive.
-// Reap (kernel/reap.go) closes whichever EventWriter happens to be attached,
-// so no extra cleanup is required at the call site.
+// Reasoning processes that spawn WITHOUT a pre-supplied EventWriterFactory now
+// auto-attach their EventWriter through this setter during the early-attach
+// window (Story 56.5, kernel/spawn.go), so this is the normal attach path for
+// them. Mutual exclusion with reasonStep's own late init is preserved by
+// attachStepObservation's `if proc.eventWriter == nil` guard (kernel/reason.go),
+// which no-ops once an EventWriter is already attached — preventing a second
+// writer / double FD. Reap (kernel/reap.go) closes whichever EventWriter
+// happens to be attached, so no extra cleanup is required at the call site.
 func (p *Process) AttachEventWriter(ew *EventWriter) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
