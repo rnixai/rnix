@@ -5,8 +5,11 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"strings"
 	"time"
+
+	"github.com/rnixai/rnix/vfs"
 )
 
 const (
@@ -115,7 +118,20 @@ func (d *CursorCliDriver) Call(ctx context.Context, req LLMRequest) (*LLMRespons
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
 
+	// 56.3 raw capture：cursor-cli prompt 走 argv（buildArgs 末尾），故 stdin="" 。
+	sink := rawSinkFromContext(ctx)
+	var rawCap *vfs.RawCapture
+	if sink != nil {
+		rawCap = newCLIRawCapture()
+		fillCLIRequest(rawCap, d.cliCommand, args, "", nil)
+		sink.set(rawCap)
+	}
+
 	err := cmd.Run()
+	if sink != nil && rawCap != nil {
+		fillCLIResponse(rawCap, stdout.String(), stderr.String(), processExitCode(cmd))
+		sink.set(rawCap)
+	}
 	if ctx.Err() == context.DeadlineExceeded {
 		return nil, NewLLMError("cursor", 0, ErrTimeout)
 	}
@@ -203,14 +219,32 @@ func (d *CursorCliDriver) Stream(ctx context.Context, req LLMRequest) (<-chan St
 		return nil, fmt.Errorf("failed to start cursor cli: %w", err)
 	}
 
+	// 56.3 raw capture（Stream 路径，裁决 7）：tee stdoutPipe；goroutine 末尾
+	// 显式 cmd.Wait 取 exit code 后填 Response。
+	sink := rawSinkFromContext(ctx)
+	var rawCap *vfs.RawCapture
+	var rawStdoutBuf bytes.Buffer
+	scannerSrc := io.Reader(stdoutPipe)
+	if sink != nil {
+		rawCap = newCLIRawCapture()
+		fillCLIRequest(rawCap, d.cliCommand, args, "", nil)
+		sink.set(rawCap)
+		scannerSrc = io.TeeReader(stdoutPipe, &rawStdoutBuf)
+	}
+
+	// cursor 之前用 `var stderrBuf bytes.Buffer` 间接捕获？没——cursor 没设
+	// cmd.Stderr 到独立 buf。raw capture 仍需 stderr，故 Stream 路径补一个
+	// stderr buf；不影响行为（cursor 现有逻辑也不读 stderr）。
+	var stderrBuf bytes.Buffer
+	cmd.Stderr = &stderrBuf
+
 	ch := make(chan StreamEvent, streamChanBuffer)
 
 	go func() {
 		defer close(ch)
-		defer func() { _ = cmd.Wait() }()
 		defer cancel()
 
-		scanner := newStreamScanner(stdoutPipe)
+		scanner := newStreamScanner(scannerSrc)
 		for scanner.Scan() {
 			idle.Reset()
 			line := scanner.Bytes()
@@ -306,6 +340,11 @@ func (d *CursorCliDriver) Stream(ctx context.Context, req LLMRequest) (<-chan St
 				case ch <- se:
 				case <-ctx.Done():
 				}
+				_ = cmd.Wait()
+				if sink != nil && rawCap != nil {
+					fillCLIResponse(rawCap, rawStdoutBuf.String(), stderrBuf.String(), processExitCode(cmd))
+					sink.set(rawCap)
+				}
 				return
 			}
 		}
@@ -315,6 +354,11 @@ func (d *CursorCliDriver) Stream(ctx context.Context, req LLMRequest) (<-chan St
 			case ch <- StreamEvent{Type: "error", Err: NewLLMError("cursor", 0, fmt.Errorf("stream read error: %w", err))}:
 			case <-ctx.Done():
 			}
+		}
+		_ = cmd.Wait()
+		if sink != nil && rawCap != nil {
+			fillCLIResponse(rawCap, rawStdoutBuf.String(), stderrBuf.String(), processExitCode(cmd))
+			sink.set(rawCap)
 		}
 	}()
 

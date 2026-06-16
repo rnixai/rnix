@@ -5,6 +5,8 @@ import (
 	"context"
 	"io"
 	"net/http"
+	"os/exec"
+	"strings"
 	"sync"
 	"time"
 
@@ -341,4 +343,100 @@ func wrapHTTPClientWithCapture(base *http.Client) *http.Client {
 	clone := *base
 	clone.Transport = newCaptureRoundTripper(base.Transport)
 	return &clone
+}
+
+// --- Shared CLI-family helpers (Story 56.3) ---------------------------------
+//
+// CLI driver（claude-cli / codex-cli / cursor-cli / qwen-cli）出口要：从
+// 已构造好的 argv / stdin / stdout / stderr / exit code 直接填进
+// RawCapture（无 SDK / 无 HTTP middleware）。下面 helper 集中字段命名 +
+// 类型 + 主脱敏调用点（裁决 3 + 裁决 4），让四个 driver 接线代码保持极简。
+
+// newCLIRawCapture 构造一个 Kind="cli" 的 RawCapture，已设好 TsMs。Step 留 0
+// 由 kernel hook 填（见 raw_writer.go:250-252）；Request/Response 由
+// fillCLIRequest / fillCLIResponse 填充。
+func newCLIRawCapture() *vfs.RawCapture {
+	return &vfs.RawCapture{
+		TsMs: time.Now().UnixMilli(),
+		Kind: "cli",
+	}
+}
+
+// fillCLIRequest 填 RawCapture.Request — argv / stdin / env（裁决 3 字段约定）。
+//
+//   - argv = [binary] + args，先 vfs.RedactArgv 主脱敏（裁决 4：argv 凭据脱敏
+//     必须 driver 层完成，kernel 二次脱敏只触 headers 字段）。argv 是 []string
+//     保留结构，便于审计 / 查询，代价是逃 kernel per-record 截断（裁决 3 权衡）。
+//   - stdin = driver 已构造好的 prompt 字符串；codex/cursor 因 prompt 在 argv
+//     里传 ""。**stdin 不脱敏**（裁决 4：stdin 是用户内容审计需看原文）。
+//   - env = driver 显式 cmd.Env 设置的变量（脱敏后），nil 则省略 env 键
+//     （裁决 6 MVP：当前 4 driver 都不显式设置 env，env 键不会出现）。
+func fillCLIRequest(cap *vfs.RawCapture, binary string, args []string, stdin string, env map[string]string) {
+	if cap == nil {
+		return
+	}
+	full := make([]string, 0, len(args)+1)
+	full = append(full, binary)
+	full = append(full, args...)
+	req := map[string]any{
+		"argv":  vfs.RedactArgv(full),
+		"stdin": stdin,
+	}
+	if len(env) > 0 {
+		redacted := make(map[string]string, len(env))
+		for k, v := range env {
+			if isCredentialEnvKey(k) {
+				redacted[k] = vfs.RedactCredential(v)
+			} else {
+				redacted[k] = v
+			}
+		}
+		req["env"] = redacted
+	}
+	cap.Request = req
+}
+
+// fillCLIResponse 填 RawCapture.Response — stdout / stderr / exit_code（裁决 3）。
+// stdout / stderr 必须是 string（裁决 3：kernel truncateRawCapture 只截断
+// map 中的 string 字段；非 string 字段会逃过 per-record 截断）。
+// exit_code 是 int（cmd.ProcessState.ExitCode() 直传）。
+func fillCLIResponse(cap *vfs.RawCapture, stdout, stderr string, exitCode int) {
+	if cap == nil {
+		return
+	}
+	cap.Response = map[string]any{
+		"stdout":    stdout,
+		"stderr":    stderr,
+		"exit_code": exitCode,
+	}
+}
+
+// isCredentialEnvKey 识别带凭据的 env 变量名（key 模式驱动）。MVP 只匹配
+// 常见后缀模式，不做启发式（避免误伤）。case-insensitive。
+func isCredentialEnvKey(k string) bool {
+	upper := strings.ToUpper(k)
+	switch {
+	case strings.HasSuffix(upper, "_KEY"),
+		strings.HasSuffix(upper, "_TOKEN"),
+		strings.HasSuffix(upper, "_SECRET"),
+		strings.HasSuffix(upper, "_PASSWORD"),
+		strings.HasSuffix(upper, "_PASSWD"),
+		strings.HasSuffix(upper, "_API_KEY"):
+		return true
+	}
+	switch upper {
+	case "API_KEY", "TOKEN", "SECRET", "PASSWORD", "AUTHORIZATION":
+		return true
+	}
+	return false
+}
+
+// processExitCode safely extracts exit code from a *exec.Cmd. Returns -1 when
+// ProcessState is nil — happens for cmd.Start failures or before Wait/Run
+// completes. Used by CLI driver raw-capture fillCLIResponse calls (Story 56.3).
+func processExitCode(cmd *exec.Cmd) int {
+	if cmd == nil || cmd.ProcessState == nil {
+		return -1
+	}
+	return cmd.ProcessState.ExitCode()
 }

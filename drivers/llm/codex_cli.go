@@ -5,8 +5,11 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"strings"
 	"time"
+
+	"github.com/rnixai/rnix/vfs"
 )
 
 const (
@@ -137,7 +140,22 @@ func (d *CodexCliDriver) Call(ctx context.Context, req LLMRequest) (*LLMResponse
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
 
+	// 56.3 raw capture: 在 buildArgs 之后、cmd.Run() 之前填 Request（保留请求形态
+	// 即便后续执行失败）；cmd.Run 返回后再填 Response（stdout/stderr 此时已为终态）。
+	// codex-cli 的 prompt 在 argv 里传（buildArgs 末尾 append），故 stdin="" 。
+	sink := rawSinkFromContext(ctx)
+	var rawCap *vfs.RawCapture
+	if sink != nil {
+		rawCap = newCLIRawCapture()
+		fillCLIRequest(rawCap, d.cliCommand, args, "", nil)
+		sink.set(rawCap)
+	}
+
 	err := cmd.Run()
+	if sink != nil && rawCap != nil {
+		fillCLIResponse(rawCap, stdout.String(), stderr.String(), processExitCode(cmd))
+		sink.set(rawCap)
+	}
 	if ctx.Err() == context.DeadlineExceeded {
 		return nil, NewLLMError("codex", 0, ErrTimeout)
 	}
@@ -200,6 +218,22 @@ func (d *CodexCliDriver) Stream(ctx context.Context, req LLMRequest) (<-chan Str
 		return nil, fmt.Errorf("failed to start codex cli: %w", err)
 	}
 
+	// 56.3 raw capture（Stream 路径，裁决 7 时序铁律）：
+	//   1. 先填 Request（buildArgs 之后即可，prompt 在 argv 里 codex stdin="" ）
+	//   2. tee stdoutPipe → rawStdoutBuf 累积原样 stream-json 字节
+	//   3. goroutine 末尾（scanner 循环之后、close(ch) 触发之前）显式 cmd.Wait
+	//      取 exit code → fillCLIResponse → sink.set；不塞 defer（LIFO 易错）
+	sink := rawSinkFromContext(ctx)
+	var rawCap *vfs.RawCapture
+	var rawStdoutBuf bytes.Buffer
+	scannerSrc := io.Reader(stdoutPipe)
+	if sink != nil {
+		rawCap = newCLIRawCapture()
+		fillCLIRequest(rawCap, d.cliCommand, args, "", nil)
+		sink.set(rawCap)
+		scannerSrc = io.TeeReader(stdoutPipe, &rawStdoutBuf)
+	}
+
 	ch := make(chan StreamEvent, streamChanBuffer)
 
 	go func() {
@@ -213,7 +247,7 @@ func (d *CodexCliDriver) Stream(ctx context.Context, req LLMRequest) (<-chan Str
 		}
 		var lastAgentMessage string
 
-		scanner := newStreamScanner(stdoutPipe)
+		scanner := newStreamScanner(scannerSrc)
 		for scanner.Scan() {
 			idle.Reset()
 			line := scanner.Bytes()
@@ -365,6 +399,16 @@ func (d *CodexCliDriver) Stream(ctx context.Context, req LLMRequest) (<-chan Str
 		}
 
 		_ = cmd.Wait()
+
+		// 56.3 raw capture（Stream 路径裁决 7）：scanner 循环 + cmd.Wait 完成后
+		// 才填 Response——此刻 stream-json 已被 tee 累积到 rawStdoutBuf，stderr
+		// 已收尾，exit code 经 cmd.ProcessState 可用。set 必须在 close(ch)
+		// （defer LIFO 最先执行）触发前完成，否则 LLMFile.range ch 退出后
+		// sink.get() 取到的可能是仅含 Request 的过早态。
+		if sink != nil && rawCap != nil {
+			fillCLIResponse(rawCap, rawStdoutBuf.String(), stderrBuf.String(), processExitCode(cmd))
+			sink.set(rawCap)
+		}
 	}()
 
 	return ch, nil

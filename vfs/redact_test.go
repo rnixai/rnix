@@ -104,3 +104,134 @@ func TestATDD_56_1_004_RedactHeaders_PassthroughNonCredential(t *testing.T) {
 		}
 	}
 }
+
+// ============================================================================
+// ATDD Story 56.3 — vfs.RedactArgv (CLI driver argv 脱敏，AC#3 / AC#7)
+//
+// CLI 族 raw capture 把完整 argv 落盘（包含 --effort 真实值供审计）。argv 中
+// 偶含凭据型 flag 必须 driver 层脱敏（裁决 4：argv 是 []string，逃 kernel
+// per-record 截断 + kernel 二次脱敏只触 headers 字段，driver 层是唯一防线）。
+//
+// 红线：明文凭据零落盘；effort/model 等正常透传 flag 保真；幂等。
+// ============================================================================
+
+func TestATDD_56_3_UNIT001_RedactArgv_FlagValueRedacted(t *testing.T) {
+	secret := "sk-CLI_SECRET_PLAINTEXT_42"
+	argv := []string{
+		"/usr/local/bin/claude",
+		"--print", "-",
+		"--model", "claude-opus-4-7",
+		"--api-key", secret,
+		"--effort", "high", // CAP-1 透传凭证：必须保真
+	}
+	out := RedactArgv(argv)
+	if len(out) != len(argv) {
+		t.Fatalf("len changed: got=%d want=%d", len(out), len(argv))
+	}
+	// 凭据值必须不可见，且替换为指纹
+	for _, v := range out {
+		if strings.Contains(v, secret) {
+			t.Fatalf("RedactArgv leaked plaintext at element %q", v)
+		}
+	}
+	// --api-key 后续元素必须含 fingerprint 形态
+	if got := out[6]; !strings.HasPrefix(got, "redacted(") {
+		t.Errorf("api-key value not fingerprinted: %q", got)
+	}
+	// --effort high 必须保真（CAP-1 真实值审计）
+	if out[7] != "--effort" || out[8] != "high" {
+		t.Errorf("effort flag mutated: out[7..8]=%q,%q", out[7], out[8])
+	}
+	// --model 也必须保真
+	if out[3] != "--model" || out[4] != "claude-opus-4-7" {
+		t.Errorf("model flag mutated: out[3..4]=%q,%q", out[3], out[4])
+	}
+	// binary 不动
+	if out[0] != argv[0] {
+		t.Errorf("binary mutated: %q want %q", out[0], argv[0])
+	}
+}
+
+func TestATDD_56_3_UNIT002_RedactArgv_EqualsFormRedacted(t *testing.T) {
+	secret := "tok_LIVE_SECRET_88"
+	argv := []string{
+		"codex",
+		"exec",
+		"-c", "model_reasoning_effort=high", // 保真：effort
+		"--token=" + secret,                  // 单 token form 须脱敏
+		"--secret=ANOTHER_SECRET_VAL",         // 同形式
+	}
+	out := RedactArgv(argv)
+	for _, v := range out {
+		if strings.Contains(v, secret) {
+			t.Fatalf("equals-form leaked plaintext: %q", v)
+		}
+		if strings.Contains(v, "ANOTHER_SECRET_VAL") {
+			t.Fatalf("equals-form --secret leaked: %q", v)
+		}
+	}
+	// effort kv 必须保真
+	if out[3] != "model_reasoning_effort=high" {
+		t.Errorf("model_reasoning_effort kv mutated: %q", out[3])
+	}
+	// 凭据 kv 必须以 head=redacted(...) 形态
+	if !strings.HasPrefix(out[4], "--token=redacted(") {
+		t.Errorf("--token= form not fingerprinted: %q", out[4])
+	}
+	if !strings.HasPrefix(out[5], "--secret=redacted(") {
+		t.Errorf("--secret= form not fingerprinted: %q", out[5])
+	}
+}
+
+func TestATDD_56_3_UNIT003_RedactArgv_HeaderFlagInArgv(t *testing.T) {
+	// 极少 CLI 用 -H 但既然在白名单内仍需正确处理
+	argv := []string{"curl-like", "-H", "Authorization: Bearer sk-LEAK_BEARER_99"}
+	out := RedactArgv(argv)
+	if strings.Contains(out[2], "sk-LEAK_BEARER_99") {
+		t.Fatalf("-H Authorization leaked: %q", out[2])
+	}
+	// scheme token 应保留可见
+	if !strings.Contains(out[2], "Bearer ") {
+		t.Errorf("Bearer scheme dropped: %q", out[2])
+	}
+}
+
+func TestATDD_56_3_UNIT004_RedactArgv_Idempotent(t *testing.T) {
+	argv := []string{"claude", "--api-key", "sk-IDEMPOTENT_SECRET_77"}
+	first := RedactArgv(argv)
+	second := RedactArgv(first)
+	if first[2] != second[2] {
+		t.Errorf("RedactArgv not idempotent:\n  first  = %q\n  second = %q", first[2], second[2])
+	}
+}
+
+func TestATDD_56_3_UNIT005_RedactArgv_NoCredentialsPassthrough(t *testing.T) {
+	argv := []string{
+		"claude", "--print", "-",
+		"--output-format", "stream-json",
+		"--model", "haiku",
+		"--effort", "high",
+	}
+	out := RedactArgv(argv)
+	for i, v := range argv {
+		if out[i] != v {
+			t.Errorf("non-credential argv mutated at %d: in=%q out=%q", i, v, out[i])
+		}
+	}
+}
+
+func TestATDD_56_3_UNIT006_RedactArgv_EmptyAndShortArgs(t *testing.T) {
+	// 空 / 单元素 / 末位是 sensitive flag 但无下一个值都应 graceful
+	if got := RedactArgv(nil); len(got) != 0 {
+		t.Errorf("nil argv: got=%v", got)
+	}
+	if got := RedactArgv([]string{}); len(got) != 0 {
+		t.Errorf("empty argv: got=%v", got)
+	}
+	// trailing sensitive flag 无值不应越界
+	argv := []string{"claude", "--api-key"}
+	out := RedactArgv(argv)
+	if len(out) != 2 || out[0] != "claude" || out[1] != "--api-key" {
+		t.Errorf("trailing sensitive flag mishandled: %v", out)
+	}
+}

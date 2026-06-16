@@ -5,9 +5,12 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/rnixai/rnix/vfs"
 )
 
 const (
@@ -131,7 +134,21 @@ func (d *QwenCliDriver) Call(ctx context.Context, req LLMRequest) (*LLMResponse,
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
 
+	// 56.3 raw capture：qwen-cli prompt 走 stdin（cmd.Stdin = strings.NewReader），
+	// 故 stdin = driver 构造的 prompt 字符串。
+	sink := rawSinkFromContext(ctx)
+	var rawCap *vfs.RawCapture
+	if sink != nil {
+		rawCap = newCLIRawCapture()
+		fillCLIRequest(rawCap, d.cliCommand, args, d.buildPrompt(req), nil)
+		sink.set(rawCap)
+	}
+
 	err := cmd.Run()
+	if sink != nil && rawCap != nil {
+		fillCLIResponse(rawCap, stdout.String(), stderr.String(), processExitCode(cmd))
+		sink.set(rawCap)
+	}
 	if ctx.Err() == context.DeadlineExceeded {
 		return nil, NewLLMError("qwen", 0, ErrTimeout)
 	}
@@ -252,13 +269,26 @@ func (d *QwenCliDriver) Stream(ctx context.Context, req LLMRequest) (<-chan Stre
 		return nil, fmt.Errorf("failed to start qwen cli: %w", err)
 	}
 
+	// 56.3 raw capture（Stream 路径，裁决 7）：qwen 同 claude，stdin=prompt；
+	// tee stdoutPipe 累积原样 stream-json 字节；末尾 cmd.Wait 后 fillCLIResponse。
+	sink := rawSinkFromContext(ctx)
+	var rawCap *vfs.RawCapture
+	var rawStdoutBuf bytes.Buffer
+	scannerSrc := io.Reader(stdoutPipe)
+	if sink != nil {
+		rawCap = newCLIRawCapture()
+		fillCLIRequest(rawCap, d.cliCommand, args, d.buildPrompt(req), nil)
+		sink.set(rawCap)
+		scannerSrc = io.TeeReader(stdoutPipe, &rawStdoutBuf)
+	}
+
 	ch := make(chan StreamEvent, streamChanBuffer)
 
 	go func() {
 		defer close(ch)
 		defer cancel()
 
-		scanner := newStreamScanner(stdoutPipe)
+		scanner := newStreamScanner(scannerSrc)
 		for scanner.Scan() {
 			idle.Reset()
 			line := scanner.Bytes()
@@ -365,6 +395,10 @@ func (d *QwenCliDriver) Stream(ctx context.Context, req LLMRequest) (<-chan Stre
 				case <-ctx.Done():
 				}
 				_ = cmd.Wait()
+				if sink != nil && rawCap != nil {
+					fillCLIResponse(rawCap, rawStdoutBuf.String(), stderrBuf.String(), processExitCode(cmd))
+					sink.set(rawCap)
+				}
 				return
 			}
 		}
@@ -393,6 +427,11 @@ func (d *QwenCliDriver) Stream(ctx context.Context, req LLMRequest) (<-chan Stre
 			case ch <- StreamEvent{Type: "error", Err: NewLLMError("qwen", 0, fmt.Errorf("qwen cli stderr: %s", errMsg))}:
 			case <-ctx.Done():
 			}
+		}
+		// 56.3 raw capture：no-result 路径同样填 Response。
+		if sink != nil && rawCap != nil {
+			fillCLIResponse(rawCap, rawStdoutBuf.String(), stderrBuf.String(), processExitCode(cmd))
+			sink.set(rawCap)
 		}
 	}()
 

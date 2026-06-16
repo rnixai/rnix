@@ -18,6 +18,8 @@ import (
 	"sync"
 	"syscall"
 	"time"
+
+	"github.com/rnixai/rnix/vfs"
 )
 
 const (
@@ -285,7 +287,22 @@ func (d *ClaudeCliDriver) Call(ctx context.Context, req LLMRequest) (*LLMRespons
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
 
+	// 56.3 raw capture：在 cmd.Run 之前填 Request（argv 用 effectiveBinary 与
+	// 实际传入 cmdBuilder 的二进制一致；stdin = driver 构造的 prompt 字符串，
+	// 无需 tee stdinPipe，prompt 局部变量已是同源）。Run 后填 Response。
+	sink := rawSinkFromContext(ctx)
+	var rawCap *vfs.RawCapture
+	if sink != nil {
+		rawCap = newCLIRawCapture()
+		fillCLIRequest(rawCap, d.effectiveBinary(), args, prompt, nil)
+		sink.set(rawCap)
+	}
+
 	err = cmd.Run()
+	if sink != nil && rawCap != nil {
+		fillCLIResponse(rawCap, stdout.String(), stderr.String(), processExitCode(cmd))
+		sink.set(rawCap)
+	}
 	if ctx.Err() == context.DeadlineExceeded {
 		return nil, NewLLMError("claude", 0, ErrTimeout)
 	}
@@ -437,6 +454,19 @@ func (d *ClaudeCliDriver) Stream(ctx context.Context, req LLMRequest) (<-chan St
 
 	go writeStdinSafe(stdinPipe, prompt)()
 
+	// 56.3 raw capture（Stream 路径，裁决 7）：tee stdoutPipe 累积原样
+	// stream-json 字节；scanner 改读 tee reader 既不影响解析又能保留底层字节。
+	sink := rawSinkFromContext(ctx)
+	var rawCap *vfs.RawCapture
+	var rawStdoutBuf bytes.Buffer
+	scannerSrc := io.Reader(stdoutPipe)
+	if sink != nil {
+		rawCap = newCLIRawCapture()
+		fillCLIRequest(rawCap, d.effectiveBinary(), args, prompt, nil)
+		sink.set(rawCap)
+		scannerSrc = io.TeeReader(stdoutPipe, &rawStdoutBuf)
+	}
+
 	ch := make(chan StreamEvent, streamChanBuffer)
 
 	parser := newClaudeStreamParser()
@@ -448,7 +478,7 @@ func (d *ClaudeCliDriver) Stream(ctx context.Context, req LLMRequest) (<-chan St
 			defer func() { _ = os.Remove(sysPromptFile) }()
 		}
 
-		scanner := newStreamScanner(stdoutPipe)
+		scanner := newStreamScanner(scannerSrc)
 		for scanner.Scan() {
 			idle.Reset()
 			line := scanner.Bytes()
@@ -587,6 +617,12 @@ func (d *ClaudeCliDriver) Stream(ctx context.Context, req LLMRequest) (<-chan St
 				case <-ctx.Done():
 				}
 				_ = cmd.Wait()
+				// 56.3 raw capture：result 事件路径，scanner 已读完 stream-json，
+				// rawStdoutBuf 已累积原样字节；cmd.Wait 拿到 exit code → 填 Response。
+				if sink != nil && rawCap != nil {
+					fillCLIResponse(rawCap, rawStdoutBuf.String(), stderrBuf.String(), processExitCode(cmd))
+					sink.set(rawCap)
+				}
 				return
 			}
 		}
@@ -615,6 +651,12 @@ func (d *ClaudeCliDriver) Stream(ctx context.Context, req LLMRequest) (<-chan St
 			case ch <- StreamEvent{Type: "error", Err: NewLLMError("claude", 0, fmt.Errorf("claude cli stderr: %s", errMsg))}:
 			case <-ctx.Done():
 			}
+		}
+		// 56.3 raw capture：no-result 路径同样填 Response（即便 stream 提前断流，
+		// 已累积部分字节也归档；exit code 经 cmd.Wait 已可用）。
+		if sink != nil && rawCap != nil {
+			fillCLIResponse(rawCap, rawStdoutBuf.String(), stderrBuf.String(), processExitCode(cmd))
+			sink.set(rawCap)
 		}
 	}()
 
