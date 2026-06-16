@@ -411,6 +411,10 @@ func (e *ScriptExecutor) executeStatement(ctx context.Context, stmt Statement,
 		if expandErr != nil {
 			return false, 0, fmt.Errorf("line %d: --model: %w", stmt.Line, expandErr)
 		}
+		expandedProvider, expandedFbProvider, expandedFbModel, provErr := expandSpawnProviders(e.env, stmt.Spawn, "", stmt.Line)
+		if provErr != nil {
+			return false, 0, provErr
+		}
 		if e.OnStageStart != nil {
 			e.OnStageStart(*stageNum, totalStages, expandedIntent)
 		}
@@ -419,13 +423,21 @@ func (e *ScriptExecutor) executeStatement(ctx context.Context, stmt Statement,
 		// executeBlock fires after this returns, preserving call-site order.
 		if e.OnEvent != nil {
 			e.emitEvent(ScriptSpawn, stmt.Line, expandedIntent, map[string]any{
-				"intent": expandedIntent,
-				"agent":  expandedAgent,
-				"model":  expandedModel,
-				"assign": stmt.Assign,
+				"intent":   expandedIntent,
+				"agent":    expandedAgent,
+				"model":    expandedModel,
+				"provider": expandedProvider,
+				"assign":   stmt.Assign,
 			})
 		}
-		res, exitCode, tokens, spawnErr := e.spawner.SpawnAndWait(ctx, expandedIntent, expandedAgent, expandedModel)
+		res, exitCode, tokens, spawnErr := e.spawner.SpawnAndWait(ctx, SpawnRequest{
+			Intent:           expandedIntent,
+			Agent:            expandedAgent,
+			Model:            expandedModel,
+			Provider:         expandedProvider,
+			FallbackProvider: expandedFbProvider,
+			FallbackModel:    expandedFbModel,
+		})
 		if spawnErr != nil {
 			return false, 0, fmt.Errorf("spawn: %w", spawnErr)
 		}
@@ -460,11 +472,22 @@ func (e *ScriptExecutor) executeStatement(ctx context.Context, stmt Statement,
 			if hExpandErr != nil {
 				return false, 0, fmt.Errorf("line %d: on-error: --model: %w", stmt.Line, hExpandErr)
 			}
+			hProvider, hFbProvider, hFbModel, hPErr := expandSpawnProviders(e.env, stmt.OnError, "on-error: ", stmt.Line)
+			if hPErr != nil {
+				return false, 0, hPErr
+			}
 			if e.OnStageStart != nil {
 				e.OnStageStart(*stageNum, totalStages, hIntent)
 			}
 			hRes, hExitCode, hTokens, hErr := e.spawner.SpawnAndWait(
-				ctx, hIntent, hAgent, hModel)
+				ctx, SpawnRequest{
+					Intent:           hIntent,
+					Agent:            hAgent,
+					Model:            hModel,
+					Provider:         hProvider,
+					FallbackProvider: hFbProvider,
+					FallbackModel:    hFbModel,
+				})
 			if hErr != nil {
 				return false, 0, fmt.Errorf("on-error: %w", hErr)
 			}
@@ -532,11 +555,22 @@ func (e *ScriptExecutor) executeStatement(ctx context.Context, stmt Statement,
 			if hExpandErr != nil {
 				return false, 0, fmt.Errorf("line %d: on-error: --model: %w", stmt.Line, hExpandErr)
 			}
+			hProvider, hFbProvider, hFbModel, hPErr := expandSpawnProviders(e.env, stmt.OnError, "on-error: ", stmt.Line)
+			if hPErr != nil {
+				return false, 0, hPErr
+			}
 			if e.OnStageStart != nil {
 				e.OnStageStart(*stageNum, totalStages, hIntent)
 			}
 			hRes, hExitCode, hTokens, hErr := e.spawner.SpawnAndWait(
-				ctx, hIntent, hAgent, hModel)
+				ctx, SpawnRequest{
+					Intent:           hIntent,
+					Agent:            hAgent,
+					Model:            hModel,
+					Provider:         hProvider,
+					FallbackProvider: hFbProvider,
+					FallbackModel:    hFbModel,
+				})
 			if hErr != nil {
 				return false, 0, fmt.Errorf("on-error: %w", hErr)
 			}
@@ -864,15 +898,21 @@ func (e *ScriptExecutor) executeBuiltin(ctx context.Context, stmt *BuiltinStmt, 
 }
 
 type parallelTask struct {
-	idx                int
-	stmt               Statement
-	expandedIntent     string
-	expandedAgent      string
-	expandedModel      string
-	expandedOnError    string
-	expandedOnErrAgent string
-	expandedOnErrModel string
-	expandedPipeline   *Pipeline
+	idx                     int
+	stmt                    Statement
+	expandedIntent          string
+	expandedAgent           string
+	expandedModel           string
+	expandedProvider        string
+	expandedFbProvider      string
+	expandedFbModel         string
+	expandedOnError         string
+	expandedOnErrAgent      string
+	expandedOnErrModel      string
+	expandedOnErrProvider   string
+	expandedOnErrFbProvider string
+	expandedOnErrFbModel    string
+	expandedPipeline        *Pipeline
 }
 
 type parallelResult struct {
@@ -907,6 +947,10 @@ func (e *ScriptExecutor) executeParallel(ctx context.Context, stmt Statement, re
 			if err != nil {
 				return fmt.Errorf("line %d: --model: %w", s.Line, err)
 			}
+			task.expandedProvider, task.expandedFbProvider, task.expandedFbModel, err = expandSpawnProviders(e.env, s.Spawn, "", s.Line)
+			if err != nil {
+				return err
+			}
 			if s.OnError != nil {
 				expandedOnErr, err := e.env.ExpandStrict(s.OnError.Intent)
 				if err != nil {
@@ -920,6 +964,10 @@ func (e *ScriptExecutor) executeParallel(ctx context.Context, stmt Statement, re
 				task.expandedOnErrModel, err = e.env.ExpandStrict(s.OnError.Model)
 				if err != nil {
 					return fmt.Errorf("line %d: on-error: --model: %w", s.Line, err)
+				}
+				task.expandedOnErrProvider, task.expandedOnErrFbProvider, task.expandedOnErrFbModel, err = expandSpawnProviders(e.env, s.OnError, "on-error: ", s.Line)
+				if err != nil {
+					return err
 				}
 			}
 		case StmtPipeline:
@@ -950,11 +998,19 @@ func (e *ScriptExecutor) executeParallel(ctx context.Context, stmt Statement, re
 						"intent":   t.expandedIntent,
 						"agent":    t.expandedAgent,
 						"model":    t.expandedModel,
+						"provider": t.expandedProvider,
 						"assign":   t.stmt.Assign,
 						"parallel": true,
 					})
 				}
-				res, exitCode, tokens, err := e.spawner.SpawnAndWait(ctx, t.expandedIntent, t.expandedAgent, t.expandedModel)
+				res, exitCode, tokens, err := e.spawner.SpawnAndWait(ctx, SpawnRequest{
+					Intent:           t.expandedIntent,
+					Agent:            t.expandedAgent,
+					Model:            t.expandedModel,
+					Provider:         t.expandedProvider,
+					FallbackProvider: t.expandedFbProvider,
+					FallbackModel:    t.expandedFbModel,
+				})
 				if err == nil && t.stmt.Spawn.ResultLastLine {
 					res = extractLastLine(res)
 				}
@@ -964,12 +1020,20 @@ func (e *ScriptExecutor) executeParallel(ctx context.Context, stmt Statement, re
 							"intent":   t.expandedOnError,
 							"agent":    t.expandedOnErrAgent,
 							"model":    t.expandedOnErrModel,
+							"provider": t.expandedOnErrProvider,
 							"assign":   t.stmt.Assign,
 							"parallel": true,
 							"on_error": true,
 						})
 					}
-					hRes, hExitCode, hTokens, hErr := e.spawner.SpawnAndWait(ctx, t.expandedOnError, t.expandedOnErrAgent, t.expandedOnErrModel)
+					hRes, hExitCode, hTokens, hErr := e.spawner.SpawnAndWait(ctx, SpawnRequest{
+						Intent:           t.expandedOnError,
+						Agent:            t.expandedOnErrAgent,
+						Model:            t.expandedOnErrModel,
+						Provider:         t.expandedOnErrProvider,
+						FallbackProvider: t.expandedOnErrFbProvider,
+						FallbackModel:    t.expandedOnErrFbModel,
+					})
 					if hErr == nil {
 						if t.stmt.OnError.ResultLastLine {
 							hRes = extractLastLine(hRes)

@@ -38,7 +38,7 @@ type fakeEventSpawner struct {
 	calls   int
 }
 
-func (f *fakeEventSpawner) SpawnAndWait(_ context.Context, intent, agent, model string) (string, int, int, error) {
+func (f *fakeEventSpawner) SpawnAndWait(_ context.Context, _ shell.SpawnRequest) (string, int, int, error) {
 	out := "done"
 	if f.calls < len(f.results) {
 		out = f.results[f.calls]

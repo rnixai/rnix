@@ -28,13 +28,23 @@ type mockResult struct {
 }
 
 type mockCall struct {
-	intent string
-	agent  string
-	model  string
+	intent           string
+	agent            string
+	model            string
+	provider         string
+	fallbackProvider string
+	fallbackModel    string
 }
 
-func (m *mockSpawner) SpawnAndWait(ctx context.Context, intent, agent, model string) (string, int, int, error) {
-	m.calls = append(m.calls, mockCall{intent: intent, agent: agent, model: model})
+func (m *mockSpawner) SpawnAndWait(ctx context.Context, req SpawnRequest) (string, int, int, error) {
+	m.calls = append(m.calls, mockCall{
+		intent:           req.Intent,
+		agent:            req.Agent,
+		model:            req.Model,
+		provider:         req.Provider,
+		fallbackProvider: req.FallbackProvider,
+		fallbackModel:    req.FallbackModel,
+	})
 	idx := len(m.calls) - 1
 	if idx >= len(m.results) {
 		return "", 1, 0, fmt.Errorf("unexpected call %d", idx)
@@ -283,13 +293,13 @@ type contextCancellingSpawner struct {
 	callCount   int
 }
 
-func (c *contextCancellingSpawner) SpawnAndWait(ctx context.Context, intent, agent, model string) (string, int, int, error) {
+func (c *contextCancellingSpawner) SpawnAndWait(ctx context.Context, req SpawnRequest) (string, int, int, error) {
 	c.callCount++
 	if c.callCount > c.cancelAfter {
 		c.cancel()
 		return "", 1, 0, ctx.Err()
 	}
-	return c.inner.SpawnAndWait(ctx, intent, agent, model)
+	return c.inner.SpawnAndWait(ctx, req)
 }
 
 func (c *contextCancellingSpawner) Wait(_ context.Context, _ int) (int, error) {

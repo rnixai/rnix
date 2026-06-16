@@ -726,9 +726,12 @@ func runPipeline(renderer *ui.Renderer, mode ui.OutputMode, progress *ui.Progres
 	}
 	for i, cmd := range pipeline.Commands {
 		req.Commands[i] = ipc.SpawnPipelineCommand{
-			Intent: cmd.Intent,
-			Agent:  cmd.Agent,
-			Model:  cmd.Model,
+			Intent:           cmd.Intent,
+			Agent:            cmd.Agent,
+			Model:            cmd.Model,
+			Provider:         cmd.Provider,
+			FallbackProvider: cmd.FallbackProvider,
+			FallbackModel:    cmd.FallbackModel,
 		}
 	}
 

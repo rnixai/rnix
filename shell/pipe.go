@@ -10,10 +10,23 @@ import (
 // warning but does not block execution (as specified in Story 11.1 boundary cases).
 const MaxRecommendedStages = 10
 
+// SpawnRequest carries all per-spawn parameters to KernelSpawner.SpawnAndWait.
+// Using a struct (rather than positional args) keeps call sites readable as the
+// parameter set grows — provider/model/fallback values are easy to transpose
+// when passed as a string of bare positional arguments.
+type SpawnRequest struct {
+	Intent           string
+	Agent            string
+	Model            string
+	Provider         string // --provider override; "" = inherit agent manifest / kernel default
+	FallbackProvider string // --fallback-provider override; "" = same-provider fallback
+	FallbackModel    string // --fallback-model override; "" = use agent manifest fallback
+}
+
 // KernelSpawner abstracts the kernel's spawn-and-wait operation for pipeline execution.
 // Implementations bridge to the real kernel (via IPC) or mock (for testing).
 type KernelSpawner interface {
-	SpawnAndWait(ctx context.Context, intent, agent, model string) (result string, exitCode int, tokensUsed int, err error)
+	SpawnAndWait(ctx context.Context, req SpawnRequest) (result string, exitCode int, tokensUsed int, err error)
 	Wait(ctx context.Context, pid int) (exitCode int, err error)
 }
 
@@ -74,7 +87,14 @@ func (e *PipelineExecutor) Execute(ctx context.Context, pipeline *Pipeline) (*Pi
 		}
 
 		stageStart := time.Now()
-		res, exitCode, tokens, err := e.spawner.SpawnAndWait(ctx, intent, cmd.Agent, cmd.Model)
+		res, exitCode, tokens, err := e.spawner.SpawnAndWait(ctx, SpawnRequest{
+			Intent:           intent,
+			Agent:            cmd.Agent,
+			Model:            cmd.Model,
+			Provider:         cmd.Provider,
+			FallbackProvider: cmd.FallbackProvider,
+			FallbackModel:    cmd.FallbackModel,
+		})
 		stageElapsed := time.Since(stageStart)
 
 		if err != nil {

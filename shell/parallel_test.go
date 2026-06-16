@@ -30,13 +30,20 @@ type concurrentMockSpawner struct {
 	callIdx        atomic.Int32 // atomic counter for ordered results
 }
 
-func (m *concurrentMockSpawner) SpawnAndWait(_ context.Context, intent, agent, model string) (string, int, int, error) {
+func (m *concurrentMockSpawner) SpawnAndWait(_ context.Context, req SpawnRequest) (string, int, int, error) {
 	m.mu.Lock()
-	m.calls = append(m.calls, mockCall{intent: intent, agent: agent, model: model})
+	m.calls = append(m.calls, mockCall{
+		intent:           req.Intent,
+		agent:            req.Agent,
+		model:            req.Model,
+		provider:         req.Provider,
+		fallbackProvider: req.FallbackProvider,
+		fallbackModel:    req.FallbackModel,
+	})
 	m.mu.Unlock()
 
 	if m.results != nil {
-		if r, ok := m.results[intent]; ok {
+		if r, ok := m.results[req.Intent]; ok {
 			return r.result, r.exitCode, r.tokens, r.err
 		}
 	}
@@ -840,7 +847,7 @@ type whileTestSpawner struct {
 	callNum *int32
 }
 
-func (s *whileTestSpawner) SpawnAndWait(_ context.Context, _, _, _ string) (string, int, int, error) {
+func (s *whileTestSpawner) SpawnAndWait(_ context.Context, _ SpawnRequest) (string, int, int, error) {
 	n := atomic.AddInt32(s.callNum, 1)
 	if n == 1 {
 		return "pending", 1, 50, nil
