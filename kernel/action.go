@@ -24,15 +24,19 @@ const (
 // llmRequest is the JSON payload written to the LLM VFS device.
 // Field names and json tags are compatible with drivers/llm.LLMRequest.
 type llmRequest struct {
-	Intent       string            `json:"intent"`
-	SystemPrompt string            `json:"system_prompt,omitempty"`
-	Model        string            `json:"model,omitempty"`
-	MaxTurns     int               `json:"max_turns,omitempty"`
-	TimeoutMs    int64             `json:"timeout_ms,omitempty"`
-	Messages     []rnixctx.Message `json:"messages,omitempty"`
-	Tools        []vfs.ToolDef     `json:"tools,omitempty"`
-	Skills       []llm.Skill       `json:"skills,omitempty"`
-	ProjectDir   string            `json:"project_dir,omitempty"`
+	Intent       string `json:"intent"`
+	SystemPrompt string `json:"system_prompt,omitempty"`
+	Model        string `json:"model,omitempty"`
+	// ReasoningEffort overrides the driver instance's configured reasoning
+	// effort/level for this request. JSON tag MUST match drivers/llm.LLMRequest
+	// (reasoning_effort) or the field is silently dropped across the VFS boundary.
+	ReasoningEffort string            `json:"reasoning_effort,omitempty"`
+	MaxTurns        int               `json:"max_turns,omitempty"`
+	TimeoutMs       int64             `json:"timeout_ms,omitempty"`
+	Messages        []rnixctx.Message `json:"messages,omitempty"`
+	Tools           []vfs.ToolDef     `json:"tools,omitempty"`
+	Skills          []llm.Skill       `json:"skills,omitempty"`
+	ProjectDir      string            `json:"project_dir,omitempty"`
 }
 
 // llmToolCall represents a tool invocation in an LLM response.

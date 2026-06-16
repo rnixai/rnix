@@ -309,6 +309,11 @@ func (k *KernelImpl) attemptFallback(proc *Process, req llmRequest, primaryDevic
 	}
 	defer func() { _ = k.vfs.Close(proc.PID, fbFD) }()
 
+	// Only Model is rebound for the fallback provider; req.ReasoningEffort is
+	// reused as-is. When fallback crosses providers (e.g. gemini→openai), the
+	// effort value is NOT case-converted (gemini wants HIGH, openai wants high) —
+	// any mismatch is reported/degraded by the downstream API, consistent with
+	// the verbatim-passthrough rule and the Model-only fallback behavior.
 	req.Model = proc.FallbackModel
 	reqJSON, err := json.Marshal(req)
 	if err != nil {
@@ -536,14 +541,15 @@ func (k *KernelImpl) reasonStep(proc *Process, llmFD types.FD, opts SpawnOpts) {
 		proc.mu.Unlock()
 
 		req := llmRequest{
-			Intent:       proc.Intent,
-			SystemPrompt: sysPrompt,
-			Model:        model,
-			MaxTurns:     0,
-			TimeoutMs:    opts.TimeoutMs,
-			Messages:     promptResult.Messages,
-			Skills:       skillList,
-			ProjectDir:   projectDir,
+			Intent:          proc.Intent,
+			SystemPrompt:    sysPrompt,
+			Model:           model,
+			ReasoningEffort: proc.ReasoningEffort,
+			MaxTurns:        0,
+			TimeoutMs:       opts.TimeoutMs,
+			Messages:        promptResult.Messages,
+			Skills:          skillList,
+			ProjectDir:      projectDir,
 		}
 		req.Tools = proc.nativeToolDefs
 		reqJSON, err := json.Marshal(req)

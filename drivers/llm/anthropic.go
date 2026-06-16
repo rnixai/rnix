@@ -279,6 +279,16 @@ func (d *AnthropicDriver) resolveModel(req LLMRequest) anthropic.Model {
 	return anthropic.Model(d.defaultModel)
 }
 
+// resolveEffort returns the per-request reasoning effort override, or the
+// driver instance default (d.effort) when the request leaves it empty.
+// Mirrors resolveModel; value is passed through verbatim (no validation).
+func (d *AnthropicDriver) resolveEffort(req LLMRequest) string {
+	if req.ReasoningEffort != "" {
+		return req.ReasoningEffort
+	}
+	return d.effort
+}
+
 func (d *AnthropicDriver) buildParams(req LLMRequest, tools []ToolDef) anthropic.MessageNewParams {
 	maxTokens := int64(req.MaxTokens)
 	if maxTokens <= 0 {
@@ -296,9 +306,9 @@ func (d *AnthropicDriver) buildParams(req LLMRequest, tools []ToolDef) anthropic
 	// DeepSeek V4 Anthropic-compat endpoints — see WithAnthropicThinkingBudget,
 	// removing it triggers HTTP 400 on multi-turn tool calls). Effort is an open
 	// string type → passed through verbatim, no validation/mapping.
-	switch {
-	case d.effort != "":
-		params.OutputConfig.Effort = anthropic.OutputConfigEffort(d.effort)
+	switch effort := d.resolveEffort(req); {
+	case effort != "":
+		params.OutputConfig.Effort = anthropic.OutputConfigEffort(effort)
 	case d.thinkingBudget > 0:
 		params.Thinking = anthropic.ThinkingConfigParamOfEnabled(int64(d.thinkingBudget))
 		if params.MaxTokens <= int64(d.thinkingBudget) {

@@ -100,17 +100,23 @@ type Skill struct {
 
 // LLMRequest represents a request to an LLM driver.
 type LLMRequest struct {
-	Intent       string    `json:"intent"`
-	SystemPrompt string    `json:"system_prompt,omitempty"`
-	Model        string    `json:"model,omitempty"`
-	MaxTurns     int       `json:"max_turns,omitempty"`
-	TimeoutMs    int64     `json:"timeout_ms,omitempty"`
-	Messages     []Message `json:"messages,omitempty"`
-	Temperature  *float64  `json:"temperature,omitempty"`
-	MaxTokens    int       `json:"max_tokens,omitempty"`
-	Tools        []ToolDef `json:"tools,omitempty"`
-	Skills       []Skill   `json:"skills,omitempty"`      // R5: carried to bundle-capable drivers
-	ProjectDir   string    `json:"project_dir,omitempty"` // R5: project root for bundle placement
+	Intent       string `json:"intent"`
+	SystemPrompt string `json:"system_prompt,omitempty"`
+	Model        string `json:"model,omitempty"`
+	// ReasoningEffort overrides the driver instance's configured reasoning
+	// effort/level for this request. Empty = fall back to the instance default
+	// (the value from ProviderConfig.ReasoningEffort). Passed through verbatim:
+	// no validation, mapping, or case normalization. See CLAUDE.md "Reasoning
+	// Effort". Mirrors Model's two-tier (instance default + per-request override).
+	ReasoningEffort string    `json:"reasoning_effort,omitempty"`
+	MaxTurns        int       `json:"max_turns,omitempty"`
+	TimeoutMs       int64     `json:"timeout_ms,omitempty"`
+	Messages        []Message `json:"messages,omitempty"`
+	Temperature     *float64  `json:"temperature,omitempty"`
+	MaxTokens       int       `json:"max_tokens,omitempty"`
+	Tools           []ToolDef `json:"tools,omitempty"`
+	Skills          []Skill   `json:"skills,omitempty"`      // R5: carried to bundle-capable drivers
+	ProjectDir      string    `json:"project_dir,omitempty"` // R5: project root for bundle placement
 }
 
 // LLMResponse represents a response from an LLM driver.
