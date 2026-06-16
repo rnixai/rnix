@@ -738,6 +738,44 @@ func (k *KernelImpl) Spawn(intent string, agent *agents.AgentInfo, opts SpawnOpt
 			}
 		}
 
+		// Story 56.5 (CAP-5): attach the EventWriter HERE — after Open succeeds
+		// (proc.Model / DriverMeta / ReasoningEffort populated) but BEFORE the
+		// ConfigResolve emit below — so ConfigResolve and every spawn-early event
+		// after it (setupDriverStreamHandler's Mount, etc.) land in events.jsonl
+		// instead of being dropped by emitEvent's `ew != nil` gate (observe.go:55).
+		// The original attach point sat after AddProcess, missing every
+		// pre-AddProcess event on normal agent spawns (ConfigResolve hit was 0).
+		//
+		// Placement = story recommended option (a): Open's own error-return
+		// (above) precedes this, so an Open failure never attaches → no orphan
+		// events.jsonl / FD leak. The two MCP auto-mount error-returns below sit
+		// AFTER this attach but BEFORE AddProcess/reap, so they each call
+		// proc.DetachAndCloseEventWriter() to release the eagerly-opened FD.
+		//
+		// Mirrors the RawWriter auto-attach (below) but WITHOUT an Enabled gate:
+		// disk event persistence is always-on (observe.go:54). When dataDir is
+		// empty (bare kernel fixtures) ResolveStepBaseDir returns "" and the
+		// auto-attach is skipped — behavior unchanged from before this story.
+		//
+		// SkipReasonLoop script-runners never reach this block; their factory is
+		// invoked at the dedicated post-AddProcess block (kept for that path), so
+		// the factory fires exactly once on every spawn shape.
+		if opts.EventWriterFactory != nil {
+			if ew, ewErr := opts.EventWriterFactory(proc); ewErr != nil {
+				log.Printf("[spawn] EventWriterFactory failed pid=%d uuid=%s: %v",
+					proc.PID, proc.UUID, ewErr)
+			} else if ew != nil {
+				proc.AttachEventWriter(ew)
+			}
+		} else if baseDir := k.ResolveStepBaseDir(proc); baseDir != "" && proc.UUID != "" {
+			if ew, ewErr := NewEventWriter(baseDir, proc.UUID); ewErr != nil {
+				log.Printf("[spawn] auto-attach EventWriter failed pid=%d uuid=%s: %v",
+					proc.PID, proc.UUID, ewErr)
+			} else {
+				proc.AttachEventWriter(ew)
+			}
+		}
+
 		if k.contextWindowFunc != nil {
 			proc.ContextWindow = k.contextWindowFunc(proc.Provider, proc.Model)
 		}
@@ -793,6 +831,9 @@ func (k *KernelImpl) Spawn(intent string, agent *agents.AgentInfo, opts SpawnOpt
 		if agent != nil && len(agent.MCPConfigs) > 0 {
 			if k.mountMgr == nil {
 				_ = k.vfs.CloseAll(proc.PID)
+				// Story 56.5: release the early-attached EventWriter FD before this
+				// pre-AddProcess error-return (it never reaches reap's close path).
+				proc.DetachAndCloseEventWriter()
 				if opts.PreallocatedCtxID == 0 {
 					_ = k.ctxMgr.CtxFree(cid)
 				}
@@ -816,6 +857,11 @@ func (k *KernelImpl) Spawn(intent string, agent *agents.AgentInfo, opts SpawnOpt
 						_ = k.mountMgr.Unmount(p)
 					}
 					_ = k.vfs.CloseAll(proc.PID)
+					// Story 56.5: release the early-attached EventWriter FD before
+					// this pre-AddProcess error-return. The Mount-failure event was
+					// already emitted above (lands on disk via the early writer);
+					// detach only after that emit so the diagnostic is preserved.
+					proc.DetachAndCloseEventWriter()
 					if opts.PreallocatedCtxID == 0 {
 						_ = k.ctxMgr.CtxFree(cid)
 					}
@@ -860,7 +906,14 @@ func (k *KernelImpl) Spawn(intent string, agent *agents.AgentInfo, opts SpawnOpt
 	// Factory failure is logged but non-fatal — Spawn proceeds without a
 	// writer (degrades trace events to no-ops via the `ew != nil` gate in
 	// emitEvent).
-	if opts.EventWriterFactory != nil {
+	//
+	// Story 56.5: scoped to the SkipReasonLoop path only. The !SkipReasonLoop
+	// path already attached its EventWriter (factory OR auto-attach) inside the
+	// block above, BEFORE the ConfigResolve emit (CAP-5). SkipReasonLoop
+	// script-runners never enter that block, so their factory must still fire
+	// here — keeping the attach exactly once on every spawn shape and avoiding a
+	// redundant second factory invocation on normal agent spawns.
+	if opts.SkipReasonLoop && opts.EventWriterFactory != nil {
 		if ew, ewErr := opts.EventWriterFactory(proc); ewErr != nil {
 			log.Printf("[spawn] EventWriterFactory failed pid=%d uuid=%s: %v",
 				proc.PID, proc.UUID, ewErr)

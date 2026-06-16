@@ -124,8 +124,6 @@ func (f *mockLLMFileWithEffort) ReasoningEffort() string { return f.effort }
 // ---------------------------------------------------------------------------
 
 func TestATDD_56_5_AC1_NormalSpawnNoFactory_EventsContainConfigResolve(t *testing.T) {
-	t.Skip("RED (Story 56.5 AC#1 · CAP-5): EventWriter 早挂未实现前，ConfigResolve 在 spawn 期 emit 时 eventWriter==nil 被 emitEvent 门控丢弃，events.jsonl 命中=0。dev-story 把 attach 提前到 ConfigResolve emit 之前后移除此 skip → 实跑验真 FAIL→GREEN。")
-
 	llm := &mockLLMFile{readData: makeLLMResponse("done", 10)}
 	k, proc := spawnEarlyEWNoFactory(t, llm)
 
@@ -155,8 +153,6 @@ func TestATDD_56_5_AC1_NormalSpawnNoFactory_EventsContainConfigResolve(t *testin
 // ---------------------------------------------------------------------------
 
 func TestATDD_56_5_AC8_ConfigResolveCarriesProviderModelEffort(t *testing.T) {
-	t.Skip("RED (Story 56.5 AC#8): 依赖 ConfigResolve 落盘（AC#1）。早挂未实现前事件不在 events.jsonl，无法断言携带字段。dev-story 移 skip 实跑验真 FAIL→GREEN（呼应 55.2：effort 设置→提交→落盘可观察链）。")
-
 	llm := &mockLLMFileWithEffort{
 		mockLLMFile: mockLLMFile{readData: makeLLMResponse("done", 10)},
 		model:       "claude-test-model",

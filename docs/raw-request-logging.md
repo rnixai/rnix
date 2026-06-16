@@ -156,6 +156,7 @@ streaming 路径下捕获原始 SSE 字节流要点：
 
 - `steps.jsonl` 的 `messages` / `raw_response` **不变**：那是 driver 解析后的归一化形态（`{role, content, tool_calls...}`）。
 - `events.jsonl` 的 `Write` 事件 args 维持 `{fd, size, model, reasoning_effort}` 四字段不变。
+- spawn 早期的 `ConfigResolve` 事件（携带 `provider` / `model` / `reasoning_effort` 等）自 **56.5（CAP-5）** 起落盘 `events.jsonl`——此前 EventWriter 在 spawn 末尾才 attach，早于此的 `ConfigResolve` 被丢进 nil writer（实测命中 0）；56.5 把 attach 提前到 `ConfigResolve` emit 之前，命中 0→>0。
 - `raw.jsonl` 是**新增**第三类落盘文件，独立于上述两类，互不读写。
 
 ## 查询（事后取回 · 56.4 · CAP-3）
