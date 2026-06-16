@@ -455,9 +455,10 @@ func (s *Server) resolveEventsPath(uuid string) string {
 // kernel 读 API。无文件 / 空 uuid → {Records: []}（OK=true 空列表，不报错）。
 //
 // Step==0 → ReadAllRawWithErrors（全部记录 + malformed 计数, AC#8）；
-// Step>0 → ReadRawForStep（仅该 step 一条）。读路径零反脱敏——落盘已脱敏的
-// 凭据指纹原样返回（AC#5）。三路（strace / dashboard / 直接 IPC）共用此唯一
-// 后端，天然一致（AC#4）。
+// Step>0 → ReadRawForStepWithErrors（仅该 step 一条 + 全文件 malformed 计数，
+// 让单步查询路径也暴露 ParseErrors · 56.4 review decision 1→a）。读路径零反脱敏——
+// 落盘已脱敏的凭据指纹原样返回（AC#5）。三路（strace / dashboard / 直接 IPC）共用
+// 此唯一后端，天然一致（AC#4）。
 func (s *Server) handleGetRawCapture(conn net.Conn, rawPayload json.RawMessage) {
 	var req GetRawCaptureRequest
 	if err := json.Unmarshal(rawPayload, &req); err != nil {
@@ -481,12 +482,12 @@ func (s *Server) handleGetRawCapture(conn net.Conn, rawPayload json.RawMessage) 
 	}
 
 	if req.Step > 0 {
-		rec, err := kernel.ReadRawForStep(rawPath, req.Step)
+		rec, parseErrors, err := kernel.ReadRawForStepWithErrors(rawPath, req.Step)
 		if err != nil || rec == nil {
-			writeResponse(conn, Response{OK: true, Payload: mustMarshal(GetRawCaptureResponse{Records: []vfs.RawCapture{}})})
+			writeResponse(conn, Response{OK: true, Payload: mustMarshal(GetRawCaptureResponse{Records: []vfs.RawCapture{}, ParseErrors: parseErrors})})
 			return
 		}
-		writeResponse(conn, Response{OK: true, Payload: mustMarshal(GetRawCaptureResponse{Records: []vfs.RawCapture{*rec}})})
+		writeResponse(conn, Response{OK: true, Payload: mustMarshal(GetRawCaptureResponse{Records: []vfs.RawCapture{*rec}, ParseErrors: parseErrors})})
 		return
 	}
 

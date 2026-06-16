@@ -203,17 +203,32 @@ func ReadAllRawWithErrors(path string) ([]vfs.RawCapture, int, error) {
 
 // ReadRawForStep returns the RawCapture record whose Step matches the given
 // step number, or nil if no such record exists.
+//
+// Thin wrapper over ReadRawForStepWithErrors (Story 56.4 review patch) —
+// existing callers keep the 2-value signature; the parse-error count is
+// discarded here.
 func ReadRawForStep(path string, step int) (*vfs.RawCapture, error) {
-	all, err := ReadAllRaw(path)
+	rec, _, err := ReadRawForStepWithErrors(path, step)
+	return rec, err
+}
+
+// ReadRawForStepWithErrors returns the RawCapture record whose Step matches the
+// given step number (or nil), plus a count of malformed lines in the whole file
+// (Story 56.4 review patch · decision 1→a). Scanning the full file for the
+// parse-error count keeps "N lines skipped (malformed)" observable on the
+// single-step query path too (dashboard lens / `strace --raw --step N`), not
+// just the Step=0 full-listing path — matching AC#8's 三路 parity intent.
+func ReadRawForStepWithErrors(path string, step int) (*vfs.RawCapture, int, error) {
+	all, parseErrors, err := ReadAllRawWithErrors(path)
 	if err != nil {
-		return nil, err
+		return nil, parseErrors, err
 	}
 	for i := range all {
 		if all[i].Step == step {
-			return &all[i], nil
+			return &all[i], parseErrors, nil
 		}
 	}
-	return nil, nil
+	return nil, parseErrors, nil
 }
 
 // captureRawLLMCall is the kernel reasonStep hook (Story 56.1 AC#6/#7). It

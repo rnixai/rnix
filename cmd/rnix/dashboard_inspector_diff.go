@@ -129,6 +129,14 @@ func (m dashboardModel) handleInspectorDiffKey() (tea.Model, tea.Cmd) {
 	// If base detail is already cached, re-render diff now; otherwise request it.
 	cmd := m.ensureDiffBaseDetailCmd()
 	m.rebuildInspectorContents()
+	// Story 56.4 review decision 3→1: if the Raw lens is active, also fetch the
+	// diff base step's raw capture so both diff sides render their own record.
+	if rawCmd := m.maybeFetchInspectorRaw(); rawCmd != nil {
+		if cmd != nil {
+			return m, tea.Batch(cmd, rawCmd)
+		}
+		return m, rawCmd
+	}
 	return m, cmd
 }
 

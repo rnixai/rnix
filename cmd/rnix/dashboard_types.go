@@ -276,13 +276,16 @@ type inspectorDetailMsg struct {
 
 // inspectorRawMsg carries a lazily-fetched raw LLM capture for one step
 // (Story 56.4 · CAP-3 路② Raw lens 懒加载回填). capture==nil = no raw record
-// for this step (cached as a negative hit to avoid re-fetching).
+// for this step (cached as a negative hit to avoid re-fetching). parseErrors
+// carries the malformed-line count surfaced from the read backend (56.4 review
+// decision 1→a) so the lens can show "N line(s) skipped" like strace --raw.
 type inspectorRawMsg struct {
-	pid     types.PID
-	uuid    string
-	step    int
-	capture *vfs.RawCapture
-	err     error
+	pid         types.PID
+	uuid        string
+	step        int
+	capture     *vfs.RawCapture
+	parseErrors int
+	err         error
 }
 
 type inspectorStepListMsg struct {

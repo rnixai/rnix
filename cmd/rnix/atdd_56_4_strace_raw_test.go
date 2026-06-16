@@ -243,3 +243,43 @@ func TestATDD_56_4_AC2_StraceRealtime_NoRawFlag_NoRegression(t *testing.T) {
 		t.Error("AC#2: flagStraceRaw should remain false in realtime path")
 	}
 }
+
+// 56.4 review decision 1→a: buildRawLens 在 ParseErrors>0 时追加 malformed 提示行，
+// 使 dashboard Raw lens 与 strace --raw 一致暴露被跳过的行。
+func TestReview_56_4_BuildRawLens_ParseErrorHint(t *testing.T) {
+	step := 3
+	m := dashboardModel{width: 80}
+	m.inspector.Step = step
+	m.inspector.Lens = lensRaw
+	m.inspector.RawByStep = map[int]*vfs.RawCapture{
+		step: {Step: step, Kind: "api", Request: map[string]any{"url": "https://x"}},
+	}
+	m.inspector.RawParseErrByStep = map[int]int{step: 2}
+
+	out := m.buildRawLens(step)
+	if !strings.Contains(out, "2 line(s) skipped (malformed)") {
+		t.Errorf("decision 1→a: lens must surface malformed-line hint, got:\n%s", out)
+	}
+}
+
+// 56.4 review decision 3→1: buildRawLens 按传入 step 取缓存，使 diff 两侧
+// （base/current）渲染各自记录，而非恒同。
+func TestReview_56_4_BuildRawLens_PerStepSelectsRecord(t *testing.T) {
+	m := dashboardModel{width: 80}
+	m.inspector.RawByStep = map[int]*vfs.RawCapture{
+		1: {Step: 1, Kind: "api", Request: map[string]any{"url": "https://base-url"}},
+		2: {Step: 2, Kind: "api", Request: map[string]any{"url": "https://current-url"}},
+	}
+
+	baseOut := m.buildRawLens(1)
+	curOut := m.buildRawLens(2)
+	if baseOut == curOut {
+		t.Fatal("decision 3→1: diff sides must differ per step, got identical content")
+	}
+	if !strings.Contains(baseOut, "base-url") {
+		t.Errorf("step 1 render should contain base-url, got:\n%s", baseOut)
+	}
+	if !strings.Contains(curOut, "current-url") {
+		t.Errorf("step 2 render should contain current-url, got:\n%s", curOut)
+	}
+}

@@ -1435,8 +1435,12 @@ func runStraceRaw(cmd *cobra.Command, pid types.PID) error {
 		return nil
 	}
 
+	// Render width tracks the actual terminal (mirrors the dashboard lens
+	// passing m.width); fall back to the detected profile default for non-TTY
+	// / piped output instead of a hardcoded constant (56.4 review patch).
+	rawWidth := ui.DetectProfile(w).Width
 	for i := range resp.Records {
-		fmt.Fprintln(w, inspector.RenderRawLens(&resp.Records[i], 100))
+		fmt.Fprintln(w, inspector.RenderRawLens(&resp.Records[i], rawWidth))
 		fmt.Fprintln(w)
 	}
 	if resp.ParseErrors > 0 {

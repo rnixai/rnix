@@ -63,6 +63,12 @@ func (m dashboardModel) enterStepInspector() (tea.Model, tea.Cmd) {
 	m.inspector.Lens = lensConversation
 	m.inspector.Fetching = false
 	m.inspector.SystemExpanded = false
+	// Story 56.4 review patch: reset the Raw lens lazy-load caches on entry.
+	// RawByStep is keyed only by step (not PID/UUID), so a stale entry from a
+	// previously-inspected process would otherwise bleed into this process's
+	// Raw I/O lens (cache hit → no re-fetch → wrong process's request shown).
+	m.inspector.RawByStep = nil
+	m.inspector.RawParseErrByStep = nil
 	// Story 36-5 fix: reset cross-pane search state when entering Inspector to
 	// avoid stale searchQuery carried over from Timeline.
 	//
@@ -150,29 +156,58 @@ func fetchInspectorRawCmd(pid types.PID, uuid string, step int) tea.Cmd {
 			rec := resp.Records[0]
 			rc = &rec
 		}
-		return inspectorRawMsg{pid: pid, uuid: uuid, step: step, capture: rc}
+		return inspectorRawMsg{pid: pid, uuid: uuid, step: step, capture: rc, parseErrors: resp.ParseErrors}
 	}
 }
 
-// maybeFetchInspectorRaw returns a fetch command for the current step's raw
-// capture if it is not already cached (nil otherwise). Called when the Raw lens
-// activates or when the step changes while the Raw lens is active.
+// maybeFetchInspectorRaw returns a fetch command for the raw capture(s) needed
+// by the Raw lens that are not already cached (nil otherwise). Called when the
+// Raw lens activates or when the step changes while the Raw lens is active.
+// Fetches the focused step; in diff mode it also fetches the diff base step so
+// both diff sides render their own record (56.4 review decision 3→1).
 func (m dashboardModel) maybeFetchInspectorRaw() tea.Cmd {
 	if m.inspector.Lens != lensRaw {
 		return nil
 	}
+	var cmds []tea.Cmd
+	if cmd := m.fetchRawForStepIfMissing(m.inspector.Step); cmd != nil {
+		cmds = append(cmds, cmd)
+	}
+	if m.inspector.DiffMode && m.inspector.DiffBase > 0 && m.inspector.DiffBase != m.inspector.Step {
+		if cmd := m.fetchRawForStepIfMissing(m.inspector.DiffBase); cmd != nil {
+			cmds = append(cmds, cmd)
+		}
+	}
+	switch len(cmds) {
+	case 0:
+		return nil
+	case 1:
+		return cmds[0]
+	default:
+		return tea.Batch(cmds...)
+	}
+}
+
+// fetchRawForStepIfMissing issues a raw-capture fetch for one step unless it is
+// already cached (a present key, including a cached nil "no record", counts as
+// cached). Returns nil when no fetch is needed.
+func (m dashboardModel) fetchRawForStepIfMissing(step int) tea.Cmd {
 	if m.inspector.RawByStep != nil {
-		if _, ok := m.inspector.RawByStep[m.inspector.Step]; ok {
+		if _, ok := m.inspector.RawByStep[step]; ok {
 			return nil // already cached (incl. cached nil "no record")
 		}
 	}
-	return fetchInspectorRawCmd(m.inspector.PID, m.inspector.UUID, m.inspector.Step)
+	return fetchInspectorRawCmd(m.inspector.PID, m.inspector.UUID, step)
 }
 
 // handleInspectorRawMsg caches a lazily-fetched raw capture and rebuilds lens
 // content if the Raw lens is still focused on the same step (Story 56.4). Stale
-// responses (PID/UUID mismatch) are dropped. capture==nil caches a negative hit
-// so a step with no raw record is not re-fetched on every redraw.
+// responses (PID/UUID mismatch) are dropped. capture==nil normally caches a
+// negative hit so a step with no raw record is not re-fetched on every redraw —
+// EXCEPT while the inspected process is still Running (56.4 review decision
+// 2→1): a not-yet-flushed raw.jsonl line would otherwise pin a permanent nil and
+// the record would never appear once it lands on disk. For live processes we
+// skip caching the nil so a later revisit (incl. Follow-live) re-fetches.
 func (m dashboardModel) handleInspectorRawMsg(msg inspectorRawMsg) (dashboardModel, tea.Cmd) {
 	if msg.err != nil {
 		m.statusMsg = fmt.Sprintf("✗ Raw I/O: %v", msg.err)
@@ -182,10 +217,31 @@ func (m dashboardModel) handleInspectorRawMsg(msg inspectorRawMsg) (dashboardMod
 	if msg.pid != m.inspector.PID || msg.uuid != m.inspector.UUID {
 		return m, nil
 	}
+	// Liveness-aware negative caching (decision 2→1): only cache a nil capture
+	// when the process is no longer Running, so live processes whose raw line
+	// hasn't been flushed yet can re-fetch.
+	if msg.capture == nil {
+		if state, known := m.inspectorProcessState(); known && state == types.StateRunning {
+			// Still record the parse-error count so a malformed-only step is
+			// not silently empty, but leave RawByStep unset to allow re-fetch.
+			if m.inspector.RawParseErrByStep == nil {
+				m.inspector.RawParseErrByStep = make(map[int]int)
+			}
+			m.inspector.RawParseErrByStep[msg.step] = msg.parseErrors
+			if m.inspector.Lens == lensRaw && msg.step == m.inspector.Step {
+				m.rebuildInspectorContents()
+			}
+			return m, nil
+		}
+	}
 	if m.inspector.RawByStep == nil {
 		m.inspector.RawByStep = make(map[int]*vfs.RawCapture)
 	}
+	if m.inspector.RawParseErrByStep == nil {
+		m.inspector.RawParseErrByStep = make(map[int]int)
+	}
 	m.inspector.RawByStep[msg.step] = msg.capture
+	m.inspector.RawParseErrByStep[msg.step] = msg.parseErrors
 	if m.inspector.Lens == lensRaw && msg.step == m.inspector.Step {
 		m.rebuildInspectorContents()
 	}
@@ -1199,7 +1255,7 @@ func (m dashboardModel) buildLensContent(lens inspectorLens, detail, prevDetail 
 	case lensRawJSON:
 		return m.buildRawJSONLens(detail)
 	case lensRaw:
-		return m.buildRawLens()
+		return m.buildRawLens(detail.Step)
 	default:
 		return ""
 	}
@@ -1222,7 +1278,7 @@ func (m dashboardModel) buildFullLensContent(lens inspectorLens, detail, prevDet
 	case lensRawJSON:
 		return m.buildRawJSONLens(detail)
 	case lensRaw:
-		return m.buildRawLens()
+		return m.buildRawLens(detail.Step)
 	default:
 		return ""
 	}
@@ -1806,17 +1862,33 @@ func renderTokenLine(label string, count, total int, totalLine bool) string {
 // bypassed entirely and the raw indented JSON is returned (Story 38-3 AC#5).
 // This keeps very large step details responsive at the cost of plain text.
 // buildRawLens builds Lens ❻ (Story 56.4 · CAP-3 路②): the raw LLM request/
-// response for the current step. Data is lazily fetched into RawByStep via
-// fetchInspectorRawCmd; this thin wrapper delegates rendering to the shared
+// response for a step. Data is lazily fetched into RawByStep via
+// fetchInspectorRawCmd; this wrapper delegates rendering to the shared
 // inspector.RenderRawLens pure helper (the same helper strace --raw uses,
 // keeping the三路 render convergent · AC#4). A cache miss / negative hit renders
 // the helper's nil placeholder.
-func (m dashboardModel) buildRawLens() string {
+//
+// step selects which cached record to render: in diff mode the base/current
+// sides pass their own detail.Step so the two sides differ (56.4 review
+// decision 3→1); outside diff mode callers pass the focused step. A malformed-
+// line count (>0) is appended as a hint line so the lens surfaces skipped lines
+// like strace --raw (56.4 review decision 1→a).
+func (m dashboardModel) buildRawLens(step int) string {
 	var rc *vfs.RawCapture
 	if m.inspector.RawByStep != nil {
-		rc = m.inspector.RawByStep[m.inspector.Step]
+		rc = m.inspector.RawByStep[step]
 	}
-	return inspector.RenderRawLens(rc, m.width)
+	out := inspector.RenderRawLens(rc, m.width)
+	if m.inspector.RawParseErrByStep != nil {
+		if n := m.inspector.RawParseErrByStep[step]; n > 0 {
+			glyph := "⚠"
+			if ui.IsASCIIMode() {
+				glyph = "!"
+			}
+			out += fmt.Sprintf("\n\n%s %d line(s) skipped (malformed)", glyph, n)
+		}
+	}
+	return out
 }
 
 func (m dashboardModel) buildRawJSONLens(detail *ipc.GetStepDetailResponse) string {

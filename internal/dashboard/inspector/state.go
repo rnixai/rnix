@@ -154,4 +154,7 @@ type InspectorState struct {
 	// step 的 raw 记录并缓存于此（nil 安全 · key=step 序号）。不进 GetStepDetail
 	// 以免非 raw lens 的 step 拉取被增重。
 	RawByStep map[int]*vfs.RawCapture
+	// RawParseErrByStep 缓存每个 step 查询返回的 malformed 行计数（56.4 review
+	// decision 1→a）· >0 时 Raw lens 渲染 "N line(s) skipped (malformed)"。
+	RawParseErrByStep map[int]int
 }

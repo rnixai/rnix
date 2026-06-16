@@ -367,6 +367,46 @@ func TestATDD_56_4_AC8_Handler_MalformedLines_Counted(t *testing.T) {
 	}
 }
 
+// 56.4 review decision 1→a: 单步查询路径 (Step>0) 也须暴露 malformed 计数。
+// 修复前 Step>0 走 ReadRawForStep（丢弃计数）→ ParseErrors 恒 0，使 dashboard lens
+// 与 strace --raw --step N 永不可见 malformed 行。本测试锁定单步路径的 ParseErrors。
+func TestATDD_56_4_AC8_Handler_SingleStep_MalformedCounted(t *testing.T) {
+
+	srv, sockPath, _ := setupTestServer(t)
+	proc := kernel.NewProcess(0, "single-step malformed test", nil)
+	_ = proc.Start()
+	_, projBase := kernel.TestSetupDataDir(t, srv.kern)
+	kernel.TestSetProjectConfig(proc)
+
+	// 1 good (step 1) + 1 malformed + 1 good (step 2)
+	dir := filepath.Join(projBase, "steps", proc.UUID)
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	good1, _ := json.Marshal(testRawAPIRecord(1))
+	good2, _ := json.Marshal(testRawCLIRecord(2))
+	content := string(good1) + "\n" + "{ not valid json\n" + string(good2) + "\n"
+	if err := os.WriteFile(filepath.Join(dir, "raw.jsonl"), []byte(content), 0o644); err != nil {
+		t.Fatalf("write raw.jsonl: %v", err)
+	}
+	srv.kern.AddProcess(proc)
+
+	conn := dial(t, sockPath)
+	// 单步查询 step=2：仍须返回该 step 一条 + 全文件 malformed 计数 1。
+	resp := sendRequest(t, conn, MethodGetRawCapture, GetRawCaptureRequest{PID: proc.PID, Step: 2})
+	if !resp.OK {
+		t.Fatalf("single-step: request failed: %+v", resp.Error)
+	}
+	var out GetRawCaptureResponse
+	_ = json.Unmarshal(resp.Payload, &out)
+	if len(out.Records) != 1 {
+		t.Errorf("single-step: expected 1 record for step 2, got %d", len(out.Records))
+	}
+	if out.ParseErrors != 1 {
+		t.Errorf("decision 1→a: single-step query must surface ParseErrors=1, got %d", out.ParseErrors)
+	}
+}
+
 // ---------------------------------------------------------------------------
 // AC#4: 三路一致性 — IPC 后端为唯一数据源 (t.Skip until impl)
 // ---------------------------------------------------------------------------
