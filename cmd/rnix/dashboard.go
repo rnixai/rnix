@@ -569,6 +569,8 @@ func (m dashboardModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 	case inspectorDetailMsg:
 		return m.handleInspectorDetailMsg(msg)
+	case inspectorRawMsg:
+		return m.handleInspectorRawMsg(msg)
 	case inspectorStepListMsg:
 		return m.handleInspectorStepListMsg(msg)
 	case followLiveTickMsg:

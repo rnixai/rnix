@@ -413,6 +413,11 @@ func (m dashboardModel) handleInspectorDetailMsg(msg inspectorDetailMsg) (dashbo
 			m.refreshInspectorDiffLensMarks()
 		}
 		m.rebuildInspectorContents()
+		// Story 56.4: if the Raw lens is focused, lazily fetch this step's raw
+		// capture (only when not already cached).
+		if cmd := m.maybeFetchInspectorRaw(); cmd != nil {
+			return m, cmd
+		}
 	} else if m.inspector.DiffMode && msg.step == m.inspector.DiffBase {
 		// Story 38-3 review P9: when the async base detail finally arrives,
 		// recompute marks now that lookupDiffBaseDetail() returns non-nil.

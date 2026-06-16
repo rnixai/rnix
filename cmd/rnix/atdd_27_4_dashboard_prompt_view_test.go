@@ -352,7 +352,7 @@ func TestInspector_FooterContainsAllHints(t *testing.T) {
 m := newTestInspectorModelWithDetail()
 footer := m.renderInspectorFooter()
 
-for _, hint := range []string{"h/l", "1-5", "j/k", "copy", "open", "Esc"} {
+for _, hint := range []string{"h/l", "1-6", "j/k", "copy", "open", "Esc"} {
 if !strings.Contains(footer, hint) {
 t.Errorf("Inspector footer should contain hint %q", hint)
 }

@@ -74,7 +74,6 @@ func TestATDD_56_4_AC3_LensRaw_OrderAfterRawJSON(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 func TestATDD_56_4_AC3_LensCount_Is6(t *testing.T) {
-	t.Skip("Story 56.4 RED: LensCount still 5 (skeleton) — dev bumps state.go LensCount 5→6 + syncs lensNames/按键6/数组, then removes skip")
 
 	if LensCount != 6 {
 		t.Fatalf("AC#3: LensCount must sync to 6 when LensRaw is added (否则 viewport/content "+
@@ -87,7 +86,6 @@ func TestATDD_56_4_AC3_LensCount_Is6(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 func TestATDD_56_4_AC3_RenderRawLens_API(t *testing.T) {
-	t.Skip("Story 56.4 RED: RenderRawLens not implemented — dev removes skip to verify RED→GREEN")
 
 	out := RenderRawLens(rawAPIFixture(), 80)
 	// API 族须可见 method / url / 以及 body 内的 effort 真实值（CAP-3 核心）
@@ -103,7 +101,6 @@ func TestATDD_56_4_AC3_RenderRawLens_API(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 func TestATDD_56_4_AC3_RenderRawLens_CLI(t *testing.T) {
-	t.Skip("Story 56.4 RED: RenderRawLens not implemented — dev removes skip to verify RED→GREEN")
 
 	out := RenderRawLens(rawCLIFixture(), 80)
 	// CLI 族须可见 argv 内的 --effort 真实值 + stdout + exit_code（CAP-3 核心）
@@ -119,7 +116,6 @@ func TestATDD_56_4_AC3_RenderRawLens_CLI(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 func TestATDD_56_4_AC3_RenderRawLens_TruncatedMarkerVisible(t *testing.T) {
-	t.Skip("Story 56.4 RED: RenderRawLens not implemented — dev removes skip to verify RED→GREEN")
 
 	rc := rawAPIFixture()
 	rc.Truncated = true
@@ -139,7 +135,6 @@ func TestATDD_56_4_AC3_RenderRawLens_TruncatedMarkerVisible(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 func TestATDD_56_4_AC5_RenderRawLens_RedactedFingerprintShown(t *testing.T) {
-	t.Skip("Story 56.4 RED: RenderRawLens not implemented — dev removes skip to verify RED→GREEN")
 
 	out := RenderRawLens(rawAPIFixture(), 80)
 	// 落盘已脱敏 → lens 读到即显示指纹，零反脱敏

@@ -52,10 +52,9 @@ const (
 
 // LensCount 是 Lens 枚举的总数。原 cmd/rnix.inspectorLensCount 等价。
 //
-// Story 56.4 RED SKELETON: 仍为 5（保持既有 [LensCount] 数组 + cmd/rnix lensNames
-// 5 元素字面量编译有效）。dev 落地 Raw lens 时把此处改为 6，同步扩 lensNames /
-// 按键 6 / viewport·content 数组，并验证 LensCount==6 守门测试 RED→GREEN。
-const LensCount = 5
+// Story 56.4: Raw lens（LensRaw ❻）落地后由 5 → 6——cmd/rnix lensNames /
+// 按键 6 / viewport·content 数组（[LensCount]）随之扩容。
+const LensCount = 6
 
 // SearchMatchPos identifies the byte-range location of a single search hit
 // inside the Inspector's currently active lens content. Story 38-3 AC#8:

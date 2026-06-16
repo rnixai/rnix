@@ -2114,7 +2114,7 @@ func TestStepInspector_ViewContainsFooterHints(t *testing.T) {
 	}
 }
 
-// --- 36.1-UNIT-017: [P0] 数字键 1-5 切换 Lens ---
+// --- 36.1-UNIT-017: [P0] 数字键 1-6 切换 Lens ---
 
 func TestStepInspector_LensSwitching(t *testing.T) {
 	tests := []struct {
@@ -2126,6 +2126,7 @@ func TestStepInspector_LensSwitching(t *testing.T) {
 		{'3', lensToolIO},
 		{'4', lensMeta},
 		{'5', lensRawJSON},
+		{'6', lensRaw},
 	}
 	for _, tt := range tests {
 		m := newTestStepInspectorModel()

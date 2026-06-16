@@ -157,3 +157,43 @@ streaming 路径下捕获原始 SSE 字节流要点：
 - `steps.jsonl` 的 `messages` / `raw_response` **不变**：那是 driver 解析后的归一化形态（`{role, content, tool_calls...}`）。
 - `events.jsonl` 的 `Write` 事件 args 维持 `{fd, size, model, reasoning_effort}` 四字段不变。
 - `raw.jsonl` 是**新增**第三类落盘文件，独立于上述两类，互不读写。
+
+## 查询（事后取回 · 56.4 · CAP-3）
+
+落盘后的 `raw.jsonl` 由 **三路** 取回并展示——给定一个已结束（reaped）进程的 uuid（+ 可选 step），三者取到的是**同一条**底层记录。三路共用同一个新 IPC 方法 `get_raw_capture` 作为**唯一数据后端**，天然一致。
+
+### 单一后端：`get_raw_capture` IPC 方法
+
+| 项 | 内容 |
+|----|------|
+| 方法常量 | `MethodGetRawCapture = "get_raw_capture"`（`ipc/protocol.go`） |
+| Request | `GetRawCaptureRequest{ PID, UUID string, Step int }`——`Step==0` 取全部记录，`Step>0` 取该 step 单条 |
+| Response | `GetRawCaptureResponse{ Records []vfs.RawCapture, ParseErrors int }`——直接复用 `vfs.RawCapture`，不另造 wire 类型 |
+| UUID 解析 | `UUID==""` 时由 PID 经 `GetProcess`（live）→ `FindHistoryByPID`（reaped 历史）解析 |
+| 读盘 | `resolveRawPath(uuid)` → `<baseDir>/steps/<uuid>/raw.jsonl`；`kernel.ReadAllRawWithErrors` / `kernel.ReadRawForStep` |
+| 无文件 / 空 uuid | 返回 `{Records: []}`（`OK=true` 空列表，**不报错**，与 `list_events` 一致） |
+
+### 路① `rnix strace <pid> --raw`
+
+```bash
+rnix strace <pid> --raw              # 渲染该进程全部 raw 记录（人类可读）
+rnix strace <pid> --raw --step 3     # 仅 step 3 一条
+rnix strace <pid> --raw --uuid <u>   # 直接按 uuid 定位已 reaped 进程（覆盖 PID 解析）
+rnix strace <pid> --raw --json       # 输出原始 vfs.RawCapture JSON（NDJSON）
+```
+
+`--raw` 是 `runStrace` 顶部**早分支**，与实时 `AttachDebug` 流互斥——未传 `--raw` 时实时 strace 行为零变化。无记录时给出 `[strace] no raw captures for <target>` 友好提示，非报错退出。
+
+### 路② dashboard inspector — Raw I/O lens（❻）
+
+Step Inspector 新增第 6 个 lens `❻ Raw I/O`（按键 `6`），展示当前 step 的原始请求/响应。数据**懒加载**：仅当 Raw lens 激活（或在该 lens 下切 step）时经 `get_raw_capture` 按 step 拉取，缓存进 `InspectorState.RawByStep`——不进 `GetStepDetail`，以免给非 raw lens 的每次 step 拉取增重（raw body 可达 4MB）。
+
+### 渲染收敛
+
+strace `--raw` 与 dashboard Raw lens 共用同一个 pure helper `inspector.RenderRawLens(*vfs.RawCapture, width)`——按 `Kind`（`api` / `cli`）分支取键渲染：API 显示 method/url/headers/body，CLI 显示 argv/stdin/env + stdout/stderr/exit_code。`reasoning_effort`（API body）/ `--effort`（CLI argv）的真实值在渲染中可见，这正是 CAP-3 要兑现的核心。
+
+### 脱敏 / 截断在读路径的语义
+
+- **读路径零反脱敏**：`raw.jsonl` 落盘时凭据已被脱敏为 `redacted(len=..,prefix=..,sha256=..)` 指纹，三路读到什么显示什么，**绝不还原**。
+- **截断可见**：超 `max_output_bytes` 的记录其 `Truncated` / `OriginalBytes` 在三路均可见（lens 顶部一行 `⚠ truncated (original N bytes)`）。
+- **malformed 可见**：`ReadAllRawWithErrors` 计数 unmarshal 失败的行（`ParseErrors`），strace / lens 在 `>0` 时提示 `N line(s) skipped (malformed)`——消化此前静默 `continue` 跳过的可观察性缺口（deferred #17）。

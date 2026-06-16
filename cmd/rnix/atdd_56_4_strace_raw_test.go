@@ -20,10 +20,16 @@ package main
 
 import (
 	"bytes"
+	"encoding/json"
+	"os"
+	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 
 	"github.com/rnixai/rnix/ipc"
+	"github.com/rnixai/rnix/kernel"
+	"github.com/rnixai/rnix/vfs"
 )
 
 // withStraceBogusSocket points ipc.Dial at a non-existent socket so --raw 模式
@@ -45,6 +51,48 @@ func resetStraceFlags(t *testing.T) {
 		flagStraceUUID = ""
 		flagJSON = false
 	})
+}
+
+// setupRawStraceFixture starts an in-proc daemon, registers a live process, and
+// writes a raw.jsonl fixture (1 API record with reasoning_effort=high) at the
+// production FindBaseDirByUUID layout. Returns the process so the test can
+// target it by PID. Points ipc.SocketPathOverride at the daemon.
+func setupRawStraceFixture(t *testing.T) *kernel.Process {
+	t.Helper()
+	sockPath, kern := setupTestIPCServer(t)
+	ipc.SocketPathOverride = sockPath
+	t.Cleanup(func() { ipc.SocketPathOverride = "" })
+
+	proc := kernel.NewProcess(0, "raw strace test", nil)
+	_ = proc.Start()
+	_, projBase := kernel.TestSetupDataDir(t, kern)
+	kernel.TestSetProjectConfig(proc)
+
+	rec := vfs.RawCapture{
+		TsMs: 1000,
+		Step: 1,
+		Kind: "api",
+		Request: map[string]any{
+			"method":  "POST",
+			"url":     "https://api.example.com/v1/messages",
+			"headers": map[string]any{"authorization": "redacted(len=40,prefix=sk-,sha256=abcd)"},
+			"body":    `{"model":"claude","reasoning_effort":"high"}`,
+		},
+		Response: map[string]any{
+			"status": float64(200),
+			"body":   `{"role":"assistant"}`,
+		},
+	}
+	dir := filepath.Join(projBase, "steps", proc.UUID)
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatalf("mkdir fixture: %v", err)
+	}
+	data, _ := json.Marshal(rec)
+	if err := os.WriteFile(filepath.Join(dir, "raw.jsonl"), append(data, '\n'), 0o644); err != nil {
+		t.Fatalf("write raw.jsonl: %v", err)
+	}
+	kern.AddProcess(proc)
+	return proc
 }
 
 // ---------------------------------------------------------------------------
@@ -87,10 +135,25 @@ func TestATDD_56_4_AC2_StraceRaw_DaemonDown_FriendlyNotice(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 func TestATDD_56_4_AC2_StraceRaw_RendersEffortValue(t *testing.T) {
-	t.Skip("Story 56.4 RED: runStraceRaw render not implemented — dev removes skip, starts in-proc daemon + raw.jsonl fixture, verifies effort 真实值可见")
+	resetStraceFlags(t)
+	proc := setupRawStraceFixture(t)
+	flagStraceRaw = true
 
-	// 期望（dev 实现后）：--raw 模式对含 reasoning_effort=high 的 API 记录
-	// 渲染人类可读文本，输出须含 "reasoning_effort" 与 "high"（CAP-3 核心）。
+	var buf bytes.Buffer
+	straceCmd.SetOut(&buf)
+	straceCmd.SetErr(&buf)
+
+	if err := runStrace(straceCmd, []string{strconv.Itoa(int(proc.PID))}); err != nil {
+		t.Fatalf("AC#2: --raw render should not error, got: %v", err)
+	}
+	out := buf.String()
+	// --raw 模式对含 reasoning_effort=high 的 API 记录渲染人类可读文本，
+	// 输出须含 "reasoning_effort" 与 "high"（CAP-3 核心可见点）。
+	for _, want := range []string{"reasoning_effort", "high", "POST", "api.example.com"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("AC#2: --raw render missing %q\n---\n%s", want, out)
+		}
+	}
 }
 
 // ---------------------------------------------------------------------------
@@ -98,10 +161,32 @@ func TestATDD_56_4_AC2_StraceRaw_RendersEffortValue(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 func TestATDD_56_4_AC2_StraceRaw_JSONOutput(t *testing.T) {
-	t.Skip("Story 56.4 RED: runStraceRaw --json not implemented — dev removes skip, verifies raw RawCapture JSON (NDJSON/array, 与既有 strace --json 风格一致)")
+	resetStraceFlags(t)
+	proc := setupRawStraceFixture(t)
+	flagStraceRaw = true
+	flagJSON = true
 
-	// 期望（dev 实现后）：--raw --json 输出原始 RawCapture JSON（含 kind/step/
-	// request/response），每条一行 NDJSON 或数组，可被 json.Unmarshal 回 vfs.RawCapture。
+	var buf bytes.Buffer
+	straceCmd.SetOut(&buf)
+	straceCmd.SetErr(&buf)
+
+	if err := runStrace(straceCmd, []string{strconv.Itoa(int(proc.PID))}); err != nil {
+		t.Fatalf("AC#2: --raw --json should not error, got: %v", err)
+	}
+	// --raw --json 输出原始 RawCapture JSON（NDJSON），首行可被 json.Unmarshal
+	// 回 vfs.RawCapture（含 kind/step/request/response）。
+	line := strings.TrimSpace(buf.String())
+	if line == "" {
+		t.Fatalf("AC#2: --json produced no output")
+	}
+	first := strings.SplitN(line, "\n", 2)[0]
+	var rec vfs.RawCapture
+	if err := json.Unmarshal([]byte(first), &rec); err != nil {
+		t.Fatalf("AC#2: --json output not valid RawCapture JSON: %v\n---\n%s", err, first)
+	}
+	if rec.Kind != "api" || rec.Step != 1 {
+		t.Errorf("AC#2: --json roundtrip mismatch: got kind=%q step=%d", rec.Kind, rec.Step)
+	}
 }
 
 // ---------------------------------------------------------------------------
@@ -109,10 +194,30 @@ func TestATDD_56_4_AC2_StraceRaw_JSONOutput(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 func TestATDD_56_4_AC2_StraceRaw_NoRecords_Notice(t *testing.T) {
-	t.Skip("Story 56.4 RED: runStraceRaw no-records notice not implemented — dev removes skip, verifies '[strace] no raw captures for <uuid>' 非报错退出")
+	resetStraceFlags(t)
+	sockPath, kern := setupTestIPCServer(t)
+	ipc.SocketPathOverride = sockPath
+	t.Cleanup(func() { ipc.SocketPathOverride = "" })
 
-	// 期望（dev 实现后）：对一个存在但无 raw.jsonl 的进程，--raw 给出形如
-	// "[strace] no raw captures for <uuid>" 的提示，返回 nil。
+	// 进程存在但无 raw.jsonl（未写 fixture）→ --raw 给出友好提示，返回 nil。
+	proc := kernel.NewProcess(0, "no raw test", nil)
+	_ = proc.Start()
+	kernel.TestSetupDataDir(t, kern)
+	kernel.TestSetProjectConfig(proc)
+	kern.AddProcess(proc)
+
+	flagStraceRaw = true
+	var buf bytes.Buffer
+	straceCmd.SetOut(&buf)
+	straceCmd.SetErr(&buf)
+
+	if err := runStrace(straceCmd, []string{strconv.Itoa(int(proc.PID))}); err != nil {
+		t.Fatalf("AC#2: no-records should not error, got: %v", err)
+	}
+	out := buf.String()
+	if !strings.Contains(out, "no raw captures") {
+		t.Errorf("AC#2: expected '[strace] no raw captures for ...' notice, got: %q", out)
+	}
 }
 
 // ---------------------------------------------------------------------------

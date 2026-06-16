@@ -16,24 +16,210 @@
 // 范围铁律（Story 56.4 AC#5）：读到的是已脱敏指纹（redacted(len=..,sha256=..)），
 // 本文件零反脱敏代码——读到什么显示什么。截断标记（Truncated / OriginalBytes）
 // 在顶部可见。
-//
-// SKELETON (Story 56.4 RED): 当前仅返回占位串保证编译。dev 移除 raw_lens_test.go
-// 的 t.Skip 后填充 API/CLI 分支渲染 + 截断/parse-error 标记 + ASCII 降级，并
-// 验证 RED→GREEN。
 package inspector
 
 import (
+	"fmt"
+	"sort"
+	"strings"
+
+	"github.com/rnixai/rnix/internal/ui"
 	"github.com/rnixai/rnix/vfs"
 )
 
 // RenderRawLens 渲染单条 RawCapture（API / CLI 两族）为人类可读串。
 // rc==nil → 占位串（懒加载未命中 / 该 step 无 raw 记录）。
-//
-// SKELETON: dev 实现 kind 分支 + 字段渲染 + 截断标记 + ASCII 降级。
 func RenderRawLens(rc *vfs.RawCapture, width int) string {
 	if rc == nil {
 		return "  (no raw capture for this step)"
 	}
-	// SKELETON placeholder — dev 替换为按 rc.Kind 分支的完整渲染。
-	return "  (raw lens not yet implemented)"
+
+	var b strings.Builder
+
+	// 顶部元信息行 + 截断标记（AC#3 / AC#5：Truncated/OriginalBytes 可见）。
+	kind := rc.Kind
+	if kind == "" {
+		kind = "unknown"
+	}
+	fmt.Fprintf(&b, "%s step %d · kind=%s\n", rawWarnGlyph(rc.Truncated), rc.Step, kind)
+	if rc.Truncated {
+		fmt.Fprintf(&b, "%s truncated (original %s bytes)\n",
+			rawWarnGlyph(true), FormatThousands(int(rc.OriginalBytes)))
+	}
+	b.WriteString("\n")
+
+	switch rc.Kind {
+	case "cli":
+		renderRawCLI(&b, rc, width)
+	default:
+		// "api" 与未知 kind 均走 API 渲染（字段缺失时各 helper 自然跳过）。
+		renderRawAPI(&b, rc, width)
+	}
+
+	return strings.TrimRight(b.String(), "\n")
+}
+
+// rawWarnGlyph 返回截断/警告前缀字形（ASCII 降级）。truncated=false 时返回
+// 普通项目符号。
+func rawWarnGlyph(warn bool) string {
+	if warn {
+		if ui.IsASCIIMode() {
+			return "!"
+		}
+		return "⚠"
+	}
+	if ui.IsASCIIMode() {
+		return "*"
+	}
+	return "•"
+}
+
+// renderRawAPI 渲染 API 族 request{method,url,headers,body} / response{status,body}。
+func renderRawAPI(b *strings.Builder, rc *vfs.RawCapture, width int) {
+	b.WriteString(RenderMetaSectionHeader("Request", width) + "\n")
+	if m := rc.Request; m != nil {
+		if method := rawString(m["method"]); method != "" {
+			fmt.Fprintf(b, "  method: %s\n", method)
+		}
+		if url := rawString(m["url"]); url != "" {
+			fmt.Fprintf(b, "  url:    %s\n", url)
+		}
+		renderRawHeaders(b, m["headers"])
+		if body := rawString(m["body"]); body != "" {
+			b.WriteString("  body:\n")
+			b.WriteString(indentBlock(body))
+		}
+	}
+
+	b.WriteString("\n" + RenderMetaSectionHeader("Response", width) + "\n")
+	if m := rc.Response; m != nil {
+		if status := rawStatusString(m["status"]); status != "" {
+			fmt.Fprintf(b, "  status: %s\n", status)
+		}
+		renderRawHeaders(b, m["headers"])
+		if body := rawString(m["body"]); body != "" {
+			b.WriteString("  body:\n")
+			b.WriteString(indentBlock(body))
+		}
+	}
+}
+
+// renderRawCLI 渲染 CLI 族 request{argv,stdin,env} / response{stdout,stderr,exit_code}。
+func renderRawCLI(b *strings.Builder, rc *vfs.RawCapture, width int) {
+	b.WriteString(RenderMetaSectionHeader("Request", width) + "\n")
+	if m := rc.Request; m != nil {
+		if argv := rawStringSlice(m["argv"]); len(argv) > 0 {
+			fmt.Fprintf(b, "  argv:   %s\n", strings.Join(argv, " "))
+		}
+		if stdin := rawString(m["stdin"]); stdin != "" {
+			b.WriteString("  stdin:\n")
+			b.WriteString(indentBlock(stdin))
+		}
+		renderRawEnv(b, m["env"])
+	}
+
+	b.WriteString("\n" + RenderMetaSectionHeader("Response", width) + "\n")
+	if m := rc.Response; m != nil {
+		if ec := m["exit_code"]; ec != nil {
+			fmt.Fprintf(b, "  exit_code: %s\n", rawStatusString(ec))
+		}
+		if stdout := rawString(m["stdout"]); stdout != "" {
+			b.WriteString("  stdout:\n")
+			b.WriteString(indentBlock(stdout))
+		}
+		if stderr := rawString(m["stderr"]); stderr != "" {
+			b.WriteString("  stderr:\n")
+			b.WriteString(indentBlock(stderr))
+		}
+	}
+}
+
+// renderRawHeaders 渲染 headers map（脱敏指纹原样显示，AC#5）。键按字母序排序
+// 以保证渲染稳定。
+func renderRawHeaders(b *strings.Builder, v any) {
+	m, ok := v.(map[string]any)
+	if !ok || len(m) == 0 {
+		return
+	}
+	keys := make([]string, 0, len(m))
+	for k := range m {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	b.WriteString("  headers:\n")
+	for _, k := range keys {
+		fmt.Fprintf(b, "    %s: %s\n", k, rawString(m[k]))
+	}
+}
+
+// renderRawEnv 渲染 env map（脱敏指纹原样显示，AC#5）。
+func renderRawEnv(b *strings.Builder, v any) {
+	m, ok := v.(map[string]any)
+	if !ok || len(m) == 0 {
+		return
+	}
+	keys := make([]string, 0, len(m))
+	for k := range m {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	b.WriteString("  env:\n")
+	for _, k := range keys {
+		fmt.Fprintf(b, "    %s=%s\n", k, rawString(m[k]))
+	}
+}
+
+// indentBlock 以 4 空格缩进多行文本块，保证 body/stdin/stdout 视觉归属。
+func indentBlock(s string) string {
+	lines := strings.Split(s, "\n")
+	var b strings.Builder
+	for _, line := range lines {
+		b.WriteString("    " + line + "\n")
+	}
+	return b.String()
+}
+
+// rawString 把 any 安全转为 string（非 string 用 %v 兜底，nil → 空串）。
+func rawString(v any) string {
+	if v == nil {
+		return ""
+	}
+	if s, ok := v.(string); ok {
+		return s
+	}
+	return fmt.Sprintf("%v", v)
+}
+
+// rawStatusString 渲染 status / exit_code（JSON roundtrip 后是 float64）为整数串。
+func rawStatusString(v any) string {
+	switch n := v.(type) {
+	case float64:
+		return fmt.Sprintf("%d", int(n))
+	case int:
+		return fmt.Sprintf("%d", n)
+	case int64:
+		return fmt.Sprintf("%d", n)
+	case string:
+		return n
+	case nil:
+		return ""
+	default:
+		return fmt.Sprintf("%v", v)
+	}
+}
+
+// rawStringSlice 把 argv 安全转为 []string（JSON roundtrip 后是 []any）。
+func rawStringSlice(v any) []string {
+	switch s := v.(type) {
+	case []string:
+		return s
+	case []any:
+		out := make([]string, 0, len(s))
+		for _, e := range s {
+			out = append(out, rawString(e))
+		}
+		return out
+	default:
+		return nil
+	}
 }

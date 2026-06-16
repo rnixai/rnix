@@ -38,6 +38,7 @@ import (
 	"github.com/rnixai/rnix/drivers/web"
 	"github.com/rnixai/rnix/intent"
 	"github.com/rnixai/rnix/internal/config"
+	"github.com/rnixai/rnix/internal/dashboard/inspector"
 	"github.com/rnixai/rnix/internal/types"
 	"github.com/rnixai/rnix/internal/ui"
 	"github.com/rnixai/rnix/ipc"
@@ -1394,9 +1395,8 @@ func runStrace(cmd *cobra.Command, args []string) error {
 // give a friendly notice, not an error exit. ParseErrors>0 reports skipped
 // malformed lines (AC#8).
 //
-// SKELETON (Story 56.4 RED): 仅 Dial + 友好提示占位。dev 移除
-// atdd_56_4_strace_raw_test.go 的 t.Skip 后填充 client.GetRawCapture 调用 +
-// 渲染（含 --json 分支 + ParseErrors 提示），并验证 RED→GREEN。
+// 渲染复用 inspector.RenderRawLens——与 dashboard Raw lens 共用同一 pure helper，
+// 三路（strace / dashboard / 直接 IPC）渲染收敛（AC#4）。
 func runStraceRaw(cmd *cobra.Command, pid types.PID) error {
 	w := cmd.OutOrStdout()
 	client, err := ipc.Dial(ipc.SocketPath())
@@ -1406,9 +1406,42 @@ func runStraceRaw(cmd *cobra.Command, pid types.PID) error {
 	}
 	defer client.Close()
 
-	// SKELETON placeholder — dev 替换为 client.GetRawCapture(pid, flagStraceUUID,
-	// flagStraceStep) 调用 + 渲染逻辑。
-	fmt.Fprintf(w, "[strace] no raw captures for PID %d\n", pid)
+	resp, err := client.GetRawCapture(pid, flagStraceUUID, flagStraceStep)
+	if err != nil {
+		fmt.Fprintf(w, "[strace] failed to query raw captures for PID %d: %v\n", pid, err)
+		return nil
+	}
+
+	// 定位标识：--uuid 优先，否则回落到 PID（提示语用）。
+	target := flagStraceUUID
+	if target == "" {
+		target = fmt.Sprintf("PID %d", pid)
+	}
+
+	if len(resp.Records) == 0 {
+		fmt.Fprintf(w, "[strace] no raw captures for %s\n", target)
+		if resp.ParseErrors > 0 {
+			fmt.Fprintf(w, "[strace] %d line(s) skipped (malformed)\n", resp.ParseErrors)
+		}
+		return nil
+	}
+
+	if flagJSON {
+		// 原始 vfs.RawCapture JSON，每条一行 NDJSON（与既有 strace --json 一致）。
+		for _, rec := range resp.Records {
+			data, _ := json.Marshal(rec)
+			fmt.Fprintln(w, string(data))
+		}
+		return nil
+	}
+
+	for i := range resp.Records {
+		fmt.Fprintln(w, inspector.RenderRawLens(&resp.Records[i], 100))
+		fmt.Fprintln(w)
+	}
+	if resp.ParseErrors > 0 {
+		fmt.Fprintf(w, "[strace] %d line(s) skipped (malformed)\n", resp.ParseErrors)
+	}
 	return nil
 }
 

@@ -13,6 +13,7 @@ import (
 	"github.com/rnixai/rnix/internal/dashboard/trace"
 	"github.com/rnixai/rnix/internal/types"
 	"github.com/rnixai/rnix/ipc"
+	"github.com/rnixai/rnix/vfs"
 )
 
 // --- Severity levels for UnifiedEvent (Story 34.1 AC#1) ---
@@ -271,6 +272,17 @@ type inspectorDetailMsg struct {
 	step   int
 	detail *ipc.GetStepDetailResponse
 	err    error
+}
+
+// inspectorRawMsg carries a lazily-fetched raw LLM capture for one step
+// (Story 56.4 · CAP-3 路② Raw lens 懒加载回填). capture==nil = no raw record
+// for this step (cached as a negative hit to avoid re-fetching).
+type inspectorRawMsg struct {
+	pid     types.PID
+	uuid    string
+	step    int
+	capture *vfs.RawCapture
+	err     error
 }
 
 type inspectorStepListMsg struct {

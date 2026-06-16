@@ -154,7 +154,6 @@ func TestATDD_56_4_AC1_GetRawCaptureResponse_Serialization(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 func TestATDD_56_4_AC1_Handler_AllSteps(t *testing.T) {
-	t.Skip("Story 56.4 RED: handleGetRawCapture not implemented — dev removes skip to verify RED→GREEN")
 
 	srv, sockPath, _ := setupTestServer(t)
 	proc := kernel.NewProcess(0, "raw capture test", nil)
@@ -185,7 +184,6 @@ func TestATDD_56_4_AC1_Handler_AllSteps(t *testing.T) {
 }
 
 func TestATDD_56_4_AC1_Handler_SingleStep(t *testing.T) {
-	t.Skip("Story 56.4 RED: handleGetRawCapture not implemented — dev removes skip to verify RED→GREEN")
 
 	srv, sockPath, _ := setupTestServer(t)
 	proc := kernel.NewProcess(0, "raw capture test", nil)
@@ -220,7 +218,6 @@ func TestATDD_56_4_AC1_Handler_SingleStep(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 func TestATDD_56_4_AC1_Handler_MissingFile_EmptyList(t *testing.T) {
-	t.Skip("Story 56.4 RED: handleGetRawCapture not implemented — dev removes skip to verify RED→GREEN")
 
 	srv, sockPath, _ := setupTestServer(t)
 	kernel.TestSetupDataDir(t, srv.kern)
@@ -246,7 +243,6 @@ func TestATDD_56_4_AC1_Handler_MissingFile_EmptyList(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 func TestATDD_56_4_AC1_Handler_PIDResolution_LiveProc(t *testing.T) {
-	t.Skip("Story 56.4 RED: handleGetRawCapture PID→UUID resolution not implemented — dev removes skip")
 
 	srv, sockPath, _ := setupTestServer(t)
 	proc := kernel.NewProcess(0, "live proc", nil)
@@ -270,7 +266,6 @@ func TestATDD_56_4_AC1_Handler_PIDResolution_LiveProc(t *testing.T) {
 }
 
 func TestATDD_56_4_AC1_Handler_PIDResolution_ReapedHistory(t *testing.T) {
-	t.Skip("Story 56.4 RED: handleGetRawCapture history resolution not implemented — dev removes skip")
 
 	srv, sockPath, _ := setupTestServer(t)
 	_, projBase := kernel.TestSetupDataDir(t, srv.kern)
@@ -308,7 +303,6 @@ func TestATDD_56_4_AC1_Handler_PIDResolution_ReapedHistory(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 func TestATDD_56_4_AC5_Handler_RedactedFingerprint_NotRestored(t *testing.T) {
-	t.Skip("Story 56.4 RED: handleGetRawCapture not implemented — dev removes skip to verify RED→GREEN")
 
 	srv, sockPath, _ := setupTestServer(t)
 	proc := kernel.NewProcess(0, "redact test", nil)
@@ -338,7 +332,6 @@ func TestATDD_56_4_AC5_Handler_RedactedFingerprint_NotRestored(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 func TestATDD_56_4_AC8_Handler_MalformedLines_Counted(t *testing.T) {
-	t.Skip("Story 56.4 RED: ParseErrors counting not implemented — dev removes skip to verify RED→GREEN")
 
 	srv, sockPath, _ := setupTestServer(t)
 	proc := kernel.NewProcess(0, "malformed test", nil)
@@ -383,7 +376,6 @@ func TestATDD_56_4_AC8_Handler_MalformedLines_Counted(t *testing.T) {
 // 记录与磁盘上的源记录逐字段一致（strace/lens 渲染各自的输入即此记录，渲染断言
 // 在各自包的测试文件，此处锁定共享后端的收敛点）。
 func TestATDD_56_4_AC4_ThreeWay_SharedBackend_Consistency(t *testing.T) {
-	t.Skip("Story 56.4 RED: handleGetRawCapture not implemented — dev removes skip to verify RED→GREEN")
 
 	srv, sockPath, _ := setupTestServer(t)
 	proc := kernel.NewProcess(0, "consistency test", nil)

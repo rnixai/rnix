@@ -2,6 +2,7 @@ package kernel
 
 import (
 	"bufio"
+	"bytes"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -162,10 +163,6 @@ func ReadAllRaw(path string) ([]vfs.RawCapture, error) {
 // deferred #17). The malformed count makes "silently skipped" lines observable
 // to the三路 query consumers instead of being swallowed. A missing file returns
 // (nil, 0, nil).
-//
-// SKELETON (Story 56.4 RED): 当前直接复用既有扫描循环但 parseErrors 恒返 0。
-// dev 移除测试 skip 后在 unmarshal 失败的 continue 处累加 parseErrors，并验证
-// RED→GREEN（AC#8 计数测试）。
 func ReadAllRawWithErrors(path string) ([]vfs.RawCapture, int, error) {
 	f, err := os.Open(path)
 	if err != nil {
@@ -183,9 +180,17 @@ func ReadAllRawWithErrors(path string) ([]vfs.RawCapture, int, error) {
 	// MaxOutputBytes default).
 	scanner.Buffer(make([]byte, 0, 64*1024), 4*1024*1024)
 	for scanner.Scan() {
+		line := scanner.Bytes()
+		// Skip blank lines without counting them as parse errors — a trailing
+		// newline produces an empty final token under bufio.Scanner.
+		if len(bytes.TrimSpace(line)) == 0 {
+			continue
+		}
 		var rec vfs.RawCapture
-		if err := json.Unmarshal(scanner.Bytes(), &rec); err != nil {
-			// SKELETON: dev 在此累加 parseErrors++（Story 56.4 AC#8）。
+		if err := json.Unmarshal(line, &rec); err != nil {
+			// Story 56.4 AC#8: count malformed lines so the三路 consumers can
+			// surface "N lines skipped (malformed)" instead of silent loss.
+			parseErrors++
 			continue
 		}
 		records = append(records, rec)

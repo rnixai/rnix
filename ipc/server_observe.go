@@ -454,15 +454,69 @@ func (s *Server) resolveEventsPath(uuid string) string {
 // PID→UUID 解析（live GetProcess → FindHistoryByPID 回退）+ resolveRawPath +
 // kernel 读 API。无文件 / 空 uuid → {Records: []}（OK=true 空列表，不报错）。
 //
-// SKELETON (Story 56.4 RED): 返回空列表占位。dev 移除 skip 后填充 PID→UUID
-// 解析 + ReadAllRawWithErrors/ReadRawForStep 读盘逻辑，并断言 RED→GREEN。
+// Step==0 → ReadAllRawWithErrors（全部记录 + malformed 计数, AC#8）；
+// Step>0 → ReadRawForStep（仅该 step 一条）。读路径零反脱敏——落盘已脱敏的
+// 凭据指纹原样返回（AC#5）。三路（strace / dashboard / 直接 IPC）共用此唯一
+// 后端，天然一致（AC#4）。
 func (s *Server) handleGetRawCapture(conn net.Conn, rawPayload json.RawMessage) {
 	var req GetRawCaptureRequest
 	if err := json.Unmarshal(rawPayload, &req); err != nil {
 		writeResponse(conn, Response{OK: false, Error: &ErrorPayload{Code: "INVALID", Message: "invalid get_raw_capture request"}})
 		return
 	}
-	writeResponse(conn, Response{OK: true, Payload: mustMarshal(GetRawCaptureResponse{Records: []vfs.RawCapture{}})})
+
+	uuid := req.UUID
+	if uuid == "" && req.PID != 0 {
+		if proc, ok := s.kern.GetProcess(req.PID); ok {
+			uuid = proc.UUID
+		} else if hist := s.kern.FindHistoryByPID(req.PID); hist != nil {
+			uuid = hist.UUID
+		}
+	}
+
+	rawPath := s.resolveRawPath(uuid)
+	if rawPath == "" {
+		writeResponse(conn, Response{OK: true, Payload: mustMarshal(GetRawCaptureResponse{Records: []vfs.RawCapture{}})})
+		return
+	}
+
+	if req.Step > 0 {
+		rec, err := kernel.ReadRawForStep(rawPath, req.Step)
+		if err != nil || rec == nil {
+			writeResponse(conn, Response{OK: true, Payload: mustMarshal(GetRawCaptureResponse{Records: []vfs.RawCapture{}})})
+			return
+		}
+		writeResponse(conn, Response{OK: true, Payload: mustMarshal(GetRawCaptureResponse{Records: []vfs.RawCapture{*rec}})})
+		return
+	}
+
+	records, parseErrors, err := kernel.ReadAllRawWithErrors(rawPath)
+	if err != nil {
+		writeResponse(conn, Response{OK: true, Payload: mustMarshal(GetRawCaptureResponse{Records: []vfs.RawCapture{}})})
+		return
+	}
+	if records == nil {
+		records = []vfs.RawCapture{}
+	}
+	writeResponse(conn, Response{OK: true, Payload: mustMarshal(GetRawCaptureResponse{Records: records, ParseErrors: parseErrors})})
+}
+
+// resolveRawPath returns the path to raw.jsonl for a UUID (Story 56.4), mirroring
+// resolveEventsPath. Empty uuid / invalid uuid / missing baseDir / missing file
+// all return "" so handleGetRawCapture yields an OK empty list.
+func (s *Server) resolveRawPath(uuid string) string {
+	if uuid == "" || !isValidUUID(uuid) {
+		return ""
+	}
+	baseDir := kernel.FindBaseDirByUUID(s.kern.GetDataDir(), uuid)
+	if baseDir == "" {
+		return ""
+	}
+	path := filepath.Join(baseDir, "steps", uuid, "raw.jsonl")
+	if _, err := os.Stat(path); err != nil {
+		return ""
+	}
+	return path
 }
 
 // handleCompact manually triggers context compaction for a running process (Story 31.2).

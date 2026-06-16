@@ -17,6 +17,7 @@ import (
 	"github.com/rnixai/rnix/internal/types"
 	"github.com/rnixai/rnix/internal/ui"
 	"github.com/rnixai/rnix/ipc"
+	"github.com/rnixai/rnix/vfs"
 )
 
 // Story 38-3 AC#5: package-level compiled regexes for Raw JSON lens syntax
@@ -127,6 +128,70 @@ func fetchInspectorStepListCmd(pid types.PID, uuid string) tea.Cmd {
 	}
 }
 
+// fetchInspectorRawCmd lazily fetches the raw LLM request/response capture for a
+// specific step (Story 56.4 · CAP-3 路②). Mirrors fetchInspectorDetailCmd but
+// hits the get_raw_capture IPC method and reads disk-persisted raw.jsonl — the
+// same single backend the strace --raw path and direct IPC callers use (AC#4).
+func fetchInspectorRawCmd(pid types.PID, uuid string, step int) tea.Cmd {
+	return func() tea.Msg {
+		client, err := ipc.Dial(ipc.SocketPath())
+		if err != nil {
+			return inspectorRawMsg{pid: pid, uuid: uuid, step: step, err: err}
+		}
+		defer client.Close()
+		_ = client.SetReadDeadline(time.Now().Add(3 * time.Second))
+
+		resp, err := client.GetRawCapture(pid, uuid, step)
+		if err != nil {
+			return inspectorRawMsg{pid: pid, uuid: uuid, step: step, err: err}
+		}
+		var rc *vfs.RawCapture
+		if len(resp.Records) > 0 {
+			rec := resp.Records[0]
+			rc = &rec
+		}
+		return inspectorRawMsg{pid: pid, uuid: uuid, step: step, capture: rc}
+	}
+}
+
+// maybeFetchInspectorRaw returns a fetch command for the current step's raw
+// capture if it is not already cached (nil otherwise). Called when the Raw lens
+// activates or when the step changes while the Raw lens is active.
+func (m dashboardModel) maybeFetchInspectorRaw() tea.Cmd {
+	if m.inspector.Lens != lensRaw {
+		return nil
+	}
+	if m.inspector.RawByStep != nil {
+		if _, ok := m.inspector.RawByStep[m.inspector.Step]; ok {
+			return nil // already cached (incl. cached nil "no record")
+		}
+	}
+	return fetchInspectorRawCmd(m.inspector.PID, m.inspector.UUID, m.inspector.Step)
+}
+
+// handleInspectorRawMsg caches a lazily-fetched raw capture and rebuilds lens
+// content if the Raw lens is still focused on the same step (Story 56.4). Stale
+// responses (PID/UUID mismatch) are dropped. capture==nil caches a negative hit
+// so a step with no raw record is not re-fetched on every redraw.
+func (m dashboardModel) handleInspectorRawMsg(msg inspectorRawMsg) (dashboardModel, tea.Cmd) {
+	if msg.err != nil {
+		m.statusMsg = fmt.Sprintf("✗ Raw I/O: %v", msg.err)
+		m.statusMsgTTL = statusMsgDefaultTTL
+		return m, nil
+	}
+	if msg.pid != m.inspector.PID || msg.uuid != m.inspector.UUID {
+		return m, nil
+	}
+	if m.inspector.RawByStep == nil {
+		m.inspector.RawByStep = make(map[int]*vfs.RawCapture)
+	}
+	m.inspector.RawByStep[msg.step] = msg.capture
+	if m.inspector.Lens == lensRaw && msg.step == m.inspector.Step {
+		m.rebuildInspectorContents()
+	}
+	return m, nil
+}
+
 // fetchInspectorDetailCmd fetches a specific step's detail for the Inspector.
 func fetchInspectorDetailCmd(pid types.PID, uuid string, step int) tea.Cmd {
 	return func() tea.Msg {
@@ -188,7 +253,7 @@ func (m dashboardModel) inspectorKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		m.viewMode = viewMode(m.inspector.PrevMode)
 		return m, nil
 
-	// Lens switching: 1-5 (doesn't stop follow — just changing viewpoint)
+	// Lens switching: 1-6 (doesn't stop follow — just changing viewpoint)
 	case "1":
 		return m.switchInspectorLens(lensConversation), nil
 	case "2":
@@ -199,6 +264,13 @@ func (m dashboardModel) inspectorKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		return m.switchInspectorLens(lensMeta), nil
 	case "5":
 		return m.switchInspectorLens(lensRawJSON), nil
+	case "6":
+		// Story 56.4: Raw I/O lens — 切入时懒加载该 step 的 raw 记录（仅当未缓存）。
+		m = m.switchInspectorLens(lensRaw)
+		if cmd := m.maybeFetchInspectorRaw(); cmd != nil {
+			return m, cmd
+		}
+		return m, nil
 
 	// Step navigation (index-based for sparse step support)
 	case "h", "left":
@@ -552,7 +624,7 @@ func (m dashboardModel) openInspectorInPager() (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 
-	lensNames := [inspectorLensCount]string{"conversation", "system", "toolio", "meta", "rawjson"}
+	lensNames := [inspectorLensCount]string{"conversation", "system", "toolio", "meta", "rawjson", "raw"}
 	content := m.buildFullLensContent(m.inspector.Lens, detail, m.inspector.PrevDetail)
 
 	tmpFile := fmt.Sprintf("/tmp/rnix-step-%s-%d-%s.txt",
@@ -944,6 +1016,7 @@ func (m dashboardModel) renderLensTabs(w int) string {
 			{"3", "3 Tool"},
 			{"4", "4 Meta"},
 			{"5", "5 JSON"},
+			{"6", "6 Raw"},
 		}
 	} else {
 		lenses = []lensInfo{
@@ -952,6 +1025,7 @@ func (m dashboardModel) renderLensTabs(w int) string {
 			{"3", "❸ Tool I/O"},
 			{"4", "❹ Meta"},
 			{"5", "❺ Raw JSON"},
+			{"6", "❻ Raw I/O"},
 		}
 	}
 
@@ -1043,7 +1117,7 @@ func (m dashboardModel) renderInspectorFooter() string {
 	if !m.search.NoMatchExpireAt.IsZero() && time.Now().Before(m.search.NoMatchExpireAt) && m.search.Query != "" {
 		return dimStyle.Render(fmt.Sprintf(" /%s  No matches · Esc clear", m.search.Query))
 	}
-	return dimStyle.Render(" h/l step · 1-5 lens · j/k scroll · / ? search · d diff · F follow · y copy · o open · Esc back")
+	return dimStyle.Render(" h/l step · 1-6 lens · j/k scroll · / ? search · d diff · F follow · y copy · o open · Esc back")
 }
 
 // rebuildInspectorContents rebuilds all lens content from the current detail.
@@ -1124,6 +1198,8 @@ func (m dashboardModel) buildLensContent(lens inspectorLens, detail, prevDetail 
 		return m.buildMetaLens(detail)
 	case lensRawJSON:
 		return m.buildRawJSONLens(detail)
+	case lensRaw:
+		return m.buildRawLens()
 	default:
 		return ""
 	}
@@ -1145,6 +1221,8 @@ func (m dashboardModel) buildFullLensContent(lens inspectorLens, detail, prevDet
 		return m.buildMetaLens(detail)
 	case lensRawJSON:
 		return m.buildRawJSONLens(detail)
+	case lensRaw:
+		return m.buildRawLens()
 	default:
 		return ""
 	}
@@ -1727,6 +1805,20 @@ func renderTokenLine(label string, count, total int, totalLine bool) string {
 // Performance guard: when the marshaled JSON exceeds 100KB the highlighter is
 // bypassed entirely and the raw indented JSON is returned (Story 38-3 AC#5).
 // This keeps very large step details responsive at the cost of plain text.
+// buildRawLens builds Lens ❻ (Story 56.4 · CAP-3 路②): the raw LLM request/
+// response for the current step. Data is lazily fetched into RawByStep via
+// fetchInspectorRawCmd; this thin wrapper delegates rendering to the shared
+// inspector.RenderRawLens pure helper (the same helper strace --raw uses,
+// keeping the三路 render convergent · AC#4). A cache miss / negative hit renders
+// the helper's nil placeholder.
+func (m dashboardModel) buildRawLens() string {
+	var rc *vfs.RawCapture
+	if m.inspector.RawByStep != nil {
+		rc = m.inspector.RawByStep[m.inspector.Step]
+	}
+	return inspector.RenderRawLens(rc, m.width)
+}
+
 func (m dashboardModel) buildRawJSONLens(detail *ipc.GetStepDetailResponse) string {
 	data, err := json.MarshalIndent(detail, "", "  ")
 	if err != nil {
