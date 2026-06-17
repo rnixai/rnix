@@ -2,6 +2,34 @@
 
 Rnix 支持通过 `providers.yaml` 为每个 provider 配置 **reasoning_effort**，统一控制推理强度。这是行业（OpenAI/Anthropic/Gemini 最新模型）已收敛到的离散 effort/level 语义，用于取代正在 legacy 化的 `thinking_budget`。
 
+## 解析优先级链（四级兜底）
+
+effort 的最终生效值在 spawn 时按以下顺序解析，与 `model` 同构（`kernel/spawn.go`）：
+
+| 级别 | 来源 | 入口 | 说明 |
+|------|------|------|------|
+| 1（最高） | per-spawn override | CLI `rnix spawn --effort`、compose.yaml 节点、intent | 归一到 `opts.ReasoningEffort`，单次生效 |
+| 2 | **agent 清单默认** | `lib/agents/{name}/agent.yaml` 的 `models.reasoning_effort` | 该 agent 的「思考强度」身份默认值 |
+| 3 | driver 实例默认 | `providers.yaml` 的 `reasoning_effort` | 该 provider 实例的兜底值 |
+| 4（兜底） | 透传 `""` | — | 不下发该字段，落到 API/CLI 原生默认 |
+
+高级别非空即胜出、跳过低级别；全空才落到下一级。
+
+> ⚠️ **「事实地板」陷阱**：`providers.yaml` 的 `reasoning_effort` 一旦设值，就成为该 provider 的**事实地板**——当 per-spawn 与 agent.yaml 都没指定时，生效值是这个 provider 值，而**不是** API/CLI 原生默认（第 4 级只在前三级全空时才到达）。若想让某个 agent 显式回到「原生默认」，目前没有「清空」语义（空字符串=未设置=继续向下兜底），只能不在任何一级配置该 provider 的 effort。
+
+### agent.yaml 配置示例
+
+```yaml
+# lib/agents/deep-reasoner/agent.yaml
+name: deep-reasoner
+models:
+  provider: openai-high
+  preferred: gpt-5.1
+  reasoning_effort: high        # 此 agent 默认高强度推理；小写/大写规则同 provider（见下方陷阱）
+```
+
+同样**纯透传**：rnix 不校验/不映射/不转大小写。为使用 gemini provider 的 agent 配 `reasoning_effort` 时必须写**大写**（如 `HIGH`），与 providers.yaml 的 Gemini 规则一致。
+
 ## 透传语义（重要）
 
 `reasoning_effort` 是**纯透传**字段：

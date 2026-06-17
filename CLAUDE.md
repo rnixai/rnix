@@ -207,6 +207,8 @@ See `internal/dashboard/inspector/meta_lens.go:ComputeCacheHitRate` for branchin
 | `cursor-cli` | **不支持（no-op + warning）** | — | — | thinking level 绑在 model 名后缀（如 `sonnet-4.5-thinking-high`），无独立 effort 参数；factory 配置非空时记 warning |
 | `qwen-cli` | **不支持（no-op + warning）** | — | — | Qwen3-Coder 无 effort 概念（仅 non-thinking）；factory 配置非空时记 warning |
 
-⚠️ **大小写不统一陷阱**：透传语义下 rnix 不转换大小写——Gemini 的 `ThinkingLevel` 是**大写**（`HIGH`），OpenAI/Anthropic 是**小写**（`high`）。为 gemini provider 配 `reasoning_effort` 必须写大写。
+⚠️ **大小写不统一陷阱**：透传语义下 rnix 不转换大小写——Gemini 的 `ThinkingLevel` 是**大写**（`HIGH`），OpenAI/Anthropic 是**小写**（`high`）。为 gemini provider 配 `reasoning_effort` 必须写大写（agent.yaml 入口同样适用此陷阱）。
+
+**解析优先级（四级兜底，`kernel/spawn.go`，与 model 同构）**：`opts.ReasoningEffort`（per-spawn：CLI `--effort`/compose/intent）> `agent.Manifest.Models.ReasoningEffort`（`lib/agents/{name}/agent.yaml` 的 `models.reasoning_effort`）> driver 快照（`providers.yaml` 实例级）> 透传 `""`（API/CLI 原生默认）。高级别非空即胜出。⚠️ **providers.yaml 一旦设值即成该 provider 的事实地板**——agent/任务都没指定时，落到的是 provider 值而非 API 原生默认（第 4 级仅在前三级全空时到达）。
 
 配置文档与示例见 [docs/reasoning-effort.md](docs/reasoning-effort.md)。

@@ -732,14 +732,20 @@ func (k *KernelImpl) Spawn(intent string, agent *agents.AgentInfo, opts SpawnOpt
 			if dmp, ok := file.(driverMetaProvider); ok {
 				proc.DriverMeta = dmp.DriverMeta()
 			}
-			// Snapshot ReasoningEffort. Two-tier like Model: a non-empty per-spawn
-			// override (opts.ReasoningEffort, from compose/intent/future CLI) wins;
-			// otherwise fall back to the driver snapshot (ProviderConfig value via
-			// ReasoningEffortProvider, Story 55.2). Passed through verbatim. The
-			// resolved value drives request construction (reason.go) and detail/
+			// Snapshot ReasoningEffort. Four-tier resolution, isomorphic to Model
+			// (see line ~330): a non-empty per-spawn override (opts.ReasoningEffort,
+			// from CLI --effort/compose/intent) wins; else the agent manifest default
+			// (agent.Manifest.Models.ReasoningEffort, agent.yaml); else the driver
+			// snapshot (ProviderConfig value via ReasoningEffortProvider, providers.yaml
+			// instance default, Story 55.2); else "" passed through (API/CLI native
+			// default). Passed through verbatim — no validation/mapping/case-folding
+			// (Gemini's ThinkingLevel is UPPERCASE; agent.yaml authors must match it).
+			// The resolved value drives request construction (reason.go) and detail/
 			// strace display, so both reflect the effort actually in effect.
 			if opts.ReasoningEffort != "" {
 				proc.ReasoningEffort = opts.ReasoningEffort
+			} else if agent != nil && agent.Manifest.Models.ReasoningEffort != "" {
+				proc.ReasoningEffort = agent.Manifest.Models.ReasoningEffort
 			} else if rep, ok := file.(vfs.ReasoningEffortProvider); ok {
 				proc.ReasoningEffort = rep.ReasoningEffort()
 			}

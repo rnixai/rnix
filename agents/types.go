@@ -13,7 +13,8 @@ type AgentModels struct {
 	Provider         string `yaml:"provider"`
 	Preferred        string `yaml:"preferred"`
 	Fallback         string `yaml:"fallback"`
-	FallbackProvider string `yaml:"fallback_provider"` // cross-provider fallback; empty = same provider (Story 23.5)
+	FallbackProvider string `yaml:"fallback_provider"`  // cross-provider fallback; empty = same provider (Story 23.5)
+	ReasoningEffort  string `yaml:"reasoning_effort"`   // agent-level effort default; passed through verbatim (no validation/case-mapping); empty = defer to driver snapshot
 }
 
 // AgentManifest represents the parsed contents of an agent's agent.yaml.
