@@ -20,7 +20,23 @@ import (
 
 const (
 	// DefaultTimeout is the default timeout for shell command execution.
-	DefaultTimeout = 30 * time.Second
+	// Raised from the original 30s to 120s (Story 57.1 AC2) — 30s reliably
+	// killed legitimate long commands such as `go build`/`go vet` on cold
+	// caches. 120s aligns with Claude Code's Bash default timeout order of
+	// magnitude. Override per-driver via DriverOpts.Timeout (config-wired in
+	// cmd/rnix/main.go) or per-call via the Bash tool's optional `timeout`.
+	DefaultTimeout = 120 * time.Second
+	// maxCommandTimeoutSeconds is the hard ceiling for a per-call `timeout`
+	// override (Story 57.1 AC3), expressed in seconds. It is applied in
+	// seconds-space *before* multiplying by time.Second — clamping after the
+	// multiply cannot undo an int64 overflow (review finding: timeout
+	// 18446744074 wraps to +290ms, passes the >0 guard, and slips past the
+	// post-multiply clamp, near-instantly killing a legitimate long command).
+	maxCommandTimeoutSeconds = 600
+	// maxCommandTimeout is the same ceiling as a Duration. Values above it are
+	// clamped (not rejected) to keep a single command from holding a worker for
+	// an unbounded time.
+	maxCommandTimeout = maxCommandTimeoutSeconds * time.Second
 	// waitDelay is the grace period after ctx cancellation before stdlib
 	// forcibly closes stdin/stdout/stderr to unblock readers (see
 	// golang/go#23019). Required because shell commands may fork background
@@ -74,6 +90,10 @@ func (d *ShellDriver) ToolDefs() []vfs.ToolDef {
 						"type":        "string",
 						"description": "Shell command to execute",
 					},
+					"timeout": map[string]any{
+						"type":        "integer",
+						"description": "Optional timeout in seconds for this command. Defaults to the driver default; values above the hard ceiling are clamped down. Use a higher value for long builds/tests.",
+					},
 				},
 				"required": []string{"command"},
 			},
@@ -126,7 +146,7 @@ func (f *ShellFile) Write(ctx context.Context, data []byte) error {
 		return &types.DriverError{Op: "Write", Device: f.devicePath, Err: fmt.Errorf("shell file closed"), Code: types.ErrDriver}
 	}
 
-	command := extractCommand(data)
+	command, callTimeout := extractCommand(data)
 	if command == "" {
 		return &types.DriverError{Op: "Write", Device: f.devicePath, Err: fmt.Errorf("empty command"), Code: types.ErrDriver}
 	}
@@ -136,7 +156,15 @@ func (f *ShellFile) Write(ctx context.Context, data []byte) error {
 		return &types.DriverError{Op: "Write", Device: f.devicePath, Err: err, Code: types.ErrPermission}
 	}
 
-	ctx, cancel := context.WithTimeout(ctx, f.driver.defaultTimeout)
+	// Resolve the effective timeout: per-call override (Story 57.1 AC3) wins
+	// over the driver default; values above the hard ceiling are clamped down
+	// rather than rejected.
+	timeout := f.driver.defaultTimeout
+	if callTimeout > 0 {
+		timeout = min(callTimeout, maxCommandTimeout)
+	}
+
+	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 
 	cmd := f.driver.cmdBuilder(ctx, "sh", "-c", command)
@@ -166,8 +194,51 @@ func (f *ShellFile) Write(ctx context.Context, data []byte) error {
 
 	err := cmd.Run()
 
-	if ctx.Err() == context.DeadlineExceeded || errors.Is(err, exec.ErrWaitDelay) {
-		return &types.DriverError{Op: "Write", Device: f.devicePath, Err: fmt.Errorf("command timed out after %v", f.driver.defaultTimeout), Code: types.ErrTimeout}
+	// AC4: a true deadline timeout. Preserve whatever the command already wrote
+	// (truncated) so the agent can see where it stalled, append an explicit
+	// marker, and surface the partial output inside the DriverError too — the
+	// kernel returns on a Write error without ever calling Read, so the error
+	// message is the agent's only window into the captured output.
+	if ctx.Err() == context.DeadlineExceeded {
+		fmt.Fprintf(&combined, "\n[command timed out after %v; partial output above]", timeout)
+		f.response = f.finalizeResponse(combined.String())
+		f.offset = 0
+		return &types.DriverError{
+			Op:     "Write",
+			Device: f.devicePath,
+			Err:    fmt.Errorf("command timed out after %v; partial output:\n%s", timeout, string(f.response)),
+			Code:   types.ErrTimeout,
+		}
+	}
+
+	// Review D1: the parent context was cancelled (process kill / SIGTERM /
+	// daemon shutdown) rather than a deadline expiring. Like the timeout path we
+	// preserve whatever the command captured so the agent / post-mortem can see
+	// how far it got, tag it distinctly, and return a driver error (the command
+	// did not complete). Without this the partial output fell through to the
+	// generic "command execution failed" branch and was discarded.
+	if ctx.Err() == context.Canceled {
+		fmt.Fprint(&combined, "\n[command canceled before completion; partial output above]")
+		f.response = f.finalizeResponse(combined.String())
+		f.offset = 0
+		return &types.DriverError{
+			Op:     "Write",
+			Device: f.devicePath,
+			Err:    fmt.Errorf("command canceled before completion; partial output:\n%s", string(f.response)),
+			Code:   types.ErrDriver,
+		}
+	}
+
+	// AC5 (deferred-work #128 / ECH-M2): ErrWaitDelay fired but the context was
+	// NOT cancelled — the command itself exited cleanly, only a grandchild kept
+	// the inherited pipe open past the WaitDelay grace window. This is not a
+	// timeout: keep the captured output and downgrade to a soft warning instead
+	// of discarding everything as a hard ErrTimeout (the legacy `||` bug).
+	if errors.Is(err, exec.ErrWaitDelay) && ctx.Err() == nil {
+		fmt.Fprintf(&combined, "\n[warning: a background process held the output pipe open past the %v grace window; the command itself completed]", waitDelay)
+		f.response = f.finalizeResponse(combined.String())
+		f.offset = 0
+		return nil
 	}
 
 	if err != nil {
@@ -180,23 +251,28 @@ func (f *ShellFile) Write(ctx context.Context, data []byte) error {
 		}
 	}
 
-	f.response = combined.Bytes()
+	f.response = f.finalizeResponse(combined.String())
 	f.offset = 0
 
-	// Apply EndTruncatingAccumulator for large outputs.
-	output := string(f.response)
-	truncated, didTruncate := rnixctx.EndTruncatingAccumulator(output, maxOutputChars, headLines, tailLines)
-	if didTruncate {
-		if f.workDir != "" {
-			overflowPath, _ := rnixctx.WriteOverflow(output, f.workDir)
-			if overflowPath != "" {
-				truncated += fmt.Sprintf("\n[Full output saved to %s]", overflowPath)
-			}
-		}
-		f.response = []byte(truncated)
-	}
-
 	return nil
+}
+
+// finalizeResponse applies the large-output truncation policy
+// (EndTruncatingAccumulator + overflow spill) and returns the bytes to buffer
+// as f.response. Shared by the success, timeout (AC4), and ErrWaitDelay (AC5)
+// paths so partial output is truncated consistently.
+func (f *ShellFile) finalizeResponse(output string) []byte {
+	truncated, didTruncate := rnixctx.EndTruncatingAccumulator(output, maxOutputChars, headLines, tailLines)
+	if !didTruncate {
+		return []byte(output)
+	}
+	if f.workDir != "" {
+		overflowPath, _ := rnixctx.WriteOverflow(output, f.workDir)
+		if overflowPath != "" {
+			truncated += fmt.Sprintf("\n[Full output saved to %s]", overflowPath)
+		}
+	}
+	return []byte(truncated)
 }
 
 // Read returns buffered command output up to the requested length.
@@ -247,16 +323,28 @@ func (f *ShellFile) Stat() (vfs.FileStat, error) {
 	}, nil
 }
 
-// extractCommand extracts the command string from data.
-// Accepts both JSON format {"command": "..."} (from kernel ToolData) and plain strings.
-func extractCommand(data []byte) string {
+// extractCommand extracts the command string and optional per-call timeout
+// from data. Accepts both JSON format {"command": "...", "timeout": N} (from
+// kernel ToolData) and plain strings. The returned timeout is in seconds; 0
+// means "unset — use the driver default" (Story 57.1 AC3, backward compatible:
+// a plain string or JSON without a timeout field yields 0).
+func extractCommand(data []byte) (string, time.Duration) {
 	var req struct {
 		Command string `json:"command"`
+		Timeout int    `json:"timeout"`
 	}
 	if json.Unmarshal(data, &req) == nil && req.Command != "" {
-		return req.Command
+		var timeout time.Duration
+		if req.Timeout > 0 {
+			// Clamp in seconds-space before converting: time.Duration(secs) *
+			// time.Second overflows int64 for absurd values and would wrap to a
+			// tiny/negative duration that slips past the Write-side clamp.
+			secs := min(req.Timeout, maxCommandTimeoutSeconds)
+			timeout = time.Duration(secs) * time.Second
+		}
+		return req.Command, timeout
 	}
-	return string(data)
+	return string(data), 0
 }
 
 // dangerousPatterns lists regex patterns for commands that are too dangerous to execute.

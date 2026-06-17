@@ -29,6 +29,14 @@ func TestHelperProcess(t *testing.T) {
 		os.Exit(1)
 	case "timeout":
 		time.Sleep(5 * time.Second)
+	case "partial_then_hang":
+		// Emit output, flush, then block past the test's short timeout so the
+		// driver's deadline fires while captured output is already buffered
+		// (Story 57.1 AC4).
+		fmt.Fprint(os.Stdout, "building package foo\n")
+		fmt.Fprint(os.Stdout, "building package bar\n")
+		os.Stdout.Sync()
+		time.Sleep(10 * time.Second)
 	case "env_home":
 		fmt.Fprint(os.Stdout, os.Getenv("HOME"))
 	case "env_spawn_depth":
@@ -109,7 +117,157 @@ func TestShellFile_Write_Timeout(t *testing.T) {
 	}
 }
 
-// Task 2.6: TestShellFile_Read_BeforeWrite
+// Story 57.1 AC2: the default timeout is raised from 30s to a value realistic
+// for compile-class commands. Guards against a silent revert.
+func TestDefaultTimeout_RaisedForCompileCommands(t *testing.T) {
+	if DefaultTimeout < 120*time.Second {
+		t.Errorf("DefaultTimeout = %v, expected >= 120s (Story 57.1 AC2)", DefaultTimeout)
+	}
+	// NewDriver and a zero-Timeout NewDriverWithOptions both fall back to it.
+	if got := NewDriver().defaultTimeout; got != DefaultTimeout {
+		t.Errorf("NewDriver default = %v, want %v", got, DefaultTimeout)
+	}
+	if got := NewDriverWithOptions(DriverOpts{}).defaultTimeout; got != DefaultTimeout {
+		t.Errorf("zero-Timeout opts default = %v, want %v", got, DefaultTimeout)
+	}
+}
+
+// Story 57.1 AC3: a per-call timeout in the command JSON overrides the driver
+// default. Here the driver default is large (would not fire), but a tiny
+// per-call timeout kills the slow command.
+func TestShellFile_Write_PerCallTimeoutOverride(t *testing.T) {
+	driver := NewDriverWithOptions(DriverOpts{
+		Timeout:    1 * time.Hour, // driver default would never fire
+		CmdBuilder: mockCmdBuilder("timeout"),
+	})
+	f := &ShellFile{driver: driver, devicePath: "/dev/shell"}
+
+	start := time.Now()
+	err := f.Write(context.Background(), []byte(`{"command": "sleep 10", "timeout": 1}`))
+	elapsed := time.Since(start)
+
+	if err == nil {
+		t.Fatal("expected per-call timeout to fire, got nil")
+	}
+	var drvErr *types.DriverError
+	if !errors.As(err, &drvErr) || drvErr.Code != types.ErrTimeout {
+		t.Fatalf("expected ErrTimeout DriverError, got %T: %v", err, err)
+	}
+	// Should fire around the 1s per-call timeout, well under the 1h default.
+	if elapsed > 30*time.Second {
+		t.Errorf("per-call timeout did not override driver default: elapsed %v", elapsed)
+	}
+}
+
+// Story 57.1 AC3: a per-call timeout above maxCommandTimeout is clamped down,
+// not rejected. We assert the clamp by inspecting the resolved deadline through
+// a context-aware builder.
+func TestShellFile_Write_PerCallTimeoutClamped(t *testing.T) {
+	var gotDeadline time.Duration
+	builder := func(ctx context.Context, name string, args ...string) *exec.Cmd {
+		if dl, ok := ctx.Deadline(); ok {
+			gotDeadline = time.Until(dl)
+		}
+		// Return a fast no-op command so Write completes immediately.
+		cs := []string{"-test.run=TestHelperProcess", "--"}
+		cmd := exec.CommandContext(ctx, os.Args[0], cs...)
+		cmd.Env = append(os.Environ(), "GO_TEST_PROCESS=1", "GO_TEST_CASE=echo_hello")
+		return cmd
+	}
+	driver := NewDriverWithOptions(DriverOpts{CmdBuilder: builder})
+	f := &ShellFile{driver: driver, devicePath: "/dev/shell"}
+
+	// 9999s requested, far above the 600s ceiling.
+	err := f.Write(context.Background(), []byte(`{"command": "echo hi", "timeout": 9999}`))
+	if err != nil {
+		t.Fatalf("unexpected Write error: %v", err)
+	}
+	// Resolved deadline should be ~maxCommandTimeout (600s), not 9999s.
+	if gotDeadline > maxCommandTimeout+5*time.Second || gotDeadline < maxCommandTimeout-30*time.Second {
+		t.Errorf("expected deadline clamped to ~%v, got %v", maxCommandTimeout, gotDeadline)
+	}
+}
+
+// Story 57.1 AC4: on a true deadline timeout, output captured before the kill
+// is preserved — buffered for Read AND embedded in the DriverError message
+// (the kernel never calls Read after a Write error).
+func TestShellFile_Write_TimeoutPreservesPartialOutput(t *testing.T) {
+	driver := NewDriverWithOptions(DriverOpts{
+		Timeout:    400 * time.Millisecond,
+		CmdBuilder: mockCmdBuilder("partial_then_hang"),
+	})
+	f := &ShellFile{driver: driver, devicePath: "/dev/shell"}
+
+	err := f.Write(context.Background(), []byte("go build ./..."))
+	if err == nil {
+		t.Fatal("expected timeout error, got nil")
+	}
+	var drvErr *types.DriverError
+	if !errors.As(err, &drvErr) || drvErr.Code != types.ErrTimeout {
+		t.Fatalf("expected ErrTimeout DriverError, got %T: %v", err, err)
+	}
+
+	// Partial output is readable via Read (AC4: f.response backfilled).
+	data, readErr := f.Read(0)
+	if readErr != nil {
+		t.Fatalf("unexpected Read error: %v", readErr)
+	}
+	out := string(data)
+	if !strings.Contains(out, "building package foo") {
+		t.Errorf("expected partial output in Read result, got %q", out)
+	}
+	if !strings.Contains(out, "timed out after") {
+		t.Errorf("expected timeout marker in Read result, got %q", out)
+	}
+
+	// And the same partial output is embedded in the error message, since the
+	// kernel surfaces the Write error without ever calling Read.
+	if !strings.Contains(drvErr.Err.Error(), "building package foo") {
+		t.Errorf("expected partial output embedded in error, got %q", drvErr.Err.Error())
+	}
+}
+
+// Story 57.1 AC5 (deferred-work #128 / ECH-M2): ErrWaitDelay fires because a
+// forked background process holds the pipe past the WaitDelay grace window, but
+// the command itself exited 0 and the context was never cancelled. This must
+// NOT be treated as a hard timeout: output is kept and Write returns nil with a
+// soft warning appended.
+//
+// Uses a real command (the bug is specific to stdlib pipe handling). Driver
+// timeout is large (30s) so ctx is not cancelled; the 5s WaitDelay fires first.
+func TestShellFile_Write_ErrWaitDelayKeepsOutputNotTimeout(t *testing.T) {
+	driver := NewDriverWithOptions(DriverOpts{
+		Timeout: 30 * time.Second,
+	})
+	f := &ShellFile{driver: driver, devicePath: "/dev/shell"}
+
+	start := time.Now()
+	// Main sh prints, then forks a background sleep that inherits the pipe and
+	// exits 0. Pipe stays open → ErrWaitDelay after waitDelay (5s); ctx (30s)
+	// is never cancelled.
+	err := f.Write(context.Background(), []byte("echo done-ok; (sleep 30 &); exit 0"))
+	elapsed := time.Since(start)
+
+	if err != nil {
+		t.Fatalf("ErrWaitDelay with clean exit must NOT be an error, got: %v", err)
+	}
+	// Fires around waitDelay (5s), well before the 30s driver timeout.
+	if elapsed > 20*time.Second {
+		t.Fatalf("expected ErrWaitDelay path (~5s), elapsed %v (ctx cancelled instead?)", elapsed)
+	}
+
+	data, readErr := f.Read(0)
+	if readErr != nil {
+		t.Fatalf("unexpected Read error: %v", readErr)
+	}
+	out := string(data)
+	if !strings.Contains(out, "done-ok") {
+		t.Errorf("expected captured output 'done-ok', got %q", out)
+	}
+	if !strings.Contains(out, "warning") {
+		t.Errorf("expected soft-warning in output, got %q", out)
+	}
+}
 func TestShellFile_Read_BeforeWrite(t *testing.T) {
 	driver := NewDriver()
 	f := &ShellFile{driver: driver, devicePath: "/dev/shell"}
@@ -186,6 +344,51 @@ func TestShellFile_Close_DoubleClose(t *testing.T) {
 	var drvErr *types.DriverError
 	if !errors.As(err, &drvErr) {
 		t.Fatalf("expected *types.DriverError, got %T: %v", err, err)
+	}
+}
+
+// Review D1: when the PARENT context is cancelled (process kill / SIGTERM /
+// daemon shutdown) rather than the driver deadline expiring, the captured
+// partial output must be preserved (like AC4) and tagged as canceled — NOT
+// discarded by the generic "command execution failed" path, and NOT mislabeled
+// as a timeout. Driver timeout is large so only the cancellation fires.
+func TestShellFile_Write_ParentCancelPreservesPartialOutput(t *testing.T) {
+	driver := NewDriverWithOptions(DriverOpts{
+		Timeout:    30 * time.Second, // large — the deadline must not fire
+		CmdBuilder: mockCmdBuilder("partial_then_hang"),
+	})
+	f := &ShellFile{driver: driver, devicePath: "/dev/shell"}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	errc := make(chan error, 1)
+	go func() {
+		errc <- f.Write(ctx, []byte("go build ./..."))
+	}()
+	// Let the command emit its partial output, then cancel the parent context.
+	time.Sleep(300 * time.Millisecond)
+	cancel()
+
+	err := <-errc // happens-after the Write returns: f.response is safe to read
+	if err == nil {
+		t.Fatal("expected error on parent cancel, got nil")
+	}
+	var drvErr *types.DriverError
+	if !errors.As(err, &drvErr) {
+		t.Fatalf("expected *types.DriverError, got %T: %v", err, err)
+	}
+	if drvErr.Code == types.ErrTimeout {
+		t.Errorf("parent cancel must NOT be tagged as ErrTimeout")
+	}
+
+	out := string(f.response)
+	if !strings.Contains(out, "building package foo") {
+		t.Errorf("expected partial output preserved, got %q", out)
+	}
+	if !strings.Contains(out, "canceled") {
+		t.Errorf("expected cancel marker in output, got %q", out)
+	}
+	if !strings.Contains(drvErr.Err.Error(), "canceled") {
+		t.Errorf("expected cancel marker in error, got %q", drvErr.Err.Error())
 	}
 }
 
@@ -419,25 +622,39 @@ func TestShellFile_Write_JSONCommand(t *testing.T) {
 	}
 }
 
-// TestExtractCommand verifies both JSON and plain string formats.
+// TestExtractCommand verifies both JSON and plain string formats, plus the
+// optional per-call timeout (Story 57.1 AC3).
 func TestExtractCommand(t *testing.T) {
 	tests := []struct {
-		name  string
-		input string
-		want  string
+		name        string
+		input       string
+		want        string
+		wantTimeout time.Duration
 	}{
-		{"plain string", "echo hello", "echo hello"},
-		{"JSON object", `{"command": "ls -la"}`, "ls -la"},
-		{"JSON empty command", `{"command": ""}`, `{"command": ""}`},
-		{"empty string", "", ""},
-		{"invalid JSON", `{bad json`, "{bad json"},
-		{"JSON without command field", `{"foo": "bar"}`, `{"foo": "bar"}`},
+		{"plain string", "echo hello", "echo hello", 0},
+		{"JSON object", `{"command": "ls -la"}`, "ls -la", 0},
+		{"JSON empty command", `{"command": ""}`, `{"command": ""}`, 0},
+		{"empty string", "", "", 0},
+		{"invalid JSON", `{bad json`, "{bad json", 0},
+		{"JSON without command field", `{"foo": "bar"}`, `{"foo": "bar"}`, 0},
+		{"JSON with timeout", `{"command": "go build", "timeout": 300}`, "go build", 300 * time.Second},
+		{"JSON with zero timeout", `{"command": "ls", "timeout": 0}`, "ls", 0},
+		{"JSON with negative timeout", `{"command": "ls", "timeout": -5}`, "ls", 0},
+		// Review P1: clamp in seconds-space before the multiply. A value above
+		// the 600s ceiling is clamped down; an int64-overflowing value (which
+		// would wrap to a tiny/negative duration past the Write-side clamp) is
+		// also caught here and clamped, never wrapped.
+		{"JSON with above-ceiling timeout", `{"command": "go build", "timeout": 99999}`, "go build", maxCommandTimeout},
+		{"JSON with overflow timeout", `{"command": "x", "timeout": 18446744074}`, "x", maxCommandTimeout},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := extractCommand([]byte(tt.input))
+			got, gotTimeout := extractCommand([]byte(tt.input))
 			if got != tt.want {
-				t.Errorf("extractCommand(%q) = %q, want %q", tt.input, got, tt.want)
+				t.Errorf("extractCommand(%q) command = %q, want %q", tt.input, got, tt.want)
+			}
+			if gotTimeout != tt.wantTimeout {
+				t.Errorf("extractCommand(%q) timeout = %v, want %v", tt.input, gotTimeout, tt.wantTimeout)
 			}
 		})
 	}
@@ -684,10 +901,22 @@ func TestShellDriver_ToolDefs(t *testing.T) {
 	if _, ok := props["command"]; !ok {
 		t.Fatal("expected 'command' property")
 	}
+	// Story 57.1 AC3: optional per-call timeout parameter.
+	timeoutProp, ok := props["timeout"].(map[string]any)
+	if !ok {
+		t.Fatal("expected 'timeout' property (Story 57.1 AC3)")
+	}
+	if timeoutProp["type"] != "integer" {
+		t.Errorf("expected timeout type 'integer', got %v", timeoutProp["type"])
+	}
+	if desc, _ := timeoutProp["description"].(string); desc == "" {
+		t.Error("expected non-empty timeout description")
+	}
 	req, ok := params["required"].([]string)
 	if !ok {
 		t.Fatal("expected required to be []string")
 	}
+	// timeout stays optional — only command is required.
 	if len(req) != 1 || req[0] != "command" {
 		t.Fatalf("expected required=['command'], got %v", req)
 	}

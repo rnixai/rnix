@@ -1603,7 +1603,14 @@ func runDaemon(cmd *cobra.Command, args []string) error {
 	vfsInst := vfs.NewVFS(devReg)
 	fsDriver := fs.NewDriver()
 	_ = devReg.RegisterWithDriver("/dev/fs", fsDriver.FileFactory(), fsDriver)
-	shellDriver := drivershell.NewDriver()
+	// /dev/shell — command execution timeout is config-overridable (Story 57.1
+	// AC1). Zero means "unset"; NewDriverWithOptions falls back to
+	// drivershell.DefaultTimeout in that case.
+	shellTimeout, shellWarn := config.ResolveShellTimeout(filepath.Join(globalDir, "config.yaml"))
+	if shellWarn != "" {
+		fmt.Fprintf(os.Stderr, "[config] warn: %s\n", shellWarn)
+	}
+	shellDriver := drivershell.NewDriverWithOptions(drivershell.DriverOpts{Timeout: shellTimeout})
 	_ = devReg.RegisterWithDriver("/dev/shell", drivershell.FileFactory(shellDriver, "/dev/shell"), shellDriver)
 	webSearchRegistry, webHTTPClient := buildWebSearchRegistry(globalDir)
 	webDriver := web.NewDriverWithOptions(web.DriverOpts{
