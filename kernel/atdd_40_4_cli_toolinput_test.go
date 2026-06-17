@@ -327,14 +327,19 @@ func TestATDD_40_4_INT_006_FallbackToInputBufWhenNoAuthoritative(t *testing.T) {
 }
 
 // -----------------------------------------------------------------------------
-// 40.4-INT-007 (P2, AC #5): 单条 assistant 含 ≥2 个 tool_use block，各自 input 不串。
-// RED: 同消息多 block 按各自 call_id 存。
+// 40.4-INT-007 (P1, AC #5): 真实并行 —— 两个工具都 started 之后，一条 assistant
+// 携带 A、B 两个 tool_use block。多槽模型（review F1）下二者各自落盘、各自 input
+// 完整、互不串味。单槽实现会丢失 B（started(B) 把 A flush 掉，B 无后续触发）。
+// 真实 claude 序列: content_block_start(A) → deltas(A) → content_block_start(B)
+// → deltas(B) → assistant{A,B}（含两 block 完整 input，在两者 started 之后到达）。
 // -----------------------------------------------------------------------------
-func TestATDD_40_4_INT_007_MultiBlockSingleAssistant(t *testing.T) {
+func TestATDD_40_4_INT_007_ParallelToolsBothPersisted(t *testing.T) {
 	h := newStreamHarness(t)
 	h.feed(evtStarted("Read", "call_A"))
-	h.feed(evtUserToolResult("prev", "x")) // 制造 A 空 inputBuf
-	// 一条 assistant 同时携带 A、B 两个 tool_use block。
+	h.feed(evtInputDelta(`{"file_p`)) // A 截断分片（待权威覆盖）
+	h.feed(evtStarted("Bash", "call_B"))
+	h.feed(evtInputDelta(`{"comm`)) // B 截断分片（待权威覆盖）
+	// 一条 assistant 同时携带 A、B 两个 tool_use block —— 在两者 started 之后到达。
 	h.feed(map[string]any{
 		"type": "assistant", "role": "assistant",
 		"content": []map[string]any{
@@ -342,12 +347,36 @@ func TestATDD_40_4_INT_007_MultiBlockSingleAssistant(t *testing.T) {
 			{"type": "tool_use", "id": "call_B", "name": "Bash", "input": map[string]any{"command": "pwd"}},
 		},
 	})
-	h.feed(evtStarted("Bash", "call_B"))
-	h.feed(evtUserToolResult("call_A", "done"))
 
 	recs := h.flushAndReadSteps(t)
 	readRec := findStepByToolInputOwner(t, recs, "Read")
+	bashRec := findStepByToolInputOwner(t, recs, "Bash") // 单槽实现下 Bash 丢步 → Fatal
 	if !jsonHasField(t, readRec.ToolInput, "file_path", "a.txt") {
-		t.Errorf("多 block: Read 权威 input 未正确关联: %q", readRec.ToolInput)
+		t.Errorf("并行: Read 权威 input 未正确关联: %q", readRec.ToolInput)
+	}
+	if !jsonHasField(t, bashRec.ToolInput, "command", "pwd") {
+		t.Errorf("并行: Bash 权威 input 未正确关联（多槽丢步）: %q", bashRec.ToolInput)
+	}
+	if strings.Contains(readRec.ToolInput, "command") || strings.Contains(bashRec.ToolInput, "file_path") {
+		t.Errorf("并行 input 串味: Read=%q Bash=%q", readRec.ToolInput, bashRec.ToolInput)
+	}
+}
+
+// -----------------------------------------------------------------------------
+// 40.4-INT-008 (P1, AC #5 / review F1 / defer #36): 尾部工具无 assistant、无下一
+// started —— 靠 stream-end `done` backstop 落盘，不丢步。单槽旧实现依赖 user/next
+// -started flush，尾部工具在无后继事件时丢失。
+// -----------------------------------------------------------------------------
+func TestATDD_40_4_INT_008_TerminalToolFlushedByDone(t *testing.T) {
+	h := newStreamHarness(t)
+	h.feed(evtStarted("Read", "call_A"))
+	h.feed(evtInputDelta(`{"file_path":"tail.txt"}`))
+	// 无 assistant、无下一 started、无 completed —— 仅靠 done 兜底。
+	h.feed(map[string]any{"type": "done", "content": "final"})
+
+	recs := h.flushAndReadSteps(t)
+	rec := findStepByToolInputOwner(t, recs, "Read")
+	if !jsonHasField(t, rec.ToolInput, "file_path", "tail.txt") {
+		t.Errorf("尾部工具未被 done backstop 落盘: %q", rec.ToolInput)
 	}
 }

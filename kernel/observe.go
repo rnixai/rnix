@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"log"
 	"maps"
-	"slices"
 	"strings"
 	"time"
 
@@ -492,7 +491,7 @@ func (k *KernelImpl) setupDriverStreamHandler(proc *Process, llmFD types.FD) {
 
 	if obs, ok := file.(vfs.StreamObserver); ok {
 		driverStep := 0
-		var pendingTool struct {
+		type pendingToolState struct {
 			step     int
 			tool     string
 			summary  string
@@ -502,6 +501,21 @@ func (k *KernelImpl) setupDriverStreamHandler(proc *Process, llmFD types.FD) {
 			result   string
 			callID   string
 		}
+		// pendings holds every tool call that has been `started` but not yet
+		// flushed, keyed by call_id. Story 40.4 (multi-slot, review F1): a single
+		// claude assistant message can in principle carry multiple tool_use
+		// blocks (parallel calls), so more than one tool may be mid-flight at
+		// once. `current` points at the tool currently accumulating input_delta
+		// fragments (the most recently `started` one, since claude streams one
+		// content block's deltas at a time). Tools without a call_id (cursor) are
+		// tracked via `current` + pendingOrder and flushed by their `completed`
+		// event or the stream-end backstop.
+		pendings := make(map[string]*pendingToolState)
+		// pendingOrder preserves started order across all in-flight tools (both
+		// call_id-keyed and id-less), so flushAll persists step records
+		// deterministically rather than in random map-iteration order.
+		var pendingOrder []*pendingToolState
+		var current *pendingToolState
 		// authInputs maps a tool call_id → its marshaled authoritative input
 		// JSON, captured from assistant tool_use blocks. Story 40.4: claude CLI
 		// interleaves the previous round's user(tool_result) with the next
@@ -517,24 +531,26 @@ func (k *KernelImpl) setupDriverStreamHandler(proc *Process, llmFD types.FD) {
 			})
 		}
 
-		flushPendingTool := func() {
-			if pendingTool.step == 0 {
+		// flushTool persists one pending tool's step record. It prefers the
+		// authoritative input captured from the assistant tool_use block (keyed
+		// by call_id) over the incrementally accumulated inputBuf, which can be
+		// truncated when claude CLI interleaves the previous round's
+		// user(tool_result) with this tool's partial deltas. Falls back to
+		// inputBuf when no authoritative input is available (AC #3 / INT-006).
+		// After persisting it removes the tool from the pending tracking
+		// structures so it is never flushed twice.
+		flushTool := func(p *pendingToolState) {
+			if p == nil || p.step == 0 {
 				return
 			}
-			dur := time.Since(pendingTool.start)
-			toolInput := pendingTool.inputBuf.String()
-			// Story 40.4: prefer the authoritative input captured from the
-			// assistant tool_use block (keyed by call_id) over the incrementally
-			// accumulated inputBuf, which can be truncated when claude CLI
-			// interleaves the previous round's user(tool_result) with this tool's
-			// partial deltas. Fall back to inputBuf when no authoritative input
-			// is available (AC #3 / INT-006).
-			if pendingTool.callID != "" {
-				if auth, ok := authInputs[pendingTool.callID]; ok {
+			dur := time.Since(p.start)
+			toolInput := p.inputBuf.String()
+			if p.callID != "" {
+				if auth, ok := authInputs[p.callID]; ok {
 					toolInput = auth
 				}
 			}
-			summary := driverToolSummary(pendingTool.tool, pendingTool.toolPath, toolInput)
+			summary := driverToolSummary(p.tool, p.toolPath, toolInput)
 			var msgsRaw json.RawMessage
 			msgCount := len(msgHistory)
 			if msgCount > 0 {
@@ -542,16 +558,46 @@ func (k *KernelImpl) setupDriverStreamHandler(proc *Process, llmFD types.FD) {
 					msgsRaw = data
 				}
 			}
-			k.writeDriverStepRecordFull(proc, pendingTool.step, pendingTool.tool,
-				summary, pendingTool.toolPath, toolInput, pendingTool.result, dur,
+			k.writeDriverStepRecordFull(proc, p.step, p.tool,
+				summary, p.toolPath, toolInput, p.result, dur,
 				msgsRaw, msgCount)
-			if pendingTool.callID != "" {
-				delete(authInputs, pendingTool.callID)
+			// Remove from tracking so it cannot be flushed again. The
+			// authoritative input entry is deleted to bound memory and prevent
+			// crosstalk between calls reusing identifiers.
+			if p.callID != "" {
+				delete(authInputs, p.callID)
+				delete(pendings, p.callID)
 			}
-			pendingTool.step = 0
-			pendingTool.inputBuf.Reset()
-			pendingTool.result = ""
-			pendingTool.callID = ""
+			for i, np := range pendingOrder {
+				if np == p {
+					pendingOrder = append(pendingOrder[:i], pendingOrder[i+1:]...)
+					break
+				}
+			}
+			if current == p {
+				current = nil
+			}
+			p.step = 0
+		}
+
+		// flushTrackedByID flushes the pending tool with the given call_id, if any.
+		flushTrackedByID := func(callID string) {
+			if callID == "" {
+				return
+			}
+			if p, ok := pendings[callID]; ok {
+				flushTool(p)
+			}
+		}
+
+		// flushAll drains every still-pending tool in started order. Used at
+		// stream end so the final tool in a session is never lost (review F1 /
+		// defer #36).
+		flushAll := func() {
+			for len(pendingOrder) > 0 {
+				flushTool(pendingOrder[0])
+			}
+			current = nil
 		}
 
 		// recordAuthInput marshals an assistant tool_use block's authoritative
@@ -721,16 +767,18 @@ func (k *KernelImpl) setupDriverStreamHandler(proc *Process, llmFD types.FD) {
 					}
 					msgHistory = append(msgHistory, msg)
 
-					// Story 40.4: flush the pending tool once its authoritative
-					// input has arrived via this assistant event. claude CLI emits
-					// no `completed` event for tool calls, and the previous
+					// Story 40.4: flush each pending tool whose authoritative input
+					// arrived via this assistant event. claude CLI emits no
+					// `completed` event for tool calls, and the previous
 					// `user`-driven flush truncated tools whose deltas interleave
 					// with the prior round's tool_result. Driving flush from the
 					// assistant event (which carries the complete input) avoids
-					// both truncation and empty inputs.
-					if evtType == "assistant" && pendingTool.step != 0 && pendingTool.callID != "" {
-						if slices.Contains(assistantToolIDs, pendingTool.callID) {
-							flushPendingTool()
+					// both truncation and empty inputs. Multi-slot (review F1): a
+					// single assistant may carry several tool_use blocks, so we
+					// flush every matching call_id, not just one current slot.
+					if evtType == "assistant" {
+						for _, id := range assistantToolIDs {
+							flushTrackedByID(id)
 						}
 					}
 				}
@@ -741,7 +789,13 @@ func (k *KernelImpl) setupDriverStreamHandler(proc *Process, llmFD types.FD) {
 				contentVal, _ := evt["content"].(string)
 				switch contentVal {
 				case "started":
-					flushPendingTool()
+					// Multi-slot (review F1): a new tool starting does NOT flush
+					// prior pending tools. Parallel claude tool_use blocks arrive
+					// as started(A), started(B), ... before the combined assistant
+					// event; flushing on started(B) would truncate A before its
+					// authoritative input arrives. Each tool now owns its own slot
+					// and is flushed by its assistant event (claude), its completed
+					// event (codex/cursor), or the stream-end `done` backstop.
 					driverStep++
 					tool, _ := evt["tool"].(string)
 					desc, _ := evt["description"].(string)
@@ -755,23 +809,29 @@ func (k *KernelImpl) setupDriverStreamHandler(proc *Process, llmFD types.FD) {
 					if pathStr != "" {
 						toolPath = tool + ":" + pathStr
 					}
-					pendingTool.step = driverStep
-					pendingTool.tool = tool
-					pendingTool.summary = summary
-					pendingTool.toolPath = toolPath
-					pendingTool.start = time.Now()
-					pendingTool.inputBuf.Reset()
-					pendingTool.callID, _ = evt["call_id"].(string)
+					p := &pendingToolState{
+						step:     driverStep,
+						tool:     tool,
+						summary:  summary,
+						toolPath: toolPath,
+						start:    time.Now(),
+					}
+					p.callID, _ = evt["call_id"].(string)
 					if cmd != "" {
-						pendingTool.inputBuf.WriteString(cmd)
+						p.inputBuf.WriteString(cmd)
 					} else if pathStr != "" {
-						pendingTool.inputBuf.WriteString(pathStr)
+						p.inputBuf.WriteString(pathStr)
 					}
 					if argsStr, ok := evt["args"].(string); ok && argsStr != "" {
-						if pendingTool.inputBuf.Len() == 0 {
-							pendingTool.inputBuf.WriteString(argsStr)
+						if p.inputBuf.Len() == 0 {
+							p.inputBuf.WriteString(argsStr)
 						}
 					}
+					if p.callID != "" {
+						pendings[p.callID] = p
+					}
+					pendingOrder = append(pendingOrder, p)
+					current = p
 					if tool != "" {
 						proc.mu.Lock()
 						if len(proc.nativeToolDefs) == 0 {
@@ -794,27 +854,48 @@ func (k *KernelImpl) setupDriverStreamHandler(proc *Process, llmFD types.FD) {
 						proc.mu.Unlock()
 					}
 				case "input_delta":
-					if partial, ok := evt["partial_json"].(string); ok {
-						pendingTool.inputBuf.WriteString(partial)
+					// Deltas belong to the most recently started tool (claude
+					// streams one content block's input fragments at a time).
+					if partial, ok := evt["partial_json"].(string); ok && current != nil {
+						current.inputBuf.WriteString(partial)
 					}
 				case "completed":
-					if result, ok := evt["result"].(string); ok && result != "" {
-						pendingTool.result = result
-					}
-					if pendingTool.result == "" {
-						if result, ok := evt["tool_result"].(string); ok {
-							pendingTool.result = result
+					// codex/cursor flush each tool on its own `completed` event.
+					// Resolve the target by call_id when present (codex), else
+					// fall back to `current` (cursor carries no call_id).
+					p := current
+					if cid, _ := evt["call_id"].(string); cid != "" {
+						if tracked, ok := pendings[cid]; ok {
+							p = tracked
 						}
 					}
-					flushPendingTool()
+					if p != nil {
+						if result, ok := evt["result"].(string); ok && result != "" {
+							p.result = result
+						}
+						if p.result == "" {
+							if result, ok := evt["tool_result"].(string); ok {
+								p.result = result
+							}
+						}
+						flushTool(p)
+					}
 				}
-			// NOTE (Story 40.4): the `user` event no longer flushes the pending
-			// tool. claude CLI interleaves the previous round's user(tool_result)
+			case "done":
+				// Stream-end backstop (review F1 / defer #36): flush any tool
+				// still pending. claude emits no `completed` for tool calls, so a
+				// terminal tool whose authoritative input never arrived (or whose
+				// assistant event was the stream's last meaningful message) would
+				// otherwise be dropped. flushAll drains both id-keyed and
+				// no-id pending tools.
+				flushAll()
+			// NOTE (Story 40.4): the `user` event no longer flushes pending
+			// tools. claude CLI interleaves the previous round's user(tool_result)
 			// with the next tool's partial input deltas, so an unconditional user
 			// flush truncated (or emptied) the next tool's input. Flush is now
-			// driven by the assistant event carrying the tool's authoritative
-			// input (above) and by the next tool's `started` backstop; codex/cursor
-			// tools still flush via their `completed` event.
+			// driven by the assistant event carrying each tool's authoritative
+			// input (claude), by each tool's `completed` event (codex/cursor), and
+			// by the stream-end `done` backstop.
 			}
 		})
 	}
