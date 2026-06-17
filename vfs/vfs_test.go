@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"sync"
 	"testing"
 
@@ -519,6 +520,85 @@ func TestVFS_SetWorkDir(t *testing.T) {
 
 		if receivedWorkDir != "" {
 			t.Errorf("factory received workDir = %q, want empty", receivedWorkDir)
+		}
+	})
+}
+
+// TestVFSError_RealDeviceAndNoNesting verifies Story 57.1 AC6: a driver error
+// surfaced through VFS.Write/Close carries the real device path (not "") and
+// the message does not double-print the "[CODE]" decoration the DriverError
+// already added.
+func TestVFSError_RealDeviceAndNoNesting(t *testing.T) {
+	mkDriverErr := func(op string) *types.DriverError {
+		return &types.DriverError{
+			Op:     op,
+			Device: "/dev/shell",
+			Err:    fmt.Errorf("command timed out after 30s"),
+			Code:   types.ErrTimeout,
+		}
+	}
+
+	t.Run("Write attributes real device, single decoration", func(t *testing.T) {
+		reg := NewDeviceRegistry()
+		mf := &mockFile{writeErr: mkDriverErr("Write")}
+		_ = reg.Register("/dev/shell", func(string, OpenFlag, string) (VFSFile, error) {
+			return mf, nil
+		})
+		v := NewVFS(reg)
+		pid := types.PID(641)
+		fd, err := v.Open(pid, "/dev/shell", O_RDWR)
+		if err != nil {
+			t.Fatalf("Open failed: %v", err)
+		}
+
+		err = v.Write(context.Background(), pid, fd, []byte("sleep 99"))
+		if err == nil {
+			t.Fatal("expected error, got nil")
+		}
+		var vfsErr *VFSError
+		if !errors.As(err, &vfsErr) {
+			t.Fatalf("expected *VFSError, got %T", err)
+		}
+		if vfsErr.Device != "/dev/shell" {
+			t.Errorf("expected Device '/dev/shell', got %q (AC6: real device)", vfsErr.Device)
+		}
+		msg := vfsErr.Error()
+		// Single "[TIMEOUT]", not doubled.
+		if n := strings.Count(msg, "[TIMEOUT]"); n != 1 {
+			t.Errorf("expected exactly one [TIMEOUT] in %q, got %d", msg, n)
+		}
+		// No "Write:  " double-space (empty device) regression.
+		if strings.Contains(msg, "Write:  ") {
+			t.Errorf("message has empty-device double space: %q", msg)
+		}
+		if !strings.Contains(msg, "/dev/shell") {
+			t.Errorf("message missing device path: %q", msg)
+		}
+	})
+
+	t.Run("Close attributes real device", func(t *testing.T) {
+		reg := NewDeviceRegistry()
+		mf := &mockFile{closeErr: mkDriverErr("Close")}
+		_ = reg.Register("/dev/shell", func(string, OpenFlag, string) (VFSFile, error) {
+			return mf, nil
+		})
+		v := NewVFS(reg)
+		pid := types.PID(7)
+		fd, err := v.Open(pid, "/dev/shell", O_RDWR)
+		if err != nil {
+			t.Fatalf("Open failed: %v", err)
+		}
+
+		err = v.Close(pid, fd)
+		if err == nil {
+			t.Fatal("expected close error, got nil")
+		}
+		var vfsErr *VFSError
+		if !errors.As(err, &vfsErr) {
+			t.Fatalf("expected *VFSError, got %T", err)
+		}
+		if vfsErr.Device != "/dev/shell" {
+			t.Errorf("expected Device '/dev/shell', got %q", vfsErr.Device)
 		}
 	})
 }

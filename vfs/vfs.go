@@ -142,8 +142,20 @@ type VFSError struct {
 }
 
 // Error returns a formatted error string.
+//
+// When the wrapped error is a *types.DriverError, the driver has already
+// encoded a "[Code] Op: Device" decoration of its own; rendering it verbatim
+// produced doubled output like
+// "[TIMEOUT] PID 641 Write:  ([TIMEOUT] Write: /dev/shell (...))" (Story 57.1
+// AC6). In that case render only the driver's underlying error so the message
+// collapses to a single, correctly-attributed line.
 func (e *VFSError) Error() string {
-	return fmt.Sprintf("[%s] PID %d %s: %s (%v)", e.Code, e.PID, e.Op, e.Device, e.Err)
+	inner := e.Err
+	var drvErr *types.DriverError
+	if errors.As(e.Err, &drvErr) && drvErr.Err != nil {
+		inner = drvErr.Err
+	}
+	return fmt.Sprintf("[%s] PID %d %s: %s (%v)", e.Code, e.PID, e.Op, e.Device, inner)
 }
 
 // Unwrap returns the underlying error.
@@ -291,6 +303,23 @@ func driverErrCode(err error) types.ErrCode {
 	return types.ErrDriver
 }
 
+// deviceForErr resolves the real device path to attribute a VFSError to (Story
+// 57.1 AC6). It prefers the device the driver already recorded on its
+// *types.DriverError, then falls back to the file's Stat().DevicePath. Returns
+// "" only when neither source is available (e.g. invalid-fd before any file).
+func deviceForErr(file VFSFile, err error) string {
+	var drvErr *types.DriverError
+	if errors.As(err, &drvErr) && drvErr.Device != "" {
+		return drvErr.Device
+	}
+	if file != nil {
+		if st, statErr := file.Stat(); statErr == nil && st.DevicePath != "" {
+			return st.DevicePath
+		}
+	}
+	return ""
+}
+
 // Open opens a device path and returns a new FD for the process.
 func (v *VFS) Open(pid types.PID, path string, flags OpenFlag) (types.FD, error) {
 	workDir := v.GetWorkDir(pid)
@@ -333,7 +362,7 @@ func (v *VFS) Read(pid types.PID, fd types.FD, length int) ([]byte, error) {
 	}
 	data, err := file.Read(length)
 	if err != nil {
-		return nil, newVFSError("Read", pid, "", err, driverErrCode(err))
+		return nil, newVFSError("Read", pid, deviceForErr(file, err), err, driverErrCode(err))
 	}
 	return data, nil
 }
@@ -349,7 +378,7 @@ func (v *VFS) Write(ctx context.Context, pid types.PID, fd types.FD, data []byte
 		return newVFSError("Write", pid, "", fmt.Errorf("invalid fd: %d", fd), types.ErrNotFound)
 	}
 	if err := file.Write(ctx, data); err != nil {
-		return newVFSError("Write", pid, "", err, driverErrCode(err))
+		return newVFSError("Write", pid, deviceForErr(file, err), err, driverErrCode(err))
 	}
 	return nil
 }
@@ -365,7 +394,7 @@ func (v *VFS) Close(pid types.PID, fd types.FD) error {
 		return newVFSError("Close", pid, "", fmt.Errorf("invalid fd: %d", fd), types.ErrNotFound)
 	}
 	if err := file.Close(); err != nil {
-		return newVFSError("Close", pid, "", err, driverErrCode(err))
+		return newVFSError("Close", pid, deviceForErr(file, err), err, driverErrCode(err))
 	}
 	return nil
 }
