@@ -88,3 +88,31 @@ func TestResolveShellTimeout_LargeValueNotClamped(t *testing.T) {
 		t.Errorf("got %v, want 9999s (config layer must not clamp)", d)
 	}
 }
+
+// Review P3: a non-NotExist read error (e.g. the path is a directory) must
+// surface a warning, not be silently swallowed as "use the default". A missing
+// file stays silent (covered by TestResolveShellTimeout_MissingFile).
+func TestResolveShellTimeout_ReadError(t *testing.T) {
+	dir := t.TempDir() // a directory — os.ReadFile yields EISDIR, not NotExist
+	d, warn := ResolveShellTimeout(dir)
+	if d != 0 {
+		t.Errorf("read error: got %v, want 0", d)
+	}
+	if warn == "" {
+		t.Error("read error: expected non-empty warning (not silent)")
+	}
+}
+
+// Review P2: an implausibly large value would overflow int64 nanoseconds in
+// time.Duration(secs)*time.Second and wrap to a tiny/negative duration. It must
+// be refused (0 + warning, falling back to the driver default), never wrapped.
+func TestResolveShellTimeout_OverflowValueRefused(t *testing.T) {
+	p := writeShellConfig(t, "shell:\n  command_timeout_seconds: 99999999999\n") // ~1e11 s > ~9.2e9 ceiling
+	d, warn := ResolveShellTimeout(p)
+	if d != 0 {
+		t.Errorf("overflow value: got %v, want 0 (refused, not wrapped)", d)
+	}
+	if warn == "" {
+		t.Error("overflow value: expected non-empty warning")
+	}
+}

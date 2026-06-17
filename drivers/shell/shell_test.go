@@ -347,6 +347,51 @@ func TestShellFile_Close_DoubleClose(t *testing.T) {
 	}
 }
 
+// Review D1: when the PARENT context is cancelled (process kill / SIGTERM /
+// daemon shutdown) rather than the driver deadline expiring, the captured
+// partial output must be preserved (like AC4) and tagged as canceled — NOT
+// discarded by the generic "command execution failed" path, and NOT mislabeled
+// as a timeout. Driver timeout is large so only the cancellation fires.
+func TestShellFile_Write_ParentCancelPreservesPartialOutput(t *testing.T) {
+	driver := NewDriverWithOptions(DriverOpts{
+		Timeout:    30 * time.Second, // large — the deadline must not fire
+		CmdBuilder: mockCmdBuilder("partial_then_hang"),
+	})
+	f := &ShellFile{driver: driver, devicePath: "/dev/shell"}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	errc := make(chan error, 1)
+	go func() {
+		errc <- f.Write(ctx, []byte("go build ./..."))
+	}()
+	// Let the command emit its partial output, then cancel the parent context.
+	time.Sleep(300 * time.Millisecond)
+	cancel()
+
+	err := <-errc // happens-after the Write returns: f.response is safe to read
+	if err == nil {
+		t.Fatal("expected error on parent cancel, got nil")
+	}
+	var drvErr *types.DriverError
+	if !errors.As(err, &drvErr) {
+		t.Fatalf("expected *types.DriverError, got %T: %v", err, err)
+	}
+	if drvErr.Code == types.ErrTimeout {
+		t.Errorf("parent cancel must NOT be tagged as ErrTimeout")
+	}
+
+	out := string(f.response)
+	if !strings.Contains(out, "building package foo") {
+		t.Errorf("expected partial output preserved, got %q", out)
+	}
+	if !strings.Contains(out, "canceled") {
+		t.Errorf("expected cancel marker in output, got %q", out)
+	}
+	if !strings.Contains(drvErr.Err.Error(), "canceled") {
+		t.Errorf("expected cancel marker in error, got %q", drvErr.Err.Error())
+	}
+}
+
 // Task 2.9: TestShellFile_Write_AfterClose
 func TestShellFile_Write_AfterClose(t *testing.T) {
 	driver := NewDriver()
@@ -595,6 +640,12 @@ func TestExtractCommand(t *testing.T) {
 		{"JSON with timeout", `{"command": "go build", "timeout": 300}`, "go build", 300 * time.Second},
 		{"JSON with zero timeout", `{"command": "ls", "timeout": 0}`, "ls", 0},
 		{"JSON with negative timeout", `{"command": "ls", "timeout": -5}`, "ls", 0},
+		// Review P1: clamp in seconds-space before the multiply. A value above
+		// the 600s ceiling is clamped down; an int64-overflowing value (which
+		// would wrap to a tiny/negative duration past the Write-side clamp) is
+		// also caught here and clamped, never wrapped.
+		{"JSON with above-ceiling timeout", `{"command": "go build", "timeout": 99999}`, "go build", maxCommandTimeout},
+		{"JSON with overflow timeout", `{"command": "x", "timeout": 18446744074}`, "x", maxCommandTimeout},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

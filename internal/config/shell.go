@@ -2,6 +2,7 @@ package config
 
 import (
 	"fmt"
+	"math"
 	"os"
 	"time"
 
@@ -29,7 +30,14 @@ type shellConfigFile struct {
 func ResolveShellTimeout(configPath string) (time.Duration, string) {
 	data, err := os.ReadFile(configPath)
 	if err != nil {
-		return 0, ""
+		// A missing file is the common "no config" case — silent. Any other
+		// read error (permission denied, EISDIR, I/O) is a real misconfiguration
+		// the operator should see, so surface it as a warning rather than
+		// silently falling back to the default.
+		if os.IsNotExist(err) {
+			return 0, ""
+		}
+		return 0, fmt.Sprintf("shell: failed to read %s: %v", configPath, err)
 	}
 
 	var cfg shellConfigFile
@@ -40,6 +48,15 @@ func ResolveShellTimeout(configPath string) (time.Duration, string) {
 	secs := cfg.Shell.CommandTimeoutSeconds
 	if secs <= 0 {
 		return 0, ""
+	}
+	// The config layer trusts the operator and does NOT clamp to the per-call
+	// ceiling, but an implausibly large value would overflow int64 nanoseconds
+	// in `time.Duration(secs) * time.Second` and wrap to a tiny/negative
+	// duration. Refuse such values (use the driver default) with a warning
+	// rather than silently producing a sub-second timeout.
+	const maxSafeSeconds = math.MaxInt64 / int64(time.Second)
+	if int64(secs) > maxSafeSeconds {
+		return 0, fmt.Sprintf("shell: command_timeout_seconds=%d is implausibly large (max %d); using the driver default", secs, maxSafeSeconds)
 	}
 	return time.Duration(secs) * time.Second, ""
 }

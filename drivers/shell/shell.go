@@ -26,10 +26,17 @@ const (
 	// magnitude. Override per-driver via DriverOpts.Timeout (config-wired in
 	// cmd/rnix/main.go) or per-call via the Bash tool's optional `timeout`.
 	DefaultTimeout = 120 * time.Second
-	// maxCommandTimeout is the hard ceiling for a per-call `timeout` override
-	// (Story 57.1 AC3). Values above this are clamped (not rejected) to keep a
-	// single command from holding a worker for an unbounded time.
-	maxCommandTimeout = 600 * time.Second
+	// maxCommandTimeoutSeconds is the hard ceiling for a per-call `timeout`
+	// override (Story 57.1 AC3), expressed in seconds. It is applied in
+	// seconds-space *before* multiplying by time.Second — clamping after the
+	// multiply cannot undo an int64 overflow (review finding: timeout
+	// 18446744074 wraps to +290ms, passes the >0 guard, and slips past the
+	// post-multiply clamp, near-instantly killing a legitimate long command).
+	maxCommandTimeoutSeconds = 600
+	// maxCommandTimeout is the same ceiling as a Duration. Values above it are
+	// clamped (not rejected) to keep a single command from holding a worker for
+	// an unbounded time.
+	maxCommandTimeout = maxCommandTimeoutSeconds * time.Second
 	// waitDelay is the grace period after ctx cancellation before stdlib
 	// forcibly closes stdin/stdout/stderr to unblock readers (see
 	// golang/go#23019). Required because shell commands may fork background
@@ -204,6 +211,24 @@ func (f *ShellFile) Write(ctx context.Context, data []byte) error {
 		}
 	}
 
+	// Review D1: the parent context was cancelled (process kill / SIGTERM /
+	// daemon shutdown) rather than a deadline expiring. Like the timeout path we
+	// preserve whatever the command captured so the agent / post-mortem can see
+	// how far it got, tag it distinctly, and return a driver error (the command
+	// did not complete). Without this the partial output fell through to the
+	// generic "command execution failed" branch and was discarded.
+	if ctx.Err() == context.Canceled {
+		fmt.Fprint(&combined, "\n[command canceled before completion; partial output above]")
+		f.response = f.finalizeResponse(combined.String())
+		f.offset = 0
+		return &types.DriverError{
+			Op:     "Write",
+			Device: f.devicePath,
+			Err:    fmt.Errorf("command canceled before completion; partial output:\n%s", string(f.response)),
+			Code:   types.ErrDriver,
+		}
+	}
+
 	// AC5 (deferred-work #128 / ECH-M2): ErrWaitDelay fired but the context was
 	// NOT cancelled — the command itself exited cleanly, only a grandchild kept
 	// the inherited pipe open past the WaitDelay grace window. This is not a
@@ -311,7 +336,11 @@ func extractCommand(data []byte) (string, time.Duration) {
 	if json.Unmarshal(data, &req) == nil && req.Command != "" {
 		var timeout time.Duration
 		if req.Timeout > 0 {
-			timeout = time.Duration(req.Timeout) * time.Second
+			// Clamp in seconds-space before converting: time.Duration(secs) *
+			// time.Second overflows int64 for absurd values and would wrap to a
+			// tiny/negative duration that slips past the Write-side clamp.
+			secs := min(req.Timeout, maxCommandTimeoutSeconds)
+			timeout = time.Duration(secs) * time.Second
 		}
 		return req.Command, timeout
 	}
