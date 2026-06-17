@@ -158,6 +158,14 @@ Claude CLI driver (`/dev/llm/claude`) uses capability probing to adapt to differ
 | `fallback_candidates` | Comma-joined candidate binary names (split to `candidates[]` in the `claude_cli.resolve` event) | `claude,openclaude` |
 | `probe_duration_ms` | Capability-probe wall-clock duration in ms (emitted as `probe_duration_ms` in the `claude_cli.capabilities` event) | `12` |
 
+### 工具 Input 权威回填与 flush 时序 (Story 40-4)
+
+CLI driver（`/dev/llm/claude` 等）的工具调用 Input 经 **assistant 块权威回填 + flush 时序修正**，不再受 `--include-partial-messages` 下的交错时序影响：
+
+- **根因**：claude CLI 把上一轮 `user`(tool_result) 与下一轮工具的 partial input deltas 交错输出。`kernel/observe.go::setupDriverStreamHandler` 旧逻辑在 `user` 事件无条件 `flushPendingTool()`，把刚 `started`、只累积首分片的下一轮工具提前截断 flush（全局 4834 工具步骤中 51 空 + 192 截断）。
+- **修复**：①assistant tool_use 三种 content 形态（`[]map[string]any` / `[]any` / `map[string]any`）均读 `block["input"]`，按 `call_id` 存为权威 input；②`user` 事件不再 flush 正在收 input 的下一轮工具——claude 工具改由「assistant 权威 input 已到」驱动 flush，`started` 作 backstop；③flush 时若 `call_id` 命中权威 input 则覆盖不完整的 inputBuf，否则回退 inputBuf。
+- **driver 兼容**：codex/cursor 工具仍由各自的 `completed` 事件 flush，不受影响（它们不 emit 携带 tool_use block 的 assistant 事件）。渲染层（`internal/dashboard/timeline/render.go`）零改动——`detail.ToolInput` 完整即自动正确。
+
 ### Timeline Fold & Navigation (Story 41-3)
 
 **toolAggGroup vs RootIntent**: These are distinct fold granularities. toolAggGroup (≥3 consecutive steps with same ToolPath, defined in `event.BuildToolAggGroups`) is the Timeline pane's fold unit. RootIntent is the Intent pane's collapse unit. Do not confuse them.

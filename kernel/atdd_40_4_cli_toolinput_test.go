@@ -168,8 +168,6 @@ func findStepByToolInputOwner(t *testing.T, recs []types.StepRecord, tool string
 // RED: 当前 user handler 无条件 flush，把 toolA 截断成首分片 '{"file_p'。
 // -----------------------------------------------------------------------------
 func TestATDD_40_4_INT_001_InterleavedUserDoesNotTruncate(t *testing.T) {
-	t.Skip("RED: 40.4: flush 时序未修正——user 事件无条件 flush 会把交错的下一轮工具截断")
-
 	h := newStreamHarness(t)
 	// 错位序列（story raw[907..921] tooluse_dPiNSh）:
 	h.feed(evtStarted("Read", "call_A"))                                   // 工具A started
@@ -192,8 +190,6 @@ func TestATDD_40_4_INT_001_InterleavedUserDoesNotTruncate(t *testing.T) {
 // RED: 当前 USER flush 落盘空串，且 assistant input 被丢弃。
 // -----------------------------------------------------------------------------
 func TestATDD_40_4_INT_002_UserBeforeFirstDeltaBackfilled(t *testing.T) {
-	t.Skip("RED: 40.4: assistant 权威 input 未回填——USER 抢先导致空 input 无法补救")
-
 	h := newStreamHarness(t)
 	h.feed(evtStarted("Write", "call_A"))                          // started，inputBuf 空
 	h.feed(evtUserToolResult("call_PREV", "prev"))                 // ⚡ USER 抢在首 delta 前
@@ -217,8 +213,6 @@ func TestATDD_40_4_INT_002_UserBeforeFirstDeltaBackfilled(t *testing.T) {
 // RED: 当前既不读 block["input"]，也无 call_id 关联。
 // -----------------------------------------------------------------------------
 func TestATDD_40_4_INT_003_SequentialToolsNoCrosstalk(t *testing.T) {
-	t.Skip("RED: 40.4: 权威 input 未按 call_id 关联——连续工具回填会串味/落空")
-
 	h := newStreamHarness(t)
 	// 工具A：USER 抢先 → 空 inputBuf，仅能靠权威回填
 	h.feed(evtStarted("Read", "call_A"))
@@ -273,8 +267,6 @@ func TestATDD_40_4_INT_004_HappyPathStillCorrect(t *testing.T) {
 // RED: 三分支当前只取 name/id，丢弃 block["input"]。
 // -----------------------------------------------------------------------------
 func TestATDD_40_4_UNIT_005_AssistantThreeContentShapes(t *testing.T) {
-	t.Skip("RED: 40.4: assistant tool_use 三分支未读取 block[\"input\"]")
-
 	cases := []struct {
 		name    string
 		content any
@@ -339,8 +331,6 @@ func TestATDD_40_4_INT_006_FallbackToInputBufWhenNoAuthoritative(t *testing.T) {
 // RED: 同消息多 block 按各自 call_id 存。
 // -----------------------------------------------------------------------------
 func TestATDD_40_4_INT_007_MultiBlockSingleAssistant(t *testing.T) {
-	t.Skip("RED: 40.4: 单 assistant 多 tool_use block 权威 input 未按 call_id 分别存")
-
 	h := newStreamHarness(t)
 	h.feed(evtStarted("Read", "call_A"))
 	h.feed(evtUserToolResult("prev", "x")) // 制造 A 空 inputBuf

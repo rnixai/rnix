@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log"
 	"maps"
+	"slices"
 	"strings"
 	"time"
 
@@ -499,7 +500,15 @@ func (k *KernelImpl) setupDriverStreamHandler(proc *Process, llmFD types.FD) {
 			start    time.Time
 			inputBuf strings.Builder
 			result   string
+			callID   string
 		}
+		// authInputs maps a tool call_id → its marshaled authoritative input
+		// JSON, captured from assistant tool_use blocks. Story 40.4: claude CLI
+		// interleaves the previous round's user(tool_result) with the next
+		// tool's partial input deltas, so the incremental inputBuf can be
+		// truncated; the assistant block carries the complete authoritative
+		// input and overrides inputBuf at flush time.
+		authInputs := make(map[string]string)
 		var msgHistory []rnixctx.Message
 		if proc.Intent != "" {
 			msgHistory = append(msgHistory, rnixctx.Message{
@@ -514,6 +523,17 @@ func (k *KernelImpl) setupDriverStreamHandler(proc *Process, llmFD types.FD) {
 			}
 			dur := time.Since(pendingTool.start)
 			toolInput := pendingTool.inputBuf.String()
+			// Story 40.4: prefer the authoritative input captured from the
+			// assistant tool_use block (keyed by call_id) over the incrementally
+			// accumulated inputBuf, which can be truncated when claude CLI
+			// interleaves the previous round's user(tool_result) with this tool's
+			// partial deltas. Fall back to inputBuf when no authoritative input
+			// is available (AC #3 / INT-006).
+			if pendingTool.callID != "" {
+				if auth, ok := authInputs[pendingTool.callID]; ok {
+					toolInput = auth
+				}
+			}
 			summary := driverToolSummary(pendingTool.tool, pendingTool.toolPath, toolInput)
 			var msgsRaw json.RawMessage
 			msgCount := len(msgHistory)
@@ -525,9 +545,31 @@ func (k *KernelImpl) setupDriverStreamHandler(proc *Process, llmFD types.FD) {
 			k.writeDriverStepRecordFull(proc, pendingTool.step, pendingTool.tool,
 				summary, pendingTool.toolPath, toolInput, pendingTool.result, dur,
 				msgsRaw, msgCount)
+			if pendingTool.callID != "" {
+				delete(authInputs, pendingTool.callID)
+			}
 			pendingTool.step = 0
 			pendingTool.inputBuf.Reset()
 			pendingTool.result = ""
+			pendingTool.callID = ""
+		}
+
+		// recordAuthInput marshals an assistant tool_use block's authoritative
+		// input and stores it keyed by call_id (Story 40.4 AC #1/#5). A nil input
+		// (no-arg tool) is recorded as "{}" so a present-but-empty input is
+		// distinguishable from "no authoritative input captured" at flush time.
+		// Marshal failures are silently skipped (the call falls back to inputBuf).
+		recordAuthInput := func(id string, input any, present bool) {
+			if id == "" || !present {
+				return
+			}
+			if input == nil {
+				authInputs[id] = "{}"
+				return
+			}
+			if data, err := json.Marshal(input); err == nil {
+				authInputs[id] = string(data)
+			}
 		}
 		obs.SetStreamHandler(func(evt map[string]any) {
 			// Driver activity refreshes heartbeat — prevents false stall
@@ -581,6 +623,10 @@ func (k *KernelImpl) setupDriverStreamHandler(proc *Process, llmFD types.FD) {
 						role = evtType
 					}
 					msg := rnixctx.Message{Role: rnixctx.Role(role)}
+					// assistantToolIDs collects the call_ids of tool_use blocks in
+					// this assistant event so flush can be driven once the
+					// authoritative input has arrived (Story 40.4 AC #2).
+					var assistantToolIDs []string
 					contentVal := evt["content"]
 					switch c := contentVal.(type) {
 					case []map[string]any:
@@ -598,6 +644,13 @@ func (k *KernelImpl) setupDriverStreamHandler(proc *Process, llmFD types.FD) {
 								name, _ := block["name"].(string)
 								id, _ := block["id"].(string)
 								msg.ToolCalls = append(msg.ToolCalls, rnixctx.ToolCall{ID: id, Name: name})
+								if evtType == "assistant" {
+									input, present := block["input"]
+									recordAuthInput(id, input, present)
+									if id != "" {
+										assistantToolIDs = append(assistantToolIDs, id)
+									}
+								}
 							case "tool_result":
 								toolUseID, _ := block["tool_use_id"].(string)
 								msg.ToolCallID = toolUseID
@@ -622,6 +675,13 @@ func (k *KernelImpl) setupDriverStreamHandler(proc *Process, llmFD types.FD) {
 									name, _ := block["name"].(string)
 									id, _ := block["id"].(string)
 									msg.ToolCalls = append(msg.ToolCalls, rnixctx.ToolCall{ID: id, Name: name})
+									if evtType == "assistant" {
+										input, present := block["input"]
+										recordAuthInput(id, input, present)
+										if id != "" {
+											assistantToolIDs = append(assistantToolIDs, id)
+										}
+									}
 								case "tool_result":
 									toolUseID, _ := block["tool_use_id"].(string)
 									msg.ToolCallID = toolUseID
@@ -642,6 +702,13 @@ func (k *KernelImpl) setupDriverStreamHandler(proc *Process, llmFD types.FD) {
 							name, _ := c["name"].(string)
 							id, _ := c["id"].(string)
 							msg.ToolCalls = append(msg.ToolCalls, rnixctx.ToolCall{ID: id, Name: name})
+							if evtType == "assistant" {
+								input, present := c["input"]
+								recordAuthInput(id, input, present)
+								if id != "" {
+									assistantToolIDs = append(assistantToolIDs, id)
+								}
+							}
 						case "tool_result":
 							toolUseID, _ := c["tool_use_id"].(string)
 							msg.ToolCallID = toolUseID
@@ -653,6 +720,19 @@ func (k *KernelImpl) setupDriverStreamHandler(proc *Process, llmFD types.FD) {
 						msg.Content = c
 					}
 					msgHistory = append(msgHistory, msg)
+
+					// Story 40.4: flush the pending tool once its authoritative
+					// input has arrived via this assistant event. claude CLI emits
+					// no `completed` event for tool calls, and the previous
+					// `user`-driven flush truncated tools whose deltas interleave
+					// with the prior round's tool_result. Driving flush from the
+					// assistant event (which carries the complete input) avoids
+					// both truncation and empty inputs.
+					if evtType == "assistant" && pendingTool.step != 0 && pendingTool.callID != "" {
+						if slices.Contains(assistantToolIDs, pendingTool.callID) {
+							flushPendingTool()
+						}
+					}
 				}
 			}
 
@@ -681,6 +761,7 @@ func (k *KernelImpl) setupDriverStreamHandler(proc *Process, llmFD types.FD) {
 					pendingTool.toolPath = toolPath
 					pendingTool.start = time.Now()
 					pendingTool.inputBuf.Reset()
+					pendingTool.callID, _ = evt["call_id"].(string)
 					if cmd != "" {
 						pendingTool.inputBuf.WriteString(cmd)
 					} else if pathStr != "" {
@@ -727,8 +808,13 @@ func (k *KernelImpl) setupDriverStreamHandler(proc *Process, llmFD types.FD) {
 					}
 					flushPendingTool()
 				}
-			case "user":
-				flushPendingTool()
+			// NOTE (Story 40.4): the `user` event no longer flushes the pending
+			// tool. claude CLI interleaves the previous round's user(tool_result)
+			// with the next tool's partial input deltas, so an unconditional user
+			// flush truncated (or emptied) the next tool's input. Flush is now
+			// driven by the assistant event carrying the tool's authoritative
+			// input (above) and by the next tool's `started` backstop; codex/cursor
+			// tools still flush via their `completed` event.
 			}
 		})
 	}
