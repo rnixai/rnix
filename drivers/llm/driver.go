@@ -6,6 +6,7 @@ import (
 	"context"
 	"io"
 	"os/exec"
+	"path/filepath"
 	"syscall"
 	"time"
 )
@@ -56,6 +57,27 @@ func configureCommandGrace(cmd *exec.Cmd, graceSec int) {
 		return cmd.Process.Signal(syscall.SIGTERM)
 	}
 	cmd.WaitDelay = grace
+}
+
+// configureCommandDir locks the child process working directory to projectDir,
+// preventing inheritance of the long-running daemon's (stale) cwd. The daemon
+// never calls os.Chdir, so its cwd is frozen at the project that first cold-
+// started it; without this, CLI agents spawned for a different project would
+// inherit that stale cwd and resolve relative paths / cwd-derived state against
+// the wrong project (silent cross-project corruption).
+//
+// Only an absolute path is honored — a relative projectDir would resolve
+// against the daemon cwd, reintroducing the very bug this guards against, so it
+// is rejected (cwd left to inherit the parent, matching prior behavior).
+//
+// Must be called BEFORE cmd.Start().
+func configureCommandDir(cmd *exec.Cmd, projectDir string) {
+	if cmd == nil {
+		return
+	}
+	if projectDir != "" && filepath.IsAbs(projectDir) {
+		cmd.Dir = projectDir
+	}
 }
 
 // ReasoningBlock represents a single thinking-mode content block.

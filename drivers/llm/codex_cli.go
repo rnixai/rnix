@@ -146,6 +146,7 @@ func (d *CodexCliDriver) Call(ctx context.Context, req LLMRequest) (*LLMResponse
 	args := d.buildArgs(req, false)
 	cmd := d.cmdBuilder(ctx, d.cliCommand, args...)
 	configureCommandGrace(cmd, d.graceSec)
+	configureCommandDir(cmd, req.ProjectDir)
 
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout
@@ -214,6 +215,7 @@ func (d *CodexCliDriver) Stream(ctx context.Context, req LLMRequest) (<-chan Str
 	args := d.buildArgs(req, true)
 	cmd := d.cmdBuilder(ctx, d.cliCommand, args...)
 	configureCommandGrace(cmd, d.graceSec)
+	configureCommandDir(cmd, req.ProjectDir)
 
 	stdoutPipe, err := cmd.StdoutPipe()
 	if err != nil {
