@@ -311,7 +311,7 @@ func init() {
 	rootCmd.PersistentFlags().StringVar(&flagProvider, "provider", "", "LLM provider override (see rnix-providers.yaml)")
 	rootCmd.PersistentFlags().StringVar(&flagFallbackModel, "fallback-model", "", "Override agent fallback model (empty = use agent manifest, auto-disabled when --provider crosses provider boundary)")
 	rootCmd.PersistentFlags().StringVar(&flagFallbackProvider, "fallback-provider", "", "Override agent fallback provider (empty = same as primary)")
-	rootCmd.PersistentFlags().StringVar(&flagReasoningEffort, "reasoning-effort", "", "Per-spawn reasoning effort override (passthrough: e.g. high/low/xhigh for OpenAI·Anthropic·CLI, HIGH/LOW for Gemini; empty = provider default)")
+	rootCmd.PersistentFlags().StringVar(&flagReasoningEffort, "reasoning-effort", "", "Per-spawn reasoning effort override (passthrough: e.g. low/medium/high/xhigh for OpenAI·CLI, low/medium/high/max for Anthropic, HIGH/LOW for Gemini; empty = provider default)")
 	rootCmd.Flags().IntVar(&flagMaxSteps, "max-steps", 0, "Max reasoning steps (0 = infinite, default 0)")
 	rootCmd.Flags().StringVar(&flagAgent, "agent", "", "Agent definition to use (e.g., code-analyst)")
 	rootCmd.Flags().StringVarP(&flagIntent, "intent", "i", "", "Intent string to spawn an agent")
