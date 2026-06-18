@@ -36,8 +36,8 @@ const HighlightDisplayWindow = 1500 * time.Millisecond
 //
 // 此变量同时被 cmd/rnix 端 treeSortDirLabels 引用（type alias 兼容）。
 var SortDirLabels = [3][2]string{
-	{"新→旧", "旧→新"}, // SortMode 0=Time
-	{"大→小", "小→大"}, // SortMode 1=PID
+	{"new→old", "old→new"}, // SortMode 0=Time
+	{"large→small", "small→large"}, // SortMode 1=PID
 	{"↓", "↑"},     // SortMode 2=State
 }
 
@@ -45,8 +45,8 @@ var SortDirLabels = [3][2]string{
 //
 // 当 RNIX_ASCII=1 时使用。
 var SortDirLabelsASCII = [3][2]string{
-	{"新->旧", "旧->新"},
-	{"大->小", "小->大"},
+	{"new->old", "old->new"},
+	{"large->small", "small->large"},
 	{"v", "^"},
 }
 

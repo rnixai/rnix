@@ -245,7 +245,7 @@ func (r *Reconciler) injectUpstreamContext(node *IntentNode) {
 			continue
 		}
 		if b.Len() == 0 {
-			b.WriteString("前序子任务的结果（供参考）：\n")
+			b.WriteString("Results of preceding sub-tasks (for reference):\n")
 		}
 		// Truncate per-dependency result (rune-safe for CJK) so injecting a
 		// large upstream output doesn't blow the child's context window.

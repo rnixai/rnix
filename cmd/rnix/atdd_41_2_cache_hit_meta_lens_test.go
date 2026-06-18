@@ -74,20 +74,20 @@ func TestBuildMetaLens_CacheHitRow_FirstStep_PrefixShared(t *testing.T) {
 	content := m.buildMetaLens(m.inspector.Detail)
 	stripped := stripANSIApprox(content)
 
-	if !strings.Contains(stripped, "[首步 · prefix 共享]") {
-		t.Errorf("first step warm hit rate should label '[首步 · prefix 共享]'; got:\n%s", stripped)
+	if !strings.Contains(stripped, "[first step · prefix shared]") {
+		t.Errorf("first step warm hit rate should label '[first step · prefix shared]'; got:\n%s", stripped)
 	}
 }
 
 func TestBuildMetaLens_CacheHitRow_FirstStep_ColdStart(t *testing.T) {
 	m := newTestInspectorModelWithDetail()
-	// hit rate = 0 / 14118 = 0% ≤ 5% threshold → 冷启动
+	// hit rate = 0 / 14118 = 0% ≤ 5% threshold → cold start
 	m.inspector.Detail = newMetaLensDetailFixture(1, "openai-compat", 14118, 0, 239)
 	content := m.buildMetaLens(m.inspector.Detail)
 	stripped := stripANSIApprox(content)
 
-	if !strings.Contains(stripped, "[首步 · 冷启动]") {
-		t.Errorf("first step cold hit rate should label '[首步 · 冷启动]'; got:\n%s", stripped)
+	if !strings.Contains(stripped, "[first step · cold start]") {
+		t.Errorf("first step cold hit rate should label '[first step · cold start]'; got:\n%s", stripped)
 	}
 }
 

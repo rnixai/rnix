@@ -55,10 +55,10 @@ func TestFormatEvent_BasicFormat(t *testing.T) {
 		t.Fatalf("expected '→ FD(3)    1ms' (4-space separator), got %q", got)
 	}
 	// Verify no annotations
-	if strings.Contains(got, "← 慢操作") {
+	if strings.Contains(got, "← slow op") {
 		t.Fatalf("unexpected slow annotation in output: %q", got)
 	}
-	if strings.Contains(got, "← LLM 调用") {
+	if strings.Contains(got, "← LLM call") {
 		t.Fatalf("unexpected LLM annotation in output: %q", got)
 	}
 }
@@ -77,7 +77,7 @@ func TestFormatEvent_SlowOp(t *testing.T) {
 	// With color
 	opts := Options{ColorEnabled: true, Verbose: false}
 	got := FormatEvent(event, opts)
-	if !strings.Contains(got, "← 慢操作") {
+	if !strings.Contains(got, "← slow op") {
 		t.Fatalf("expected slow op annotation with color, got %q", got)
 	}
 	if !strings.Contains(got, ansiGray) {
@@ -87,7 +87,7 @@ func TestFormatEvent_SlowOp(t *testing.T) {
 	// Without color
 	opts.ColorEnabled = false
 	got = FormatEvent(event, opts)
-	if !strings.Contains(got, "← 慢操作") {
+	if !strings.Contains(got, "← slow op") {
 		t.Fatalf("expected slow op annotation without color, got %q", got)
 	}
 	if strings.Contains(got, ansiGray) {
@@ -168,7 +168,7 @@ func TestFormatEvent_LLMAnnotation(t *testing.T) {
 	opts := Options{ColorEnabled: false, Verbose: false}
 
 	got := FormatEvent(event, opts)
-	if !strings.Contains(got, "← LLM 调用") {
+	if !strings.Contains(got, "← LLM call") {
 		t.Fatalf("expected LLM annotation for path key, got %q", got)
 	}
 
@@ -183,7 +183,7 @@ func TestFormatEvent_LLMAnnotation(t *testing.T) {
 		Duration:  0,
 	}
 	got2 := FormatEvent(event2, opts)
-	if !strings.Contains(got2, "← LLM 调用") {
+	if !strings.Contains(got2, "← LLM call") {
 		t.Fatalf("expected LLM annotation for tool key, got %q", got2)
 	}
 }
@@ -206,10 +206,10 @@ func TestFormatEvent_SlowAndError(t *testing.T) {
 	if !strings.HasPrefix(got, "[ERR] ") {
 		t.Fatalf("expected [ERR] prefix, got %q", got)
 	}
-	if !strings.Contains(got, "← 慢操作") {
+	if !strings.Contains(got, "← slow op") {
 		t.Fatalf("expected slow annotation, got %q", got)
 	}
-	if !strings.Contains(got, "← LLM 调用") {
+	if !strings.Contains(got, "← LLM call") {
 		t.Fatalf("expected LLM annotation, got %q", got)
 	}
 
@@ -220,10 +220,10 @@ func TestFormatEvent_SlowAndError(t *testing.T) {
 	if !strings.HasPrefix(got, ansiRed) {
 		t.Fatalf("expected red ANSI prefix, got %q", got)
 	}
-	if !strings.Contains(got, "← 慢操作") {
+	if !strings.Contains(got, "← slow op") {
 		t.Fatalf("expected slow annotation with color, got %q", got)
 	}
-	if !strings.Contains(got, "← LLM 调用") {
+	if !strings.Contains(got, "← LLM call") {
 		t.Fatalf("expected LLM annotation with color, got %q", got)
 	}
 }
@@ -490,10 +490,10 @@ func TestFormatEvent_ErrorSlowColor_NoGrayLeak(t *testing.T) {
 		t.Fatalf("gray ANSI code found in error+slow line, would break red wrapping: %q", got)
 	}
 	// Slow and LLM annotations must still be present (as plain text within the red line)
-	if !strings.Contains(got, "← 慢操作") {
+	if !strings.Contains(got, "← slow op") {
 		t.Fatalf("expected slow annotation, got %q", got)
 	}
-	if !strings.Contains(got, "← LLM 调用") {
+	if !strings.Contains(got, "← LLM call") {
 		t.Fatalf("expected LLM annotation, got %q", got)
 	}
 }

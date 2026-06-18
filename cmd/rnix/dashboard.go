@@ -500,7 +500,7 @@ func (m dashboardModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.trace.SpanScrollOffset = 0
 		if msg.tree == nil || msg.tree.Root == nil {
 			// Empty trace — stay in list mode, show status message
-			m.statusMsg = "此追踪无 span 数据"
+			m.statusMsg = "no span data for this trace"
 			m.statusMsgTTL = statusMsgDefaultTTL
 		} else {
 			m.trace.ViewMode = 1

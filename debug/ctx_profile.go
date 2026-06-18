@@ -340,10 +340,10 @@ func FormatCtxProfile(result *CtxProfileResult) string {
 
 	// Classification
 	sb.WriteString("\n── Classification ─────────────────────────────────────\n")
-	formatBucket(&sb, "Active (活跃)", result.Classification.Active, "当前推理引用")
-	formatBucket(&sb, "Warm (温)", result.Classification.Warm, "近期使用")
-	formatBucket(&sb, "Cold (冷)", result.Classification.Cold, "未引用")
-	formatBucket(&sb, "Leaked (泄漏)", result.Classification.Leaked, "已无用未释放")
+	formatBucket(&sb, "Active", result.Classification.Active, "referenced by current reasoning")
+	formatBucket(&sb, "Warm", result.Classification.Warm, "recently used")
+	formatBucket(&sb, "Cold", result.Classification.Cold, "not referenced")
+	formatBucket(&sb, "Leaked", result.Classification.Leaked, "stale, not released")
 
 	// Top Consumers
 	if len(result.TopConsumers) > 0 {

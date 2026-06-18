@@ -404,7 +404,7 @@ func RenderModelSectionLines(provider, model, effort, driverType string, meta ma
 	}
 
 	if len(meta) == 0 {
-		out = append(out, line("", "(无运行时诊断)"))
+		out = append(out, line("", "(no runtime diagnostics)"))
 		return out
 	}
 

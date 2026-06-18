@@ -107,15 +107,15 @@ func FormatEvent(event types.SyscallEvent, opts Options) string {
 	// wrap the entire output in red — an intermediate ansiReset would break that.
 	if event.Duration > time.Second {
 		if opts.ColorEnabled && event.Err == nil {
-			annotations += "  " + ansiGray + "← 慢操作" + ansiReset
+			annotations += "  " + ansiGray + "← slow op" + ansiReset
 		} else {
-			annotations += "  ← 慢操作"
+			annotations += "  ← slow op"
 		}
 	}
 
 	// LLM syscall
 	if isLLMSyscall(event.Args) {
-		annotations += "  ← LLM 调用"
+		annotations += "  ← LLM call"
 	}
 
 	line += annotations
@@ -229,9 +229,9 @@ func formatReasonStep(event types.SyscallEvent, opts Options) string {
 	// Annotations
 	if event.Duration > time.Second {
 		if opts.ColorEnabled && event.Err == nil {
-			line += "  " + ansiGray + "← 慢操作" + ansiReset
+			line += "  " + ansiGray + "← slow op" + ansiReset
 		} else {
-			line += "  ← 慢操作"
+			line += "  ← slow op"
 		}
 	}
 

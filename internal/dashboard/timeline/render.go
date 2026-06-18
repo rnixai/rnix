@@ -203,7 +203,7 @@ func RenderDebugDetail(b *strings.Builder, detail *ipc.GetStepDetailResponse, ma
 			lines++
 		}
 		if lines < maxLines {
-			fmt.Fprintf(b, "   %s %s\n", dimStyle.Render("┊"), dimStyle.Render("                                      ↳ 按 p 查看 system prompt"))
+			fmt.Fprintf(b, "   %s %s\n", dimStyle.Render("┊"), dimStyle.Render("                                      ↳ press p to view system prompt"))
 			lines++
 		}
 		return lines
@@ -216,7 +216,7 @@ func RenderDebugDetail(b *strings.Builder, detail *ipc.GetStepDetailResponse, ma
 			dimStyle.Render("┊"),
 			detail.MessageCount,
 			strings.Repeat(" ", max(maxW-30-len(totalTok), 2)),
-			dimStyle.Render("累计 "+totalTok+" tok"))
+			dimStyle.Render("total "+totalTok+" tok"))
 		lines++
 	}
 
@@ -238,7 +238,7 @@ func RenderDebugDetail(b *strings.Builder, detail *ipc.GetStepDetailResponse, ma
 
 	// Hint
 	if lines < maxLines {
-		fmt.Fprintf(b, "   %s %s\n", dimStyle.Render("┊"), dimStyle.Render("                                      ↳ 按 p 查看完整 prompt"))
+		fmt.Fprintf(b, "   %s %s\n", dimStyle.Render("┊"), dimStyle.Render("                                      ↳ press p to view full prompt"))
 		lines++
 	}
 
@@ -322,13 +322,13 @@ func RenderUnifiedStepHeader(ctx HeaderContext, maxW, totalSteps, filteredCount,
 			if ascii {
 				dirText = "^ old->new"
 			} else {
-				dirText = "↑ 旧→新"
+				dirText = "↑ old→new"
 			}
 		} else {
 			if ascii {
 				dirText = "v new->old"
 			} else {
-				dirText = "↓ 新→旧"
+				dirText = "↓ new→old"
 			}
 		}
 		fmt.Fprintf(&b, " %s", dimStyle.Render("│ "+dirText))

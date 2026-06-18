@@ -337,7 +337,7 @@ func Render(state IntentState, ctx RenderContext, innerH int) string {
 	b.WriteString(" Intent Tree\n")
 
 	if len(state.FlatNodes) == 0 {
-		b.WriteString("\n    当前无意图分解任务。使用 rnix apply 创建声明式意图。")
+		b.WriteString("\n    No intent decomposition tasks currently. Use rnix apply to create a declarative intent.")
 		return b.String()
 	}
 
@@ -381,7 +381,7 @@ func Render(state IntentState, ctx RenderContext, innerH int) string {
 
 			// Fix #8: Empty Nodes map shows "(分解中...)"
 			if len(n.TreeWire.Nodes) == 0 {
-				b.WriteString("    (分解中...)\n")
+				b.WriteString("    (decomposing...)\n")
 			}
 			continue
 		}

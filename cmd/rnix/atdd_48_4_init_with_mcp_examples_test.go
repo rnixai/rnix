@@ -128,7 +128,7 @@ func TestATDD_48_4_002_InitWithMcpExamples_PrintsGuidance(t *testing.T) {
 
 	// 第一段: MCP 示例已启用 + mcp.yaml 路径
 	for _, want := range []string{
-		"MCP 示例已启用",
+		"MCP examples enabled",
 		filepath.Join(dir, "mcp.yaml"),
 	} {
 		if !strings.Contains(out, want) {
@@ -209,7 +209,7 @@ func TestATDD_48_4_004_Init_WithoutFlag_NoMcpYaml(t *testing.T) {
 		t.Errorf("mcp.yaml created without --with-mcp-examples (path=%s)", mcpPath)
 	}
 
-	if strings.Contains(out, "MCP 示例已启用") {
+	if strings.Contains(out, "MCP examples enabled") {
 		t.Errorf("guidance section emitted without flag, got:\n%s", out)
 	}
 	if strings.Contains(out, "rnix check mcp") {
@@ -228,10 +228,10 @@ func TestATDD_48_4_014_InitWithMcp_QuietMode(t *testing.T) {
 	out := runInitCmd(t, "--with-mcp-examples", "--quiet")
 
 	// quiet 模式应抑制"快速验证 / 前置依赖"等引导段
-	if strings.Contains(out, "快速验证") {
+	if strings.Contains(out, "Quick check") {
 		t.Errorf("quiet mode leaked guidance section, got:\n%s", out)
 	}
-	if strings.Contains(out, "前置依赖") {
+	if strings.Contains(out, "Prerequisites") {
 		t.Errorf("quiet mode leaked prerequisite section, got:\n%s", out)
 	}
 

@@ -350,17 +350,17 @@ func renderInitMcpGuidance(w io.Writer, mcpPath string, quiet bool) {
 		return
 	}
 	fmt.Fprintln(w)
-	fmt.Fprintln(w, "MCP 示例已启用 (--with-mcp-examples)")
-	fmt.Fprintf(w, "  路径: %s\n", mcpPath)
+	fmt.Fprintln(w, "MCP examples enabled (--with-mcp-examples)")
+	fmt.Fprintf(w, "  path: %s\n", mcpPath)
 	fmt.Fprintln(w)
-	fmt.Fprintln(w, "快速验证:")
-	fmt.Fprintln(w, "  1. rnix check mcp                              # 检查 node/npx/Chromium")
-	fmt.Fprintln(w, "  2. rnix mcp test playwright                    # 一次性探针验证连通性")
-	fmt.Fprintln(w, "  3. rnix --agent playwright-demo --intent \"打开 https://example.com 并截图\"")
+	fmt.Fprintln(w, "Quick check:")
+	fmt.Fprintln(w, "  1. rnix check mcp                              # check node/npx/Chromium")
+	fmt.Fprintln(w, "  2. rnix mcp test playwright                    # one-shot probe to verify connectivity")
+	fmt.Fprintln(w, "  3. rnix --agent playwright-demo --intent \"open https://example.com and take a screenshot\"")
 	fmt.Fprintln(w)
-	fmt.Fprintln(w, "前置依赖:")
-	fmt.Fprintln(w, "  - node (>= 18) + npx (随 npm 安装)")
-	fmt.Fprintln(w, "  - chromium 浏览器 (npx playwright install chromium)")
+	fmt.Fprintln(w, "Prerequisites:")
+	fmt.Fprintln(w, "  - node (>= 18) + npx (installed with npm)")
+	fmt.Fprintln(w, "  - chromium browser (npx playwright install chromium)")
 }
 
 // asciiMode helper was previously consumed by renderInitMcpGuidance for a

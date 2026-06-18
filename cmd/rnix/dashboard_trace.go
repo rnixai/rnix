@@ -109,7 +109,7 @@ func (m dashboardModel) handleTraceKey(key string) (tea.Model, tea.Cmd) {
 						}
 					}
 					if !pidFound {
-						m.statusMsg = "该进程已不存在"
+						m.statusMsg = "process no longer exists"
 						m.statusMsgTTL = statusMsgDefaultTTL
 						return m, nil
 					}

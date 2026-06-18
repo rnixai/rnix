@@ -30,5 +30,5 @@ func RenderError(r *Renderer, device string, reason string, impact string, sugge
 
 	fmt.Fprintf(r.Writer, "%s %s: %s\n", prefix, device, reason)
 	fmt.Fprintf(r.Writer, "  %s %s\n", MutedStyle.Render(arrow), impact)
-	fmt.Fprintf(r.Writer, "  %s 建议: %s\n", MutedStyle.Render(arrow), suggestion)
+	fmt.Fprintf(r.Writer, "  %s suggestion: %s\n", MutedStyle.Render(arrow), suggestion)
 }

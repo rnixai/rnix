@@ -32,7 +32,7 @@ func FormatTraceLine(r *Renderer, event types.SyscallEvent, verbose bool) string
 		line := fmt.Sprintf("%s %s(%s) → %s    %s", ts, event.Syscall, args, result, dur)
 		// LLM annotation (plain text — no MutedStyle to avoid ANSI nesting)
 		if isLLMEvent(event.Args) {
-			line += "  ← LLM 调用"
+			line += "  ← LLM call"
 		}
 		if noColor {
 			return "[ERR] " + line
@@ -55,18 +55,18 @@ func FormatTraceLine(r *Renderer, event types.SyscallEvent, verbose bool) string
 	// Slow operation annotation (duration > 1s)
 	if event.Duration > time.Second {
 		if noColor {
-			line += "  ← 慢操作"
+			line += "  ← slow op"
 		} else {
-			line += "  " + MutedStyle.Render("← 慢操作")
+			line += "  " + MutedStyle.Render("← slow op")
 		}
 	}
 
 	// LLM syscall annotation
 	if isLLMEvent(event.Args) {
 		if noColor {
-			line += "  ← LLM 调用"
+			line += "  ← LLM call"
 		} else {
-			line += "  " + MutedStyle.Render("← LLM 调用")
+			line += "  " + MutedStyle.Render("← LLM call")
 		}
 	}
 

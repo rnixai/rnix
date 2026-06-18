@@ -330,7 +330,7 @@ func (m dashboardModel) buildDiffLensContent(lens inspectorLens, base, current *
 func (m dashboardModel) toggleFollowLive() (tea.Model, tea.Cmd) {
 	if m.inspector.FollowLive {
 		m.inspector.FollowLive = false
-		m.statusMsg = "Follow live: off (F 恢复)"
+		m.statusMsg = inspector.FollowLiveStoppedMsg
 		m.statusMsgTTL = statusMsgDefaultTTL
 		return m, nil
 	}
@@ -352,7 +352,7 @@ func (m dashboardModel) toggleFollowLive() (tea.Model, tea.Cmd) {
 	// Story 36-6 fix: bump generation so stale ticks (scheduled during a prior
 	// on-period) see a mismatch in handleFollowLiveTickMsg and self-terminate.
 	m.inspector.FollowGen++
-	m.statusMsg = "Follow live: on (F 关闭)"
+	m.statusMsg = "Follow live: on (F to disable)"
 	m.statusMsgTTL = statusMsgDefaultTTL
 
 	// Jump to latest step immediately if one exists.

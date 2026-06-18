@@ -342,7 +342,7 @@ func (m dashboardModel) dispatchPaneKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd
 						}
 					}
 					if !pidFound {
-						m.statusMsg = "该进程已不存在"
+						m.statusMsg = "process no longer exists"
 						m.statusMsgTTL = statusMsgDefaultTTL
 						return m, nil
 					}
@@ -354,7 +354,7 @@ func (m dashboardModel) dispatchPaneKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd
 					m2, cmd := m.handlePIDChange()
 					return m2, cmd
 				} else if n.Node != nil {
-					m.statusMsg = "该节点尚未分配进程"
+					m.statusMsg = "node has no process assigned yet"
 					m.statusMsgTTL = statusMsgDefaultTTL
 				}
 			}
@@ -391,7 +391,7 @@ func (m dashboardModel) dispatchPaneKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd
 					}
 				}
 				if !pidFound {
-					m.statusMsg = "该进程已不存在"
+					m.statusMsg = "process no longer exists"
 					m.statusMsgTTL = statusMsgDefaultTTL
 					return m, nil
 				}

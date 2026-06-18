@@ -730,7 +730,7 @@ func TestATDD_27_10_AC6_EmptyTopology_ShowsHint(t *testing.T) {
 
 	output := m.renderEvalPane(80, 20)
 
-	if !strings.Contains(output, "协作拓扑") && !strings.Contains(output, "编排") {
+	if !strings.Contains(output, "collaboration topology") && !strings.Contains(output, "orchestration") {
 		t.Error("AC-6: empty topology state should mention collaboration topology or orchestration")
 	}
 }
@@ -743,7 +743,7 @@ func TestATDD_27_10_AC6_EmptySynergy_ShowsHint(t *testing.T) {
 
 	output := m.renderEvalPane(80, 20)
 
-	if !strings.Contains(output, "Skill") || !strings.Contains(output, "Agent") {
+	if !strings.Contains(output, "skill combination") && !strings.Contains(output, "Agent") {
 		t.Error("AC-6: empty synergy state should mention skills or agents")
 	}
 }

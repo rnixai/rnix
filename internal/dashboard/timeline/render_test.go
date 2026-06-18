@@ -183,7 +183,7 @@ func TestRenderDebugDetail_NoMessages(t *testing.T) {
 	if !strings.Contains(got, "CLI driver") {
 		t.Fatalf("expected 'CLI driver' message: %q", got)
 	}
-	if !strings.Contains(got, "查看 system prompt") {
+	if !strings.Contains(got, "view system prompt") {
 		t.Fatalf("expected 'system prompt' hint (27-4 落地): %q", got)
 	}
 }
@@ -215,7 +215,7 @@ func TestRenderDebugDetail_WithMessages(t *testing.T) {
 	if !strings.Contains(got, "[system]") || !strings.Contains(got, "[user]") || !strings.Contains(got, "[assistant]") {
 		t.Fatalf("expected role tags via fakeRoleStyle: %q", got)
 	}
-	if !strings.Contains(got, "查看完整 prompt") {
+	if !strings.Contains(got, "view full prompt") {
 		t.Fatalf("expected 'complete prompt' hint: %q", got)
 	}
 }

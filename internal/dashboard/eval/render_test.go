@@ -247,7 +247,7 @@ func TestRender_DispatchesToReputation(t *testing.T) {
 	state := EvalState{SubView: 0, Reputations: nil}
 	ctx := RenderContext{}
 	out := Render(state, ctx, 80, 20)
-	if !strings.Contains(out, "需要更多执行数据") {
+	if !strings.Contains(out, "Need more execution data") {
 		t.Errorf("SubView=0 should dispatch to reputation (empty hint), got:\n%s", out)
 	}
 }
@@ -256,7 +256,7 @@ func TestRender_DispatchesToTopology(t *testing.T) {
 	state := EvalState{SubView: 1, Topology: nil}
 	ctx := RenderContext{}
 	out := Render(state, ctx, 80, 20)
-	if !strings.Contains(out, "无协作拓扑数据") {
+	if !strings.Contains(out, "No collaboration topology data") {
 		t.Errorf("SubView=1 should dispatch to topology (empty hint), got:\n%s", out)
 	}
 }
@@ -265,7 +265,7 @@ func TestRender_DispatchesToSynergy(t *testing.T) {
 	state := EvalState{SubView: 2, Synergies: nil}
 	ctx := RenderContext{}
 	out := Render(state, ctx, 80, 20)
-	if !strings.Contains(out, "无技能组合数据") {
+	if !strings.Contains(out, "No skill combination data") {
 		t.Errorf("SubView=2 should dispatch to synergy (empty hint), got:\n%s", out)
 	}
 }
@@ -285,7 +285,7 @@ func TestRenderReputationView_ErrorBranch(t *testing.T) {
 func TestRenderReputationView_EmptyDataHint(t *testing.T) {
 	state := EvalState{Reputations: nil}
 	out := RenderReputationView(state, RenderContext{}, 80, 10)
-	if !strings.Contains(out, "需要更多执行数据") {
+	if !strings.Contains(out, "Need more execution data") {
 		t.Errorf("empty branch should show hint, got: %s", out)
 	}
 }
@@ -355,7 +355,7 @@ func TestRenderTopologyView_ErrorBranch(t *testing.T) {
 func TestRenderTopologyView_NilTopologyHint(t *testing.T) {
 	state := EvalState{Topology: nil}
 	out := RenderTopologyView(state, RenderContext{}, 80, 10)
-	if !strings.Contains(out, "无协作拓扑数据") {
+	if !strings.Contains(out, "No collaboration topology data") {
 		t.Errorf("nil topology branch missing hint, got: %s", out)
 	}
 }
@@ -363,7 +363,7 @@ func TestRenderTopologyView_NilTopologyHint(t *testing.T) {
 func TestRenderTopologyView_EmptyTopologyHint(t *testing.T) {
 	state := EvalState{Topology: &ipc.TopologyQueryResponse{Nodes: nil, Edges: nil}}
 	out := RenderTopologyView(state, RenderContext{}, 80, 10)
-	if !strings.Contains(out, "无协作拓扑数据") {
+	if !strings.Contains(out, "No collaboration topology data") {
 		t.Errorf("empty nodes+edges should show hint, got: %s", out)
 	}
 }
@@ -420,7 +420,7 @@ func TestRenderSynergyView_ErrorBranch(t *testing.T) {
 func TestRenderSynergyView_EmptyHint(t *testing.T) {
 	state := EvalState{Synergies: nil}
 	out := RenderSynergyView(state, RenderContext{}, 80, 10)
-	if !strings.Contains(out, "无技能组合数据") {
+	if !strings.Contains(out, "No skill combination data") {
 		t.Errorf("empty branch missing hint, got: %s", out)
 	}
 }

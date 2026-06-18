@@ -59,16 +59,16 @@ func TestATDD_36_4_AC2_OToggleDirection(t *testing.T) {
 	if !m.timeline.SortAsc {
 		t.Errorf("expected timelineSortAsc=true after second o")
 	}
-	// Header indicator: ascending → 旧→新
+	// Header indicator: ascending → old→new
 	header := m.renderUnifiedStepHeader(200, 0, 0, 0)
-	if !strings.Contains(header, "旧→新") {
-		t.Errorf("ascending header missing '旧→新'; got: %s", header)
+	if !strings.Contains(header, "old→new") && !strings.Contains(header, "old->new") {
+		t.Errorf("ascending header missing 'old→new'; got: %s", header)
 	}
-	// Toggle once more → descending → 新→旧
+	// Toggle once more → descending → new→old
 	m = m.handleTimelineKey("o")
 	header = m.renderUnifiedStepHeader(200, 0, 0, 0)
-	if !strings.Contains(header, "新→旧") {
-		t.Errorf("descending header missing '新→旧'; got: %s", header)
+	if !strings.Contains(header, "new→old") && !strings.Contains(header, "new->old") {
+		t.Errorf("descending header missing 'new→old'; got: %s", header)
 	}
 }
 
@@ -247,8 +247,8 @@ func TestATDD_36_4_AC3_MigrationNoticeOnce(t *testing.T) {
 		t.Fatalf("precondition: fresh uiState should have TimelineSortMigrationShown=false")
 	}
 	m = m.maybeShowTimelineMigrationNotice()
-	if !strings.Contains(m.statusMsg, "升序") {
-		t.Errorf("expected migration notice to set statusMsg containing '升序'; got: %q", m.statusMsg)
+	if !strings.Contains(m.statusMsg, "ascending") {
+		t.Errorf("expected migration notice to set statusMsg containing 'ascending'; got: %q", m.statusMsg)
 	}
 	if !m.timeline.UIState.TimelineSortMigrationShown {
 		t.Errorf("expected TimelineSortMigrationShown=true after notice")
@@ -272,7 +272,7 @@ func TestATDD_36_4_AC3_MigrationNoticeOnce(t *testing.T) {
 		t.Fatalf("second session: expected TimelineSortMigrationShown=true loaded from disk; got %+v", m2.timeline.UIState)
 	}
 	m2 = m2.maybeShowTimelineMigrationNotice()
-	if strings.Contains(m2.statusMsg, "升序") {
+	if strings.Contains(m2.statusMsg, "ascending") {
 		t.Errorf("second session should not show migration notice; got: %q", m2.statusMsg)
 	}
 }
@@ -285,8 +285,8 @@ func TestATDD_36_4_AC9_HeaderIndicator(t *testing.T) {
 	m.timeline.SortAsc = true
 	m.timeline.ExpandMode = expandModeExpanded
 	header := m.renderUnifiedStepHeader(200, 0, 0, 0)
-	if !strings.Contains(header, "旧→新") {
-		t.Errorf("ascending header missing '旧→新'; got: %s", header)
+	if !strings.Contains(header, "old→new") && !strings.Contains(header, "old->new") {
+		t.Errorf("ascending header missing 'old→new'; got: %s", header)
 	}
 	if !strings.Contains(header, "all") {
 		t.Errorf("Expanded mode header missing 'all'; got: %s", header)
@@ -295,8 +295,8 @@ func TestATDD_36_4_AC9_HeaderIndicator(t *testing.T) {
 	m.timeline.SortAsc = false
 	m.timeline.ExpandMode = expandModeErrorsOnly
 	header = m.renderUnifiedStepHeader(200, 0, 0, 0)
-	if !strings.Contains(header, "新→旧") {
-		t.Errorf("descending header missing '新→旧'; got: %s", header)
+	if !strings.Contains(header, "new→old") && !strings.Contains(header, "new->old") {
+		t.Errorf("descending header missing 'new→old'; got: %s", header)
 	}
 	if !strings.Contains(header, "errors") {
 		t.Errorf("ErrorsOnly mode header missing 'errors'; got: %s", header)

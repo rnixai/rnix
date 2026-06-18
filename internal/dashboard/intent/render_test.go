@@ -288,7 +288,7 @@ func TestRender_EmptyFlatNodes(t *testing.T) {
 	if !strings.Contains(got, "Intent Tree") {
 		t.Errorf("expected header 'Intent Tree' in empty render, got %q", got)
 	}
-	if !strings.Contains(got, "当前无意图分解任务") {
+	if !strings.Contains(got, "No intent decomposition tasks") {
 		t.Errorf("expected empty-state prompt in render, got %q", got)
 	}
 }
@@ -316,8 +316,8 @@ func TestRender_EmptyNodesMapShowsDecomposing(t *testing.T) {
 		FlatNodes: FlattenTrees([]*ipc.IntentTreeWire{tree}),
 	}
 	got := Render(state, RenderContext{}, 20)
-	if !strings.Contains(got, "(分解中...)") {
-		t.Errorf("expected '(分解中...)' for empty Nodes map, got %q", got)
+	if !strings.Contains(got, "(decomposing...)") {
+		t.Errorf("expected '(decomposing...)' for empty Nodes map, got %q", got)
 	}
 }
 

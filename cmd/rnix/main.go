@@ -2149,7 +2149,7 @@ func runDaemon(cmd *cobra.Command, args []string) error {
 			// sub-tasks (list → call → write-result) see prior output.
 			spawnIntent := node.Intent
 			if node.Context != "" {
-				spawnIntent = node.Context + "\n---\n当前任务：" + node.Intent
+				spawnIntent = node.Context + "\n---\nCurrent task: " + node.Intent
 			}
 			pid, err := k.Spawn(spawnIntent, agentInfo, opts)
 			return pid, err

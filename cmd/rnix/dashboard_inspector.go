@@ -1737,9 +1737,9 @@ func (m dashboardModel) buildMetaLens(detail *ipc.GetStepDetailResponse) string 
 				hitLine := inspector.RenderRateLine("Cache Hit:", detail.CachedInputTokens, denom, suffix)
 				if hitLine != "" {
 					if detail.Step <= 1 {
-						label := "[首步 · prefix 共享]"
+						label := "[first step · prefix shared]"
 						if rate <= inspector.FirstStepWarmHitRateThreshold {
-							label = "[首步 · 冷启动]"
+							label = "[first step · cold start]"
 						}
 						hitLine = dimStyle.Render(hitLine + "  " + label)
 					}

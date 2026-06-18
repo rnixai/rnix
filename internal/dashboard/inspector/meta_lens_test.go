@@ -502,7 +502,7 @@ func TestRenderModelSectionLines_NonCLINilMeta(t *testing.T) {
 	lines := RenderModelSectionLines("deepseek", "deepseek-v4", "", "openai-compat", nil)
 	got := stripANSIMeta(strings.Join(lines, "\n"))
 
-	for _, want := range []string{"deepseek", "deepseek-v4", "openai-compat", "(无运行时诊断)"} {
+	for _, want := range []string{"deepseek", "deepseek-v4", "openai-compat", "(no runtime diagnostics)"} {
 		if !strings.Contains(got, want) {
 			t.Errorf("NonCLI output missing %q:\n%s", want, got)
 		}

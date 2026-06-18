@@ -44,19 +44,19 @@ func (d *IntentDriver) ToolDefs() []vfs.ToolDef {
 				"properties": map[string]any{
 					"intent": map[string]any{
 						"type":        "string",
-						"description": "高层意图描述",
+						"description": "High-level intent description",
 					},
 					"model": map[string]any{
 						"type":        "string",
-						"description": "LLM 模型名称（可选）",
+						"description": "LLM model name (optional)",
 					},
 					"provider": map[string]any{
 						"type":        "string",
-						"description": "LLM provider 名称（可选，覆盖默认）",
+						"description": "LLM provider name (optional, overrides default)",
 					},
 					"auto_start": map[string]any{
 						"type":        "boolean",
-						"description": "若为 true，分解成功后自动 confirm + execute，同步等待整个意图树执行完成；适用于 [AUTO_CONFIRM] 流程，可避免后续手动调用 IntentConfirm/IntentExecute。注意：编排同步运行在 daemon 内，含 daemon 重启（如 rnix daemon stop/restart）的子任务可能中断编排本身——系统会尽力而为(best-effort)按字面拦截，但非穷尽（可经 Bash 绕过）；此类工作建议移到编排外",
+						"description": "If true, automatically confirm + execute after a successful decompose, blocking until the whole intent tree finishes; suitable for [AUTO_CONFIRM] flows, avoiding subsequent manual IntentConfirm/IntentExecute calls. Note: orchestration runs synchronously inside the daemon, so sub-tasks that restart the daemon (e.g. rnix daemon stop/restart) may interrupt the orchestration itself — the system intercepts such cases on a best-effort basis by literal matching, but not exhaustively (it can be bypassed via Bash); move such work outside the orchestration",
 					},
 				},
 				"required": []string{"intent"},
@@ -77,7 +77,7 @@ func (d *IntentDriver) ToolDefs() []vfs.ToolDef {
 				"properties": map[string]any{
 					"intent_id": map[string]any{
 						"type":        "string",
-						"description": "Intent ID（如 intent-1）",
+						"description": "Intent ID (e.g. intent-1)",
 					},
 				},
 				"required": []string{"intent_id"},
@@ -98,7 +98,7 @@ func (d *IntentDriver) ToolDefs() []vfs.ToolDef {
 				"properties": map[string]any{
 					"intent_id": map[string]any{
 						"type":        "string",
-						"description": "Intent ID（如 intent-1）",
+						"description": "Intent ID (e.g. intent-1)",
 					},
 				},
 				"required": []string{"intent_id"},
@@ -119,7 +119,7 @@ func (d *IntentDriver) ToolDefs() []vfs.ToolDef {
 				"properties": map[string]any{
 					"intent_id": map[string]any{
 						"type":        "string",
-						"description": "Intent ID（如 intent-1）",
+						"description": "Intent ID (e.g. intent-1)",
 					},
 				},
 				"required": []string{"intent_id"},
@@ -252,10 +252,10 @@ func (f *IntentFile) handleDecompose(ctx context.Context, data []byte) (*intent.
 		if hits := daemonRestartNodes(tree); len(hits) > 0 {
 			parts := make([]string, len(hits))
 			for i, h := range hits {
-				parts[i] = fmt.Sprintf("节点 %s: %q", h.NodeID, h.Matched)
+				parts[i] = fmt.Sprintf("node %s: %q", h.NodeID, h.Matched)
 			}
 			return nil, &types.DriverError{Op: "Write", Device: f.devicePath, Code: types.ErrInvalid,
-				Err: fmt.Errorf("auto_start 已尽力而为(best-effort)拦截含 daemon 重启的子任务 (%s)：编排同步运行在 daemon 内，此类子任务可能中断编排本身。注意这是基于意图文本的字面提醒、非穷尽拦截——子任务仍可经 Bash（kill/pkill/socat 等）绕过；可靠做法是将 daemon 重启移到编排外，或改用分步 decompose→confirm→execute", strings.Join(parts, "; "))}
+				Err: fmt.Errorf("auto_start intercepted, on a best-effort basis, sub-tasks that restart the daemon (%s): orchestration runs synchronously inside the daemon, and such sub-tasks may interrupt the orchestration itself. Note this is a literal, text-based reminder, not exhaustive interception — sub-tasks can still bypass it via Bash (kill/pkill/socat, etc.); the reliable approach is to move daemon restarts outside the orchestration, or switch to a step-by-step decompose→confirm→execute", strings.Join(parts, "; "))}
 		}
 		if err := f.driver.manager.Confirm(tree.ID); err != nil {
 			return nil, &types.DriverError{Op: "Write", Device: f.devicePath, Err: fmt.Errorf("auto_start confirm: %w", err), Code: types.ErrDriver}

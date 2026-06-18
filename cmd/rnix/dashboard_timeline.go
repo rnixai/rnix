@@ -93,7 +93,7 @@ func (m dashboardModel) maybeShowTimelineMigrationNotice() dashboardModel {
 	var show bool
 	m.timeline, show = timeline.MigrationCheck(m.timeline, nil)
 	if show {
-		m.statusMsg = "Timeline 已改为升序（最新在底）。按 o 切换。"
+		m.statusMsg = "Timeline switched to ascending (newest at bottom). Press o to toggle."
 		m.statusMsgTTL = 5
 	}
 	return m

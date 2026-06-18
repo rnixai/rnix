@@ -254,7 +254,7 @@ func renderListView(state TraceState, ctx RenderContext, _ int, height int) stri
 	}
 
 	if len(state.Summaries) == 0 {
-		b.WriteString("\n    无追踪数据。使用 rnix spawn 或 rnix compose up 执行任务以生成追踪。\n")
+		b.WriteString("\n    No trace data. Use rnix spawn or rnix compose up to run tasks and generate traces.\n")
 		return b.String()
 	}
 

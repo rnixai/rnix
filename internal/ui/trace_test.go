@@ -52,10 +52,10 @@ func TestFormatTraceLine_BasicFormat(t *testing.T) {
 		t.Errorf("expected '1ms' in output, got %q", got)
 	}
 	// Verify no annotations
-	if strings.Contains(got, "← 慢操作") {
+	if strings.Contains(got, "← slow op") {
 		t.Errorf("unexpected slow annotation in output: %q", got)
 	}
-	if strings.Contains(got, "← LLM 调用") {
+	if strings.Contains(got, "← LLM call") {
 		t.Errorf("unexpected LLM annotation in output: %q", got)
 	}
 	// Verify no [ERR] prefix
@@ -131,7 +131,7 @@ func TestFormatTraceLine_SlowOperation(t *testing.T) {
 	}
 
 	got := FormatTraceLine(r, event, false)
-	if !strings.Contains(got, "← 慢操作") {
+	if !strings.Contains(got, "← slow op") {
 		t.Errorf("expected slow annotation for > 1s duration, got %q", got)
 	}
 
@@ -147,7 +147,7 @@ func TestFormatTraceLine_SlowOperation(t *testing.T) {
 	}
 
 	gotErr := FormatTraceLine(r, eventErr, false)
-	if strings.Contains(gotErr, "← 慢操作") {
+	if strings.Contains(gotErr, "← slow op") {
 		t.Errorf("error line should NOT have slow annotation, got %q", gotErr)
 	}
 }
@@ -171,10 +171,10 @@ func TestFormatTraceLine_SlowAndLLM(t *testing.T) {
 	}
 
 	got := FormatTraceLine(r, event, false)
-	if !strings.Contains(got, "← 慢操作") {
+	if !strings.Contains(got, "← slow op") {
 		t.Errorf("expected slow annotation, got %q", got)
 	}
-	if !strings.Contains(got, "← LLM 调用") {
+	if !strings.Contains(got, "← LLM call") {
 		t.Errorf("expected LLM annotation, got %q", got)
 	}
 
@@ -190,10 +190,10 @@ func TestFormatTraceLine_SlowAndLLM(t *testing.T) {
 	}
 
 	gotErr := FormatTraceLine(r, eventErr, false)
-	if strings.Contains(gotErr, "← 慢操作") {
+	if strings.Contains(gotErr, "← slow op") {
 		t.Errorf("error line should NOT have slow annotation, got %q", gotErr)
 	}
-	if !strings.Contains(gotErr, "← LLM 调用") {
+	if !strings.Contains(gotErr, "← LLM call") {
 		t.Errorf("error line should still have LLM annotation, got %q", gotErr)
 	}
 }
@@ -217,7 +217,7 @@ func TestFormatTraceLine_LLMAnnotation(t *testing.T) {
 	}
 
 	got := FormatTraceLine(r, event, false)
-	if !strings.Contains(got, "← LLM 调用") {
+	if !strings.Contains(got, "← LLM call") {
 		t.Errorf("expected LLM annotation for path key, got %q", got)
 	}
 
@@ -233,7 +233,7 @@ func TestFormatTraceLine_LLMAnnotation(t *testing.T) {
 	}
 
 	got2 := FormatTraceLine(r, event2, false)
-	if !strings.Contains(got2, "← LLM 调用") {
+	if !strings.Contains(got2, "← LLM call") {
 		t.Errorf("expected LLM annotation for tool key, got %q", got2)
 	}
 
@@ -249,7 +249,7 @@ func TestFormatTraceLine_LLMAnnotation(t *testing.T) {
 	}
 
 	got3 := FormatTraceLine(r, event3, false)
-	if strings.Contains(got3, "← LLM 调用") {
+	if strings.Contains(got3, "← LLM call") {
 		t.Errorf("unexpected LLM annotation without LLM path, got %q", got3)
 	}
 }
@@ -282,11 +282,11 @@ func TestFormatTraceLine_NoColor(t *testing.T) {
 		t.Errorf("expected 'Open(' in output, got %q", got)
 	}
 	// Should have slow annotation (plain text)
-	if !strings.Contains(got, "← 慢操作") {
+	if !strings.Contains(got, "← slow op") {
 		t.Errorf("expected slow annotation in plain text, got %q", got)
 	}
 	// Should have LLM annotation (plain text)
-	if !strings.Contains(got, "← LLM 调用") {
+	if !strings.Contains(got, "← LLM call") {
 		t.Errorf("expected LLM annotation in plain text, got %q", got)
 	}
 }

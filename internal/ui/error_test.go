@@ -39,8 +39,8 @@ func TestRenderError_ThreeLines(t *testing.T) {
 	if !strings.Contains(lines[2], "→") {
 		t.Errorf("line 3 missing → arrow, got %q", lines[2])
 	}
-	if !strings.Contains(lines[2], "建议:") {
-		t.Errorf("line 3 missing 建议: prefix, got %q", lines[2])
+	if !strings.Contains(lines[2], "suggestion:") {
+		t.Errorf("line 3 missing suggestion: prefix, got %q", lines[2])
 	}
 	if !strings.Contains(lines[2], "检查网络连接") {
 		t.Errorf("line 3 missing suggestion, got %q", lines[2])

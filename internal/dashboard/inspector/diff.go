@@ -179,7 +179,7 @@ func RenderDiff(lines []DiffLine, unfolded map[int]bool, asciiMode bool) string 
 			}
 			run := j - i
 			if run >= DiffFoldThreshold && (unfolded == nil || !unfolded[i]) {
-				b.WriteString(foldStyle.Render(fmt.Sprintf("  ... %d unchanged lines (Enter 展开) ...", run)))
+				b.WriteString(foldStyle.Render(fmt.Sprintf("  ... %d unchanged lines (Enter to expand) ...", run)))
 				b.WriteString("\n")
 			} else {
 				for k := i; k < j; k++ {

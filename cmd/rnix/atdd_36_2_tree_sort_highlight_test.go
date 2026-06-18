@@ -102,29 +102,29 @@ func TestTreeSortDirectionToggle_OKey(t *testing.T) {
 
 func TestTreeSortDirLabels_TimeDesc(t *testing.T) {
 	label := treeSortDirLabels[treeSortTime][0] // desc
-	if !strings.Contains(label, "新→旧") {
-		t.Errorf("time desc label should be '新→旧', got %q", label)
+	if !strings.Contains(label, "new→old") {
+		t.Errorf("time desc label should be 'new→old', got %q", label)
 	}
 }
 
 func TestTreeSortDirLabels_TimeAsc(t *testing.T) {
 	label := treeSortDirLabels[treeSortTime][1] // asc
-	if !strings.Contains(label, "旧→新") {
-		t.Errorf("time asc label should be '旧→新', got %q", label)
+	if !strings.Contains(label, "old→new") {
+		t.Errorf("time asc label should be 'old→new', got %q", label)
 	}
 }
 
 func TestTreeSortDirLabelsASCII_TimeDesc(t *testing.T) {
 	label := treeSortDirLabelsASCII[treeSortTime][0]
-	if !strings.Contains(label, "新->旧") {
-		t.Errorf("time desc ASCII label should be '新->旧', got %q", label)
+	if !strings.Contains(label, "new->old") {
+		t.Errorf("time desc ASCII label should be 'new->old', got %q", label)
 	}
 }
 
 func TestTreeSortDirLabels_PIDDesc(t *testing.T) {
 	label := treeSortDirLabels[treeSortPID][0]
-	if !strings.Contains(label, "大→小") {
-		t.Errorf("PID desc label should be '大→小', got %q", label)
+	if !strings.Contains(label, "large→small") {
+		t.Errorf("PID desc label should be 'large→small', got %q", label)
 	}
 }
 
@@ -139,7 +139,7 @@ func TestHeaderRendering_IncludesDirLabel(t *testing.T) {
 	m.tree.Rows = flattenTreeWithCollapse(roots, m.tree.CollapsedDeadTrees)
 
 	rendered := m.renderDashboardTreePane(80, 20)
-	if !strings.Contains(rendered, "新→旧") && !strings.Contains(rendered, "新->旧") {
+	if !strings.Contains(rendered, "new→old") && !strings.Contains(rendered, "new->old") {
 		t.Errorf("tree header should contain direction label, got:\n%s", rendered)
 	}
 }
@@ -155,7 +155,7 @@ func TestHeaderRendering_AscIncludesDirLabel(t *testing.T) {
 	m.tree.Rows = flattenTreeWithCollapse(roots, m.tree.CollapsedDeadTrees)
 
 	rendered := m.renderDashboardTreePane(80, 20)
-	if !strings.Contains(rendered, "旧→新") && !strings.Contains(rendered, "旧->新") {
+	if !strings.Contains(rendered, "old→new") && !strings.Contains(rendered, "old->new") {
 		t.Errorf("tree header should contain asc direction label, got:\n%s", rendered)
 	}
 }

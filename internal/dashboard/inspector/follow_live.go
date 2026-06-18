@@ -7,7 +7,7 @@ package inspector
 
 // FollowLiveStoppedMsg 是 stopFollowLive 关闭时显示给用户的 status message
 // （Story 36-6 AC-13 · 公开常量便于 i18n 集中管理 + 测试稳定性断言）。
-const FollowLiveStoppedMsg = "Follow live: off (F 恢复)"
+const FollowLiveStoppedMsg = "Follow live: off (F to resume)"
 
 // StopFollowLive 关闭 InspectorState 的 FollowLive 标志。
 //

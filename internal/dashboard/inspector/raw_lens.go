@@ -84,9 +84,10 @@ func RenderRawCLIStepHint() string {
 		glyph = "*"
 	}
 	return fmt.Sprintf(
-		"  %s CLI driver 进程：原始请求记录在 step 1\n"+
-			"    此进程整个会话由一次 CLI 调用完成，原始 argv / stdin / stdout\n"+
-			"    只记录在 step 1。跳到 step 1（g / Home）即可查看。",
+		"  %s CLI driver process: raw request recorded at step 1\n"+
+			"    This process ran the whole session in a single CLI call;\n"+
+			"    the raw argv / stdin / stdout are recorded only at step 1.\n"+
+			"    Jump to step 1 (g / Home) to view them.",
 		glyph)
 }
 

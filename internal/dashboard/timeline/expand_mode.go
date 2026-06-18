@@ -16,8 +16,8 @@ const (
 	ExpandStatusAllNoSteps   = "Expand mode: all (no steps yet)"
 	ExpandStatusErrorsOnly   = "Expand mode: errors only"
 	ExpandStatusCollapsed    = "Expand mode: collapsed"
-	SortStatusAscending      = "Timeline 已切换到升序（旧→新）"
-	SortStatusDescending     = "Timeline 已切换到降序（新→旧）"
+	SortStatusAscending      = "Timeline switched to ascending (old→new)"
+	SortStatusDescending     = "Timeline switched to descending (new→old)"
 )
 
 // HasExpandableContentFn 抽象 timeline.HasExpandableContent 签名，让测试可注入

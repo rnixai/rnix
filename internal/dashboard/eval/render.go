@@ -250,7 +250,7 @@ func RenderReputationView(state EvalState, ctx RenderContext, _, height int) str
 	}
 
 	if len(state.Reputations) == 0 {
-		b.WriteString("\n    需要更多执行数据以生成评价。使用 rnix spawn 或 rnix compose up 执行任务以积累数据。\n")
+		b.WriteString("\n    Need more execution data to generate evaluation. Use rnix spawn or rnix compose up to run tasks and accumulate data.\n")
 		return b.String()
 	}
 
@@ -329,7 +329,7 @@ func RenderTopologyView(state EvalState, ctx RenderContext, _, height int) strin
 	}
 
 	if state.Topology == nil {
-		b.WriteString("\n    无协作拓扑数据。运行多智能体编排以生成协作关系。\n")
+		b.WriteString("\n    No collaboration topology data. Run multi-agent orchestration to generate collaboration relationships.\n")
 		return b.String()
 	}
 
@@ -337,7 +337,7 @@ func RenderTopologyView(state EvalState, ctx RenderContext, _, height int) strin
 	edgeCount := len(state.Topology.Edges)
 
 	if nodeCount == 0 && edgeCount == 0 {
-		b.WriteString("\n    无协作拓扑数据。运行多智能体编排以生成协作关系。\n")
+		b.WriteString("\n    No collaboration topology data. Run multi-agent orchestration to generate collaboration relationships.\n")
 		return b.String()
 	}
 
@@ -417,7 +417,7 @@ func RenderSynergyView(state EvalState, ctx RenderContext, _, height int) string
 	}
 
 	if len(state.Synergies) == 0 {
-		b.WriteString("\n    无技能组合数据。当 Agent 使用多个 Skill 执行任务时将自动记录。\n")
+		b.WriteString("\n    No skill combination data. Automatically recorded when an Agent uses multiple Skills to execute tasks.\n")
 		return b.String()
 	}
 
