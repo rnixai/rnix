@@ -1776,6 +1776,13 @@ func runDaemon(cmd *cobra.Command, args []string) error {
 
 	// Create MountManager with TransportFactory for MCP server mounts
 	transportFactory := func(cfg vfs.MCPConfig) (vfs.MCPTransport, error) {
+		// Story 59.1 — branch on transport type. "http" → Streamable HTTP
+		// (remote); "" / "stdio" → stdio subprocess (local). This single closure
+		// is injected into both NewMountManager (Mount path) and
+		// SetTransportFactory (RunMCPProbe path), so http is covered everywhere.
+		if cfg.TransportType == "http" {
+			return mcp.NewHTTPTransport(cfg), nil
+		}
 		tc := mcp.TransportConfig{
 			Command: cfg.Command,
 			Args:    cfg.Args,

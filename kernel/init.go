@@ -393,15 +393,10 @@ func (s *mcpManagerService) Init(cfg map[string]any) error {
 	// matches agentLoader's behaviour at cmd/rnix/main.go:1423.
 	registry := make(map[string]vfs.MCPConfig, len(global.Servers))
 	for name, server := range global.Servers {
-		if server.Command == "" {
-			return fmt.Errorf("mcp server %q: command is required", name)
-		}
-		if server.TransportType != "" && server.TransportType != "stdio" {
-			return fmt.Errorf("mcp server %q: transport_type=%q unsupported (only stdio in 48.3)", name, server.TransportType)
-		}
-		// Story 48.6 — duration / max_output_bytes validation now happens inside
-		// mcp.LoadMCPConfig ([Review][Patch] P3), so this loop only needs the
-		// command / transport_type checks above.
+		// Story 59.1 — transport-conditional connection requirements (stdio needs
+		// command, http needs url) + the supported transport allow-list (stdio,
+		// http) are enforced by MCPServerConfig.Validate, already run for every
+		// server inside mcp.LoadMCPConfig above. No per-field re-check needed here.
 		registry[name] = server.ToMCPConfig(name)
 	}
 	s.servers = registry

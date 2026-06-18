@@ -29,9 +29,16 @@ type MCPConfig struct {
 	Command       string            `json:"command" yaml:"command"`
 	Args          []string          `json:"args,omitempty" yaml:"args,omitempty"`
 	Env           map[string]string `json:"env,omitempty" yaml:"env,omitempty"`
-	TransportType string            `json:"transport_type" yaml:"transport_type"` // "stdio" (default)
+	TransportType string            `json:"transport_type" yaml:"transport_type"` // "stdio" (default) | "http"
 	WorkDir       string            `json:"work_dir,omitempty" yaml:"work_dir,omitempty"`
 	Instructions  string            `json:"instructions,omitempty" yaml:"instructions,omitempty"` // usage instructions injected into system prompt
+
+	// Streamable HTTP transport (Story 59.1 / Epic 59). Used when
+	// TransportType == "http"; ignored for stdio. URL is the single MCP
+	// endpoint; Headers are sent verbatim on every request (Bearer / API key /
+	// custom), with ${ENV} interpolation resolved at transport build time.
+	URL     string            `json:"url,omitempty" yaml:"url,omitempty"`
+	Headers map[string]string `json:"headers,omitempty" yaml:"headers,omitempty"`
 
 	// Per-server timeout / output knobs (Story 48.6 FR-48-S8). Zero = default.
 	MountTimeout   time.Duration `json:"mount_timeout,omitempty" yaml:"mount_timeout,omitempty"`     // Connect budget (default 5s)

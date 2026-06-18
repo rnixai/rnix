@@ -198,8 +198,8 @@ func mcpMountNameFromPath(path string) string {
 }
 
 // mcpTransportLabel returns the user-facing transport label for a config.
-// Currently only stdio is supported; empty maps to the default rather than
-// confusing the operator with a blank cell.
+// stdio and http are supported (Story 59.1); empty maps to the stdio default
+// rather than confusing the operator with a blank cell.
 func mcpTransportLabel(cfg vfs.MCPConfig) string {
 	if cfg.TransportType == "" {
 		return "stdio"

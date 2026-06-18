@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"maps"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/goccy/go-yaml"
@@ -36,8 +37,16 @@ type MCPServerConfig struct {
 	Command       string            `yaml:"command"`
 	Args          []string          `yaml:"args,omitempty"`
 	Env           map[string]string `yaml:"env,omitempty"`
-	TransportType string            `yaml:"transport_type"`         // "stdio" (default)
+	TransportType string            `yaml:"transport_type"`         // "stdio" (default) | "http"
+	Type          string            `yaml:"type,omitempty"`         // alias for transport_type (Story 59.1); transport_type wins when both set
 	Instructions  string            `yaml:"instructions,omitempty"` // usage instructions injected into system prompt
+
+	// Streamable HTTP transport (Story 59.1 / Epic 59). Required when the
+	// resolved transport type is "http". URL is the single MCP endpoint; Headers
+	// are sent verbatim on every request (Bearer / API key / custom) and support
+	// ${ENV} interpolation resolved at transport build time (decision D3).
+	URL     string            `yaml:"url,omitempty"`
+	Headers map[string]string `yaml:"headers,omitempty"`
 
 	// Per-server timeout / output knobs (Story 48.6 FR-48-S8). Durations are
 	// stored as strings and parsed with time.ParseDuration (aligning with
@@ -48,12 +57,41 @@ type MCPServerConfig struct {
 	MaxOutputBytes int64  `yaml:"max_output_bytes,omitempty"`
 }
 
+// ResolvedTransportType returns the effective transport type, honoring the
+// `type` alias (Story 59.1 / decision D2) and normalizing to lower case so
+// `http`/`HTTP`/`Http` all match. `transport_type` wins when both are set; an
+// empty result means "stdio" (the default) to downstream callers.
+func (c MCPServerConfig) ResolvedTransportType() string {
+	v := c.TransportType
+	if v == "" {
+		v = c.Type
+	}
+	return strings.ToLower(strings.TrimSpace(v))
+}
+
 // Validate checks that the duration fields parse. Called from the LoadMCPConfig
 // validation phase (kernel/init.go) so a typo in mount_timeout / request_timeout
 // fails fast at config-load time alongside the existing command / transport_type
 // checks, rather than being silently swallowed into a default by ToMCPConfig
 // (Story 48.6 Task 1.3).
 func (c MCPServerConfig) Validate() error {
+	// Story 59.1 — transport-conditional connection requirements. Centralized
+	// here (runs for every LoadMCPConfig caller: daemon init, rnix check,
+	// compose preflight) so http/stdio configs fail fast and consistently.
+	// "" defaults to stdio.
+	switch tt := c.ResolvedTransportType(); tt {
+	case "", "stdio":
+		if c.Command == "" {
+			return fmt.Errorf("command is required for stdio transport")
+		}
+	case "http":
+		if c.URL == "" {
+			return fmt.Errorf("url is required for http transport")
+		}
+	default:
+		return fmt.Errorf("transport_type=%q unsupported (only stdio, http)", tt)
+	}
+
 	if c.MountTimeout != "" {
 		if _, err := time.ParseDuration(c.MountTimeout); err != nil {
 			return fmt.Errorf("invalid mount_timeout %q: %w", c.MountTimeout, err)
@@ -83,7 +121,9 @@ func (c MCPServerConfig) ToMCPConfig(name string) vfs.MCPConfig {
 		Command:        c.Command,
 		Args:           c.Args,
 		Env:            c.Env,
-		TransportType:  c.TransportType,
+		TransportType:  c.ResolvedTransportType(),
+		URL:            c.URL,
+		Headers:        c.Headers,
 		Instructions:   c.Instructions,
 		MountTimeout:   parseDurationOr(c.MountTimeout, defaultMountTimeout),
 		RequestTimeout: parseDurationOr(c.RequestTimeout, defaultRequestTimeout),
