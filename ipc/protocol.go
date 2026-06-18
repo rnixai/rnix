@@ -90,6 +90,11 @@ const (
 	// (drivers/mcp StdioTransport.StderrTail) so `rnix mcp logs <name>` can show
 	// recent child-process diagnostics.
 	MethodMCPLogs Method = "mcp_logs"
+	// MethodMCPReload re-parses mcp.yaml and swaps the kernel registry at
+	// runtime (kernel.ReloadMCPRegistry) so `rnix mcp reload` applies a config
+	// edit without a daemon restart. Lookup-table only — no mounted transport
+	// is touched.
+	MethodMCPReload Method = "mcp_reload"
 
 	// Story 45.1 — daemon build provenance (commit + build_date + pid +
 	// started_at). Distinct from MethodPing (which only returns version) so
@@ -167,27 +172,27 @@ type ErrorPayload struct {
 
 // SpawnRequest is the payload for MethodSpawn.
 type SpawnRequest struct {
-	Intent           string   `json:"intent"`
-	Agent            string   `json:"agent,omitempty"`
-	Model            string   `json:"model,omitempty"`
-	Provider         string   `json:"provider,omitempty"`
-	FallbackModel    string   `json:"fallback_model,omitempty"`
-	FallbackProvider string   `json:"fallback_provider,omitempty"`
+	Intent           string `json:"intent"`
+	Agent            string `json:"agent,omitempty"`
+	Model            string `json:"model,omitempty"`
+	Provider         string `json:"provider,omitempty"`
+	FallbackModel    string `json:"fallback_model,omitempty"`
+	FallbackProvider string `json:"fallback_provider,omitempty"`
 	// ReasoningEffort: per-spawn reasoning effort override (passthrough, Story 55.2).
 	// Empty = inherit driver/provider default. Verbatim — no validation/mapping/case-fold.
-	ReasoningEffort  string   `json:"reasoning_effort,omitempty"`
-	MaxSteps         int      `json:"max_steps,omitempty"`
-	ContextBudget    int      `json:"context_budget,omitempty"`
-	MaxTokens        int64    `json:"max_tokens,omitempty"`
-	TimeoutMs        int64    `json:"timeout_ms,omitempty"`
-	TraceID          string   `json:"trace_id,omitempty"`
-	ParentSpanID     string   `json:"parent_span_id,omitempty"`
-	ProjectDir       string   `json:"project_dir,omitempty"`
-	RnixEnv          string   `json:"rnix_env,omitempty"`
-	ComposeNode      string   `json:"compose_node,omitempty"`
-	ComposeDeps      []string `json:"compose_deps,omitempty"`
-	PipelineIndex    int      `json:"pipeline_index"`
-	PipelineTotal    int      `json:"pipeline_total"`
+	ReasoningEffort string   `json:"reasoning_effort,omitempty"`
+	MaxSteps        int      `json:"max_steps,omitempty"`
+	ContextBudget   int      `json:"context_budget,omitempty"`
+	MaxTokens       int64    `json:"max_tokens,omitempty"`
+	TimeoutMs       int64    `json:"timeout_ms,omitempty"`
+	TraceID         string   `json:"trace_id,omitempty"`
+	ParentSpanID    string   `json:"parent_span_id,omitempty"`
+	ProjectDir      string   `json:"project_dir,omitempty"`
+	RnixEnv         string   `json:"rnix_env,omitempty"`
+	ComposeNode     string   `json:"compose_node,omitempty"`
+	ComposeDeps     []string `json:"compose_deps,omitempty"`
+	PipelineIndex   int      `json:"pipeline_index"`
+	PipelineTotal   int      `json:"pipeline_total"`
 }
 
 // SpawnResponse is the initial (non-streaming) response to a Spawn.
@@ -799,7 +804,7 @@ type SpawnPipelineCommand struct {
 	FallbackProvider string `json:"fallback_provider,omitempty"`
 	FallbackModel    string `json:"fallback_model,omitempty"`
 	// ReasoningEffort: per-stage reasoning effort override (passthrough, Story 55.2).
-	ReasoningEffort  string `json:"reasoning_effort,omitempty"`
+	ReasoningEffort string `json:"reasoning_effort,omitempty"`
 }
 
 // SpawnPipelineResponse is the final result of a pipeline spawn (sent as StreamComplete payload).
@@ -1564,6 +1569,27 @@ func (r MCPLogsResponse) MarshalJSON() ([]byte, error) {
 	a := Alias(r)
 	if a.Lines == nil {
 		a.Lines = []string{}
+	}
+	return json.Marshal(a)
+}
+
+// MCPReloadResponse is the response for MethodMCPReload: the server count and
+// sorted server names after re-parsing mcp.yaml.
+//
+// MarshalJSON normalises Servers to `[]` instead of `null` when nil (e.g. a
+// reload that found no mcp.yaml → zero servers) so consumers always see a list
+// shape — mirror of MCPLogsResponse.Lines.
+type MCPReloadResponse struct {
+	ServerCount int      `json:"server_count"`
+	Servers     []string `json:"servers"`
+}
+
+// MarshalJSON ensures Servers is `[]` instead of `null` when nil.
+func (r MCPReloadResponse) MarshalJSON() ([]byte, error) {
+	type Alias MCPReloadResponse
+	a := Alias(r)
+	if a.Servers == nil {
+		a.Servers = []string{}
 	}
 	return json.Marshal(a)
 }

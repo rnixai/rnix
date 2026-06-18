@@ -70,11 +70,12 @@ type HTTPTransport struct {
 	// once at construction.
 	resolvedHeaders map[string]string
 
-	mu          sync.Mutex
-	sessionID   string      // Mcp-Session-Id assigned at initialize ("" = stateless/not yet)
-	initialized atomic.Bool // true once initialize handshake has completed (gates MCP-Protocol-Version)
-	connected   bool
-	closed      bool
+	mu                sync.Mutex
+	sessionID         string      // Mcp-Session-Id assigned at initialize ("" = stateless/not yet)
+	negotiatedVersion string      // protocolVersion from the initialize result; "" until negotiated → applyHeaders falls back to mcpProtocolVersion
+	initialized       atomic.Bool // true once initialize handshake has completed (gates MCP-Protocol-Version)
+	connected         bool
+	closed            bool
 
 	nextID atomic.Int64
 
@@ -198,8 +199,24 @@ func (t *HTTPTransport) initializeLocked(ctx context.Context) error {
 	if err != nil {
 		return types.NewDriverError("Connect", "initialize", err, types.ErrInternal)
 	}
-	if _, err := t.requestLocked(ctx, "initialize", params); err != nil {
+	res, err := t.requestLocked(ctx, "initialize", params)
+	if err != nil {
 		return fmt.Errorf("initialize handshake: %w", err)
+	}
+	// Capture the negotiated protocolVersion. The server echoes the version it
+	// actually settled on in result.protocolVersion (it may DOWNGRADE the
+	// client's advertised version), and the Streamable HTTP spec requires every
+	// post-init request to carry THAT value in the MCP-Protocol-Version header —
+	// not the client's request value. Reset first so a CAP-7 re-initialize whose
+	// result omits protocolVersion falls back to the constant instead of reusing
+	// the prior session's negotiated value; a missing/unparseable field then
+	// leaves negotiatedVersion "" → applyHeaders uses mcpProtocolVersion.
+	t.negotiatedVersion = ""
+	var ir struct {
+		ProtocolVersion string `json:"protocolVersion"`
+	}
+	if uerr := json.Unmarshal(res, &ir); uerr == nil && ir.ProtocolVersion != "" {
+		t.negotiatedVersion = ir.ProtocolVersion
 	}
 	// Negotiation done: from now on every request carries MCP-Protocol-Version
 	// (spec: sent on all post-init requests regardless of whether the server
@@ -354,13 +371,20 @@ func (t *HTTPTransport) doPost(ctx context.Context, body []byte) (*http.Response
 
 // applyHeaders sets custom headers, the protocol-version header (once
 // initialized, regardless of session — spec requirement for stateless servers),
-// and the session id when the server assigned one.
+// and the session id when the server assigned one. The protocol-version value
+// is the one negotiated at initialize (falling back to the advertised constant
+// when the server returned none). Read under mu: every applyHeaders caller
+// holds it (requestLocked, notifyLocked, openServerStream).
 func (t *HTTPTransport) applyHeaders(req *http.Request) {
 	for k, v := range t.resolvedHeaders {
 		req.Header.Set(k, v)
 	}
 	if t.initialized.Load() {
-		req.Header.Set("MCP-Protocol-Version", mcpProtocolVersion)
+		version := t.negotiatedVersion
+		if version == "" {
+			version = mcpProtocolVersion
+		}
+		req.Header.Set("MCP-Protocol-Version", version)
 	}
 	if t.sessionID != "" {
 		req.Header.Set("Mcp-Session-Id", t.sessionID)

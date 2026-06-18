@@ -379,6 +379,25 @@ func (c *Client) MCPLogs(name string) (*MCPLogsResponse, error) {
 	return &result, nil
 }
 
+// MCPReload re-parses mcp.yaml on the daemon and swaps the kernel registry,
+// returning the refreshed server count + sorted names. Takes no request payload
+// (reload always targets the canonical global mcp.yaml). Servers is normalised
+// to `[]` when the daemon emits null so cmd-side renderers never crash on nil.
+func (c *Client) MCPReload() (*MCPReloadResponse, error) {
+	resp, err := c.call(MethodMCPReload, nil)
+	if err != nil {
+		return nil, err
+	}
+	var result MCPReloadResponse
+	if err := json.Unmarshal(resp.Payload, &result); err != nil {
+		return nil, fmt.Errorf("ipc: unmarshal mcp_reload: %w", err)
+	}
+	if result.Servers == nil {
+		result.Servers = []string{}
+	}
+	return &result, nil
+}
+
 // SpawnAndWatch spawns a process and streams events until completion.
 // The onEvent callback is called for each StreamEvent. Returns the final SpawnResponse PID
 // and the complete ProgressPayload (from the complete/error event).

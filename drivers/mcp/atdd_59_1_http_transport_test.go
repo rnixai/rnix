@@ -44,6 +44,16 @@ type mockStreamableHTTPServer struct {
 	failCallMethod string // method to fault (e.g. "tools/list")
 	faultArmed     bool
 
+	// protocol-version negotiation knobs (ATDD 59.2): initVersionResp overrides
+	// the protocolVersion echoed in the initialize RESULT ("" = mcpProtocolVersion);
+	// omitInitVersion returns a result with NO protocolVersion field at all;
+	// initVersionSeq (index = initCount-1) negotiates a different version per
+	// initialize call (a "" element omits the field) — used to exercise CAP-7
+	// re-init refresh.
+	initVersionResp string
+	omitInitVersion bool
+	initVersionSeq  []string
+
 	// captured request facts for assertions
 	lastAccept        string
 	lastContentType   string
@@ -110,7 +120,32 @@ func (m *mockStreamableHTTPServer) handlePost(w http.ResponseWriter, r *http.Req
 			w.Header().Set("Mcp-Session-Id", m.sessionID)
 		}
 		w.Header().Set("Content-Type", "application/json")
-		fmt.Fprintf(w, `{"jsonrpc":"2.0","id":%d,"result":{"protocolVersion":%q,"capabilities":{},"serverInfo":{"name":"mock","version":"1.0.0"}}}`, req.ID, mcpProtocolVersion)
+		// Decide this initialize's negotiated version. initVersionSeq (indexed by
+		// initCount) takes precedence and lets a test negotiate different versions
+		// across the initial connect and a CAP-7 re-init; a "" element omits the
+		// field for that call. Falls back to initVersionResp, then the constant.
+		omit := m.omitInitVersion
+		respVer := mcpProtocolVersion
+		if m.initVersionResp != "" {
+			respVer = m.initVersionResp
+		}
+		if len(m.initVersionSeq) > 0 {
+			idx := m.initCount - 1
+			if idx >= len(m.initVersionSeq) {
+				idx = len(m.initVersionSeq) - 1
+			}
+			if v := m.initVersionSeq[idx]; v == "" {
+				omit = true
+			} else {
+				omit, respVer = false, v
+			}
+		}
+		if omit {
+			// Server returns no protocolVersion → client must fall back to the constant.
+			fmt.Fprintf(w, `{"jsonrpc":"2.0","id":%d,"result":{"capabilities":{},"serverInfo":{"name":"mock","version":"1.0.0"}}}`, req.ID)
+		} else {
+			fmt.Fprintf(w, `{"jsonrpc":"2.0","id":%d,"result":{"protocolVersion":%q,"capabilities":{},"serverInfo":{"name":"mock","version":"1.0.0"}}}`, req.ID, respVer)
+		}
 	case strings.HasPrefix(req.Method, "notifications/"):
 		if req.Method == "notifications/initialized" {
 			m.gotInitialized = true

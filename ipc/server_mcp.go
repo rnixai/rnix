@@ -166,6 +166,32 @@ func (s *Server) handleMCPLogs(conn net.Conn, payload json.RawMessage) {
 	writeResponse(conn, Response{OK: true, Payload: body})
 }
 
+// handleMCPReload implements MethodMCPReload. Re-parses the canonical mcp.yaml
+// via the kernel surface and reports the refreshed server count + sorted names.
+// Takes no payload — reload always targets the global mcp.yaml.
+//
+// A bad mcp.yaml (parse/validation failure) returns OK=false and leaves the
+// previous registry intact (kernel.ReloadMCPRegistry does not swap on error),
+// so the daemon keeps serving the last good config. A missing mcp.yaml is not
+// an error — it reports zero servers.
+func (s *Server) handleMCPReload(conn net.Conn) {
+	if s.kern == nil {
+		writeResponse(conn, Response{OK: false, Error: &ErrorPayload{Code: "internal", Message: "kernel not wired"}})
+		return
+	}
+	count, servers, err := s.kern.ReloadMCPRegistry()
+	if err != nil {
+		writeResponse(conn, Response{OK: false, Error: &ErrorPayload{Code: "internal", Message: fmt.Sprintf("reload mcp config: %v", err)}})
+		return
+	}
+	body, err := json.Marshal(MCPReloadResponse{ServerCount: count, Servers: servers})
+	if err != nil {
+		writeResponse(conn, Response{OK: false, Error: &ErrorPayload{Code: "internal", Message: fmt.Sprintf("marshal mcp_reload: %v", err)}})
+		return
+	}
+	writeResponse(conn, Response{OK: true, Payload: body})
+}
+
 // mountedMCPServerNames returns the server names currently held in the mount
 // table, sorted. Unlike availableMCPServerNames (which reads the mcp.yaml
 // registry), this reflects what is actually MOUNTED — the right hint for a

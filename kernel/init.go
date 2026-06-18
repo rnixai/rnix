@@ -372,20 +372,41 @@ func (s *mcpManagerService) Init(cfg map[string]any) error {
 			configPath = cp
 		}
 	}
+
+	registry, err := loadMCPRegistry(configPath)
+	if err != nil {
+		return err
+	}
+	s.servers = registry
+	return nil
+}
+
+// loadMCPRegistry parses the mcp.yaml at configPath into the canonical
+// name→vfs.MCPConfig registry. It is the shared parse used by BOTH the
+// Bootstrap-time mcpManagerService.Init and the runtime kernel.ReloadMCPRegistry,
+// so a reload reproduces Init's load/validate semantics exactly instead of
+// copy-pasting them.
+//
+// An absent config (empty path, or os.IsNotExist) is NOT an error — it yields a
+// nil registry (the "no MCP servers" shape, identical to a daemon started
+// without mcp.yaml). Only a stat error other than not-exist, or a
+// YAML/validation failure, returns an error so the caller can keep its existing
+// registry intact (reload must not wipe a good registry on a bad edit).
+func loadMCPRegistry(configPath string) (map[string]vfs.MCPConfig, error) {
 	if configPath == "" {
-		return nil // no resolvable config path, no MCP servers — same shape as IsNotExist
+		return nil, nil // no resolvable config path, no MCP servers — same shape as IsNotExist
 	}
 
 	if _, err := os.Stat(configPath); err != nil {
 		if os.IsNotExist(err) {
-			return nil // no MCP config, not an error — servers stays nil
+			return nil, nil // no MCP config, not an error
 		}
-		return fmt.Errorf("stat mcp config %q: %w", configPath, err)
+		return nil, fmt.Errorf("stat mcp config %q: %w", configPath, err)
 	}
 
 	global, err := mcp.LoadMCPConfig(configPath)
 	if err != nil {
-		return fmt.Errorf("load mcp config %q: %w", configPath, err)
+		return nil, fmt.Errorf("load mcp config %q: %w", configPath, err)
 	}
 
 	// Build the canonical name→vfs.MCPConfig map. ServerName is populated
@@ -399,8 +420,7 @@ func (s *mcpManagerService) Init(cfg map[string]any) error {
 		// server inside mcp.LoadMCPConfig above. No per-field re-check needed here.
 		registry[name] = server.ToMCPConfig(name)
 	}
-	s.servers = registry
-	return nil
+	return registry, nil
 }
 
 // Servers returns the parsed registry. Bootstrap uses this to inject into

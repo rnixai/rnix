@@ -423,6 +423,8 @@ func (s *Server) handleConn(conn net.Conn) {
 			s.handleMCPTest(conn, req.Payload)
 		case MethodMCPLogs:
 			s.handleMCPLogs(conn, req.Payload)
+		case MethodMCPReload:
+			s.handleMCPReload(conn)
 		case MethodShutdown:
 			s.handleShutdown(conn)
 			return

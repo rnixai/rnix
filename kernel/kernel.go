@@ -4,6 +4,7 @@ import (
 	gocontext "context"
 	"encoding/json"
 	"fmt"
+	"slices"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -100,10 +101,10 @@ type SpawnOpts struct {
 	SkipReasonLoop    bool                  // true = don't open LLM device or start reasonStep goroutine
 	ProjectConfig     *config.ProjectConfig // project-level config snapshot; nil = global only
 	CompactThreshold  float64               // 0 = use default (80%); >0 = trigger compact when TokenUsage > threshold
-	GracePeriod       time.Duration          // 0 = use DefaultGracePeriod; >0 = custom SIGTERM grace period
-	AllowedDevices    []string               // inherited from parent; nil = no constraint from parent
-	DeniedDevices     []string               // device blacklist; checked before AllowedDevices whitelist
-	AllowedTools      []string               // Story 54.1: authoritative tool-name whitelist; nil = derive from AllowedDevices / no constraint
+	GracePeriod       time.Duration         // 0 = use DefaultGracePeriod; >0 = custom SIGTERM grace period
+	AllowedDevices    []string              // inherited from parent; nil = no constraint from parent
+	DeniedDevices     []string              // device blacklist; checked before AllowedDevices whitelist
+	AllowedTools      []string              // Story 54.1: authoritative tool-name whitelist; nil = derive from AllowedDevices / no constraint
 
 	// Orchestration metadata (Story 34.7)
 	ComposeNode   string   // compose node name (e.g. "summarizer")
@@ -216,7 +217,15 @@ type KernelImpl struct {
 	// mcpManagerService at Bootstrap time. IPC handlers (mcp_list /
 	// mcp_test) consume it without re-parsing mcp.yaml. nil = no mcp.yaml
 	// or empty config; callers must treat it as a zero-value read-only map.
-	mcpRegistry map[string]vfs.MCPConfig
+	//
+	// mcpRegistryMu guards the map REFERENCE. It was effectively set-once at
+	// Bootstrap until `mcp reload` (ReloadMCPRegistry) made it swappable at
+	// runtime, which races the concurrent IPC handler goroutines (mcp_list /
+	// mcp_test) reading the bare field. The swap publishes a freshly-built map
+	// and never mutates one in place, so the reference handed to readers stays
+	// read-only — only the field access needs the lock, not per-key access.
+	mcpRegistryMu sync.RWMutex
+	mcpRegistry   map[string]vfs.MCPConfig
 	// transportFactory mirrors the factory MountManager already owns, but is
 	// stored directly on the kernel so RunMCPProbe can spin up a one-shot
 	// transport without going through MountManager (probe ≠ mount: no
@@ -246,11 +255,11 @@ type KernelImpl struct {
 	diffMemory *DiffMemory
 
 	// Provider resolution callbacks (Story 23.3)
-	providerNames   func() []string
-	hasProvider     func(name string) bool
-	costPerToken       func(provider string) float64            // returns cost per token for a provider; 0 = unknown
-	contextWindowFunc  func(provider, model string) int         // returns context window for a provider+model; 0 = unknown
-	defaultProvider    string // injected default provider name; "" = fall back to "claude"
+	providerNames     func() []string
+	hasProvider       func(name string) bool
+	costPerToken      func(provider string) float64    // returns cost per token for a provider; 0 = unknown
+	contextWindowFunc func(provider, model string) int // returns context window for a provider+model; 0 = unknown
+	defaultProvider   string                           // injected default provider name; "" = fall back to "claude"
 
 	// projectConfigLoader rebuilds a full ProjectConfig (LLMFileOpener,
 	// AgentLoader, SkillLoader, EnvSnapshot, ...) from a stored project
@@ -570,6 +579,8 @@ func (k *KernelImpl) Mount(path string, config vfs.MCPConfig) error {
 // Caller convention: the registry is treated as read-only after injection;
 // SetMCPRegistry stores the reference verbatim and does not deep-copy.
 func (k *KernelImpl) SetMCPRegistry(servers map[string]vfs.MCPConfig) {
+	k.mcpRegistryMu.Lock()
+	defer k.mcpRegistryMu.Unlock()
 	k.mcpRegistry = servers
 }
 
@@ -580,7 +591,38 @@ func (k *KernelImpl) SetMCPRegistry(servers map[string]vfs.MCPConfig) {
 // The returned map is the live reference; mutation would corrupt other
 // handlers' view. Treat as read-only.
 func (k *KernelImpl) MCPRegistry() map[string]vfs.MCPConfig {
+	k.mcpRegistryMu.RLock()
+	defer k.mcpRegistryMu.RUnlock()
 	return k.mcpRegistry
+}
+
+// ReloadMCPRegistry re-parses the on-disk mcp.yaml (canonical global path) and
+// atomically swaps the kernel registry, returning the new server count and the
+// sorted server names. It is the runtime counterpart to the Bootstrap-time
+// mcpManagerService.Init: `rnix mcp reload` calls it so a mcp.yaml edit takes
+// effect without restarting the daemon.
+//
+// Scope: it ONLY refreshes the lookup table consumed by mcp_list / mcp_test
+// (and future spawn-path Mount resolution). It deliberately does NOT touch any
+// already-mounted transport — Bootstrap never pre-connects, so neither does a
+// reload (no connect, no reconnect, no unmount).
+//
+// On a parse/validation failure (bad YAML) it returns the error WITHOUT calling
+// SetMCPRegistry, so the previous good registry is preserved. A missing mcp.yaml
+// is not an error: it clears the registry to zero servers (same shape as a
+// daemon started without the file).
+func (k *KernelImpl) ReloadMCPRegistry() (int, []string, error) {
+	registry, err := loadMCPRegistry(defaultMCPConfigPath())
+	if err != nil {
+		return 0, nil, err
+	}
+	k.SetMCPRegistry(registry)
+	names := make([]string, 0, len(registry))
+	for name := range registry {
+		names = append(names, name)
+	}
+	slices.Sort(names)
+	return len(registry), names, nil
 }
 
 // SetTransportFactory injects the MCP transport factory used by RunMCPProbe.

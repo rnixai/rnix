@@ -74,10 +74,108 @@ with the list of available servers.`,
 	RunE: runMCPLogs,
 }
 
+var mcpReloadCmd = &cobra.Command{
+	Use:   "reload",
+	Short: "Re-read mcp.yaml and refresh the daemon's MCP registry",
+	Long: `Re-parse mcp.yaml and swap the daemon's MCP server registry without a
+restart. Use this after editing mcp.yaml (adding / removing / re-configuring a
+server) so ` + "`mcp test`" + ` and future mounts see the change immediately.
+
+Refreshes the lookup table only — already-mounted servers are left untouched.
+Like ` + "`mcp test`" + `, this REQUIRES the daemon to be running, so daemon-down
+exits 1. A bad mcp.yaml leaves the previous registry intact and reports the
+parse error.`,
+	Args: cobra.NoArgs,
+	RunE: runMCPReload,
+}
+
 func init() {
 	mcpCmd.AddCommand(mcpListCmd)
 	mcpCmd.AddCommand(mcpTestCmd)
 	mcpCmd.AddCommand(mcpLogsCmd)
+	mcpCmd.AddCommand(mcpReloadCmd)
+}
+
+// runMCPReload implements `rnix mcp reload`. Like `mcp test` it is an action
+// that needs the daemon (the registry lives in the daemon's kernel), so a
+// daemon-down is a hard fail (exit 1) rather than the graceful exit-0 of the
+// pure-read `mcp list` / `mcp logs`. Does NOT EnsureDaemon (易错点 14).
+func runMCPReload(cmd *cobra.Command, _ []string) error {
+	mode := resolveOutputMode()
+	w := cmd.OutOrStdout()
+	errW := cmd.ErrOrStderr()
+
+	client, err := ipc.Dial(ipc.SocketPath())
+	if err != nil {
+		exitCode = 1
+		if mode == ui.ModeJSON {
+			payload := JSONResponse{OK: false, Error: map[string]any{
+				"code":    "daemon_down",
+				"message": "daemon not running",
+			}}
+			data, _ := json.Marshal(payload)
+			fmt.Fprintln(w, string(data))
+			return nil
+		}
+		fmt.Fprintln(errW, "Daemon not running. Start the daemon with `rnix daemon` or any spawn command (e.g. `rnix --intent \"hello\"`).")
+		return nil
+	}
+	defer client.Close()
+
+	resp, err := client.MCPReload()
+	if err != nil {
+		exitCode = 1
+		if mode == ui.ModeJSON {
+			payload := JSONResponse{OK: false, Error: map[string]any{
+				"code":    "reload_failed",
+				"message": err.Error(),
+			}}
+			data, _ := json.Marshal(payload)
+			fmt.Fprintln(w, string(data))
+			return nil
+		}
+		fmt.Fprintln(errW, formatMCPReloadErr(err))
+		return nil
+	}
+
+	switch mode {
+	case ui.ModeJSON:
+		payload := JSONResponse{OK: true, Data: map[string]any{
+			"server_count": resp.ServerCount,
+			"servers":      resp.Servers,
+		}}
+		data, _ := json.Marshal(payload)
+		fmt.Fprintln(w, string(data))
+	case ui.ModeQuiet:
+		for _, name := range resp.Servers {
+			fmt.Fprintln(w, name)
+		}
+	default:
+		renderMCPReloadHuman(w, resp)
+	}
+	return nil
+}
+
+// renderMCPReloadHuman prints the refreshed server count + names.
+func renderMCPReloadHuman(w io.Writer, resp *ipc.MCPReloadResponse) {
+	if resp.ServerCount == 0 {
+		fmt.Fprintln(w, "Reloaded mcp.yaml: 0 servers configured.")
+		return
+	}
+	fmt.Fprintf(w, "Reloaded mcp.yaml: %d server(s) configured: %s\n", resp.ServerCount, strings.Join(resp.Servers, ", "))
+}
+
+// formatMCPReloadErr strips the `ipc: [code] ` prefix from a reload error so the
+// user sees a clean message (mirrors formatMCPLogsErr).
+func formatMCPReloadErr(err error) string {
+	msg := err.Error()
+	const prefix = "ipc: ["
+	if strings.HasPrefix(msg, prefix) {
+		if i := strings.Index(msg, "] "); i >= 0 {
+			msg = msg[i+2:]
+		}
+	}
+	return fmt.Sprintf("mcp reload failed: %s", msg)
 }
 
 // runMCPLogs implements `rnix mcp logs <name>` (Story 48.5 AC4). Daemon-down is
