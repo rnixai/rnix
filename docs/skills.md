@@ -461,6 +461,16 @@ rnix skill list
 
 **`allowed-tools` 的值是语义工具名，不是设备路径。** frontmatter 的 `allowed-tools` 列出 LLM 实际看到的工具名（`Read`、`Write`、`Edit`、`Glob`、`Grep`、`Bash`、`IntentDecompose` 等），用于能力声明与**工具级**权限执行（agent 多 skill 先 union + 去重；spawn / specialize 时把声明的工具名归一化为进程的 `AllowedTools`〔权威判定〕+ `AllowedDevices`〔设备根路由〕；父进程传入继承约束时在设备根层取交集）。[`skills/manager.go`](../skills/manager.go) 的 `validateFrontmatter` 校验每个值是已知工具名**或**设备路径（兼容期仍接受 `/dev/` 前缀的旧式声明），enforcement 按工具名判定——`allowed-tools: Read` 只放行 `Read`，不放行同设备的 `Write`。这一方向由 [Architecture Decision 45](../_bmad-output/planning-artifacts/architecture/core-architectural-decisions.md#decision-45-设备路径纯内部化--应用层统一语义工具名decision-44-部分-superseded) 固化（部分推翻 Decision 44 的应用层露出）：设备路径已**内化为内核实现**——内核在 spawn / specialize 处归一化工具名↔设备根，应用层（skill frontmatter、agent instructions、prompt、docs）一律用语义工具名。
 
+**工具授权的两个并列基线声明层（skill `allowed-tools` 与 agent `tools`）。** 自 [Architecture Decision 46](../_bmad-output/planning-artifacts/architecture/core-architectural-decisions.md#decision-46-agentyaml-tools-字段--agent-级工具直接声明层修订-decision-45-前提)（Story 58.1）起，工具授权不再是「**仅** skill `allowed-tools` 是唯一权威」：`agent.yaml` 顶层新增 `tools` 字段，作为与 skill `allowed-tools` **并列**的第二个基线声明层。agent 可直接在 `tools` 写下需要的工具，不必为「挂一个工具」去改所引用的 skill 或新建一个空 skill；skill 因此回归为纯粹的「可移植能力包」。两层取**并集**构成进程的基线工具集（`agent.tools ∪ Σ skill.allowed-tools`，去重 + sort），随后**共用同一条** `normalizeDeclaredAllowedTools` 归一化管线 + 工具级 enforcement + 父约束交集收窄（零旁路，Decision 45 的三项核心机制——PascalCase 词表、设备路径从应用层剔除、工具级 enforcement——全部继承不变）。`tools` 字段语义：
+
+- **值用 PascalCase 语义工具名**（`Read` / `Bash` / `IntentDecompose` …），**禁止设备路径**（与 `allowed-tools` 同规则，Decision 45 继承）。
+- **缺省 / 显式 `tools: []` 均 fail-closed 不追加**：无字段或空数组 = 纯 `Σ skill.allowed-tools`，**绝不**因缺省而授予全部工具（与 cc-src「缺省=全部工具」故意分歧，防安全回归）；也**不**清空 skill 工具。
+- **`tools: ["*"]` 等通配不支持**：`*` 非已知工具名，按 fail-closed 静默丢弃，绝不回退为全集。
+- **非法 / 未知工具名静默丢弃**（与 skill 工具走同一归一化规则）。
+- **父约束只能交集收窄**：父进程的 `opts.AllowedTools` / `opts.AllowedDevices` 无法让进程工具集超出 `agent.tools ∪ Σ skill.allowed-tools` 基线（只减不增）。
+
+> cc-src 对照：cc-src 的 agent frontmatter 自带 `tools` 字段，agent 与 skill 是两条独立工具声明层；rnix 对齐的是**能力**（agent 可独立声明工具）+ 字段名 `tools`，但**缺省值故意分歧**（rnix 取 fail-closed「缺省=不追加」，cc-src 取「缺省=全部」）。
+
 **跨平台可移植性**由三件事共同落地：① `allowed-tools` 用语义工具名（Decision 45）——`Read` / `Bash` 等是跨 agent 生态通用的工具词汇，设备路径已内化故不再露出，enforcement 闭环不破（内核归一化工具名↔设备根，仍经 `ToolDef.Name` 映射）；② 让 **skill body 工具中立化**（见下节《Skill body 工具引用规范》）；③ 把 skill 放进 `.agents/skills/` 共享路径并 commit。如此一份 SKILL.md 在 Rnix / Cursor / OpenCode 中均可被消费。
 
 ### Skill body 工具引用规范
@@ -494,6 +504,7 @@ SKILL.md 的 **body**（frontmatter 之下的 markdown 正文）会被注入 age
 - [Architecture Decision 18](../_bmad-output/planning-artifacts/architecture/core-architectural-decisions.md#decision-18-embedfs-嵌入策略) — embed.FS 嵌入策略（`lib/` 运行时不再作为查找路径）
 - [Architecture Decision 44](../_bmad-output/planning-artifacts/architecture/core-architectural-decisions.md#decision-44-工具命名双层原则--capability-资源路径--llm-语义名) — 工具命名双层原则（Layer 1 资源路径用于 enforcement / Layer 2 `ToolDef.Name` 用于 LLM 呈现；skill body 工具引用规范的依据；**应用层露出部分已由 Decision 45 推翻**）
 - [Architecture Decision 45](../_bmad-output/planning-artifacts/architecture/core-architectural-decisions.md#decision-45-设备路径纯内部化--应用层统一语义工具名decision-44-部分-superseded) — 设备路径纯内部化（应用层统一语义工具名：`allowed-tools` 与 body 均用工具名，设备路径内化为内核 spawn / specialize 归一化实现；部分推翻 Decision 44 的应用层露出）
+- [Architecture Decision 46](../_bmad-output/planning-artifacts/architecture/core-architectural-decisions.md#decision-46-agentyaml-tools-字段--agent-级工具直接声明层修订-decision-45-前提) — Agent.yaml `tools` 字段（agent 级工具直接声明层，修订 Decision 45「仅 skill 是工具授权唯一权威」前提为「skill 与 agent 两并列基线声明层」，取并集；其余机制全继承）
 
 ### 外部规范
 

@@ -44,8 +44,6 @@ func agentInfoWithTools(agentTools []string, skillToolsCSVs ...string) *AgentInf
 // 58.1-UNIT-001 [RED] 基础并集：agent.tools=[Bash] + skill allowed-tools=[Read] →
 // AllowedTools() = [Bash, Read]（sort 后字母序）。
 func TestATDD_58_1_010_AllowedTools_UnionAgentAndSkill(t *testing.T) {
-	t.Skip("RED scaffold (58.1): AllowedTools() 尚未并入 Manifest.Tools；dev-story 移除后转绿")
-
 	info := agentInfoWithTools([]string{"Bash"}, "Read")
 	got := info.AllowedTools()
 	want := []string{"Bash", "Read"}
@@ -56,8 +54,6 @@ func TestATDD_58_1_010_AllowedTools_UnionAgentAndSkill(t *testing.T) {
 
 // 58.1-UNIT-002 [RED] AC2 重叠去重：agent 与 skill 都声明 Read → 结果中 Read 只出现一次。
 func TestATDD_58_1_011_AllowedTools_OverlapDedup(t *testing.T) {
-	t.Skip("RED scaffold (58.1): AllowedTools() 尚未并入 Manifest.Tools；dev-story 移除后转绿")
-
 	info := agentInfoWithTools([]string{"Read", "Bash"}, "Read Glob")
 	got := info.AllowedTools()
 	want := []string{"Bash", "Glob", "Read"} // 去重 + sort
@@ -78,8 +74,6 @@ func TestATDD_58_1_011_AllowedTools_OverlapDedup(t *testing.T) {
 
 // 58.1-UNIT-003 [RED] AC1 无 skill：agent 仅声明 tools，无 skill → AllowedTools() = agent.tools（sort）。
 func TestATDD_58_1_012_AllowedTools_AgentOnly_NoSkill(t *testing.T) {
-	t.Skip("RED scaffold (58.1): AllowedTools() 尚未并入 Manifest.Tools；dev-story 移除后转绿")
-
 	info := agentInfoWithTools([]string{"Read", "Bash"}) // 无 skill
 	got := info.AllowedTools()
 	want := []string{"Bash", "Read"}

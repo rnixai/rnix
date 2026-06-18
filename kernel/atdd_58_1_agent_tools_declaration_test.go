@@ -73,8 +73,6 @@ func agentWithToolsAndSkill(agentToolsCSV, skillToolsCSV string) *agents.AgentIn
 // RED：AllowedTools() 未并入 Manifest.Tools → 无 skill 的 agent.AllowedTools()=nil →
 // proc.AllowedTools/AllowedDevices 均空 → 断言「含 Read」失败。移 skip 实跑验真 FAIL。
 func TestATDD_58_1_001_AgentToolsOnly_NoSkill_Declared(t *testing.T) {
-	t.Skip("RED scaffold (58.1): AllowedTools() 尚未并入 Manifest.Tools；dev-story 移除 t.Skip 后转绿")
-
 	k := newToolLevelKernel(t)
 	agent := agentWithToolsAndSkill("Read Bash", "") // 仅 agent 声明，无 skill
 
@@ -119,8 +117,6 @@ func TestATDD_58_1_001_AgentToolsOnly_NoSkill_Declared(t *testing.T) {
 //
 // RED：未并入 → proc.AllowedTools 仅含 skill 的 Read，不含 agent 的 Bash → 断言含 Bash 失败。
 func TestATDD_58_1_002_AgentToolsUnionSkillTools(t *testing.T) {
-	t.Skip("RED scaffold (58.1): AllowedTools() 尚未并入 Manifest.Tools；dev-story 移除 t.Skip 后转绿")
-
 	k := newToolLevelKernel(t)
 	agent := agentWithToolsAndSkill("Bash", "Read") // agent 声明 Bash，skill 携带 Read
 
@@ -225,8 +221,6 @@ func TestATDD_58_1_004_WildcardToolsFailClosed_GreenGuard(t *testing.T) {
 // executeVFSTool 退化为设备级判定，但 proc.AllowedDevices 也空 → Read 会 device-level 拒；
 // 断言「Read 放行」失败。dev 后 Read 进白名单放行、Write 工具级拒 → 转绿。
 func TestATDD_58_1_005_ToolLevelEnforcement_NoBypass(t *testing.T) {
-	t.Skip("RED scaffold (58.1): AllowedTools() 尚未并入 Manifest.Tools；dev-story 移除 t.Skip 后转绿")
-
 	k := newToolLevelKernel(t)
 	agent := agentWithToolsAndSkill("Read", "") // 仅声明 Read
 
@@ -293,8 +287,6 @@ func TestATDD_58_1_006_ParentConstraintNarrowsBaseline_GreenGuard(t *testing.T) 
 //
 // RED：未并入 → 基线仅 skill 的 {Read}，缺 agent 的 Bash → 断言含 Bash 失败。
 func TestATDD_58_1_007_BaselineUnionWithoutParentConstraint(t *testing.T) {
-	t.Skip("RED scaffold (58.1): AllowedTools() 尚未并入 Manifest.Tools；dev-story 移除 t.Skip 后转绿")
-
 	k := newToolLevelKernel(t)
 	agent := agentWithToolsAndSkill("Bash", "Read") // agent.tools=[Bash] + skill=[Read]
 

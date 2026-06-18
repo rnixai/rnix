@@ -25,7 +25,7 @@ type AgentManifest struct {
 	ContextBudget  int         `yaml:"context_budget"`
 	CtxSize        int         `yaml:"ctx_size,omitempty"`
 	Skills         []string    `yaml:"skills"`
-	Tools          []string    `yaml:"tools,omitempty"`           // ATDD 58.1 skeleton: agent-level tool declaration; AllowedTools() union 由 dev-story 落地（当前未消费 → RED）
+	Tools          []string    `yaml:"tools,omitempty"`           // agent-level tool declaration (Story 58.1); unioned with skill allowed-tools in AllowedTools()
 	DeferredSkills []string    `yaml:"deferred_skills,omitempty"` // skill names loaded metadata-only (body loaded on discover_skill)
 	MCP            []string    `yaml:"mcp,omitempty"`             // MCP server references
 	MaxSteps       int         `yaml:"max_steps,omitempty"`       // max reasoning steps; 0 = use default
@@ -55,13 +55,18 @@ type AgentInfo struct {
 	MCPConfigs     []vfs.MCPConfig     // resolved MCP configurations from global mcp.yaml
 }
 
-// AllowedTools aggregates AllowedTools from all referenced skills, deduplicated and sorted.
+// AllowedTools aggregates AllowedTools from all referenced skills, unioned with
+// the agent-level Manifest.Tools declaration (Story 58.1), deduplicated and sorted.
+// Nil/empty Manifest.Tools contributes nothing (fail-closed: default ≠ all tools).
 func (a *AgentInfo) AllowedTools() []string {
 	toolSet := make(map[string]struct{})
 	for _, skill := range a.Skills {
 		for _, tool := range skill.Manifest.AllowedTools() {
 			toolSet[tool] = struct{}{}
 		}
+	}
+	for _, tool := range a.Manifest.Tools {
+		toolSet[tool] = struct{}{}
 	}
 	tools := make([]string, 0, len(toolSet))
 	for tool := range toolSet {
