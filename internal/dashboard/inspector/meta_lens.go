@@ -256,6 +256,18 @@ func IsAnthropicDriver(driverType string) bool {
 	return driverType == driverAnthropic
 }
 
+// IsCLIDriver 判断 driver 是否为 CLI 族（claude-cli / cursor-cli / codex-cli /
+// qwen-cli）。CLI driver 整个 agent 会话只 exec 一次，原始请求记录仅落在 step 1
+// （raw.jsonl 只有一条），Raw I/O lens 据此对非 step-1 给出文案引导而非泛化占位串。
+func IsCLIDriver(driverType string) bool {
+	switch driverType {
+	case driverClaudeCLI, driverCursorCLI, driverCodexCLI, driverQwenCLI:
+		return true
+	default:
+		return false
+	}
+}
+
 // RenderRateLine 通用 "rate 行" 渲染原语，与 RenderTokenLine 同 label 对齐宽度。
 //
 // 输出形态（normal case）：

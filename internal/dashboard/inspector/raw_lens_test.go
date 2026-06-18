@@ -167,3 +167,30 @@ func TestATDD_56_4_AC3_RenderRawLens_WidthBoundary_NoPanic(t *testing.T) {
 		_ = RenderRawLens(rawCLIFixture(), w)
 	}
 }
+
+// ---------------------------------------------------------------------------
+// CLI driver step-1 文案引导（方案 B）
+// ---------------------------------------------------------------------------
+
+func TestIsCLIDriver(t *testing.T) {
+	for _, d := range []string{"claude-cli", "cursor-cli", "codex-cli", "qwen-cli"} {
+		if !IsCLIDriver(d) {
+			t.Errorf("IsCLIDriver(%q) should be true", d)
+		}
+	}
+	for _, d := range []string{"anthropic", "openai", "openai-compat", "gemini", "deepseek", ""} {
+		if IsCLIDriver(d) {
+			t.Errorf("IsCLIDriver(%q) should be false", d)
+		}
+	}
+}
+
+func TestRenderRawCLIStepHint_NonEmptyAndMentionsStep1(t *testing.T) {
+	out := RenderRawCLIStepHint()
+	if out == "" {
+		t.Fatalf("RenderRawCLIStepHint should yield a non-empty hint")
+	}
+	if !strings.Contains(out, "step 1") {
+		t.Errorf("hint should reference step 1, got: %q", out)
+	}
+}

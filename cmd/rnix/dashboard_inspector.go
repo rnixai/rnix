@@ -1878,6 +1878,13 @@ func (m dashboardModel) buildRawLens(step int) string {
 	if m.inspector.RawByStep != nil {
 		rc = m.inspector.RawByStep[step]
 	}
+	// CLI driver（claude/cursor/codex/qwen）整个会话只 exec 一次，原始请求记录仅
+	// 落在 step 1。对非 step-1 的缓存缺失，泛化的 "(no raw capture for this step)"
+	// 易被误读为功能损坏——改给 CLI 专属文案引导用户回看 step 1。
+	if rc == nil && step > 1 && m.inspector.Detail != nil &&
+		inspector.IsCLIDriver(m.inspector.Detail.DriverType) {
+		return inspector.RenderRawCLIStepHint()
+	}
 	out := inspector.RenderRawLens(rc, m.width)
 	if m.inspector.RawParseErrByStep != nil {
 		if n := m.inspector.RawParseErrByStep[step]; n > 0 {

@@ -74,6 +74,22 @@ func rawWarnGlyph(warn bool) string {
 	return "•"
 }
 
+// RenderRawCLIStepHint 为 CLI driver 进程的非 step-1 渲染文案引导，替代泛化的
+// "(no raw capture for this step)"。CLI driver（claude/cursor/codex/qwen）整个
+// agent 会话只 exec 一次，原始请求/响应只记录在 step 1，故其余 step 无独立 raw
+// 记录——这是 CLI 调用形态的固有结果，不是缺陷。
+func RenderRawCLIStepHint() string {
+	glyph := "•"
+	if ui.IsASCIIMode() {
+		glyph = "*"
+	}
+	return fmt.Sprintf(
+		"  %s CLI driver 进程：原始请求记录在 step 1\n"+
+			"    此进程整个会话由一次 CLI 调用完成，原始 argv / stdin / stdout\n"+
+			"    只记录在 step 1。跳到 step 1（g / Home）即可查看。",
+		glyph)
+}
+
 // renderRawAPI 渲染 API 族 request{method,url,headers,body} / response{status,body}。
 func renderRawAPI(b *strings.Builder, rc *vfs.RawCapture, width int) {
 	b.WriteString(RenderMetaSectionHeader("Request", width) + "\n")

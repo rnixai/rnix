@@ -283,3 +283,50 @@ func TestReview_56_4_BuildRawLens_PerStepSelectsRecord(t *testing.T) {
 		t.Errorf("step 2 render should contain current-url, got:\n%s", curOut)
 	}
 }
+
+// CLI driver 进程在非 step-1 且无缓存记录时，Raw lens 给出文案引导而非泛化
+// "(no raw capture for this step)"——CLI 整个会话只 exec 一次，原始请求只在 step 1。
+func TestBuildRawLens_CLIDriver_NonStep1_ShowsHint(t *testing.T) {
+	m := dashboardModel{width: 80}
+	m.inspector.Step = 5
+	m.inspector.Lens = lensRaw
+	m.inspector.Detail = &ipc.GetStepDetailResponse{Step: 5, DriverType: "claude-cli"}
+	// RawByStep 无 step 5 记录（CLI 只有 step 1）。
+
+	out := m.buildRawLens(5)
+	if strings.Contains(out, "no raw capture for this step") {
+		t.Errorf("CLI driver non-step-1 should show guidance, not generic placeholder, got:\n%s", out)
+	}
+	if !strings.Contains(out, "step 1") {
+		t.Errorf("CLI hint should point user to step 1, got:\n%s", out)
+	}
+}
+
+// step 1 本身有 CLI raw 记录时正常渲染，不触发引导文案。
+func TestBuildRawLens_CLIDriver_Step1_RendersRecord(t *testing.T) {
+	m := dashboardModel{width: 80}
+	m.inspector.Step = 1
+	m.inspector.Lens = lensRaw
+	m.inspector.Detail = &ipc.GetStepDetailResponse{Step: 1, DriverType: "claude-cli"}
+	m.inspector.RawByStep = map[int]*vfs.RawCapture{
+		1: {Step: 1, Kind: "cli", Request: map[string]any{"argv": []any{"agimqtt", "--print"}}},
+	}
+
+	out := m.buildRawLens(1)
+	if !strings.Contains(out, "agimqtt") {
+		t.Errorf("step 1 should render the CLI record argv, got:\n%s", out)
+	}
+}
+
+// 非 CLI driver（api）在缺失记录时仍走原泛化占位串——引导文案只针对 CLI。
+func TestBuildRawLens_APIDriver_NonStep1_KeepsGenericPlaceholder(t *testing.T) {
+	m := dashboardModel{width: 80}
+	m.inspector.Step = 5
+	m.inspector.Lens = lensRaw
+	m.inspector.Detail = &ipc.GetStepDetailResponse{Step: 5, DriverType: "anthropic"}
+
+	out := m.buildRawLens(5)
+	if !strings.Contains(out, "no raw capture for this step") {
+		t.Errorf("API driver missing record should keep generic placeholder, got:\n%s", out)
+	}
+}
