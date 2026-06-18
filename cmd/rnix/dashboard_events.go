@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"math"
 	"sort"
 	"time"
 
@@ -262,18 +263,30 @@ func mergeUnifiedEvents(stepEntries []stepEntry, sysEvents []UnifiedEvent, selec
 		merged = append(merged, ev)
 	}
 
-	// Sort by timestamp. Stable tie-breaker: StepEntry-carrying events sort
-	// before raw sys events when timestamps collide (preserves legacy ordering).
+	// Sort by step number, NOT by reconstructed timestamp. A step record's
+	// TimestampMs is relative to the CreatedAt of the leg that wrote it; after a
+	// resume each leg has a different CreatedAt, so the rebuilt absolute time is
+	// meaningless across legs and produced the "step 7,8,3,12,4,9,10,…" scramble.
+	// Step numbers ARE monotonic across resume legs (reasonStep continues from
+	// StartStep) and ReadAllSteps already dedups same-numbered records, so the
+	// step axis gives a stable, correct order. SPAWN sinks before all steps and
+	// EXIT floats after; other syscall events anchor to their emitting step.
 	sort.SliceStable(merged, func(i, j int) bool {
-		ti := merged[i].Timestamp
-		tj := merged[j].Timestamp
-		if !ti.Equal(tj) {
+		bi, si := timelineStepBucket(merged[i])
+		bj, sj := timelineStepBucket(merged[j])
+		if bi != bj {
 			if ascending {
-				return ti.Before(tj)
+				return bi < bj
 			}
-			return ti.After(tj)
+			return bi > bj
 		}
-		// Tie-break: step entries first (under both directions)
+		if si != sj {
+			if ascending {
+				return si < sj
+			}
+			return si > sj
+		}
+		// Final tie-break: step entries before raw sys events (legacy ordering).
 		if (merged[i].StepEntry != nil) != (merged[j].StepEntry != nil) {
 			return merged[i].StepEntry != nil
 		}
@@ -281,6 +294,36 @@ func mergeUnifiedEvents(stepEntries []stepEntry, sysEvents []UnifiedEvent, selec
 	})
 
 	return merged
+}
+
+// timelineStepBucket maps a unified event onto the step-number axis used to
+// order the timeline. Returns (bucket, sub): bucket is the step the row belongs
+// to; sub orders rows sharing a bucket (the step row itself before any syscall
+// events emitted during that step). SPAWN sinks before all steps (MinInt32) and
+// EXIT floats after all steps (MaxInt32); syscall events without a step anchor
+// just before EXIT. See mergeUnifiedEvents for why step number, not timestamp,
+// is the sort key.
+func timelineStepBucket(ue UnifiedEvent) (bucket, sub int) {
+	switch ue.Type {
+	case EventSpawn:
+		return math.MinInt32, 0
+	case EventExit:
+		return math.MaxInt32, 0
+	case EventStep:
+		if ue.StepEntry != nil {
+			return ue.StepEntry.Summary.Step, 1
+		}
+		return math.MaxInt32 - 1, 0
+	default:
+		// Compact / Resume / other syscall events carry a "step" arg from the
+		// kernel emit site; anchor them right after the step row of that number.
+		if ue.RawEvent != nil {
+			if s := getArgInt(ue.RawEvent.Args, "step"); s > 0 {
+				return s, 2
+			}
+		}
+		return math.MaxInt32 - 1, 0
+	}
 }
 
 // seedHistoricalSysEvents generates SPAWN and EXIT events for processes that were

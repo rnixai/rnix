@@ -689,3 +689,64 @@ func TestSysEventFIFO_UnderLimit(t *testing.T) {
 		t.Errorf("expected 2 events (under limit), got %d", len(result))
 	}
 }
+
+// TestMergeUnifiedEvents_StepOrderAcrossResumeLegs verifies the timeline orders
+// step rows by step NUMBER, not by the per-leg-relative reconstructed timestamp.
+// After a resume each leg's TimestampMs is relative to that leg's CreatedAt, so
+// leg-2 steps can carry SMALLER offsets than leg-1 steps — sorting by timestamp
+// produced the "step 1,2,12,14 shown as 12,1,14,2" scramble. Step numbers stay
+// monotonic across legs, so they are the correct sort key.
+func TestMergeUnifiedEvents_StepOrderAcrossResumeLegs(t *testing.T) {
+	steps := []stepEntry{
+		{Summary: ipc.StepSummaryWire{Step: 1, Action: "tool_call", Summary: "s1", TimestampMs: 100}},
+		{Summary: ipc.StepSummaryWire{Step: 2, Action: "tool_call", Summary: "s2", TimestampMs: 200}},
+		// resume leg: offsets reset relative to the new CreatedAt → smaller values
+		{Summary: ipc.StepSummaryWire{Step: 12, Action: "tool_call", Summary: "s12", TimestampMs: 5}},
+		{Summary: ipc.StepSummaryWire{Step: 14, Action: "error", Summary: "s14", TimestampMs: 30}},
+	}
+
+	asc := mergeUnifiedEvents(steps, nil, 1, "uuid-1", nil, true)
+	wantAsc := []int{1, 2, 12, 14}
+	if len(asc) != len(wantAsc) {
+		t.Fatalf("ascending: expected %d rows, got %d", len(wantAsc), len(asc))
+	}
+	for i, ue := range asc {
+		if ue.StepEntry == nil {
+			t.Fatalf("ascending row %d not a step entry", i)
+		}
+		if got := ue.StepEntry.Summary.Step; got != wantAsc[i] {
+			t.Errorf("ascending row %d: got step %d, want %d", i, got, wantAsc[i])
+		}
+	}
+
+	desc := mergeUnifiedEvents(steps, nil, 1, "uuid-1", nil, false)
+	wantDesc := []int{14, 12, 2, 1}
+	for i, ue := range desc {
+		if got := ue.StepEntry.Summary.Step; got != wantDesc[i] {
+			t.Errorf("descending row %d: got step %d, want %d", i, got, wantDesc[i])
+		}
+	}
+}
+
+// TestMergeUnifiedEvents_SpawnFirstExitLast verifies SPAWN sinks before all
+// steps and EXIT floats after all steps regardless of their absolute timestamps.
+func TestMergeUnifiedEvents_SpawnFirstExitLast(t *testing.T) {
+	steps := []stepEntry{
+		{Summary: ipc.StepSummaryWire{Step: 5, Action: "tool_call", Summary: "s5", TimestampMs: 50}},
+	}
+	sysEvts := []UnifiedEvent{
+		{Type: EventExit, PID: 1, UUID: "u", Timestamp: time.Now(), Summary: "exit"},
+		{Type: EventSpawn, PID: 1, UUID: "u", Timestamp: time.Now().Add(-time.Minute), Summary: "spawn"},
+	}
+
+	asc := mergeUnifiedEvents(steps, sysEvts, 1, "u", nil, true)
+	if len(asc) != 3 {
+		t.Fatalf("expected 3 rows, got %d", len(asc))
+	}
+	if asc[0].Type != EventSpawn {
+		t.Errorf("ascending: expected SPAWN first, got %v", asc[0].Type)
+	}
+	if asc[len(asc)-1].Type != EventExit {
+		t.Errorf("ascending: expected EXIT last, got %v", asc[len(asc)-1].Type)
+	}
+}

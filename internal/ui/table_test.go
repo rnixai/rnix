@@ -504,3 +504,39 @@ func TestRenderProcessTable_PIDSortVerification(t *testing.T) {
 		t.Errorf("second data row should contain PID 1, got: %q", lines[3])
 	}
 }
+
+// TestRenderProcessTable_ExitColumn verifies the verbose-only EXIT column
+// surfaces a dead/zombie process's ExitReason (the async driver-error reason,
+// e.g. an HTTP 429 rate limit, that the resume CLI never showed). The default
+// (non-verbose) table must NOT show it.
+func TestRenderProcessTable_ExitColumn(t *testing.T) {
+	InitStyles(defaultTestProfile())
+	base := time.Now().Add(-30 * time.Second)
+	procs := []vfs.ProcInfo{
+		{PID: 855, PPID: 0, State: types.StateZombie, Intent: "MODE=resume", TokensUsed: 209000,
+			CreatedAt: base, DeadAt: time.Now(),
+			ExitReason: "llm write failed: 429 rate limit exceeded", ExitCode: 1, ExitCodeSet: true},
+	}
+
+	t.Run("verbose shows EXIT column and reason", func(t *testing.T) {
+		r, buf := testRenderer(defaultTestProfile(), ModeDefault)
+		RenderProcessTable(r, procs, true, false)
+		out := buf.String()
+		if !strings.Contains(out, "EXIT") {
+			t.Errorf("verbose table missing EXIT header:\n%s", out)
+		}
+		// Reason is display-width truncated; its head must be present.
+		if !strings.Contains(out, "llm write failed") {
+			t.Errorf("verbose table missing exit reason head:\n%s", out)
+		}
+	})
+
+	t.Run("default table omits exit reason", func(t *testing.T) {
+		r, buf := testRenderer(defaultTestProfile(), ModeDefault)
+		RenderProcessTable(r, procs, false, false)
+		out := buf.String()
+		if strings.Contains(out, "EXIT") || strings.Contains(out, "llm write failed") {
+			t.Errorf("default (non-verbose) table should not show exit reason:\n%s", out)
+		}
+	})
+}

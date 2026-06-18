@@ -6,6 +6,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/mattn/go-runewidth"
+
 	"github.com/rnixai/rnix/internal/types"
 	"github.com/rnixai/rnix/vfs"
 )
@@ -21,6 +23,7 @@ const (
 	colWidthElapsed = 8
 	colWidthPPID    = 5
 	colWidthUUID    = 11 // 8 hex chars + "..."
+	colWidthExit    = 20 // verbose-only EXIT reason column (display width)
 	colGap          = 3
 )
 
@@ -97,6 +100,10 @@ func RenderProcessTable(r *Renderer, procs []vfs.ProcInfo, verbose, showUUID boo
 	}
 	if showIntent {
 		hdr.WriteString(gap)
+		if verbose {
+			fmt.Fprintf(&hdr, "%-*s", colWidthExit, "EXIT")
+			hdr.WriteString(gap)
+		}
 		hdr.WriteString("INTENT")
 	}
 	headerLine := hdr.String()
@@ -133,6 +140,10 @@ func RenderProcessTable(r *Renderer, procs []vfs.ProcInfo, verbose, showUUID boo
 	}
 	if showIntent {
 		sepLine.WriteString(gap)
+		if verbose {
+			sepLine.WriteString(strings.Repeat(sep, colWidthExit))
+			sepLine.WriteString(gap)
+		}
 		sepLine.WriteString(strings.Repeat(sep, 6))
 	}
 	fmt.Fprintln(r.Writer, sepLine.String())
@@ -212,6 +223,24 @@ func RenderProcessTable(r *Renderer, procs []vfs.ProcInfo, verbose, showUUID boo
 		}
 		if showIntent {
 			row.WriteString(gap)
+			if verbose {
+				// EXIT column: the authoritative exit reason for dead/zombie
+				// processes (e.g. an async HTTP 429 rate-limit that killed the
+				// process after resume). Display-width-aware truncate + pad so
+				// CJK reasons keep column alignment.
+				exitStr := dash
+				if proc.ExitReason != "" {
+					exitStr = runewidth.Truncate(proc.ExitReason, colWidthExit, "…")
+					if !r.Profile.IsUnicode {
+						exitStr = runewidth.Truncate(proc.ExitReason, colWidthExit, "...")
+					}
+				}
+				if pad := colWidthExit - runeLen(exitStr); pad > 0 {
+					exitStr += strings.Repeat(" ", pad)
+				}
+				row.WriteString(exitStr)
+				row.WriteString(gap)
+			}
 			intentWidth := max(w-len(StripAnsi(row.String())), 0)
 			intent := proc.Intent
 			if !verbose && intentWidth > 3 && len(intent) > intentWidth {

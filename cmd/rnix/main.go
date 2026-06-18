@@ -1198,6 +1198,13 @@ type jsonProcess struct {
 	LastHeartbeatMs int64     `json:"last_heartbeat_ms,omitempty"`
 	StepTimeoutMs   int64     `json:"step_timeout_ms,omitempty"`
 	SuspendReason   string    `json:"suspend_reason,omitempty"`
+	// Exit info — surfaces WHY a dead/zombie process ended (e.g. an async
+	// driver error like an HTTP 429 rate limit that the CLI never saw because
+	// handleResume returns before reasonStep runs). ExitCode is meaningful only
+	// when ExitCodeSet=true.
+	ExitReason  string `json:"exit_reason,omitempty"`
+	ExitCode    int    `json:"exit_code,omitempty"`
+	ExitCodeSet bool   `json:"exit_code_set,omitempty"`
 }
 
 func renderPsJSON(r *ui.Renderer, procs []vfs.ProcInfo) {
@@ -1224,6 +1231,9 @@ func renderPsJSON(r *ui.Renderer, procs []vfs.ProcInfo) {
 			Model:         p.Model,
 			StepTimeoutMs: p.StepTimeout.Milliseconds(),
 			SuspendReason: p.SuspendReason,
+			ExitReason:    p.ExitReason,
+			ExitCode:      p.ExitCode,
+			ExitCodeSet:   p.ExitCodeSet,
 		}
 		if !p.LastHeartbeat.IsZero() {
 			entries[i].LastHeartbeatMs = p.LastHeartbeat.UnixMilli()

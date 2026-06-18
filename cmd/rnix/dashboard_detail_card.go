@@ -154,7 +154,8 @@ func renderDeadDetailCard(m *dashboardModel, proc *selectedProcRef, width, heigh
 	// Time range: "HH:MM:SS→HH:MM:SS dur" or just "HH:MM:SS dur"
 	timeRange := formatDetailTimeRange(d)
 	var line1 string
-	if !ui.IsProcessFailed(proc.ExitCode, proc.ExitCodeSet, proc.Result) {
+	failed := ui.IsProcessFailed(proc.ExitCode, proc.ExitCodeSet, proc.Result)
+	if !failed {
 		line1 = fmt.Sprintf("  %s Done (exit 0) │ %s │ %s tokens",
 			checkmark, timeRange, timeline.FormatTokenCount(d.ContextStats.TokensUsed))
 	} else {
@@ -172,8 +173,19 @@ func renderDeadDetailCard(m *dashboardModel, proc *selectedProcRef, width, heigh
 		" │ Devices: "+deadDeviceList,
 		width)
 
+	lines := []string{line1, line2}
+	// Surface the authoritative exit reason on its own line for failed
+	// processes — this is the only place a user sees an async driver error
+	// (e.g. an HTTP 429 rate limit) that killed the process after resume,
+	// since the resume CLI returns before reasonStep runs. Distinct from the
+	// truncated Result snippet on line1.
+	if failed && proc.ExitReason != "" {
+		exitLine := fitLine("  Exit: "+proc.ExitReason, width)
+		lines = []string{line1, exitLine, line2}
+	}
+
 	content := lipgloss.NewStyle().Width(width).Height(height).Render(
-		lipgloss.JoinVertical(lipgloss.Left, line1, line2),
+		lipgloss.JoinVertical(lipgloss.Left, lines...),
 	)
 	return lipgloss.JoinVertical(lipgloss.Left, sep, content)
 }
@@ -199,6 +211,7 @@ type selectedProcRef struct {
 	State       types.ProcessState
 	Intent      string
 	Result      string
+	ExitReason  string
 	IsPaused    bool
 	ExitCode    int
 	ExitCodeSet bool
@@ -221,6 +234,7 @@ func findSelectedProcess(m *dashboardModel) *selectedProcRef {
 				State:       m.processes[i].State,
 				Intent:      m.processes[i].Intent,
 				Result:      m.processes[i].Result,
+				ExitReason:  m.processes[i].ExitReason,
 				IsPaused:    m.processes[i].IsPaused,
 				ExitCode:    m.processes[i].ExitCode,
 				ExitCodeSet: m.processes[i].ExitCodeSet,
