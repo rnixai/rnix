@@ -249,6 +249,64 @@ func TestATDD_58_1_005_ToolLevelEnforcement_NoBypass(t *testing.T) {
 	}
 }
 
+// 58.1-INT-008 AC4/CAP-4：agent tools 含 legacy 设备路径值（/dev/fs）→ 经 isDevicePathValue
+// 分支向后兼容展开为该设备全部工具名（与 skill 设备路径值同规则，Story 54.1 expandDevicesToTools）。
+//
+// 与 INT-005（工具级 enforcement 零旁路）配对，补齐 CAP-4 的「设备路径向后兼容展开」子句断言。
+func TestATDD_58_1_008_AgentToolsDevicePath_BackwardCompatExpand(t *testing.T) {
+	k := newToolLevelKernel(t)
+	agent := agentWithToolsAndSkill("/dev/fs", "") // agent 直接声明设备路径值（向后兼容形态）
+
+	pid, err := k.Spawn("child", agent, SpawnOpts{SkipReasonLoop: true})
+	if err != nil {
+		t.Fatalf("Spawn: %v", err)
+	}
+	proc, ok := k.GetProcess(pid)
+	if !ok {
+		t.Fatal("spawned process not found")
+	}
+	// 设备路径值展开为 /dev/fs 全部工具名（Read/Write/Edit/Glob/Grep）。
+	for _, want := range fsToolNames {
+		if !slices.Contains(proc.AllowedTools, want) {
+			t.Errorf("AC4: proc.AllowedTools=%v 缺设备路径展开工具 %q（/dev/fs 向后兼容展开）", proc.AllowedTools, want)
+		}
+	}
+	// 设备根落入 AllowedDevices，不串入其它设备（无 skill、无 /dev/shell）。
+	if !slices.Equal(proc.AllowedDevices, []string{"/dev/fs"}) {
+		t.Errorf("AC4: proc.AllowedDevices=%v, want [/dev/fs]（设备路径值展开后的设备根）", proc.AllowedDevices)
+	}
+}
+
+// 58.1-INT-009 AC4/CAP-4：agent tools 含任意非法/未知工具名（非 "*"）→ 静默丢弃，
+// 绝不报错、绝不回退全集；同声明里的合法工具名仍正常生效。
+//
+// 与 INT-004（"*" 通配丢弃）互补：INT-004 证通配，本用例证一般未知名（typo 等）。
+func TestATDD_58_1_009_AgentToolsUnknownName_SilentlyDropped(t *testing.T) {
+	k := newToolLevelKernel(t)
+	agent := agentWithToolsAndSkill("Read BogusToolXyz", "") // 合法 Read + 垃圾名
+
+	pid, err := k.Spawn("child", agent, SpawnOpts{SkipReasonLoop: true})
+	if err != nil {
+		t.Fatalf("Spawn: %v", err) // 未知名不得致 spawn 失败
+	}
+	proc, ok := k.GetProcess(pid)
+	if !ok {
+		t.Fatal("spawned process not found")
+	}
+	// 合法 Read 生效。
+	if !slices.Contains(proc.AllowedTools, "Read") {
+		t.Errorf("AC4: proc.AllowedTools=%v 缺合法工具 Read", proc.AllowedTools)
+	}
+	// 未知名静默丢弃，不入白名单。
+	if slices.Contains(proc.AllowedTools, "BogusToolXyz") {
+		t.Errorf("AC4: proc.AllowedTools=%v 含未知名 BogusToolXyz（应静默丢弃）", proc.AllowedTools)
+	}
+	// 未知名不得触发全集回退（除 Read 设备根 /dev/fs 外无其它设备）。
+	if !slices.Equal(proc.AllowedDevices, []string{"/dev/fs"}) {
+		t.Errorf("AC4: proc.AllowedDevices=%v, want [/dev/fs]（未知名丢弃，不回退全集）", proc.AllowedDevices)
+	}
+}
+
 // ───────────────── CAP-5：父约束对「agent ∪ skill」基线只能交集收窄 ─────────────────
 
 // 58.1-INT-006 AC5/CAP-5（green-guard）：父约束 opts.AllowedTools=[Read] 作用于基线

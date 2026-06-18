@@ -29,14 +29,13 @@ func agentInfoWithTools(agentTools []string, skillToolsCSVs ...string) *AgentInf
 	info := &AgentInfo{
 		Manifest: AgentManifest{Name: "ut-agent", Tools: agentTools},
 	}
-	for i, csv := range skillToolsCSVs {
+	for _, csv := range skillToolsCSVs {
 		info.Skills = append(info.Skills, &skills.SkillInfo{
 			Manifest: skills.SkillManifest{
 				Name:            "ut-skill",
 				AllowedToolsRaw: csv,
 			},
 		})
-		_ = i
 	}
 	return info
 }
