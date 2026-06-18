@@ -630,6 +630,19 @@ func (k *KernelImpl) setupDriverStreamHandler(proc *Process, llmFD types.FD) {
 				k.emitLog(proc, 0, cat, content, toolPath)
 			}
 
+			// Story 60.1 AC2: 思考事件(CLI driver 的 "thinking" + AC1 归一后的
+			// API driver reasoning)除写 LogChan 外,还驱动 OnThinking 回调,使默认
+			// 前台 spawn 在长思考阶段有实时反馈。传完整(未截断)思考文本——节流/
+			// 呈现由前台渲染层(internal/ui)负责。step 取当前进行中的 step(已完成
+			// step + 1),atomic 读保证 streaming goroutine 内线程安全。回调实现非
+			// 阻塞,不阻塞 reasonStep(与 emitLog 非阻塞语义一致)。
+			if evtType == "thinking" && k.callbacks != nil {
+				if text, _ := evt["content"].(string); strings.TrimSpace(text) != "" {
+					step := int(proc.LastCompletedStep.Load()) + 1
+					k.callbacks.OnThinking(proc.PID, step, text)
+				}
+			}
+
 			if evtType == "system" {
 				// Merge driver-reported tools into existing nativeToolDefs
 				// (which already contains VFS + meta tools from buildToolDefs).

@@ -2,13 +2,31 @@ package ui
 
 import (
 	"fmt"
+	"sync"
+	"time"
 
 	"github.com/rnixai/rnix/internal/types"
 )
 
+// thinkingThrottleWindow 是思考活动指示的最小刷新间隔。高频思考增量在同一窗口内
+// 被聚合为一次可见反馈,避免逐 delta 刷屏(Story 60.1 AC3);窗口跨过后再刷一次,
+// 使长思考期间界面持续「在动」。
+const thinkingThrottleWindow = 400 * time.Millisecond
+
+// thinkProgress 跟踪单个进程的思考活动节流状态。
+type thinkProgress struct {
+	lastEmit time.Time // 上次渲染时刻(零值=尚未渲染)
+	chars    int       // 本进程累计思考字符数(随增量增长,体现「在动」)
+}
+
 // ProgressReporter outputs agent progress messages to the renderer.
 type ProgressReporter struct {
 	renderer *Renderer
+
+	// 思考活动节流状态(Story 60.1)。OnThinking 可能来自 driver streaming
+	// goroutine,多进程并发时共享同一 reporter,故用 mutex 保护 per-PID 状态。
+	thinkMu    sync.Mutex
+	thinkState map[types.PID]*thinkProgress
 }
 
 // NewProgressReporter creates a ProgressReporter attached to the given renderer.
@@ -72,17 +90,43 @@ func (p *ProgressReporter) AgentStepComplete(pid types.PID, step int, action str
 }
 
 // AgentThinking renders a throttled, concise "thinking in progress" indicator
-// for the LLM long-reasoning phase (Story 60.1 AC2/AC3). It MUST honor the
+// for the LLM long-reasoning phase (Story 60.1 AC2/AC3). It honors the
 // output-mode contracts — no indicator under ModeQuiet, no unstructured thinking
-// text under ModeJSON — and MUST throttle/aggregate high-frequency deltas rather
-// than printing one line per delta.
+// text under ModeJSON — and throttles high-frequency deltas (time window,
+// thinkingThrottleWindow) rather than printing one line per delta.
 //
-// SKELETON (Story 60.1 ATDD red phase): intentionally a no-op until dev decides
-// the throttle strategy (time window vs byte threshold) and the default
-// presentation form (concise activity indicator vs limited scrolling text) —
-// see the story Dev Notes design trade-offs #2/#3. The ModeQuiet/ModeJSON
-// green-guards already pin the fixed contract; the visibility/throttle RED
-// tests stay skipped until this method is implemented.
+// 默认呈现形态(Dev Notes 权衡 #2)：精简「thinking...」活动指示 + 累计字符数,
+// 完整思考文本走 `rnix log`/dashboard 既有通道,不污染前台主输出。节流策略
+// (权衡 #3)：时间窗口聚合——首个增量立即给反馈(确认在推进),其后同窗口内的
+// 增量静默累积,跨窗口再刷一次。原始思考文本(text)只计入累计字节,不直接打印,
+// 因此 ModeJSON 下也不会混入非结构化文本。
 func (p *ProgressReporter) AgentThinking(pid types.PID, step int, text string) {
-	// no-op — dev fills in throttle + render for Story 60.1
+	// ModeQuiet: 完全静默; ModeJSON: 不混入非结构化思考文本(AC3 契约)。
+	if p.renderer.OutputMode == ModeQuiet || p.renderer.OutputMode == ModeJSON {
+		return
+	}
+
+	p.thinkMu.Lock()
+	if p.thinkState == nil {
+		p.thinkState = make(map[types.PID]*thinkProgress)
+	}
+	st := p.thinkState[pid]
+	if st == nil {
+		st = &thinkProgress{}
+		p.thinkState[pid] = st
+	}
+	st.chars += len([]rune(text))
+	now := time.Now()
+	// 节流：非首次且仍在窗口内 → 累积但不刷屏。
+	if !st.lastEmit.IsZero() && now.Sub(st.lastEmit) < thinkingThrottleWindow {
+		p.thinkMu.Unlock()
+		return
+	}
+	st.lastEmit = now
+	chars := st.chars
+	p.thinkMu.Unlock()
+
+	prefix := AgentStyle.Render(fmt.Sprintf("[agent/%d]", pid))
+	indicator := MutedStyle.Render(fmt.Sprintf("thinking... (%d chars)", chars))
+	fmt.Fprintf(p.renderer.Writer, "%s %s\n", prefix, indicator)
 }

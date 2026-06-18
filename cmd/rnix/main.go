@@ -150,6 +150,12 @@ func (c *cliCallbacks) OnAskUser(pid types.PID, requestID string, questions []by
 	return nil, fmt.Errorf("ask_user not supported in embedded mode")
 }
 
+// OnThinking 转发 LLM 长思考增量(Story 60.1 AC2,daemon-less/直跑路径),由
+// ProgressReporter.AgentThinking 做节流 + 渲染 + Mode 守卫。
+func (c *cliCallbacks) OnThinking(pid types.PID, step int, text string) {
+	c.progress.AgentThinking(pid, step, text)
+}
+
 func (c *cliCallbacks) OnStemDiff(pid types.PID, matches []kernel.StemMatchResult, selected []string, fromMemory bool) {
 	if fromMemory {
 		c.progress.StemMessage("memory recall: [%s]", strings.Join(selected, ", "))
@@ -666,6 +672,10 @@ func runRoot(cmd *cobra.Command, args []string) error {
 			}
 		case "step":
 			progress.AgentStep(pp.PID, pp.Step, pp.Total)
+		case "thinking":
+			// Story 60.1 AC2/AC3: 长思考阶段实时反馈。ProgressReporter 负责节流
+			// 与 Mode 守卫(ModeQuiet/ModeJSON 不打非结构化思考文本)。
+			progress.AgentThinking(pp.PID, pp.Step, pp.ThinkingText)
 		case "step_complete":
 			if mode == ui.ModeJSON {
 				jsonLine, _ := json.Marshal(pp)

@@ -688,7 +688,7 @@ const (
 
 // ProgressPayload maps kernel callback events to IPC wire format.
 type ProgressPayload struct {
-	Event string    `json:"event"` // "spawn", "step", "step_complete", "complete", "error"
+	Event string    `json:"event"` // "spawn", "step", "step_complete", "complete", "error", "thinking"
 	PID   types.PID `json:"pid"`
 
 	// OnSpawn
@@ -701,6 +701,10 @@ type ProgressPayload struct {
 	// OnStep / OnStepComplete
 	Step  int `json:"step,omitempty"`
 	Total int `json:"total,omitempty"`
+
+	// OnThinking (Story 60.1): LLM 长思考阶段的思考增量,前台据此渲染实时反馈。
+	// 完整文本经此透传,节流/呈现由前台渲染层(internal/ui)负责。
+	ThinkingText string `json:"thinking_text,omitempty"`
 
 	// OnStepComplete
 	Action     string  `json:"action,omitempty"`

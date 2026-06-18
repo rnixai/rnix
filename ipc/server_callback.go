@@ -127,6 +127,14 @@ func (m *callbackMux) deliverAnswer(requestID string, answers []byte) error {
 	}
 }
 
+// OnThinking 把 LLM 长思考增量(Story 60.1 AC2)发为 StreamProgress{Event:"thinking"},
+// 前台据此渲染实时反馈。复用 send 的非阻塞语义(channel 满则丢),不阻塞 reasonStep。
+func (m *callbackMux) OnThinking(pid types.PID, step int, text string) {
+	pp := ProgressPayload{Event: "thinking", PID: pid, Step: step, ThinkingText: text}
+	payload, _ := json.Marshal(pp)
+	m.send(pid, StreamEvent{Type: StreamProgress, Payload: payload})
+}
+
 func (m *callbackMux) OnStemDiff(pid types.PID, matches []kernel.StemMatchResult, selected []string, fromMemory bool) {
 	wireMatches := make([]StemMatchWire, len(matches))
 	for i, mr := range matches {

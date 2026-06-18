@@ -58,9 +58,6 @@ func TestATDD_60_1_AC3_ThinkingJSONMode_NoUnstructuredText(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 func TestATDD_60_1_AC3_ThinkingVisibleInForeground(t *testing.T) {
-	t.Skip("RED 60.1-UNIT-007: AgentThinking 尚未渲染思考指示(no-op 骨架)。" +
-		"dev 实现节流 + 渲染后移除本 skip 验 RED→GREEN")
-
 	var buf bytes.Buffer
 	r := &Renderer{Writer: &buf, OutputMode: ModeDefault, Profile: TerminalProfile{ColorLevel: 0}}
 	p := NewProgressReporter(r)
@@ -80,9 +77,6 @@ func TestATDD_60_1_AC3_ThinkingVisibleInForeground(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 func TestATDD_60_1_AC3_ThinkingThrottled(t *testing.T) {
-	t.Skip("RED 60.1-UNIT-008: AgentThinking 尚未实现节流(no-op 骨架)。" +
-		"dev 实现节流策略(时间窗/字节阈值)后移除本 skip 验 RED→GREEN")
-
 	var buf bytes.Buffer
 	r := &Renderer{Writer: &buf, OutputMode: ModeDefault, Profile: TerminalProfile{ColorLevel: 0}}
 	p := NewProgressReporter(r)

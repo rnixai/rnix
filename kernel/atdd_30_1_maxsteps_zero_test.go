@@ -117,3 +117,4 @@ func (c *s301Callbacks) OnComplete(_ types.PID, _ string, _ ExitStatus)         
 func (c *s301Callbacks) OnError(_ types.PID, _ error)                                              {}
 func (c *s301Callbacks) OnAskUser(_ types.PID, _ string, _ []byte) ([]byte, error)                 { return nil, nil }
 func (c *s301Callbacks) OnStemDiff(_ types.PID, _ []StemMatchResult, _ []string, _ bool)           {}
+func (c *s301Callbacks) OnThinking(_ types.PID, _ int, _ string)                                   {}

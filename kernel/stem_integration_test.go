@@ -239,4 +239,5 @@ func (tc *testCallbacks) OnAskUser(pid types.PID, requestID string, questions []
 }
 
 func (tc *testCallbacks) OnStemDiff(_ types.PID, _ []StemMatchResult, _ []string, _ bool) {}
+func (tc *testCallbacks) OnThinking(_ types.PID, _ int, _ string)                         {}
 

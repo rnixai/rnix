@@ -144,6 +144,10 @@ type KernelCallbacks interface {
 	OnError(pid types.PID, err error)
 	OnAskUser(pid types.PID, requestID string, questions []byte) ([]byte, error)
 	OnStemDiff(pid types.PID, matches []StemMatchResult, selected []string, fromMemory bool)
+	// OnThinking 在 LLM 长思考(thinking/reasoning)阶段产出增量时被调用,使默认
+	// 前台 spawn 在 step 内的长思考期间有实时反馈(Story 60.1 AC2)。实现必须非
+	// 阻塞——它在 driver streaming goroutine 内被调,不得阻塞 reasonStep。
+	OnThinking(pid types.PID, step int, text string)
 }
 
 // ProcessManager defines the kernel's process management interface.

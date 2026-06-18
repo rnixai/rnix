@@ -25,9 +25,6 @@ import (
 // ---------------------------------------------------------------------------
 
 func TestATDD_60_1_AC1_ReasoningForwardedToOnEvent(t *testing.T) {
-	t.Skip("RED 60.1-UNIT-001: vfsfile.go `case \"reasoning\"` 尚未转发 onEvent" +
-		"(归一为 type:\"thinking\")。dev 移除本 skip 验 RED→GREEN")
-
 	driver := &streamMockDriver{events: []StreamEvent{
 		{Type: "reasoning", Content: "let me think step by step"},
 		{Type: "reasoning", Content: " ... weighing options"},

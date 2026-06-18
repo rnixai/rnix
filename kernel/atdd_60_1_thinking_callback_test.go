@@ -141,9 +141,6 @@ func (f *atdd60ThinkingLLMFile) SetStreamHandler(fn func(event map[string]any)) 
 // ---------------------------------------------------------------------------
 
 func TestATDD_60_1_INT_001_ThinkingEventTriggersOnThinking(t *testing.T) {
-	t.Skip("RED 60.1-INT-001: observe.go stream handler 尚未调用 callbacks.OnThinking" +
-		"(OnThinking 未入 KernelCallbacks 接口)。dev 接线后移除本 skip 验 RED→GREEN")
-
 	const thinkingText = "deliberating over the optimal approach"
 	llm := &atdd60ThinkingLLMFile{
 		readData:     makeLLMResponse("final answer", 5),
