@@ -343,3 +343,77 @@ func scriptLineArg(ev UnifiedEvent) int {
 	}
 	return 0
 }
+
+// =============================================================================
+// Story 60.2 — DriverThinking 思考阶段聚合（debug pane 防刷屏）
+//
+// 以下为 ATDD 红灯期骨架（Story 60.2 · 骨架+t.Skip 机制）：
+//   - 类型/签名就位让 helpers_thinking_test.go 可编译；
+//   - 函数体仅返回零值（未实现）→ 断言真实行为的测试在 RED 期 t.Skip；
+//   - dev-story 移除 skip + 填实逻辑，验 RED→GREEN。
+//
+// 设计参考 BuildScriptAggGroups(:254)/ScriptAggGroup(:234)：连续同类事件聚合。
+// 与 Script 聚合的差异：DriverThinking 事件经 StraceToUnifiedEvent 转为
+// Type==EventSyscall（非独立 EventType），故聚合键在 RawEvent.Syscall=="DriverThinking"，
+// 而非 ev.Type。分块边界由 args.subtype=="started" 决定。
+// =============================================================================
+
+// ThinkingAggGroup 表示一段连续的 DriverThinking 事件聚合块
+// （一次思考 = 1 条 subtype=started + N 条 subtype=delta · Story 60.2 AC#1）。
+//
+// 字段语义（参考 ToolAggGroup(:43) / ScriptAggGroup(:234)）：
+//   - StartIdx   : events 切片中的起始下标（inclusive）
+//   - EndIdx     : 结束下标（exclusive · 与 ToolAggGroup 同模式）
+//   - DeltaCount : 段内 subtype=delta 事件条数（用于摘要 "74 delta"）
+//   - TotalBytes : 段内所有 delta content 的累计字节数（用于摘要 "6.5KB"）
+//   - DurationMs : 首末事件 ts 之差（毫秒 · 用于摘要 "2.1s" · 不可得时为 0）
+type ThinkingAggGroup struct {
+	StartIdx   int
+	EndIdx     int
+	DeltaCount int
+	TotalBytes int
+	DurationMs float64
+}
+
+// BuildThinkingAggGroups 扫描 unified events 识别连续的 DriverThinking 事件段，
+// 以 args.subtype=="started" 为新块边界，遇非 DriverThinking 事件结束当前块
+// （Story 60.2 AC#1）。
+//
+// 行为契约（dev-story 实现 · 当前为红灯骨架返回 nil）：
+//   - 只看 ev.RawEvent != nil && ev.RawEvent.Syscall == "DriverThinking" 的事件；
+//   - subtype=="started" 标记一个新思考块的起点；
+//   - 遇到非 DriverThinking 事件（DriverToolCall/step 等）则当前块结束；
+//   - Args 类型断言失败安全降级（不 panic · 视为无 subtype 的 thinking 事件）。
+//
+// TODO(Story 60.2 Task 1): 实现连续段扫描 + started 分块 + delta 计数/字节累计/时长。
+func BuildThinkingAggGroups(events []UnifiedEvent) []ThinkingAggGroup {
+	_ = events
+	return nil
+}
+
+// ReconstructThinkingText 按 group 内 events 顺序拼接各 delta 的 args.content，
+// 还原该思考块的思考全文；started 标记不入正文（Story 60.2 AC#2）。
+//
+// 行为契约（dev-story 实现 · 当前为红灯骨架返回 ""）：
+//   - 仅拼接 subtype=="delta" 事件的 content；
+//   - 跳过 subtype=="started"（不污染正文）；
+//   - 空思考（仅 started · 无 delta）→ 返回 ""。
+//
+// TODO(Story 60.2 Task 3): 实现 delta content 顺序拼接。
+func ReconstructThinkingText(events []UnifiedEvent, g ThinkingAggGroup) string {
+	_, _ = events, g
+	return ""
+}
+
+// FormatThinkingSummary 生成折叠思考块的单行摘要文本（Story 60.2 AC#1/AC#3）。
+//
+// 形如：`💭 thinking (74 delta · 6.5KB · 2.1s)`（Unicode）
+//       `[think] thinking (74 delta · 6.5KB · 2.1s)`（ascii==true · RNIX_ASCII=1）
+//
+// ascii 参数由调用方传入（dev 在渲染层 wire ui.IsASCIIMode()）· 保持本函数纯函数可单测。
+//
+// TODO(Story 60.2 Task 2): 实现图标降级 + N delta / XKB / Ys 格式化。
+func FormatThinkingSummary(g ThinkingAggGroup, ascii bool) string {
+	_, _ = g, ascii
+	return ""
+}
