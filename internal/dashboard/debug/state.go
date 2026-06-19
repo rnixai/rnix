@@ -101,4 +101,8 @@ type DebugState struct {
 	ScrollTop     int
 	Cursor        int
 	AutoScroll    bool
+	// ExpandedThinking — Story 60.2: 已展开的 DriverThinking 聚合块集合，键为该块
+	// 首事件的 TimestampMs（int64 · 跨 re-render 稳定 · live append 不漂移）。
+	// CollapseThinkingGroups 据此决定折叠块投影为 1 行摘要还是「摘要 + 有界正文行」。
+	ExpandedThinking map[int64]bool
 }

@@ -258,3 +258,119 @@ func ClampCursor(state DebugState, filteredLen int) DebugState {
 	}
 	return state
 }
+
+// MaxThinkingExpandLines 限定单个展开思考块投影出的正文行上限（Story 60.2 AC#2
+// 「可截断/限高」· 防止 6.5KB 思考全文一次性铺满 pane）。
+const MaxThinkingExpandLines = 12
+
+// thinkingExpandWrapWidth — 展开正文行的软换行宽度（rune 计 · 有界 debug 视图够用）。
+const thinkingExpandWrapWidth = 80
+
+// CollapseThinkingGroups 把 raw（已过滤）debug 事件投影为「显示行」切片：每段连续
+// DriverThinking syscall 事件折叠成**单个** EventThinking 摘要行（防刷屏核心 · API
+// driver 单会话可达 14841 条 → 折叠后仅 1 行）；已展开的块（key 命中 expanded）额外
+// 投影出有界的思考正文行。非 DriverThinking 事件原样透传（AC#4 · 逐字节不变）。
+//
+// 返回切片即 debug pane 的 cursor / scroll / render 操作对象（经 filteredDebugEvents
+// 接入）→ cursor 数学保持一致：折叠块是单个可导航行 · 展开仅追加有界行数。
+//
+// 行为契约：
+//   - 无 DriverThinking 事件（groups 空）→ 直接返回 raw（零拷贝 · 等价无折叠）；
+//   - 摘要行：Type=EventThinking · RawEvent!=nil（携带块首事件 ts 作展开键）·
+//     Summary="<fold mark> <FormatThinkingSummary>" · Detail=思考全文；
+//   - 正文行（仅展开时）：Type=EventThinking · RawEvent==nil · Summary=缩进后分行文本。
+func CollapseThinkingGroups(raw []event.UnifiedEvent, expanded map[int64]bool, ascii bool) []event.UnifiedEvent {
+	groups := event.BuildThinkingAggGroups(raw)
+	if len(groups) == 0 {
+		return raw
+	}
+	foldMark, openMark := "▶", "▼"
+	if ascii {
+		foldMark, openMark = ">", "v"
+	}
+	out := make([]event.UnifiedEvent, 0, len(raw))
+	gi := 0
+	for i := 0; i < len(raw); {
+		if gi < len(groups) && groups[gi].StartIdx == i {
+			g := groups[gi]
+			gi++
+			var key int64
+			if raw[g.StartIdx].RawEvent != nil {
+				key = raw[g.StartIdx].RawEvent.TimestampMs
+			}
+			isOpen := expanded[key]
+			mark := foldMark
+			if isOpen {
+				mark = openMark
+			}
+			fullText := event.ReconstructThinkingText(raw, g)
+			out = append(out, event.UnifiedEvent{
+				Type:        event.EventThinking,
+				Severity:    event.SevInfo,
+				Summary:     mark + " " + event.FormatThinkingSummary(g, ascii),
+				Detail:      fullText,
+				RawEvent:    &ipc.SyscallEventWire{Syscall: "DriverThinking", TimestampMs: key},
+				IsSynthetic: true,
+			})
+			if isOpen {
+				out = append(out, thinkingExpandRows(fullText, ascii)...)
+			}
+			i = g.EndIdx
+			continue
+		}
+		out = append(out, raw[i])
+		i++
+	}
+	return out
+}
+
+// thinkingExpandRows 把思考全文拆成有界的缩进正文行（每行一个合成 EventThinking
+// 显示行 · RawEvent==nil 以区别于摘要行）。超过 MaxThinkingExpandLines 时截断并附尾标。
+func thinkingExpandRows(text string, ascii bool) []event.UnifiedEvent {
+	const indent = "    "
+	mkRow := func(s string) event.UnifiedEvent {
+		return event.UnifiedEvent{Type: event.EventThinking, Severity: event.SevInfo, Summary: indent + s, IsSynthetic: true}
+	}
+	if text == "" {
+		return []event.UnifiedEvent{mkRow("(no thinking text)")}
+	}
+	lines := wrapThinkingText(text, thinkingExpandWrapWidth)
+	truncated := false
+	if len(lines) > MaxThinkingExpandLines {
+		lines = lines[:MaxThinkingExpandLines]
+		truncated = true
+	}
+	rows := make([]event.UnifiedEvent, 0, len(lines)+1)
+	for _, ln := range lines {
+		rows = append(rows, mkRow(ln))
+	}
+	if truncated {
+		ell := "…"
+		if ascii {
+			ell = "..."
+		}
+		rows = append(rows, mkRow(ell+" (truncated)"))
+	}
+	return rows
+}
+
+// wrapThinkingText 按 "\n" 分段并对每段做 rune 计宽的硬换行（width<1 归一化为 1）。
+func wrapThinkingText(text string, width int) []string {
+	if width < 1 {
+		width = 1
+	}
+	var out []string
+	for para := range strings.SplitSeq(text, "\n") {
+		r := []rune(para)
+		if len(r) == 0 {
+			out = append(out, "")
+			continue
+		}
+		for len(r) > width {
+			out = append(out, string(r[:width]))
+			r = r[width:]
+		}
+		out = append(out, string(r))
+	}
+	return out
+}

@@ -21,6 +21,9 @@
 package event
 
 import (
+	"fmt"
+	"strings"
+
 	"github.com/charmbracelet/lipgloss"
 
 	"github.com/rnixai/rnix/internal/ui"
@@ -379,41 +382,146 @@ type ThinkingAggGroup struct {
 // 以 args.subtype=="started" 为新块边界，遇非 DriverThinking 事件结束当前块
 // （Story 60.2 AC#1）。
 //
-// 行为契约（dev-story 实现 · 当前为红灯骨架返回 nil）：
+// 行为契约：
 //   - 只看 ev.RawEvent != nil && ev.RawEvent.Syscall == "DriverThinking" 的事件；
-//   - subtype=="started" 标记一个新思考块的起点；
+//   - subtype=="started" 标记一个新思考块的起点（在已开块内遇到 started → 断块）；
 //   - 遇到非 DriverThinking 事件（DriverToolCall/step 等）则当前块结束；
 //   - Args 类型断言失败安全降级（不 panic · 视为无 subtype 的 thinking 事件）。
 //
-// TODO(Story 60.2 Task 1): 实现连续段扫描 + started 分块 + delta 计数/字节累计/时长。
+// **聚合阈值决策**（dev-story · 与 tool/script 聚合不同）：思考块用「任意 ≥1 条
+// DriverThinking 即成块」而非复用 AggThreshold(=3)。理由：API driver 单次会话
+// DriverThinking 可达 14841 条（占总事件 90%+），不存在「保留散落 thinking 行」
+// 的价值——防刷屏要求**一律折叠**，哪怕只有 1 条 started。
 func BuildThinkingAggGroups(events []UnifiedEvent) []ThinkingAggGroup {
-	_ = events
-	return nil
+	var groups []ThinkingAggGroup
+	n := len(events)
+	i := 0
+	for i < n {
+		if !isThinkingEvent(events[i]) {
+			i++
+			continue
+		}
+		// 一个新思考块从 i 开始（i 处的 subtype 通常是 started，但防御降级时可能为空）。
+		runStart := i
+		firstTs := events[i].RawEvent.TimestampMs
+		lastTs := firstTs
+		deltaCount := 0
+		totalBytes := 0
+		if subtype, content := thinkingArgs(events[i]); subtype == "delta" {
+			deltaCount++
+			totalBytes += len(content)
+		}
+		j := i + 1
+		for j < n {
+			if !isThinkingEvent(events[j]) {
+				break
+			}
+			subtype, content := thinkingArgs(events[j])
+			if subtype == "started" {
+				break // started 是新思考块的边界 → 结束当前块
+			}
+			if subtype == "delta" {
+				deltaCount++
+				totalBytes += len(content)
+			}
+			lastTs = events[j].RawEvent.TimestampMs
+			j++
+		}
+		groups = append(groups, ThinkingAggGroup{
+			StartIdx:   runStart,
+			EndIdx:     j,
+			DeltaCount: deltaCount,
+			TotalBytes: totalBytes,
+			DurationMs: float64(lastTs - firstTs),
+		})
+		i = j
+	}
+	return groups
+}
+
+// isThinkingEvent reports whether ev is a DriverThinking syscall event
+// (聚合键在 RawEvent.Syscall · 经 StraceToUnifiedEvent 后 Type==EventSyscall)。
+func isThinkingEvent(ev UnifiedEvent) bool {
+	return ev.RawEvent != nil && ev.RawEvent.Syscall == "DriverThinking"
+}
+
+// thinkingArgs 从 DriverThinking 事件的 args 安全抽取 subtype / content
+// （类型断言失败降级为空串 · 不 panic · Story 60.2 关键约束「Args 类型防御」）。
+func thinkingArgs(ev UnifiedEvent) (subtype, content string) {
+	if ev.RawEvent == nil || ev.RawEvent.Args == nil {
+		return "", ""
+	}
+	if v, ok := ev.RawEvent.Args["subtype"]; ok {
+		if s, ok := v.(string); ok {
+			subtype = s
+		}
+	}
+	if v, ok := ev.RawEvent.Args["content"]; ok {
+		if s, ok := v.(string); ok {
+			content = s
+		}
+	}
+	return subtype, content
 }
 
 // ReconstructThinkingText 按 group 内 events 顺序拼接各 delta 的 args.content，
 // 还原该思考块的思考全文；started 标记不入正文（Story 60.2 AC#2）。
 //
-// 行为契约（dev-story 实现 · 当前为红灯骨架返回 ""）：
+// 行为契约：
 //   - 仅拼接 subtype=="delta" 事件的 content；
 //   - 跳过 subtype=="started"（不污染正文）；
-//   - 空思考（仅 started · 无 delta）→ 返回 ""。
-//
-// TODO(Story 60.2 Task 3): 实现 delta content 顺序拼接。
+//   - 空思考（仅 started · 无 delta）→ 返回 ""；
+//   - StartIdx/EndIdx 越界安全 clamp（renderer 边界防御）。
 func ReconstructThinkingText(events []UnifiedEvent, g ThinkingAggGroup) string {
-	_, _ = events, g
-	return ""
+	lo := g.StartIdx
+	hi := g.EndIdx
+	if lo < 0 {
+		lo = 0
+	}
+	if hi > len(events) {
+		hi = len(events)
+	}
+	var b strings.Builder
+	for i := lo; i < hi; i++ {
+		if subtype, content := thinkingArgs(events[i]); subtype == "delta" {
+			b.WriteString(content)
+		}
+	}
+	return b.String()
 }
 
 // FormatThinkingSummary 生成折叠思考块的单行摘要文本（Story 60.2 AC#1/AC#3）。
 //
 // 形如：`💭 thinking (74 delta · 6.5KB · 2.1s)`（Unicode）
-//       `[think] thinking (74 delta · 6.5KB · 2.1s)`（ascii==true · RNIX_ASCII=1）
+//
+//	`[think] thinking (74 delta 6.5KB 2.1s)`（ascii==true · RNIX_ASCII=1 · 无
+//	Unicode glyph + 无中点分隔符）
 //
 // ascii 参数由调用方传入（dev 在渲染层 wire ui.IsASCIIMode()）· 保持本函数纯函数可单测。
-//
-// TODO(Story 60.2 Task 2): 实现图标降级 + N delta / XKB / Ys 格式化。
 func FormatThinkingSummary(g ThinkingAggGroup, ascii bool) string {
-	_, _ = g, ascii
-	return ""
+	icon := "💭"
+	sep := " · "
+	if ascii {
+		icon = "[think]"
+		sep = " "
+	}
+	inner := fmt.Sprintf("%d delta%s%s%s%s",
+		g.DeltaCount, sep, formatThinkingBytes(g.TotalBytes), sep, formatThinkingDuration(g.DurationMs))
+	return fmt.Sprintf("%s thinking (%s)", icon, inner)
+}
+
+// formatThinkingBytes 把字节数格式化为短标签（<1KiB → "NB" · 否则 "X.YKB"）。
+func formatThinkingBytes(n int) string {
+	if n < 1024 {
+		return fmt.Sprintf("%dB", n)
+	}
+	return fmt.Sprintf("%.1fKB", float64(n)/1024)
+}
+
+// formatThinkingDuration 把毫秒格式化为短标签（<1000ms → "Nms" · 否则 "X.Ys"）。
+func formatThinkingDuration(ms float64) string {
+	if ms < 1000 {
+		return fmt.Sprintf("%dms", int(ms))
+	}
+	return fmt.Sprintf("%.1fs", ms/1000)
 }

@@ -332,8 +332,14 @@ func extractDeviceName(sew ipc.SyscallEventWire) string {
 // cmd/rnix wrapper 仅传 m.debugState + m.timeline.StepFilters · 行为完全等价 ·
 // 保留 (m dashboardModel) receiver 让 ~3 处 callsite（dashboard_debug.go × 3）
 // + 测试 callsite（dashboard_debug_test.go × 2）零修改通过。
+//
+// Story 60.2：过滤后再经 CollapseThinkingGroups 把连续 DriverThinking 事件折叠成
+// 单个可导航摘要行（防刷屏）· 已展开块投影有界正文行。折叠在过滤之后 → 关闭 syscall
+// 显示（ShowStrace / EventSyscall filter）时原始 thinking 事件已被移除 → 块整体隐藏
+// （AC#4）。cursor/scroll/clamp 三处共用本投影结果 · 数学自动一致。
 func (m dashboardModel) filteredDebugEvents() []UnifiedEvent {
-	return dashboarddebug.FilterDebugEvents(m.debugState, m.timeline.StepFilters)
+	filtered := dashboarddebug.FilterDebugEvents(m.debugState, m.timeline.StepFilters)
+	return dashboarddebug.CollapseThinkingGroups(filtered, m.debugState.ExpandedThinking, ui.IsASCIIMode())
 }
 
 // clampDebugCursor ensures the cursor stays within the filtered event range.
@@ -518,7 +524,9 @@ func (m dashboardModel) renderDebugTimelineContent(width, height int) string {
 		}
 
 		var line string
-		if ev.Type == EventSyscall {
+		if ev.Type == EventThinking {
+			line = m.renderThinkingLine(ev, cursorMark, truncW)
+		} else if ev.Type == EventSyscall {
 			line = m.renderSyscallLine(ev, cursorMark, truncW)
 		} else if ev.StepEntry != nil {
 			// Reuse step rendering logic
@@ -548,6 +556,21 @@ func (m dashboardModel) renderDebugTimelineContent(width, height int) string {
 // renderSyscallLine — thin wrapper · 见 internal/dashboard/debug.RenderSyscallLine
 func (m dashboardModel) renderSyscallLine(ev UnifiedEvent, cursorMark string, maxWidth int) string {
 	return dashboarddebug.RenderSyscallLine(ev, cursorMark, maxWidth)
+}
+
+// renderThinkingLine 渲染 Story 60.2 折叠 DriverThinking 块的显示行。
+//
+//   - 摘要行（RawEvent != nil）：💭/[think] 专门图标 + 区别于 tool/init 的紫色（#C586C0）
+//     Bold · 含 fold marker（已在 Summary 内预置 ▶/▼ · ASCII 降级 >/v）；
+//   - 正文行（RawEvent == nil · 仅展开时）：缩进思考全文分行 · 用 muted 灰区分。
+func (m dashboardModel) renderThinkingLine(ev UnifiedEvent, cursorMark string, _ int) string {
+	var style lipgloss.Style
+	if ev.RawEvent != nil {
+		style = lipgloss.NewStyle().Foreground(lipgloss.Color("#C586C0")).Bold(true)
+	} else {
+		style = lipgloss.NewStyle().Foreground(lipgloss.Color(ui.ColorMuted))
+	}
+	return fmt.Sprintf("%s%s", cursorMark, style.Render(ev.Summary))
 }
 
 // renderDebugStepLine — thin wrapper · 见 internal/dashboard/debug.RenderStepLine
@@ -772,6 +795,21 @@ func (m dashboardModel) handleDebugKey(key string) (dashboardModel, tea.Cmd, boo
 		// Step expand (if cursor on a step event)
 		if m.debugState.Cursor >= 0 && m.debugState.Cursor < len(filtered) {
 			ev := filtered[m.debugState.Cursor]
+			// Story 60.2: thinking 折叠摘要行（RawEvent != nil）→ 切换展开状态。
+			// 展开键 = 块首事件 ts（RawEvent.TimestampMs · 跨 re-render 稳定）。
+			if ev.Type == EventThinking && ev.RawEvent != nil {
+				if m.debugState.ExpandedThinking == nil {
+					m.debugState.ExpandedThinking = make(map[int64]bool)
+				}
+				key := ev.RawEvent.TimestampMs
+				if m.debugState.ExpandedThinking[key] {
+					delete(m.debugState.ExpandedThinking, key)
+				} else {
+					m.debugState.ExpandedThinking[key] = true
+				}
+				m.clampDebugCursor()
+				return m, nil, true
+			}
 			if ev.StepEntry != nil {
 				entry := ev.StepEntry
 				if entry.Level == levelSummary {

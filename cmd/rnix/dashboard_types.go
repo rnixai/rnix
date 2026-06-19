@@ -43,8 +43,9 @@ const (
 	EventStall   = event.EventStall
 	EventImmune  = event.EventImmune
 	EventError   = event.EventError
-	EventSyscall = event.EventSyscall
-	EventScript  = event.EventScript // Story 43-3: script trace events from ScriptExecutor
+	EventSyscall  = event.EventSyscall
+	EventScript   = event.EventScript   // Story 43-3: script trace events from ScriptExecutor
+	EventThinking = event.EventThinking // Story 60.2: folded DriverThinking aggregation rows
 )
 
 // UnifiedEvent merges reasoning steps and system events into a single type

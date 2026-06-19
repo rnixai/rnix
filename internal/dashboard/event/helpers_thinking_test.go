@@ -112,7 +112,6 @@ func TestThinkingAggGroup_ZeroValueIsSafe(t *testing.T) {
 // TestBuildThinkingAggGroups_StartedPlusDeltas — AC#1：1 条 started + 3 条 delta
 // 聚合成单个块 [0,4)，DeltaCount=3。
 func TestBuildThinkingAggGroups_StartedPlusDeltas(t *testing.T) {
-	t.Skip("RED (Story 60.2 Task 1): BuildThinkingAggGroups 未实现（骨架返回 nil）")
 	events := []UnifiedEvent{
 		mkThinkEv(t, "started", "started", 1000),
 		mkThinkEv(t, "delta", "The user ", 1010),
@@ -135,7 +134,6 @@ func TestBuildThinkingAggGroups_StartedPlusDeltas(t *testing.T) {
 // TestBuildThinkingAggGroups_StartedBoundarySplitsBlocks — AC#1：subtype=started 是
 // 新思考块的边界 → [started,delta,started,delta,delta] 切成 2 个块。
 func TestBuildThinkingAggGroups_StartedBoundarySplitsBlocks(t *testing.T) {
-	t.Skip("RED (Story 60.2 Task 1): started 分块边界未实现")
 	events := []UnifiedEvent{
 		mkThinkEv(t, "started", "started", 1000),
 		mkThinkEv(t, "delta", "block one", 1010),
@@ -158,7 +156,6 @@ func TestBuildThinkingAggGroups_StartedBoundarySplitsBlocks(t *testing.T) {
 // TestBuildThinkingAggGroups_NonThinkingBreaksBlock — AC#1：遇到非 DriverThinking
 // 事件（DriverToolCall）当前思考块结束 → 前后两段独立成块。
 func TestBuildThinkingAggGroups_NonThinkingBreaksBlock(t *testing.T) {
-	t.Skip("RED (Story 60.2 Task 1): 非 thinking 事件断块未实现")
 	events := []UnifiedEvent{
 		mkThinkEv(t, "started", "started", 1000),
 		mkThinkEv(t, "delta", "before tool", 1010),
@@ -182,7 +179,6 @@ func TestBuildThinkingAggGroups_NonThinkingBreaksBlock(t *testing.T) {
 // 1 started + 10000 delta（API driver 真实量级可达 14841）→ 仍折叠为单个块，
 // 绝不逐 delta 占行。DeltaCount=10000。
 func TestBuildThinkingAggGroups_HugeDeltaCountFoldsToOne(t *testing.T) {
-	t.Skip("RED (Story 60.2 Task 1): 大 delta 量折叠未实现")
 	const n = 10000
 	events := make([]UnifiedEvent, 0, n+1)
 	events = append(events, mkThinkEv(t, "started", "started", 1000))
@@ -201,7 +197,6 @@ func TestBuildThinkingAggGroups_HugeDeltaCountFoldsToOne(t *testing.T) {
 // TestBuildThinkingAggGroups_TotalBytes — AC#1：TotalBytes 累计各 delta content 字节数
 // （started 标记的 content 不计入正文字节）。"Hello"(5)+" world"(6)=11。
 func TestBuildThinkingAggGroups_TotalBytes(t *testing.T) {
-	t.Skip("RED (Story 60.2 Task 1): TotalBytes 累计未实现")
 	events := []UnifiedEvent{
 		mkThinkEv(t, "started", "started", 1000),
 		mkThinkEv(t, "delta", "Hello", 1010),
@@ -219,7 +214,6 @@ func TestBuildThinkingAggGroups_TotalBytes(t *testing.T) {
 // TestBuildThinkingAggGroups_DurationFromTimestamps — AC#1：DurationMs = 首末事件
 // ts_ms 之差（1000→3100 = 2100ms）。
 func TestBuildThinkingAggGroups_DurationFromTimestamps(t *testing.T) {
-	t.Skip("RED (Story 60.2 Task 1): DurationMs 计算未实现")
 	events := []UnifiedEvent{
 		mkThinkEv(t, "started", "started", 1000),
 		mkThinkEv(t, "delta", "a", 2000),
@@ -238,7 +232,6 @@ func TestBuildThinkingAggGroups_DurationFromTimestamps(t *testing.T) {
 // subtype 缺失 / content 非 string / Args 为 nil 时安全降级（视为无 subtype 的
 // thinking 事件 · 不 panic · 仍能成块）。
 func TestBuildThinkingAggGroups_ArgsTypeDefense(t *testing.T) {
-	t.Skip("RED (Story 60.2 Task 1): Args 类型防御 + 成块未实现")
 	events := []UnifiedEvent{
 		// subtype 缺失（只有 type）
 		{Type: EventSyscall, RawEvent: &ipc.SyscallEventWire{
@@ -282,7 +275,6 @@ func TestReconstructThinkingText_EmptyThinking(t *testing.T) {
 // TestReconstructThinkingText_ConcatenatesDeltasInOrder — AC#2：按顺序拼接各 delta
 // 的 content 还原思考全文。
 func TestReconstructThinkingText_ConcatenatesDeltasInOrder(t *testing.T) {
-	t.Skip("RED (Story 60.2 Task 3): ReconstructThinkingText 未实现（骨架返回 \"\"）")
 	events := []UnifiedEvent{
 		mkThinkEv(t, "started", "started", 1000),
 		mkThinkEv(t, "delta", "The user ", 1010),
@@ -299,7 +291,6 @@ func TestReconstructThinkingText_ConcatenatesDeltasInOrder(t *testing.T) {
 // TestReconstructThinkingText_SkipsStartedMarker — AC#2：started 的 content（"started"
 // 标记）绝不进入正文。
 func TestReconstructThinkingText_SkipsStartedMarker(t *testing.T) {
-	t.Skip("RED (Story 60.2 Task 3): started 排除未实现")
 	events := []UnifiedEvent{
 		mkThinkEv(t, "started", "started", 1000),
 		mkThinkEv(t, "delta", "real content", 1010),
@@ -321,7 +312,6 @@ func TestReconstructThinkingText_SkipsStartedMarker(t *testing.T) {
 // TestFormatThinkingSummary_Unicode — AC#3：默认（非 ASCII）摘要用 💭 图标，
 // 含 delta 计数。形如 `💭 thinking (74 delta · 6.5KB · 2.1s)`。
 func TestFormatThinkingSummary_Unicode(t *testing.T) {
-	t.Skip("RED (Story 60.2 Task 2): FormatThinkingSummary 未实现（骨架返回 \"\"）")
 	g := ThinkingAggGroup{DeltaCount: 74, TotalBytes: 6660, DurationMs: 2100}
 	got := FormatThinkingSummary(g, false)
 	if !strings.Contains(got, "💭") {
@@ -335,7 +325,6 @@ func TestFormatThinkingSummary_Unicode(t *testing.T) {
 // TestFormatThinkingSummary_ASCII — AC#3：ASCII 模式（RNIX_ASCII=1 · 调用方传 ascii=true）
 // 用 `[think]` 降级标记，不含 Unicode glyph 💭。
 func TestFormatThinkingSummary_ASCII(t *testing.T) {
-	t.Skip("RED (Story 60.2 Task 2): ASCII 降级未实现")
 	g := ThinkingAggGroup{DeltaCount: 74, TotalBytes: 6660, DurationMs: 2100}
 	got := FormatThinkingSummary(g, true)
 	if !strings.Contains(got, "[think]") {

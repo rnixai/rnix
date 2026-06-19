@@ -93,6 +93,13 @@ const (
 	// can see "L47 ▸ spawn / L12 ↻ while iter=3" control-flow state at a glance
 	// when a long-lived ash script appears stuck.
 	EventScript = "script"
+	// EventThinking — Story 60.2: dashboard debug pane 端 DriverThinking 聚合块的
+	// 合成行类型（非来自 driver/kernel · 由 debug.CollapseThinkingGroups 投影产生）。
+	// 一段连续 DriverThinking syscall 事件折叠成单个 EventThinking「折叠摘要行」
+	// （RawEvent != nil · 携带 group 首事件 ts 作展开键）；展开时额外投影出若干
+	// EventThinking「正文文本行」（RawEvent == nil · Summary 为缩进后的思考全文分行）。
+	// 防刷屏：API driver 单会话 DriverThinking 可达 14841 条 · 折叠后仅占 1 行。
+	EventThinking = "thinking"
 )
 
 // UnifiedEvent merges reasoning steps and system events into a single type
