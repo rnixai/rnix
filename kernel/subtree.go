@@ -363,18 +363,21 @@ func (k *KernelImpl) resumeOneForSubtree(proc *Process) error {
 	// Re-open LLM device FD (the old one was closed by suspendProcess).
 	llmFD, openErr := k.openLLMDeviceForResume(proc, proc.PrimaryDevice)
 	if openErr != nil {
-		// Rollback: re-Suspend so the process is not left Running-but-undriven.
-		// Best-effort — log any rollback failure but propagate the original
-		// open error to the caller.
-		if rerr := k.suspendProcess(proc, "resume_failed", ExitSuspended); rerr != nil {
-			log.Printf("[subtree] rollback suspend after failed FD reopen failed: pid=%d err=%v",
-				proc.PID, rerr)
-		}
+		// FD reopen failed — the process can no longer be driven. Finish it to a
+		// terminal state (Running→Zombie, writes a terminal Done) instead of
+		// re-Suspending. suspendProcess never writes proc.Done (only reasonStep's
+		// defer → notifySuspendDone does, and no reasonStep goroutine is running
+		// yet here), so a parent blocked in WaitChildInReason — which keys off
+		// child.GetState() — would hang forever on a Suspended child that yields
+		// no terminal Done. finishProcess is wg.Wait-free, safe to call from this
+		// non-reasonStep goroutine (mirrors supervisor.go). child → Dead honours
+		// the Resume philosophy: data is preserved, user can `rnix resume <uuid>`.
 		k.emitEvent(proc, "Resume", map[string]any{
 			"pid":    proc.PID,
 			"action": "resume_failed",
 			"error":  openErr.Error(),
 		}, nil, openErr, 0)
+		k.finishProcess(proc, ExitStatus{Code: 1, Reason: "resume_failed"})
 		return fmt.Errorf("reopen llm device %q: %w", proc.PrimaryDevice, openErr)
 	}
 	proc.FDTable[llmFD] = nil
