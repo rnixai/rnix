@@ -322,6 +322,11 @@ func (k *KernelImpl) Spawn(intent string, agent *agents.AgentInfo, opts SpawnOpt
 			proc.FeatureFlags.Planning = false
 		}
 
+		// Project-doc injection: nil (default) = enabled, explicit false = disabled (Story 35.7)
+		if agent.Manifest.ProjectDoc != nil && !*agent.Manifest.ProjectDoc {
+			proc.ProjectDocInjection = false
+		}
+
 		// Language preference from agent manifest
 		if agent.Manifest.Language != "" {
 			proc.Language = agent.Manifest.Language

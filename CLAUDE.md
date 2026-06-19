@@ -179,6 +179,16 @@ CLI driver（`/dev/llm/claude` 等）的工具调用 Input 经 **assistant 块�
 - `e`/`E`/`C` — sticky expand mode (unchanged)
 - Fold markers: `▶` = collapsed, `▼` = expanded (ASCII: `>` / `v`)
 
+### 项目根 AGENTS.md 注入 (Story 35.7 / Architecture Decision 47)
+
+进程 spawn 时自动读取项目根 `AGENTS.md` 并作为 `project_doc` cached section 注入 system prompt，对齐 AGENTS.md 行业标准（Linux Foundation AAIF 托管、30+ 工具原生读取；机制同 CLAUDE.md）。详见 [docs/agents-md-injection.md](docs/agents-md-injection.md)。
+
+- **落点**：`kernel/sections.go registerSections` 在 `agent_instructions` 之后、`memory` 之前注册 `project_doc`（`cached=true`）；helper `internal/config.FindNearestAgentsMD(startDir, projectRoot)` 仿 `internal/config/paths.go ProjectDir` 向上遍历（nearest-wins，边界=projectRoot 不越界）。
+- **冻结快照**：eager 闭包捕获（仿 `agent_instructions`，强于 `memory` 的 lazy ComputeFn）——spawn 时读盘一次、`Invalidate`（specialize 重建 prompt）也不重读，保护 LLM prompt cache 命中率（同 35-2 教训）。注入正文经 `Build()` → `proc.FinalSystemPrompt` → `process-meta.json` 的 `system_prompt` 字段可见。
+- **排他只认 `AGENTS.md`**：硬编码文件名，**绝不**回退读本仓库根写给 Claude Code 的 `CLAUDE.md`（避免内容错位 + 文件双主人 + 文件名冒名三重冲突，见 `SPEC-agents-md-injection` Non-goal）。
+- **降级 + 截断**：`ProjectConfig==nil`/文件缺失/读失败 → 空段（显式 `os.ReadFile` error 处理，不靠 `Build()` 的 panic recovery）；超 `config.MaxAgentsMDBytes`（64 KiB，仿 Story 48.6 `max_output_bytes`）→ UTF-8 边界安全截断 + 尾标记 + `log.Printf` 警告，进程不 crash。
+- **默认开 + 可禁用**：`agent.yaml` 的 `project_doc: false`（manifest `ProjectDoc *bool`，nil=开，仿 `planning`）禁用，传导至 `proc.ProjectDocInjection`（`NewProcess` 默认 true）。无 agent 的直接 spawn 默认开。⚠️ 当前架构进程工作目录==项目根（`ProjectConfig` 无独立 cwd 字段，`spawn.go SetWorkDir(PID, ProjectDir)`），真实 spawn 只命中根级；nearest-wins 语义由单元测试喂深 startDir 验证。
+
 ## BMAD Workflow
 
 Story artifacts live in `_bmad-output/implementation-artifacts/`. Sprint status tracked in `sprint-status.yaml`. Development follows the BMAD pipeline: create-story → ATDD → dev-story → code-review → traceability.

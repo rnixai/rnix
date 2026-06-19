@@ -171,20 +171,21 @@ type Process struct {
 	gdbExtraSkills   []string
 
 	// Fallback configuration (Story 23.5)
-	FallbackModel      string            // fallback model name
-	FallbackProvider   string            // fallback provider name; "" = same as primary
-	FallbackDevice     string            // resolved fallback VFS device path; "" = no fallback
-	PrimaryDevice      string            // primary VFS device path (e.g. "/dev/llm/claude")
-	Provider           string            // resolved provider name (immutable after spawn)
-	Model              string            // resolved model name (immutable after spawn)
-	ReasoningEffort    string            // resolved reasoning-effort/level snapshotted from driver (immutable after spawn; Story 55.2); "" = unset
-	DriverMeta         map[string]string // runtime metadata from DriverMetaProvider (immutable after spawn)
-	AgentTemplate      string            // agent manifest name (immutable after spawn; Story 51.4)
-	ContextWindow      int               // per-model context window size (immutable after spawn); 0 = use fallback
-	PlanningEnabled    bool              // deprecated: use FeatureFlags.Planning; kept for agent manifest override compat
-	FeatureFlags       FeatureFlags      // per-process feature flags; copied from kernel at spawn time
-	CompactionDisabled bool              // true = skip autoCompactIfNeeded (derived from FeatureFlags.Compaction==false)
-	Language           string            // preferred response language (from agent manifest); empty = no preference
+	FallbackModel       string            // fallback model name
+	FallbackProvider    string            // fallback provider name; "" = same as primary
+	FallbackDevice      string            // resolved fallback VFS device path; "" = no fallback
+	PrimaryDevice       string            // primary VFS device path (e.g. "/dev/llm/claude")
+	Provider            string            // resolved provider name (immutable after spawn)
+	Model               string            // resolved model name (immutable after spawn)
+	ReasoningEffort     string            // resolved reasoning-effort/level snapshotted from driver (immutable after spawn; Story 55.2); "" = unset
+	DriverMeta          map[string]string // runtime metadata from DriverMetaProvider (immutable after spawn)
+	AgentTemplate       string            // agent manifest name (immutable after spawn; Story 51.4)
+	ContextWindow       int               // per-model context window size (immutable after spawn); 0 = use fallback
+	PlanningEnabled     bool              // deprecated: use FeatureFlags.Planning; kept for agent manifest override compat
+	FeatureFlags        FeatureFlags      // per-process feature flags; copied from kernel at spawn time
+	CompactionDisabled  bool              // true = skip autoCompactIfNeeded (derived from FeatureFlags.Compaction==false)
+	Language            string            // preferred response language (from agent manifest); empty = no preference
+	ProjectDocInjection bool              // inject project-root AGENTS.md into system prompt (Story 35.7); default true, agent.yaml project_doc:false disables
 
 	// Observation system (Story 27.1)
 	FinalSystemPrompt string       // Full system prompt captured on first reasonStep (mu protected)
@@ -290,25 +291,26 @@ type Process struct {
 func NewProcess(ppid types.PID, intent string, skills []string) *Process {
 	ctx, cancel := context.WithCancel(context.Background())
 	return &Process{
-		PID:             nextPID(),
-		UUID:            uuid.Must(uuid.NewV7()).String(),
-		PPID:            ppid,
-		State:           types.StateCreated,
-		Intent:          intent,
-		Skills:          skills,
-		PlanningEnabled: true,
-		FeatureFlags:    FullFeatureFlags(),
-		Children:        []types.PID{},
-		FDTable:         make(map[types.FD]vfs.VFSFile),
-		DebugChan:       make(chan types.SyscallEvent, 256),
-		LogChan:         make(chan types.LogEntry, 256),
-		Done:            make(chan ExitStatus, 1),
-		terminated:      make(chan struct{}),
-		resumedCh:       make(chan struct{}),
-		resumedClose:    &sync.Once{},
-		CreatedAt:       time.Now(),
-		ctx:             ctx,
-		cancel:          cancel,
+		PID:                 nextPID(),
+		UUID:                uuid.Must(uuid.NewV7()).String(),
+		PPID:                ppid,
+		State:               types.StateCreated,
+		Intent:              intent,
+		Skills:              skills,
+		PlanningEnabled:     true,
+		ProjectDocInjection: true,
+		FeatureFlags:        FullFeatureFlags(),
+		Children:            []types.PID{},
+		FDTable:             make(map[types.FD]vfs.VFSFile),
+		DebugChan:           make(chan types.SyscallEvent, 256),
+		LogChan:             make(chan types.LogEntry, 256),
+		Done:                make(chan ExitStatus, 1),
+		terminated:          make(chan struct{}),
+		resumedCh:           make(chan struct{}),
+		resumedClose:        &sync.Once{},
+		CreatedAt:           time.Now(),
+		ctx:                 ctx,
+		cancel:              cancel,
 	}
 }
 

@@ -9,6 +9,7 @@ import (
 	"time"
 
 	rnixctx "github.com/rnixai/rnix/context"
+	"github.com/rnixai/rnix/internal/config"
 	"github.com/rnixai/rnix/kernel/memory"
 	skillpkg "github.com/rnixai/rnix/skills"
 	"github.com/rnixai/rnix/vfs"
@@ -40,6 +41,24 @@ func registerSections(proc *Process, k *KernelImpl, agentInstructions string) *r
 	if proc.ProjectConfig != nil {
 		projectDir = proc.ProjectConfig.ProjectDir
 	}
+
+	// --- Project doc section (cached — eager frozen snapshot, Story 35.7) ---
+	// Reads the nearest project-root AGENTS.md once at spawn time and captures it
+	// in the closure (strongest freeze, matching agent_instructions) so a mid-run
+	// edit to AGENTS.md never shifts this process's prompt and breaks the LLM
+	// prompt cache hit rate (Story 35.2 lesson). Only AGENTS.md is recognized —
+	// never CLAUDE.md/RNIX.md (AC3 / SPEC-agents-md-injection Non-goal). Empty when
+	// injection is disabled (agent.yaml project_doc:false), there's no project, or
+	// no AGENTS.md exists. startDir==boundary==projectDir because the process work
+	// dir equals the project root (spawn.go SetWorkDir); nearest-wins still applies
+	// for deeper startDirs, validated by the FindNearestAgentsMD unit tests.
+	projectDoc := ""
+	if proc.ProjectDocInjection && projectDir != "" {
+		if body := config.FindNearestAgentsMD(projectDir, projectDir); body != "" {
+			projectDoc = "# Project Instructions (AGENTS.md)\n\n" + body
+		}
+	}
+	reg.Register("project_doc", func() string { return projectDoc }, true)
 
 	// --- Memory section (cached — frozen snapshot per-process, Story 35.2) ---
 	reg.Register("memory", func() string {
