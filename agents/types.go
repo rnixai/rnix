@@ -36,6 +36,7 @@ type AgentManifest struct {
 	SLA            *AgentSLA   `yaml:"sla,omitempty"`             // SLA constraints (Story 21.2)
 	Alternatives   []string    `yaml:"alternatives,omitempty"`    // alternative agent names for auto-selection (Story 21.3)
 	Language       string      `yaml:"language,omitempty"`        // preferred response language (e.g. "Chinese", "English"); empty = no preference
+	ProjectDoc     *bool       `yaml:"project_doc,omitempty"`     // nil = default (inject project-root AGENTS.md); *false = disable injection (Story 35.7)
 }
 
 // AgentSLA defines SLA constraints in agent.yaml.
