@@ -135,6 +135,17 @@ type ProcInfo struct {
 	// implement it.
 	DriverMeta     map[string]string `json:"driver_meta,omitempty"`
 	FeatureProfile string            `json:"feature_profile,omitempty"`
+
+	// Synthetic marks a process-tree node that was NOT spawned by the rnix
+	// kernel but synthesized from observing a CLI driver's internal subagent
+	// (Claude Code Task/Agent tool) — see Story 56.6. Such nodes have PID==0,
+	// a non-empty ParentUUID (the host process UUID), and steps.jsonl but no
+	// process-meta.json. They must be excluded from resume (rnix ps
+	// --resumable / rnix resume) because they are not real rnix processes.
+	// Default false keeps legacy snapshots (no field on disk) backward
+	// compatible. (Story 56.6 ATDD skeleton — persistence DTO wiring is the
+	// dev-story's job; the round-trip ATDD test stays RED until then.)
+	Synthetic bool `json:"synthetic,omitempty"`
 }
 
 // ProcFS implements a read-only /proc filesystem that exposes process runtime state.
