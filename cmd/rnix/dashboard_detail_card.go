@@ -5,6 +5,7 @@ import (
 	"os"
 	"strings"
 	"time"
+	"unicode"
 	"unicode/utf8"
 
 	tea "charm.land/bubbletea/v2"
@@ -159,8 +160,25 @@ func renderDeadDetailCard(m *dashboardModel, proc *selectedProcRef, width, heigh
 		line1 = fmt.Sprintf("  %s Done (exit 0) │ %s │ %s tokens",
 			checkmark, timeRange, timeline.FormatTokenCount(d.ContextStats.TokensUsed))
 	} else {
-		summary := truncateRuneSafe(proc.Result, 40)
-		line1 = fmt.Sprintf("  %s Failed (exit 1) │ %s │ %s", failmark, timeRange, summary)
+		// Fold the authoritative exit reason into line1's summary slot. Prefer
+		// ExitReason (== Result for driver-killed procs, per kernel reason.go);
+		// fall back to Result. Replace ALL control chars (newlines, CR, tabs, …)
+		// with a space: fitLine measures display width but does not strip them,
+		// and a surviving tab/newline would let lipgloss soft-wrap the card to a
+		// 3rd line — re-triggering the status-bar overflow this fix removes
+		// (Result is raw LLM output and commonly contains tabs). No 40-rune cap:
+		// fitLine(width) below governs width (the old cap produced the "l…" stub).
+		reason := proc.ExitReason
+		if reason == "" {
+			reason = proc.Result
+		}
+		reason = strings.Map(func(r rune) rune {
+			if unicode.IsControl(r) {
+				return ' '
+			}
+			return r
+		}, reason)
+		line1 = fmt.Sprintf("  %s Failed (exit 1) │ %s │ %s", failmark, timeRange, reason)
 	}
 	line1 = fitLine(line1, width)
 
@@ -174,15 +192,6 @@ func renderDeadDetailCard(m *dashboardModel, proc *selectedProcRef, width, heigh
 		width)
 
 	lines := []string{line1, line2}
-	// Surface the authoritative exit reason on its own line for failed
-	// processes — this is the only place a user sees an async driver error
-	// (e.g. an HTTP 429 rate limit) that killed the process after resume,
-	// since the resume CLI returns before reasonStep runs. Distinct from the
-	// truncated Result snippet on line1.
-	if failed && proc.ExitReason != "" {
-		exitLine := fitLine("  Exit: "+proc.ExitReason, width)
-		lines = []string{line1, exitLine, line2}
-	}
 
 	content := lipgloss.NewStyle().Width(width).Height(height).Render(
 		lipgloss.JoinVertical(lipgloss.Left, lines...),

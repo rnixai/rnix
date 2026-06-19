@@ -123,6 +123,100 @@ func TestRenderDetailCardLeft_Dead(t *testing.T) {
 	}
 }
 
+// F16 (spec-dashboard-dead-card-exitreason-fold): a failed process folds the
+// authoritative exit reason INTO line1's summary — no separate "Exit:" line,
+// so the dead card stays 2 content lines and the status-bar hint row is not
+// pushed off-screen.
+func TestRenderDetailCardLeft_Failed_ReasonFoldedNoExitLine(t *testing.T) {
+	now := time.Now()
+	procs := []vfs.ProcInfo{
+		{PID: 9, PPID: 1, UUID: "uuid-dead-fail", State: types.StateDead, ExitCode: 1, ExitCodeSet: true, Result: "llm write failed", ExitReason: "llm write failed", CreatedAt: now, DeadAt: now.Add(2 * time.Second)},
+	}
+	m := newTestDashboardModel(procs)
+	m.selectedPID = 9
+	m.selectedUUID = "uuid-dead-fail"
+	m.detail.Detail = &ipc.GetProcDetailResponse{
+		PID:          9,
+		UUID:         "uuid-dead-fail",
+		Provider:     "opencodezen",
+		Model:        "deepseek-v4-flash",
+		ContextStats: ipc.ContextStatsWire{TokensUsed: 94200},
+	}
+
+	result := renderDetailCardLeft(&m, 120, 2)
+
+	if !strings.Contains(result, "Failed (exit 1)") {
+		t.Errorf("expected Failed marker, got %q", result)
+	}
+	// The redundant standalone "Exit:" line must be gone (it caused the overflow).
+	if strings.Contains(result, "Exit:") {
+		t.Errorf("exit reason must be folded into line1, not a separate 'Exit:' line; got %q", result)
+	}
+	// Reason must ride on the same line as the Failed marker.
+	folded := false
+	for ln := range strings.SplitSeq(result, "\n") {
+		if strings.Contains(ln, "Failed (exit 1)") && strings.Contains(ln, "llm write failed") {
+			folded = true
+		}
+	}
+	if !folded {
+		t.Errorf("exit reason should be folded into the Failed line; got %q", result)
+	}
+}
+
+// F16: when ExitReason is empty, line1's summary falls back to Result.
+func TestRenderDetailCardLeft_Failed_FallbackToResult(t *testing.T) {
+	now := time.Now()
+	procs := []vfs.ProcInfo{
+		{PID: 9, PPID: 1, UUID: "uuid-dead-fail2", State: types.StateDead, ExitCode: 1, ExitCodeSet: true, Result: "boom-result", ExitReason: "", CreatedAt: now, DeadAt: now.Add(time.Second)},
+	}
+	m := newTestDashboardModel(procs)
+	m.selectedPID = 9
+	m.selectedUUID = "uuid-dead-fail2"
+	m.detail.Detail = &ipc.GetProcDetailResponse{PID: 9, UUID: "uuid-dead-fail2", Provider: "claude"}
+
+	result := renderDetailCardLeft(&m, 120, 2)
+
+	if !strings.Contains(result, "boom-result") {
+		t.Errorf("expected Result fallback in summary when ExitReason empty, got %q", result)
+	}
+	if strings.Contains(result, "Exit:") {
+		t.Errorf("no standalone 'Exit:' line expected, got %q", result)
+	}
+}
+
+// F16: control chars in the reason (tabs/newlines — Result is raw LLM output)
+// must be replaced by spaces. A surviving tab/newline would let lipgloss
+// soft-wrap the card to a 3rd line and re-trigger the status-bar overflow.
+func TestRenderDetailCardLeft_Failed_ControlCharsStripped(t *testing.T) {
+	now := time.Now()
+	procs := []vfs.ProcInfo{
+		{PID: 9, PPID: 1, UUID: "uuid-dead-ctrl", State: types.StateDead, ExitCode: 1, ExitCodeSet: true, Result: "boom\twith\ttabs\nand newline", ExitReason: "boom\twith\ttabs\nand newline", CreatedAt: now, DeadAt: now.Add(time.Second)},
+	}
+	m := newTestDashboardModel(procs)
+	m.selectedPID = 9
+	m.selectedUUID = "uuid-dead-ctrl"
+	m.detail.Detail = &ipc.GetProcDetailResponse{PID: 9, UUID: "uuid-dead-ctrl", Provider: "opencodezen"}
+
+	result := renderDetailCardLeft(&m, 120, 2)
+
+	var failedLine string
+	for ln := range strings.SplitSeq(result, "\n") {
+		if strings.Contains(ln, "Failed (exit 1)") {
+			failedLine = ln
+		}
+	}
+	if failedLine == "" {
+		t.Fatalf("no Failed line in %q", result)
+	}
+	if strings.ContainsAny(failedLine, "\t\r\v\f") {
+		t.Errorf("control chars must be stripped from the folded reason, got %q", failedLine)
+	}
+	if !strings.Contains(failedLine, "boom with tabs and newline") {
+		t.Errorf("reason should be single-lined (control chars → spaces), got %q", failedLine)
+	}
+}
+
 // ---------------------------------------------------------------------------
 // AC-2: Detail Card — No selection
 // ---------------------------------------------------------------------------
