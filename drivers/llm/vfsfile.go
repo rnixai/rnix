@@ -225,13 +225,16 @@ func (f *LLMFile) writeStream(ctx context.Context, req LLMRequest) error {
 			// 这是额外旁路: 上面的 reasoning.WriteString 仍独立驱动
 			// LLMResponse.Reasoning 累积,落盘/round-trip(AC4)完全不变。
 			if f.onEvent != nil {
-				evtData := map[string]any{
-					"type": "thinking",
-				}
+				// 先合并 driver 元数据,再赋权威归一字段——确保 type:"thinking"
+				// 与 content 不被 evt.Data 的同名键覆盖(Code Review #P2 防御:
+				// 未来 driver 若给 reasoning 附 Data["type"] 会静默破坏归一,
+				// 致下游 observe.go 的 thinking 判断 miss、OnThinking 不触发)。
+				evtData := map[string]any{}
+				maps.Copy(evtData, evt.Data)
+				evtData["type"] = "thinking"
 				if evt.Content != "" {
 					evtData["content"] = evt.Content
 				}
-				maps.Copy(evtData, evt.Data)
 				f.onEvent(evtData)
 			}
 		case "tool_call", "thinking", "system", "user", "assistant":

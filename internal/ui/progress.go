@@ -16,7 +16,6 @@ const thinkingThrottleWindow = 400 * time.Millisecond
 // thinkProgress 跟踪单个进程的思考活动节流状态。
 type thinkProgress struct {
 	lastEmit time.Time // 上次渲染时刻(零值=尚未渲染)
-	chars    int       // 本进程累计思考字符数(随增量增长,体现「在动」)
 }
 
 // ProgressReporter outputs agent progress messages to the renderer.
@@ -95,11 +94,12 @@ func (p *ProgressReporter) AgentStepComplete(pid types.PID, step int, action str
 // text under ModeJSON — and throttles high-frequency deltas (time window,
 // thinkingThrottleWindow) rather than printing one line per delta.
 //
-// 默认呈现形态(Dev Notes 权衡 #2)：精简「thinking...」活动指示 + 累计字符数,
-// 完整思考文本走 `rnix log`/dashboard 既有通道,不污染前台主输出。节流策略
-// (权衡 #3)：时间窗口聚合——首个增量立即给反馈(确认在推进),其后同窗口内的
-// 增量静默累积,跨窗口再刷一次。原始思考文本(text)只计入累计字节,不直接打印,
-// 因此 ModeJSON 下也不会混入非结构化文本。
+// 呈现形态(Code Review 方案③)：纯「thinking...」活动指示——不显示思考字符计数,
+// 回避「累计 vs 每轮」语义争议;完整思考文本走 `rnix log`/dashboard 既有通道,不
+// 污染前台主输出。节流策略(权衡 #3)：时间窗口聚合——首个增量立即给反馈(确认在
+// 推进),其后同窗口内增量静默丢弃,跨窗口再刷一次。text/step 形参为 OnThinking
+// 接口对称保留,此形态下不直接使用(原始思考文本从不进前台,故 ModeJSON 下也不会
+// 混入非结构化文本)。
 func (p *ProgressReporter) AgentThinking(pid types.PID, step int, text string) {
 	// ModeQuiet: 完全静默; ModeJSON: 不混入非结构化思考文本(AC3 契约)。
 	if p.renderer.OutputMode == ModeQuiet || p.renderer.OutputMode == ModeJSON {
@@ -115,18 +115,16 @@ func (p *ProgressReporter) AgentThinking(pid types.PID, step int, text string) {
 		st = &thinkProgress{}
 		p.thinkState[pid] = st
 	}
-	st.chars += len([]rune(text))
 	now := time.Now()
-	// 节流：非首次且仍在窗口内 → 累积但不刷屏。
+	// 节流：非首次且仍在窗口内 → 不刷屏。
 	if !st.lastEmit.IsZero() && now.Sub(st.lastEmit) < thinkingThrottleWindow {
 		p.thinkMu.Unlock()
 		return
 	}
 	st.lastEmit = now
-	chars := st.chars
 	p.thinkMu.Unlock()
 
 	prefix := AgentStyle.Render(fmt.Sprintf("[agent/%d]", pid))
-	indicator := MutedStyle.Render(fmt.Sprintf("thinking... (%d chars)", chars))
+	indicator := MutedStyle.Render("thinking...")
 	fmt.Fprintf(p.renderer.Writer, "%s %s\n", prefix, indicator)
 }
