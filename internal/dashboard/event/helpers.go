@@ -520,6 +520,9 @@ func formatThinkingBytes(n int) string {
 
 // formatThinkingDuration 把毫秒格式化为短标签（<1000ms → "Nms" · 否则 "X.Ys"）。
 func formatThinkingDuration(ms float64) string {
+	if ms < 0 {
+		ms = 0 // 乱序/时钟回拨 ts 致负 duration → 钳零，不显示 "-50ms"（Story 60.2 code-review Patch P3）
+	}
 	if ms < 1000 {
 		return fmt.Sprintf("%dms", int(ms))
 	}

@@ -23,6 +23,7 @@ import (
 	"strings"
 
 	"github.com/charmbracelet/lipgloss"
+	"github.com/mattn/go-runewidth"
 
 	"github.com/rnixai/rnix/internal/dashboard/event"
 	"github.com/rnixai/rnix/internal/ui"
@@ -303,7 +304,13 @@ func CollapseThinkingGroups(raw []event.UnifiedEvent, expanded map[int64]bool, a
 			if isOpen {
 				mark = openMark
 			}
-			fullText := event.ReconstructThinkingText(raw, g)
+			// 仅在展开时还原思考全文——折叠态（API driver 单会话上万 delta 的常态）
+			// 不重建，消除每次 render/keypress 的热路径浪费（Story 60.2 code-review
+			// Patch P1）。Detail 在折叠态留空（无消费者，无害）。
+			var fullText string
+			if isOpen {
+				fullText = event.ReconstructThinkingText(raw, g)
+			}
 			out = append(out, event.UnifiedEvent{
 				Type:        event.EventThinking,
 				Severity:    event.SevInfo,
@@ -354,23 +361,34 @@ func thinkingExpandRows(text string, ascii bool) []event.UnifiedEvent {
 	return rows
 }
 
-// wrapThinkingText 按 "\n" 分段并对每段做 rune 计宽的硬换行（width<1 归一化为 1）。
+// wrapThinkingText 按 "\n" 分段并对每段做**显示宽度**（CJK 占 2 列）感知的硬换行
+// （width<1 归一化为 1）。按显示宽度而非 rune 数切分——否则含 CJK 的思考正文行实际
+// 占宽翻倍、被外层 truncateAnsi 硬截丢尾（Story 60.2 code-review Patch P2 · 同包
+// timeline/render.go 既有 runewidth 先例）。
 func wrapThinkingText(text string, width int) []string {
 	if width < 1 {
 		width = 1
 	}
 	var out []string
 	for para := range strings.SplitSeq(text, "\n") {
-		r := []rune(para)
-		if len(r) == 0 {
+		if para == "" {
 			out = append(out, "")
 			continue
 		}
-		for len(r) > width {
-			out = append(out, string(r[:width]))
-			r = r[width:]
+		var line []rune
+		lineW := 0
+		for _, c := range para {
+			cw := runewidth.RuneWidth(c)
+			// 累积显示宽度超 width 时换行（line 非空才换，避免单个超宽字符空转）。
+			if lineW+cw > width && len(line) > 0 {
+				out = append(out, string(line))
+				line = line[:0]
+				lineW = 0
+			}
+			line = append(line, c)
+			lineW += cw
 		}
-		out = append(out, string(r))
+		out = append(out, string(line))
 	}
 	return out
 }

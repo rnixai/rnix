@@ -61,9 +61,11 @@ func TestCollapseThinkingGroups_FoldsRunToOneRow(t *testing.T) {
 	if !strings.Contains(row.Summary, "▶") {
 		t.Errorf("collapsed summary must show ▶ fold marker: %q", row.Summary)
 	}
-	// Detail 携带还原全文供展开用。
-	if row.Detail != "The user is asking." {
-		t.Errorf("Detail = %q, want reconstructed full text", row.Detail)
+	// 折叠态不预建全文（Story 60.2 code-review Patch P1：避免热路径重建无渲染
+	// 消费者的 Detail · API driver 单会话上万 delta）；全文经展开时按需还原，
+	// 见 TestCollapseThinkingGroups_ExpandedEmitsTextRows。
+	if row.Detail != "" {
+		t.Errorf("collapsed summary Detail = %q, want empty (lazy reconstruct)", row.Detail)
 	}
 }
 
@@ -127,6 +129,10 @@ func TestCollapseThinkingGroups_ExpandedEmitsTextRows(t *testing.T) {
 	}
 	if !strings.Contains(out[0].Summary, "▼") {
 		t.Errorf("expanded summary must show ▼ open marker: %q", out[0].Summary)
+	}
+	// 展开态摘要行 Detail 携带还原全文（折叠态则留空 · Patch P1 lazy 还原）。
+	if out[0].Detail != "hello world" {
+		t.Errorf("expanded summary Detail = %q, want reconstructed full text", out[0].Detail)
 	}
 	// 正文行 RawEvent==nil（区别于摘要行）· 含还原文本。
 	if out[1].RawEvent != nil {
@@ -197,5 +203,22 @@ func TestCollapseThinkingGroups_ASCIIMarkers(t *testing.T) {
 	expanded := CollapseThinkingGroups(raw, map[int64]bool{1000: true}, true)
 	if !strings.Contains(expanded[0].Summary, "v") {
 		t.Errorf("ascii expanded summary want v open marker, got %q", expanded[0].Summary)
+	}
+}
+
+// Patch P2（Story 60.2 code-review）：wrapThinkingText 按**显示宽度**（CJK 占 2 列）
+// 换行，而非 rune 数。10 个全角中文 = 20 显示列，width=10 → 切成 2 行各 5 个中文
+// （旧 rune-count 逻辑会误判为 10 rune ≤ 10 → 单行、再被外层 truncateAnsi 砍掉尾半）。
+func TestWrapThinkingText_CJKWrapsByDisplayWidth(t *testing.T) {
+	const cjk = "一二三四五六七八九十" // 10 个全角 rune = 20 显示列
+	lines := wrapThinkingText(cjk, 10)
+	if len(lines) != 2 {
+		t.Fatalf("10 CJK runes @ display-width=10: want 2 lines, got %d (%q)", len(lines), lines)
+	}
+	// 每行 ≤ 5 个 CJK rune（5×2 列 = 10 显示列），坐实「按显示宽度切」。
+	for _, ln := range lines {
+		if n := len([]rune(ln)); n > 5 {
+			t.Errorf("line has %d runes, want ≤ 5 (5 CJK = 10 display cols): %q", n, ln)
+		}
 	}
 }

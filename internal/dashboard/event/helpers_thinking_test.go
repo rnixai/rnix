@@ -337,3 +337,14 @@ func TestFormatThinkingSummary_ASCII(t *testing.T) {
 		t.Errorf("summary missing delta count \"74 delta\": %q", got)
 	}
 }
+
+// Patch P3（Story 60.2 code-review）：乱序 / 时钟回拨 ts 致负 duration → 钳零，
+// 不显示 "-50ms"。
+func TestFormatThinkingDuration_NegativeClampsToZero(t *testing.T) {
+	if got := formatThinkingDuration(-50); got != "0ms" {
+		t.Errorf("negative duration: got %q, want \"0ms\"", got)
+	}
+	if got := formatThinkingDuration(0); got != "0ms" {
+		t.Errorf("zero duration: got %q, want \"0ms\"", got)
+	}
+}
