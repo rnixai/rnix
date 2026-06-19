@@ -46,21 +46,54 @@ type ResumeOpts struct {
 
 // resolveResumeProjectConfig determines the effective ProjectConfig for a resume,
 // mirroring the Spawn path's project-level provider escape hatch (spawn.go:588).
-// Priority:
-//  1. opts.ProjectConfig — caller-supplied (apply's handleResume rebuilds it
-//     via resolveProjectContext).
+//
+// The resumed process's OWN project is authoritative. Callers (CLI resume,
+// dashboard r/fork, compose-resume) derive opts.ProjectConfig from the operator's
+// cwd, which is the WRONG project whenever the operator runs from somewhere other
+// than the project the process belongs to — that wrong config resolves the wrong
+// (or no) project-level provider and fails the resume. So when the process's own
+// project_dir is known (history: diskInfo.ProjectDir; checkpoint: persisted
+// cp.ProjectDir; or oldProc.ProjectConfig.ProjectDir) AND differs from the
+// caller-supplied opts.ProjectConfig's project, rebuild from the process's own
+// project_dir and prefer it.
+//
+// Otherwise priority is unchanged (preserving spec-resume-project-provider-fix):
+//  1. opts.ProjectConfig — caller-supplied. apply's reconnect-resume runs from the
+//     process's own project, so opts == own (no mismatch, this branch is used).
 //  2. oldProc.ProjectConfig — placeholder rebuilt by LoadSuspendedFromDisk.
 //     AutoResumeDaemonShutdown resumes with an empty ResumeOpts{}, so for
 //     daemon-self-start auto-resume of a project-level provider this is the
 //     only in-memory source.
 //  3. projectConfigLoader(projectDir) — last-resort rebuild from the on-disk
-//     project_dir. History path only; checkpoint ProcState carries no
-//     ProjectDir, so callers pass "" there.
+//     project_dir.
 //
 // Returns nil when none yields a config — callers then fall through to the
 // global resolveLLMDevice validation, preserving back-compat for global
 // providers and fail-fast for genuinely unknown ones.
 func (k *KernelImpl) resolveResumeProjectConfig(opts ResumeOpts, oldProc *Process, projectDir string) *config.ProjectConfig {
+	// The process's own authoritative project dir: prefer the explicit projectDir
+	// (history diskInfo.ProjectDir / checkpoint cp.ProjectDir), fall back to the
+	// rebuilt placeholder's project dir.
+	ownDir := projectDir
+	if ownDir == "" && oldProc != nil && oldProc.ProjectConfig != nil {
+		ownDir = oldProc.ProjectConfig.ProjectDir
+	}
+	// Caller-supplied config is for a DIFFERENT project than the process's own
+	// (operator resumed from another project's cwd) — honor the process's own.
+	if ownDir != "" && opts.ProjectConfig != nil && opts.ProjectConfig.ProjectDir != ownDir && k.projectConfigLoader != nil {
+		pc, err := k.projectConfigLoader(ownDir)
+		switch {
+		case err != nil:
+			log.Printf("[resume] projectConfigLoader(%q) failed: %v; falling back to existing priority chain", ownDir, err)
+		case pc != nil:
+			log.Printf("[resume] caller projectDir %q != process projectDir %q; honoring process's own project",
+				opts.ProjectConfig.ProjectDir, ownDir)
+			return pc
+		}
+		// (nil, nil) — ownDir resolved to global/no-project (e.g. its .rnix was
+		// removed). Do NOT short-circuit to nil: fall through to opts/oldProc so
+		// the existing fallbacks still apply.
+	}
 	if opts.ProjectConfig != nil {
 		return opts.ProjectConfig
 	}
@@ -428,13 +461,13 @@ func (k *KernelImpl) resumeFromCheckpoint(uuid string, opts ResumeOpts, start ti
 		oldProc = found
 	}
 
-	// Resolve the effective ProjectConfig (opts > oldProc > loader) BEFORE the
-	// LLM-device check so project-level providers (defined only in
+	// Resolve the effective ProjectConfig (process-own > opts > oldProc > loader)
+	// BEFORE the LLM-device check so project-level providers (defined only in
 	// .rnix/providers.yaml) survive the same way they do on the Spawn path.
-	// checkpoint ProcState carries no ProjectDir, so the loader fallback is
-	// unavailable here (projectDir=""); opts/oldProc cover the checkpoint case —
-	// daemon_shutdown placeholders have no checkpoint and always take the history path.
-	effPC := k.resolveResumeProjectConfig(opts, oldProc, "")
+	// cp.ProjectDir is the process's OWN project, now persisted into the checkpoint
+	// (CheckpointProcState.ProjectDir), so resolveResumeProjectConfig can honor it
+	// over a wrong operator cwd. Empty on pre-fix checkpoints → opts/oldProc fallback.
+	effPC := k.resolveResumeProjectConfig(opts, oldProc, cp.ProjectDir)
 
 	llmDevice, resolveErr := k.resolveResumeLLMDevice(effPC, cp.Provider)
 	if resolveErr != nil {

@@ -25,26 +25,32 @@ type CheckpointData struct {
 
 // CheckpointProcState captures the mutable process state at checkpoint time.
 type CheckpointProcState struct {
-	PID                   types.PID         `json:"pid"`
-	Provider              string            `json:"provider"`
-	Model                 string            `json:"model"`
-	ReasoningEffort       string            `json:"reasoning_effort,omitempty"`
-	Skills                []string          `json:"skills"`
-	AllowedDevices        []string          `json:"allowed_devices"`
-	DeniedDevices         []string          `json:"denied_devices,omitempty"`
-	AllowedTools          []string          `json:"allowed_tools,omitempty"` // Story 54.1: persisted authoritative tool whitelist; omitempty keeps legacy checkpoints clean
-	Intent                string            `json:"intent"`
-	IntentID              string            `json:"intent_id,omitempty"`
-	MaxSteps              int               `json:"max_steps"`
-	UsedTokens            int               `json:"used_tokens"`
-	MaxTokens             int64             `json:"max_tokens,omitempty"`
-	MaxCost               float64           `json:"max_cost,omitempty"`
-	UsedCost              float64           `json:"used_cost,omitempty"`
-	CtxSize               int               `json:"ctx_size,omitempty"`
-	ConsecutiveToolErrors int               `json:"consecutive_tool_errors"`
-	SuspendReason         string            `json:"suspend_reason,omitempty"`
-	ParentUUID            string            `json:"parent_uuid,omitempty"`
-	EnvSnapshot           map[string]string `json:"env_snapshot"`
+	PID                   types.PID `json:"pid"`
+	Provider              string    `json:"provider"`
+	Model                 string    `json:"model"`
+	ReasoningEffort       string    `json:"reasoning_effort,omitempty"`
+	Skills                []string  `json:"skills"`
+	AllowedDevices        []string  `json:"allowed_devices"`
+	DeniedDevices         []string  `json:"denied_devices,omitempty"`
+	AllowedTools          []string  `json:"allowed_tools,omitempty"` // Story 54.1: persisted authoritative tool whitelist; omitempty keeps legacy checkpoints clean
+	Intent                string    `json:"intent"`
+	IntentID              string    `json:"intent_id,omitempty"`
+	MaxSteps              int       `json:"max_steps"`
+	UsedTokens            int       `json:"used_tokens"`
+	MaxTokens             int64     `json:"max_tokens,omitempty"`
+	MaxCost               float64   `json:"max_cost,omitempty"`
+	UsedCost              float64   `json:"used_cost,omitempty"`
+	CtxSize               int       `json:"ctx_size,omitempty"`
+	ConsecutiveToolErrors int       `json:"consecutive_tool_errors"`
+	SuspendReason         string    `json:"suspend_reason,omitempty"`
+	ParentUUID            string    `json:"parent_uuid,omitempty"`
+	// ProjectDir is the absolute path to the project the process belongs to.
+	// Persisted so the checkpoint resume path can resolve the process's OWN
+	// project (project-level providers/.env) instead of the operator's cwd.
+	// omitempty keeps legacy checkpoints clean; an empty value degrades to the
+	// opts/oldProc fallback in resolveResumeProjectConfig.
+	ProjectDir  string            `json:"project_dir,omitempty"`
+	EnvSnapshot map[string]string `json:"env_snapshot"`
 }
 
 // writeCheckpoint atomically writes a checkpoint file to dir/checkpoint.json.
@@ -114,6 +120,12 @@ func buildCheckpointData(proc *Process, step int, contextSnapshot json.RawMessag
 	// Story 54.1 — snapshot the authoritative tool-name whitelist under the same
 	// lock so resume / daemon-restart revival keeps tool-level enforcement.
 	allowedTools := append([]string(nil), proc.AllowedTools...)
+	// Snapshot the process's own project dir so the checkpoint resume path can
+	// honor it over the operator's cwd (resolveResumeProjectConfig). nil-safe.
+	projectDir := ""
+	if proc.ProjectConfig != nil {
+		projectDir = proc.ProjectConfig.ProjectDir
+	}
 	proc.mu.Unlock()
 
 	// Snapshot relevant environment variables for resume drift detection (Story 30.4 review)
@@ -149,6 +161,7 @@ func buildCheckpointData(proc *Process, step int, contextSnapshot json.RawMessag
 			ConsecutiveToolErrors: consecutiveToolErrors,
 			SuspendReason:         suspendReason,
 			ParentUUID:            parentUUID,
+			ProjectDir:            projectDir,
 			EnvSnapshot:           envSnapshot,
 		},
 	}

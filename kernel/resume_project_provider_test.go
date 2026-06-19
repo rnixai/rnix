@@ -220,3 +220,183 @@ func TestResume_UnknownProvider_History_FailFast(t *testing.T) {
 		t.Errorf("error code = %q, want %q", se.Code, types.ErrDriver)
 	}
 }
+
+// =============================================================================
+// Resume 按被恢复进程自身 project_dir 解析 ProjectConfig
+// (spec-resume-honor-process-project-dir.md).
+//
+// Callers (CLI resume / dashboard r·f / compose-resume) derive opts.ProjectConfig
+// from the OPERATOR's cwd. When the operator runs from a different project than
+// the resumed process, that config is wrong and used to win the priority,
+// resolving the wrong/no project-level provider and failing the resume.
+// resolveResumeProjectConfig must honor the process's OWN project_dir (history
+// diskInfo / checkpoint cp.ProjectDir) on mismatch, while leaving same-project
+// (apply / auto-resume) and global-provider paths untouched.
+// =============================================================================
+
+// wrongCwdConfig mimics opts.ProjectConfig rebuilt from an operator cwd that is a
+// DIFFERENT project than the resumed process — it knows nothing of opencodego.
+func wrongCwdConfig() *config.ProjectConfig {
+	return &config.ProjectConfig{
+		ProjectDir:      "/tmp/some-other-project",
+		DefaultProvider: "claude",
+	}
+}
+
+// --- history: opts from a wrong cwd → honor the process's own project_dir ---
+func TestResume_ProjectProvider_History_CrossProject_HonorsOwnProjectDir(t *testing.T) {
+	k, baseDir := setupProjectProviderKernel(t)
+	uuid := "projprov-hist-crossproj-0001"
+	writeProjHistoryFixture(t, baseDir, uuid, "opencodego", testProjectDir)
+
+	loaderCalls := 0
+	k.SetProjectConfigLoader(func(pd string) (*config.ProjectConfig, error) {
+		loaderCalls++
+		if pd != testProjectDir {
+			t.Errorf("loader called with %q, want process's own %q", pd, testProjectDir)
+		}
+		return projectProviderConfig(), nil
+	})
+
+	// opts carries a DIFFERENT project's config (operator cwd, no opencodego
+	// opener). Pre-fix it won the priority and the resume failed global
+	// validation; post-fix the process's own project_dir is rebuilt and honored.
+	result, err := k.ResumeWithOpts(uuid, ResumeOpts{ProjectConfig: wrongCwdConfig()})
+	if err != nil {
+		t.Fatalf("cross-project resume should honor process's own project_dir, got: %v", err)
+	}
+	if loaderCalls != 1 {
+		t.Errorf("projectConfigLoader called %d times, want 1 (rebuild from own project_dir)", loaderCalls)
+	}
+	assertResumedProvider(t, k, result.PID, "opencodego", true)
+	cleanupResumedProc(t, k, result.PID)
+}
+
+// --- checkpoint: opts from a wrong cwd → honor persisted cp.ProjectDir ---
+func TestResume_ProjectProvider_Checkpoint_CrossProject_HonorsOwnProjectDir(t *testing.T) {
+	k, baseDir := setupProjectProviderKernel(t)
+	uuid := "projprov-ckpt-crossproj-0001"
+
+	stepsDir := filepath.Join(baseDir, "steps", uuid)
+	if err := os.MkdirAll(stepsDir, 0o755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	ctxSnap := json.RawMessage(`{"system_prompt":"proj agent","messages":[{"role":"user","content":"hi"}],"max_size":64}`)
+	cp := &CheckpointData{
+		Version:         CheckpointVersion,
+		UUID:            uuid,
+		LastStep:        3,
+		Timestamp:       time.Now(),
+		ContextSnapshot: ctxSnap,
+		ProcState: CheckpointProcState{
+			Provider:   "opencodego",
+			Model:      "deepseek-v4-flash",
+			Intent:     "checkpoint cross-project",
+			ProjectDir: testProjectDir, // persisted own project (Fix A)
+		},
+	}
+	if err := writeCheckpoint(stepsDir, cp); err != nil {
+		t.Fatalf("writeCheckpoint: %v", err)
+	}
+
+	loaderCalls := 0
+	k.SetProjectConfigLoader(func(pd string) (*config.ProjectConfig, error) {
+		loaderCalls++
+		if pd != testProjectDir {
+			t.Errorf("loader called with %q, want %q", pd, testProjectDir)
+		}
+		return projectProviderConfig(), nil
+	})
+
+	result, err := k.ResumeWithOpts(uuid, ResumeOpts{ProjectConfig: wrongCwdConfig()})
+	if err != nil {
+		t.Fatalf("checkpoint cross-project resume should honor cp.ProjectDir, got: %v", err)
+	}
+	if loaderCalls != 1 {
+		t.Errorf("projectConfigLoader called %d times, want 1", loaderCalls)
+	}
+	assertResumedProvider(t, k, result.PID, "opencodego", true)
+	cleanupResumedProc(t, k, result.PID)
+}
+
+// --- regression: same-project opts (apply reconnect) → opts used, no reload ---
+func TestResume_ProjectProvider_History_SameProject_NoLoaderReload(t *testing.T) {
+	k, baseDir := setupProjectProviderKernel(t)
+	uuid := "projprov-hist-sameproj-0001"
+	writeProjHistoryFixture(t, baseDir, uuid, "opencodego", testProjectDir)
+
+	loaderCalls := 0
+	k.SetProjectConfigLoader(func(_ string) (*config.ProjectConfig, error) {
+		loaderCalls++
+		return projectProviderConfig(), nil
+	})
+
+	// opts.ProjectConfig.ProjectDir == process's own project_dir (apply runs from
+	// the process's project) → no mismatch → opts used directly, loader untouched.
+	result, err := k.ResumeWithOpts(uuid, ResumeOpts{ProjectConfig: projectProviderConfig()})
+	if err != nil {
+		t.Fatalf("same-project resume should reuse opts.ProjectConfig, got: %v", err)
+	}
+	if loaderCalls != 0 {
+		t.Errorf("projectConfigLoader called %d times, want 0 (same project → no rebuild)", loaderCalls)
+	}
+	assertResumedProvider(t, k, result.PID, "opencodego", true)
+	cleanupResumedProc(t, k, result.PID)
+}
+
+// --- buildCheckpointData stamps ProjectDir from proc.ProjectConfig (Fix A write side) ---
+func TestBuildCheckpointData_StampsProjectDir(t *testing.T) {
+	proc := NewProcess(7, "ckpt projectdir", nil)
+	proc.UUID = "buildckpt-projectdir-00000001"
+	proc.ProjectConfig = &config.ProjectConfig{ProjectDir: testProjectDir}
+
+	cp := buildCheckpointData(proc, 2, json.RawMessage(`{}`), 0)
+	if cp.ProcState.ProjectDir != testProjectDir {
+		t.Errorf("ProcState.ProjectDir = %q, want %q", cp.ProcState.ProjectDir, testProjectDir)
+	}
+}
+
+// --- buildCheckpointData is nil-safe when the process has no ProjectConfig ---
+func TestBuildCheckpointData_NilProjectConfig_EmptyProjectDir(t *testing.T) {
+	proc := NewProcess(8, "ckpt no projectdir", nil)
+	proc.UUID = "buildckpt-noprojectdir-0001"
+	// proc.ProjectConfig nil → ProjectDir must be "" (degrades to opts/oldProc), not panic.
+	cp := buildCheckpointData(proc, 1, json.RawMessage(`{}`), 0)
+	if cp.ProcState.ProjectDir != "" {
+		t.Errorf("ProcState.ProjectDir = %q, want empty for nil ProjectConfig", cp.ProcState.ProjectDir)
+	}
+}
+
+// --- mismatch + loader returns (nil,nil) → fall through to opts, not nil ---
+// Guards the review patch: resolveProjectContext returns (nil,nil) when ownDir
+// has no .rnix (project removed/moved). The cross-project branch must NOT
+// short-circuit to nil (which would skip the opts/oldProc chain and fail a
+// project-only provider) — it falls through to the existing priority.
+func TestResume_ProjectProvider_CrossProject_LoaderNilNil_FallsThroughToOpts(t *testing.T) {
+	k, baseDir := setupProjectProviderKernel(t)
+	uuid := "projprov-hist-loadernil-0001"
+	writeProjHistoryFixture(t, baseDir, uuid, "opencodego", testProjectDir)
+
+	loaderCalls := 0
+	k.SetProjectConfigLoader(func(_ string) (*config.ProjectConfig, error) {
+		loaderCalls++
+		return nil, nil // ownDir's project no longer resolvable (e.g. .rnix removed)
+	})
+
+	// opts carries a usable opener but for a DIFFERENT project dir → triggers the
+	// cross-project branch; loader yields (nil,nil) → must fall through to opts.
+	optsCfg := &config.ProjectConfig{
+		ProjectDir:      "/tmp/some-other-project",
+		DefaultProvider: "opencodego",
+		LLMFileOpener:   projectOnlyOpener(),
+	}
+	result, err := k.ResumeWithOpts(uuid, ResumeOpts{ProjectConfig: optsCfg})
+	if err != nil {
+		t.Fatalf("loader (nil,nil) must fall through to opts, not fail; got: %v", err)
+	}
+	if loaderCalls != 1 {
+		t.Errorf("projectConfigLoader called %d times, want 1 (branch fired then fell through)", loaderCalls)
+	}
+	assertResumedProvider(t, k, result.PID, "opencodego", true)
+	cleanupResumedProc(t, k, result.PID)
+}
