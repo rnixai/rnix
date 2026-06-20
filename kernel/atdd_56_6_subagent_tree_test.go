@@ -19,7 +19,6 @@ package kernel
 //   为顶层键）——故本文件 RED 假定 AC1 已就位（AC1 由 drivers/llm 单测独立护栏）。
 //
 // 红灯机制（记忆 atdd-code-story-red-mechanism-preference）:
-//   🔴 RED: t.Skip("RED: 56.6: …")，dev-story 移 skip 验 RED→GREEN。
 //   🟢 GREEN-guard（INT-011/012，不 skip）: 合成路径实现前根本不存在 → "零合成
 //      节点" 天然成立；实时拦"实现后对 API driver / 非-Task 工具过度触发/双计"。
 
@@ -31,18 +30,26 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/rnixai/rnix/drivers/llm"
 	"github.com/rnixai/rnix/internal/types"
 	"github.com/rnixai/rnix/vfs"
 )
 
-// newSubagent566Harness mirrors newStreamHarness but sets proc.PrimaryDevice
-// BEFORE setupDriverStreamHandler so the CLI-driver synthesis gate sees it. The
-// stub device path is distinct from 40.4's to avoid registry collisions.
+// newSubagent566Harness mirrors newStreamHarness but sets the stub's driver TYPE
+// (via vfs.DriverTypeProvider) BEFORE setupDriverStreamHandler so the CLI-driver
+// synthesis gate sees it. The gate keys on driver type, not the device path, so
+// proc.PrimaryDevice is set only for display parity. The stub device path is
+// distinct from 40.4's to avoid registry collisions.
 func newSubagent566Harness(t *testing.T, primaryDevice string) *streamHarness {
 	t.Helper()
 	tk := newObserveTestKernel(t)
-	tk.proc.PrimaryDevice = primaryDevice // gate 判据: PrimaryDevice ∈ CLI 设备集
-	stub := &streamStubFile{}
+	tk.proc.PrimaryDevice = primaryDevice
+	// Mirror production attachStepObservation: stepsDir = <base>/steps/<uuid>.
+	// The synthetic-child base dir is derived from this so children land as
+	// siblings of the host (newObserveTestKernel writes the host writer directly
+	// under baseDir rather than ResolveStepBaseDir's global/ subdir).
+	tk.proc.stepsDir = filepath.Join(tk.baseDir, "steps", tk.proc.UUID)
+	stub := &streamStubFile{driverType: testDriverTypeFor566(primaryDevice)}
 
 	if err := tk.k.vfs.DeviceRegistry().Register("/dev/llm/teststream566",
 		func(_ string, _ vfs.OpenFlag, _ string) (vfs.VFSFile, error) {
@@ -60,6 +67,28 @@ func newSubagent566Harness(t *testing.T, primaryDevice string) *streamHarness {
 		t.Fatal("setupDriverStreamHandler did not attach a stream handler")
 	}
 	return &streamHarness{tk: tk, stub: stub}
+}
+
+// testDriverTypeFor566 maps a test device path to the driver type the stub
+// reports via vfs.DriverTypeProvider, so the production driver-TYPE gate (no
+// longer device-name based, Story 56.6 review) is exercised. CLI devices map to
+// their CLI driver type; everything else maps to a representative non-CLI (API)
+// driver type so the gate correctly declines to synthesize.
+func testDriverTypeFor566(devicePath string) string {
+	switch devicePath {
+	case "/dev/llm/claude":
+		return llm.DriverClaudeCLI
+	case "/dev/llm/cursor":
+		return llm.DriverCursorCLI
+	case "/dev/llm/codex":
+		return llm.DriverCodexCLI
+	case "/dev/llm/qwen":
+		return llm.DriverQwenCLI
+	case "/dev/llm/openai-compat":
+		return llm.DriverOpenAICompat
+	default:
+		return llm.DriverOpenAI
+	}
 }
 
 // --- CLI subagent 事件构造器（parent_tool_use_id 为顶层键，模拟 AC1 透传后形态）---
@@ -208,6 +237,28 @@ func stepsContainTool566(recs []types.StepRecord, tool string) bool {
 	return false
 }
 
+// readEventsForUUID566 reads <baseDir>/steps/<uuid>/events.jsonl, tolerating a
+// missing file (returns nil) — the dashboard Timeline reads events.jsonl by UUID.
+func readEventsForUUID566(t *testing.T, baseDir, uuid string) []SyscallEventDisk {
+	t.Helper()
+	evs, err := ReadAllEvents(filepath.Join(baseDir, "steps", uuid, "events.jsonl"))
+	if err != nil {
+		return nil
+	}
+	return evs
+}
+
+// eventsHaveParentToolUseID566 reports whether any event's args carry the given
+// parent_tool_use_id — the marker of a subagent-internal frame.
+func eventsHaveParentToolUseID566(evs []SyscallEventDisk, ptid string) bool {
+	for _, e := range evs {
+		if stringOf(e.Args["parent_tool_use_id"]) == ptid {
+			return true
+		}
+	}
+	return false
+}
+
 // feedSubagentSequence566 feeds a complete CLI subagent lifecycle: Task派生 →
 // 内部 Bash（started + 权威 assistant + result）→ Task 完成 → done。
 func feedSubagentSequence566(h *streamHarness, taskID, report string) {
@@ -224,7 +275,6 @@ func feedSubagentSequence566(h *streamHarness, taskID, report string) {
 // 1 个子节点，ParentUUID==宿主UUID 且 PID==0。RED: 无合成逻辑 → 0 个节点。
 // ---------------------------------------------------------------------------
 func TestATDD_56_6_INT_001_SynthesizesChildForTaskToolUse(t *testing.T) {
-	t.Skip("RED: 56.6: observe.go 无 CLI subagent 合成逻辑；dev-story 移 skip 验 RED→GREEN")
 
 	h := newSubagent566Harness(t, "/dev/llm/claude")
 	h.feed(evtTaskToolUse566("toolu_task1", "code-reviewer", "review the diff", ""))
@@ -250,7 +300,6 @@ func TestATDD_56_6_INT_001_SynthesizesChildForTaskToolUse(t *testing.T) {
 // RED: 无合成逻辑。
 // ---------------------------------------------------------------------------
 func TestATDD_56_6_INT_003_ChildIntentFromDescriptionElsePrompt(t *testing.T) {
-	t.Skip("RED: 56.6: 无合成逻辑无法填 Intent；dev-story 移 skip 验 RED→GREEN")
 
 	// (a) 有 description → Intent==description。
 	h1 := newSubagent566Harness(t, "/dev/llm/claude")
@@ -274,7 +323,6 @@ func TestATDD_56_6_INT_003_ChildIntentFromDescriptionElsePrompt(t *testing.T) {
 // RED: 无合成逻辑。
 // ---------------------------------------------------------------------------
 func TestATDD_56_6_INT_004_ChildModelFromInputElseInheritHost(t *testing.T) {
-	t.Skip("RED: 56.6: 无合成逻辑；dev-story 移 skip 验 RED→GREEN")
 
 	h := newSubagent566Harness(t, "/dev/llm/claude")
 	h.tk.proc.Model = "host-sonnet"
@@ -300,7 +348,6 @@ func TestATDD_56_6_INT_004_ChildModelFromInputElseInheritHost(t *testing.T) {
 // RED: 无合成逻辑。
 // ---------------------------------------------------------------------------
 func TestATDD_56_6_INT_005_ChildCreatedAtNonZeroStateRunning(t *testing.T) {
-	t.Skip("RED: 56.6: 无合成逻辑；dev-story 移 skip 验 RED→GREEN")
 
 	h := newSubagent566Harness(t, "/dev/llm/claude")
 	h.feed(evtTaskToolUse566("toolu_t", "code-reviewer", "running check", ""))
@@ -321,7 +368,6 @@ func TestATDD_56_6_INT_005_ChildCreatedAtNonZeroStateRunning(t *testing.T) {
 // RED: 无合成逻辑 → 无子节点 steps.jsonl。
 // ---------------------------------------------------------------------------
 func TestATDD_56_6_INT_006_InternalStepsRoutedToChildStepsJSONL(t *testing.T) {
-	t.Skip("RED: 56.6: 无内部步骤归属；dev-story 移 skip 验 RED→GREEN")
 
 	h := newSubagent566Harness(t, "/dev/llm/claude")
 	feedSubagentSequence566(h, "toolu_task1", "subagent report")
@@ -343,7 +389,6 @@ func TestATDD_56_6_INT_006_InternalStepsRoutedToChildStepsJSONL(t *testing.T) {
 // RED: 当前 parent_tool_use_id 被忽略，subagent 的 Bash 步骤误灌宿主 steps.jsonl。
 // ---------------------------------------------------------------------------
 func TestATDD_56_6_INT_007_HostStepStreamNotPollutedBySubagentFrames(t *testing.T) {
-	t.Skip("RED: 56.6: subagent 内部帧仍污染宿主 step 流；dev-story 移 skip 验 RED→GREEN")
 
 	h := newSubagent566Harness(t, "/dev/llm/claude")
 	feedSubagentSequence566(h, "toolu_task1", "subagent report")
@@ -355,11 +400,40 @@ func TestATDD_56_6_INT_007_HostStepStreamNotPollutedBySubagentFrames(t *testing.
 }
 
 // ---------------------------------------------------------------------------
+// 🔵 56-6-INT-013 (AC3 + Timeline 隔离, Story 56.6 code-review patch 1): subagent
+// 内部帧除写子节点 steps.jsonl 外，也写子节点自己的 events.jsonl（dashboard Timeline
+// 按 UUID 读 events.jsonl）；宿主 events.jsonl 不被 subagent 内部帧污染。
+// ---------------------------------------------------------------------------
+func TestATDD_56_6_INT_013_SubagentEventsRoutedToChildEventsJSONL(t *testing.T) {
+	h := newSubagent566Harness(t, "/dev/llm/claude")
+	feedSubagentSequence566(h, "toolu_task1", "subagent report")
+
+	children := syntheticChildren566(h.tk.k, h.tk.proc.UUID)
+	if len(children) != 1 {
+		t.Fatalf("setup: 合成子节点数 = %d, want 1", len(children))
+	}
+
+	// (a) 子节点 events.jsonl 含带 parent_tool_use_id 的内部帧（Timeline 可见）。
+	childEvents := readEventsForUUID566(t, h.tk.baseDir, children[0].UUID)
+	if !eventsHaveParentToolUseID566(childEvents, "toolu_task1") {
+		t.Errorf("Timeline FAIL: 子节点 events.jsonl 不含 parent_tool_use_id=toolu_task1 的内部帧（%d 条）", len(childEvents))
+	}
+
+	// (b) 宿主 events.jsonl 不含 subagent 内部帧（隔离），但保留宿主自身 Task 帧。
+	hostEvents := readEventsForUUID566(t, h.tk.baseDir, h.tk.proc.UUID)
+	if eventsHaveParentToolUseID566(hostEvents, "toolu_task1") {
+		t.Error("Timeline FAIL: 宿主 events.jsonl 含 subagent 内部帧（parent_tool_use_id=toolu_task1），未隔离")
+	}
+	if len(hostEvents) == 0 {
+		t.Error("Timeline FAIL: 宿主 events.jsonl 为空（宿主自身 Task dispatch/result 帧被误删）")
+	}
+}
+
+// ---------------------------------------------------------------------------
 // 🔴 56-6-INT-008 (P1, AC4): 宿主收 Task tool_result → 子节点 finalize（Dead+Result+DeadAt）。
 // RED: 无合成/finalize 逻辑。
 // ---------------------------------------------------------------------------
 func TestATDD_56_6_INT_008_ChildFinalizedOnTaskToolResult(t *testing.T) {
-	t.Skip("RED: 56.6: 无 finalize 逻辑；dev-story 移 skip 验 RED→GREEN")
 
 	h := newSubagent566Harness(t, "/dev/llm/claude")
 	feedSubagentSequence566(h, "toolu_task1", "final subagent report text")
@@ -385,7 +459,6 @@ func TestATDD_56_6_INT_008_ChildFinalizedOnTaskToolResult(t *testing.T) {
 // RED: 无兜底逻辑。喂 Task + 内部步骤但**不**喂 Task tool_result，只喂 done。
 // ---------------------------------------------------------------------------
 func TestATDD_56_6_INT_010_DanglingChildFinalizedOnStreamDone(t *testing.T) {
-	t.Skip("RED: 56.6: 无 stream-end 兜底 finalize；dev-story 移 skip 验 RED→GREEN")
 
 	h := newSubagent566Harness(t, "/dev/llm/claude")
 	h.feed(evtTaskToolUse566("toolu_task1", "code-reviewer", "no explicit result", ""))
@@ -432,12 +505,28 @@ func TestATDD_56_6_INT_012_CLIHostNonTaskToolNoSyntheticNode(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
+// 🟢 56-6-INT-014 (P0, AC5 spec-named device, Story 56.6 code-review patch 6):
+// openai-compat (API) driver host → 零合成节点，即便喂带 subagent_type 的 Task
+// 形状 tool_use。证明 driver-TYPE gate（非仅 shape gate）拦住 API driver，绝不
+// 双计（真 ActionSpawn 子进程 + 合成节点）。spec AC5 第 39 行点名 openai-compat；
+// INT-011 覆盖的是 /dev/llm/openai。
+// ---------------------------------------------------------------------------
+func TestATDD_56_6_INT_014_OpenAICompatDriverNoSyntheticNode(t *testing.T) {
+	h := newSubagent566Harness(t, "/dev/llm/openai-compat") // API driver host
+	// 即便喂带 subagent_type 的 Task 形状 tool_use，driver-type gate 也应拦住。
+	h.feed(evtTaskToolUse566("toolu_task1", "code-reviewer", "review the diff", ""))
+
+	if n := len(syntheticChildren566(h.tk.k, h.tk.proc.UUID)); n != 0 {
+		t.Errorf("AC5 FAIL: openai-compat driver host 产生了 %d 个合成节点, want 0（driver-type gate 未拦住 API driver）", n)
+	}
+}
+
+// ---------------------------------------------------------------------------
 // 🔴 56-6-INT-022 (P1, AC2/AC8 幂等): 同一 Task tool_use 在流中重复出现（重放）
 // → 恰好 1 个合成节点（确定性 UUID 去重，daemon-restart/LoadHistory 不产生重复）。
 // RED: 无合成 → 0 个（≠1）。
 // ---------------------------------------------------------------------------
 func TestATDD_56_6_INT_022_DeterministicUUIDDedupesReplay(t *testing.T) {
-	t.Skip("RED: 56.6: 无确定性 UUID 合成；dev-story 移 skip 验 RED→GREEN")
 
 	h := newSubagent566Harness(t, "/dev/llm/claude")
 	// 同一 taskID 的 Task tool_use 出现两次（模拟重放 / 二次观测）。

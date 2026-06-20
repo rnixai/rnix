@@ -45,6 +45,25 @@ var validModes = map[string]bool{
 	ModeCall:   true,
 }
 
+// cliDrivers is the set of driver types that shell out to a local CLI binary and
+// run the entire agentic loop — including Task/Agent subagent dispatch — inside a
+// single OS process (Story 56.6). API drivers take the kernel's real ActionSpawn
+// path instead, so CLI-subagent synthesis must fire only for these.
+var cliDrivers = map[string]bool{
+	DriverClaudeCLI: true,
+	DriverCursorCLI: true,
+	DriverQwenCLI:   true,
+	DriverCodexCLI:  true,
+}
+
+// IsCLIDriver reports whether driverType shells out to a local CLI binary.
+// Story 56.6: the kernel gates CLI-subagent process-tree synthesis on driver
+// TYPE (robust) rather than the provider-named device path (fragile). Mirrors the
+// dashboard inspector / doctor helpers of the same name.
+func IsCLIDriver(driverType string) bool {
+	return cliDrivers[driverType]
+}
+
 var nameRegexp = regexp.MustCompile(`^[a-zA-Z0-9_-]+$`)
 
 type ProvidersConfig struct {

@@ -211,6 +211,16 @@ func Render(state TreeState, ctx RenderContext, innerW, innerH int) string {
 		if collapsed, ok := ctx.CollapsedIntents[row.Proc.UUID]; ok {
 			intent = collapsed
 		}
+		// Story 56.6 (AC7): synthetic CLI-subagent observation nodes carry a
+		// visual marker so they are visibly distinct from real rnix processes in
+		// the Agent Tree. RNIX_ASCII=1 degrades the glyph to an ASCII tag.
+		if row.Proc.Synthetic {
+			if ui.IsASCIIMode() {
+				intent = "[sub] " + intent
+			} else {
+				intent = "🔗 " + intent
+			}
+		}
 
 		// Compact metadata suffix
 		pidPart := fmt.Sprintf("%d", row.Proc.PID)

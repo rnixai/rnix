@@ -30,7 +30,6 @@ import (
 // round-trip 保留。RED: procInfoDisk DTO 未接 Synthetic 字段 → 落盘即丢。
 // ---------------------------------------------------------------------------
 func TestATDD_56_6_UNIT_014_SyntheticFieldRoundTrips(t *testing.T) {
-	t.Skip("RED: 56.6: procInfoDisk DTO 未持久化 Synthetic；dev-story 移 skip 验 RED→GREEN")
 
 	baseDir := t.TempDir()
 	info := vfs.ProcInfo{
@@ -116,7 +115,6 @@ func TestATDD_56_6_UNIT_021_SyntheticNodeLoadsWithoutProcessMeta(t *testing.T) {
 // RED: ListResumable 不识别 Synthetic（且 procInfoDisk 未持久化该字段）→ 端到端落空。
 // ---------------------------------------------------------------------------
 func TestATDD_56_6_INT_016_ListResumableExcludesSynthetic(t *testing.T) {
-	t.Skip("RED: 56.6: ListResumable 未排除合成节点 + DTO 未持久化 Synthetic；dev-story 移 skip 验 RED→GREEN")
 
 	baseDir := t.TempDir()
 	writeResumableEntry566(t, baseDir, vfs.ProcInfo{
@@ -154,7 +152,6 @@ func TestATDD_56_6_INT_016_ListResumableExcludesSynthetic(t *testing.T) {
 // 注: dev 应在 Resume 早期经 procHistory.FindByUUID(uuid).Synthetic 拦截。
 // ---------------------------------------------------------------------------
 func TestATDD_56_6_INT_017_ResumeOfSyntheticNodeRejected(t *testing.T) {
-	t.Skip("RED: 56.6: Resume 未拦截合成节点；dev-story 移 skip 验 RED→GREEN")
 
 	k := newSimpleKernel(t)
 	k.dataDir = t.TempDir()
@@ -173,6 +170,35 @@ func TestATDD_56_6_INT_017_ResumeOfSyntheticNodeRejected(t *testing.T) {
 	msg := strings.ToLower(err.Error())
 	if !strings.Contains(msg, "synthetic") && !strings.Contains(err.Error(), "合成") && !strings.Contains(msg, "not resumable") {
 		t.Errorf("AC6 FAIL: 错误信息应指明合成节点不可 resume, got %q", err.Error())
+	}
+}
+
+// ---------------------------------------------------------------------------
+// 🔵 56-6-INT-018 (AC6 defense-in-depth, Story 56.6 code-review patch 3): a
+// synthetic node present on disk but ABSENT from the in-memory procHistory
+// (FIFO eviction / procHistory miss) is still rejected by the disk-level guard
+// in resumeFromHistory — the in-memory guard at ResumeWithOpts is bypassed.
+// ---------------------------------------------------------------------------
+func TestATDD_56_6_INT_018_ResumeSyntheticFromDiskRejected(t *testing.T) {
+	k := newSimpleKernel(t)
+	k.dataDir = t.TempDir()
+	uuid := "synth-disk-only"
+	// Write under <dataDir>/global so FindBaseDirByUUID (which scans projects/
+	// and global/) discovers it and routing reaches resumeFromHistory.
+	writeResumableEntry566(t, filepath.Join(k.dataDir, "global"), vfs.ProcInfo{
+		UUID: uuid, Synthetic: true, ParentUUID: "host", PID: 0,
+		State: types.StateDead, CreatedAt: time.Now(),
+	})
+	// 故意不注册进 procHistory —— 模拟 FIFO 驱逐 / 内存未命中，绕过 ResumeWithOpts
+	// 的内存层守卫，逼到 resumeFromHistory 的磁盘层守卫。
+
+	_, err := k.Resume(uuid)
+	if err == nil {
+		t.Fatal("AC6 FAIL: 磁盘层 resume 合成节点应返回错误，got nil（试图 spawn 虚拟节点）")
+	}
+	msg := strings.ToLower(err.Error())
+	if !strings.Contains(msg, "synthetic") && !strings.Contains(err.Error(), "合成") && !strings.Contains(msg, "not resumable") {
+		t.Errorf("AC6 FAIL: 磁盘层错误信息应指明合成节点不可 resume, got %q", err.Error())
 	}
 }
 

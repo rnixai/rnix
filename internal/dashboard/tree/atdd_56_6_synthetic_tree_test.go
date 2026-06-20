@@ -77,7 +77,6 @@ func TestATDD_56_6_UNIT_018_SyntheticChildHangsUnderHostByParentUUID(t *testing.
 // RED: render 不读 Synthetic → 合成与普通节点渲染相同。
 // ---------------------------------------------------------------------------
 func TestATDD_56_6_UNIT_019_SyntheticNodeRowHasVisualMarker(t *testing.T) {
-	t.Skip("RED: 56.6: 树渲染未对合成节点加视觉标记；dev-story 移 skip 验 RED→GREEN")
 
 	host, synthChild, plainChild := hostAndSynthChild566()
 	synthOut := renderTree566([]vfs.ProcInfo{host, synthChild})
@@ -93,7 +92,6 @@ func TestATDD_56_6_UNIT_019_SyntheticNodeRowHasVisualMarker(t *testing.T) {
 // RED: 无标记 → ASCII 模式下合成与普通节点同样无区分。
 // ---------------------------------------------------------------------------
 func TestATDD_56_6_UNIT_020_SyntheticMarkerASCIIDegrade(t *testing.T) {
-	t.Skip("RED: 56.6: 合成节点视觉标记未实现（含 ASCII 降级）；dev-story 移 skip 验 RED→GREEN")
 
 	t.Setenv("RNIX_ASCII", "1")
 	host, synthChild, plainChild := hostAndSynthChild566()

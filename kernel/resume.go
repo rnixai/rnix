@@ -323,6 +323,18 @@ func (k *KernelImpl) ResumeWithOpts(uuid string, opts ResumeOpts) (*ResumeResult
 		return nil, NewSyscallError("Resume", 0, "", fmt.Errorf("invalid UUID format: %s", uuid), types.ErrInvalid)
 	}
 
+	// Story 56.6: synthetic CLI-subagent observation nodes are not real rnix
+	// processes — they have no spawnable state. Reject resume early (Epic 42
+	// treats Dead as resumable, so this must be explicit) before any disk /
+	// checkpoint routing tries to spawn a virtual node.
+	if k.procHistory != nil {
+		if info := k.procHistory.FindByUUID(uuid); info != nil && info.Synthetic {
+			return nil, NewSyscallError("Resume", 0, "",
+				fmt.Errorf("UUID %s is a synthetic CLI-subagent observation node and is not resumable", uuid),
+				types.ErrInvalid)
+		}
+	}
+
 	k.resumeMu.Lock()
 	defer k.resumeMu.Unlock()
 
@@ -683,6 +695,18 @@ func (k *KernelImpl) resumeFromHistory(uuid string, opts ResumeOpts, start time.
 	if err := json.Unmarshal(procInfoData, &diskInfo); err != nil {
 		return nil, NewSyscallError("Resume", 0, "",
 			fmt.Errorf("parse proc-info.json: %w", err), types.ErrInternal)
+	}
+
+	// Story 56.6: disk-level guard against resuming a synthetic CLI-subagent
+	// observation node. The in-memory guard in ResumeWithOpts covers the common
+	// case, but this path is reachable when procHistory is nil or the synthetic
+	// UUID was evicted from the in-memory FIFO cap while its proc-info.json
+	// remains on disk — a synthetic node is not a real rnix process and has no
+	// spawnable state, so reject it here too (defense in depth for AC6).
+	if diskInfo.Synthetic {
+		return nil, NewSyscallError("Resume", 0, "",
+			fmt.Errorf("UUID %s is a synthetic CLI-subagent observation node and is not resumable", uuid),
+			types.ErrInvalid)
 	}
 
 	// Story 48.1 — promote diskInfo to vfs.ProcInfo so MCPMounts is in the

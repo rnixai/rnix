@@ -127,6 +127,16 @@ type ReasoningEffortProvider interface {
 	ReasoningEffort() string
 }
 
+// DriverTypeProvider is an optional interface for VFSFile implementations
+// (LLM devices) that can report the underlying driver type (e.g. "claude-cli").
+// Story 56.6: the kernel gates CLI-subagent process-tree synthesis on the
+// driver TYPE — which is robust — rather than the provider-named device path
+// (`/dev/llm/<provider>`, where <provider> is an arbitrary providers.yaml name),
+// which silently misses CLI providers named anything other than the convention.
+type DriverTypeProvider interface {
+	DriverType() string
+}
+
 // VFSFileFactory creates a VFSFile for a given subpath and open flags.
 // subpath is the remaining path after prefix matching (empty for exact matches).
 // workDir is the per-process working directory; empty string means no workDir set.

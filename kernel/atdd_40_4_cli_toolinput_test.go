@@ -46,6 +46,10 @@ func jsonHasField(t *testing.T, toolInput, key, want string) bool {
 // with synthetic claude-cli stream events.
 type streamStubFile struct {
 	handler func(evt map[string]any)
+	// driverType backs vfs.DriverTypeProvider so the CLI-subagent synthesis gate
+	// (Story 56.6) can be exercised by driver TYPE. Empty → non-CLI (40.4 tests
+	// leave it unset; they don't exercise subagent synthesis).
+	driverType string
 }
 
 func (f *streamStubFile) Read(_ int) ([]byte, error)              { return nil, nil }
@@ -55,6 +59,9 @@ func (f *streamStubFile) Stat() (vfs.FileStat, error) {
 	return vfs.FileStat{Name: "teststream", IsDevice: true}, nil
 }
 func (f *streamStubFile) SetStreamHandler(fn func(map[string]any)) { f.handler = fn }
+
+// DriverType implements vfs.DriverTypeProvider (Story 56.6).
+func (f *streamStubFile) DriverType() string { return f.driverType }
 
 // streamHarness wires an observeTestKernel to a stub StreamObserver device,
 // attaches the kernel stream handler, and exposes feed() to inject events.

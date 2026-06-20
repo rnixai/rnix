@@ -52,6 +52,13 @@ func (f *LLMFile) ReasoningEffort() string {
 	return f.driver.Info().ReasoningEffort
 }
 
+// DriverType returns the underlying driver type (e.g. DriverClaudeCLI).
+// Implements vfs.DriverTypeProvider (Story 56.6) — the kernel gates CLI-subagent
+// synthesis on this rather than the provider-named device path.
+func (f *LLMFile) DriverType() string {
+	return f.driver.Info().DriverType
+}
+
 // DriverMeta returns runtime metadata from the underlying driver, if it
 // implements DriverMetaProvider. Returns nil otherwise.
 func (f *LLMFile) DriverMeta() map[string]string {

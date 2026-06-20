@@ -47,6 +47,10 @@ func TestHelperProcessSubagent566(t *testing.T) {
 		`{"type":"user","parent_tool_use_id":"toolu_task1","session_id":"sess_1","message":{"content":[{"type":"tool_result","tool_use_id":"toolu_bash1","content":"file listing"}]}}`,
 		// 4) subagent 内部 stream_event（带 parent_tool_use_id）。
 		`{"type":"stream_event","parent_tool_use_id":"toolu_task1","session_id":"sess_1","event":{"type":"content_block_start","content_block":{"type":"tool_use","name":"Read","id":"toolu_read1"}}}`,
+		// 4b) 主线程 text_delta stream_event：仅 session_id、无 parent_tool_use_id，
+		//     且 extractStreamEvent 对 text_delta 返回 Data==nil → 验 patch 4 边界
+		//     （Data 须分配以保留 session_id，Story 56.6 review）。
+		`{"type":"stream_event","session_id":"sess_only","event":{"type":"content_block_delta","delta":{"type":"text_delta","text":"patch4probe"}}}`,
 		// 5) 主线程 user(tool_result)：Task 完成（命中父 tool_use_id，主线程无 parent_tool_use_id）。
 		`{"type":"user","message":{"content":[{"type":"tool_result","tool_use_id":"toolu_task1","content":"subagent report"}]}}`,
 		// 6) result 收尾。
@@ -102,8 +106,6 @@ func parentToolUseID(e StreamEvent) (string, bool) {
 // RED: claudeStreamEvent 无该字段 + assistant case data map 不写 → 命中 0。
 // -----------------------------------------------------------------------------
 func TestATDD_56_6_UNIT_001_AssistantFrameCarriesParentToolUseID(t *testing.T) {
-	t.Skip("RED: 56.6: claudeStreamEvent 缺 parent_tool_use_id 字段 + assistant data map 未透传；dev-story 移 skip 验 RED→GREEN")
-
 	events := collectSubagentStream566(t)
 	found := false
 	for _, e := range events {
@@ -125,8 +127,6 @@ func TestATDD_56_6_UNIT_001_AssistantFrameCarriesParentToolUseID(t *testing.T) {
 // RED: user case data map 仅写 role+content，丢弃 parent_tool_use_id。
 // -----------------------------------------------------------------------------
 func TestATDD_56_6_UNIT_002_UserFrameCarriesParentToolUseID(t *testing.T) {
-	t.Skip("RED: 56.6: user 帧 data map 未透传 parent_tool_use_id；dev-story 移 skip 验 RED→GREEN")
-
 	events := collectSubagentStream566(t)
 	found := false
 	for _, e := range events {
@@ -148,8 +148,6 @@ func TestATDD_56_6_UNIT_002_UserFrameCarriesParentToolUseID(t *testing.T) {
 // RED: extractStreamEvent 不知顶层 parent_tool_use_id，派生的 tool_call 事件 Data 缺该键。
 // -----------------------------------------------------------------------------
 func TestATDD_56_6_UNIT_003_StreamEventFrameCarriesParentToolUseID(t *testing.T) {
-	t.Skip("RED: 56.6: extractStreamEvent 路径未透传 parent_tool_use_id；dev-story 移 skip 验 RED→GREEN")
-
 	events := collectSubagentStream566(t)
 	found := false
 	for _, e := range events {
@@ -189,4 +187,36 @@ func TestATDD_56_6_UNIT_004_MainThreadFrameOmitsParentToolUseID(t *testing.T) {
 		return // 仅校验首个 assistant（主线程）。
 	}
 	t.Fatal("AC1 FAIL: 未收到任何 assistant StreamEvent（fixture 异常）")
+}
+
+// -----------------------------------------------------------------------------
+// 56-6-UNIT-005 (AC1 fidelity, Story 56.6 code-review patch 4): a text_delta
+// stream_event carrying ONLY session_id (extractStreamEvent returns Data==nil
+// for text_delta) still preserves session_id — Data is now allocated when EITHER
+// join key is present, not only parent_tool_use_id. Before patch 4 the lone
+// session_id was silently dropped.
+// -----------------------------------------------------------------------------
+func TestATDD_56_6_UNIT_005_StreamEventSessionOnlyPreservesSessionID(t *testing.T) {
+	events := collectSubagentStream566(t)
+	found := false
+	for _, e := range events {
+		if e.Content != "patch4probe" {
+			continue
+		}
+		found = true
+		if e.Data == nil {
+			t.Fatal("AC1 FAIL: 仅 session_id 的 text_delta stream_event 的 Data 为 nil（session_id 被丢弃 — patch 4 边界）")
+		}
+		if sid, _ := e.Data["session_id"].(string); sid != "sess_only" {
+			t.Errorf("AC1 FAIL: session_id 未保留, got %q want sess_only", sid)
+		}
+		// 该帧无 parent_tool_use_id（主线程），不应被写入。
+		if _, present := e.Data["parent_tool_use_id"]; present {
+			t.Error("AC1 FAIL: 主线程 text_delta 帧不应含 parent_tool_use_id 键")
+		}
+		break
+	}
+	if !found {
+		t.Fatal("setup: 未找到 text_delta 探针事件（fixture 异常）")
+	}
 }

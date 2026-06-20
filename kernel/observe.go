@@ -10,6 +10,7 @@ import (
 
 	rnixctx "github.com/rnixai/rnix/context"
 	"github.com/rnixai/rnix/debug"
+	"github.com/rnixai/rnix/drivers/llm"
 	"github.com/rnixai/rnix/internal/types"
 	"github.com/rnixai/rnix/vfs"
 )
@@ -617,12 +618,37 @@ func (k *KernelImpl) setupDriverStreamHandler(proc *Process, llmFD types.FD) {
 				authInputs[id] = string(data)
 			}
 		}
+		// Story 56.6: subagentTracker reconstructs CLI subagents (Claude Code
+		// Task/Agent) into synthetic child process-tree nodes. Created only for
+		// CLI-driver hosts (AC5 gate — API drivers take the real ActionSpawn
+		// path); nil otherwise so the synthesis branches are skipped entirely.
+		// Gated on the driver TYPE (via vfs.DriverTypeProvider) rather than the
+		// provider-named device path — a claude-cli provider named anything other
+		// than "claude" still reconstructs its subagents (Story 56.6 review).
+		var subagentTracker *cliSubagentTracker
+		if dtp, ok := file.(vfs.DriverTypeProvider); ok && llm.IsCLIDriver(dtp.DriverType()) {
+			subagentTracker = k.newCLISubagentTracker(proc)
+		}
 		obs.SetStreamHandler(func(evt map[string]any) {
 			// Driver activity refreshes heartbeat — prevents false stall
 			// detection during long-running streaming LLM calls.
 			proc.TouchHeartbeat()
 
 			evtType, _ := evt["type"].(string)
+
+			// Story 56.6: route subagent-internal frames to their synthetic child
+			// BEFORE any host-side emit. A frame carrying parent_tool_use_id that
+			// matches a tracked Task dispatch is the subagent's own activity — its
+			// tool steps go to the child's steps.jsonl and its syscall events to
+			// the child's events.jsonl, and the host handler returns so the host's
+			// step stream, events.jsonl, and live LogChan are never polluted (AC3
+			// + Timeline isolation, Story 56.6 review). Frames whose
+			// parent_tool_use_id matches no known child fall through to normal
+			// host processing below.
+			if subagentTracker != nil && subagentTracker.route(evt) {
+				return
+			}
+
 			syscallName := driverEventToSyscall(evtType)
 			k.emitEvent(proc, syscallName, evt, nil, nil, 0)
 
@@ -670,6 +696,29 @@ func (k *KernelImpl) setupDriverStreamHandler(proc *Process, llmFD types.FD) {
 						}
 					}
 					proc.mu.Unlock()
+				}
+			}
+
+			// Story 56.6: detect subagent lifecycle on host (main-thread) frames.
+			// An assistant Task/Agent tool_use whose input carries subagent_type
+			// synthesizes a child node (AC2); the host's matching tool_result
+			// finalizes it (AC4). The host still records the Task as its own
+			// aggregate step (Dev Notes decision #1) — these run alongside, not
+			// instead of, the normal host processing below.
+			if subagentTracker != nil {
+				switch evtType {
+				case "assistant":
+					for _, b := range extractToolUseBlocks(evt) {
+						if isSubagentDispatch(b) {
+							subagentTracker.getOrCreate(b)
+						}
+					}
+				case "user":
+					for _, r := range extractToolResultBlocks(evt) {
+						if r.toolUseID != "" {
+							subagentTracker.finalizeByToolResult(r.toolUseID, r.content)
+						}
+					}
 				}
 			}
 
@@ -902,6 +951,12 @@ func (k *KernelImpl) setupDriverStreamHandler(proc *Process, llmFD types.FD) {
 				// otherwise be dropped. flushAll drains both id-keyed and
 				// no-id pending tools.
 				flushAll()
+				// Story 56.6 (AC4): finalize any subagent child still Running at
+				// stream end (no explicit Task tool_result) so synthetic nodes
+				// never leak in a perpetual Running state.
+				if subagentTracker != nil {
+					subagentTracker.finalizeAll()
+				}
 			// NOTE (Story 40.4): the `user` event no longer flushes pending
 			// tools. claude CLI interleaves the previous round's user(tool_result)
 			// with the next tool's partial input deltas, so an unconditional user
@@ -909,6 +964,12 @@ func (k *KernelImpl) setupDriverStreamHandler(proc *Process, llmFD types.FD) {
 			// driven by the assistant event carrying each tool's authoritative
 			// input (claude), by each tool's `completed` event (codex/cursor), and
 			// by the stream-end `done` backstop.
+			case "error":
+				// Story 56.6 (AC4): a terminating error also ends the stream —
+				// finalize dangling subagent children so they do not leak.
+				if subagentTracker != nil {
+					subagentTracker.finalizeAll()
+				}
 			}
 		})
 	}

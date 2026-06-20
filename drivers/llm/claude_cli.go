@@ -381,7 +381,14 @@ func (d *ClaudeCliDriver) Call(ctx context.Context, req LLMRequest) (*LLMRespons
 type claudeStreamEvent struct {
 	Type    string `json:"type"`
 	Subtype string `json:"subtype,omitempty"`
-	Message struct {
+	// ParentToolUseID is the cross-process join key for CLI subagents (Story
+	// 56.6): the tool_use_id of the parent Task tool that spawned this frame's
+	// subagent. Main-thread frames carry null/"" here; subagent-internal frames
+	// (assistant/user/stream_event) carry the父 Task tool_use_id. Preserved so
+	// kernel/observe.go can reconstruct the subagent process tree.
+	ParentToolUseID string `json:"parent_tool_use_id,omitempty"`
+	SessionID       string `json:"session_id,omitempty"`
+	Message         struct {
 		ID      string               `json:"id,omitempty"`
 		Content []claudeContentBlock `json:"content,omitempty"`
 		Role    string               `json:"role,omitempty"`
@@ -413,6 +420,23 @@ type claudeContentBlock struct {
 	Input     any    `json:"input,omitempty"`       // tool_use input
 	ToolUseID string `json:"tool_use_id,omitempty"` // tool_result reference
 	Content   any    `json:"content,omitempty"`     // tool_result content (string or array)
+}
+
+// addCLIJoinKeys copies the cross-process join keys (parent_tool_use_id +
+// session_id) from a stream frame into a driver StreamEvent's Data map, in
+// omitempty style — only non-empty values are written so main-thread frames
+// (parent_tool_use_id == null) stay clean. Story 56.6: these keys let
+// kernel/observe.go attribute subagent-internal frames to a synthesized child.
+func addCLIJoinKeys(data map[string]any, evt claudeStreamEvent) {
+	if data == nil {
+		return
+	}
+	if evt.ParentToolUseID != "" {
+		data["parent_tool_use_id"] = evt.ParentToolUseID
+	}
+	if evt.SessionID != "" {
+		data["session_id"] = evt.SessionID
+	}
 }
 
 // Stream executes a streaming LLM request via the Claude Code CLI.
@@ -536,6 +560,7 @@ func (d *ClaudeCliDriver) Stream(ctx context.Context, req LLMRequest) (<-chan St
 				if len(evt.Message.Content) > 0 {
 					data["content"] = contentBlocksToAny(evt.Message.Content)
 				}
+				addCLIJoinKeys(data, evt)
 				se := StreamEvent{Type: "user", Data: data}
 				select {
 				case ch <- se:
@@ -545,6 +570,10 @@ func (d *ClaudeCliDriver) Stream(ctx context.Context, req LLMRequest) (<-chan St
 			case "stream_event":
 				// Raw Claude API streaming event — extract tool_use, thinking, text_delta blocks
 				if se := parser.extractStreamEvent(evt.Event); se != nil {
+					if se.Data == nil && (evt.ParentToolUseID != "" || evt.SessionID != "") {
+						se.Data = map[string]any{}
+					}
+					addCLIJoinKeys(se.Data, evt)
 					select {
 					case ch <- *se:
 					case <-ctx.Done():
@@ -557,6 +586,7 @@ func (d *ClaudeCliDriver) Stream(ctx context.Context, req LLMRequest) (<-chan St
 				if len(evt.Message.Content) > 0 {
 					data["content"] = contentBlocksToAny(evt.Message.Content)
 				}
+				addCLIJoinKeys(data, evt)
 				se := StreamEvent{Type: "assistant", Data: data}
 				select {
 				case ch <- se:

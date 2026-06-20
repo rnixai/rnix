@@ -52,6 +52,30 @@ func (h *ProcessHistory) Add(info vfs.ProcInfo) {
 	}
 }
 
+// Upsert replaces the most recent entry matching info.UUID in place, or appends
+// info when no match exists (Story 56.6). Synthesized CLI-subagent nodes use
+// this so the determinism/idempotency contract (same tool_use_id → one node)
+// holds and finalize (Running → Dead) updates the live snapshot rather than
+// adding a duplicate. Appending honors the same FIFO cap as Add.
+func (h *ProcessHistory) Upsert(info vfs.ProcInfo) {
+	if info.UUID == "" {
+		return
+	}
+	h.mu.Lock()
+	defer h.mu.Unlock()
+
+	for i := len(h.entries) - 1; i >= 0; i-- {
+		if h.entries[i].UUID == info.UUID {
+			h.entries[i] = info
+			return
+		}
+	}
+	h.entries = append(h.entries, info)
+	if len(h.entries) > h.maxSize {
+		h.entries = h.entries[len(h.entries)-h.maxSize:]
+	}
+}
+
 // List returns a deep copy of all stored snapshots.
 func (h *ProcessHistory) List() []vfs.ProcInfo {
 	h.mu.RLock()
@@ -243,6 +267,11 @@ type procInfoDisk struct {
 	MCPMounts      []mcpMountDisk    `json:"mcp_mounts,omitempty"`
 	DriverMeta     map[string]string `json:"driver_meta,omitempty"`
 	FeatureProfile string            `json:"feature_profile,omitempty"`
+
+	// Synthetic marks a CLI-subagent observation node (Story 56.6) — see
+	// vfs.ProcInfo.Synthetic. omitempty keeps legacy proc-info.json clean and
+	// makes absent → false on load (backward compatible).
+	Synthetic bool `json:"synthetic,omitempty"`
 }
 
 // mcpMountDisk mirrors vfs.MCPMountSnapshot on disk. Defined here (instead of
@@ -297,6 +326,7 @@ func procInfoToDisk(info vfs.ProcInfo) procInfoDisk {
 		ExitCodeSet:    info.ExitCodeSet,
 		DriverMeta:     info.DriverMeta,
 		FeatureProfile: info.FeatureProfile,
+		Synthetic:      info.Synthetic,
 	}
 	if !info.DeadAt.IsZero() {
 		d.DeadAt = info.DeadAt.Format(time.RFC3339Nano)
@@ -360,6 +390,7 @@ func procInfoFromDisk(d procInfoDisk) vfs.ProcInfo {
 		ExitCodeSet:    d.ExitCodeSet,
 		DriverMeta:     d.DriverMeta,
 		FeatureProfile: d.FeatureProfile,
+		Synthetic:      d.Synthetic,
 	}
 	if d.CreatedAt != "" {
 		info.CreatedAt, _ = time.Parse(time.RFC3339Nano, d.CreatedAt)
@@ -588,6 +619,13 @@ func ListResumable(baseDir string) ([]vfs.ProcInfo, error) {
 			continue
 		}
 		if d.UUID == "" {
+			continue
+		}
+		// Story 56.6: synthetic CLI-subagent observation nodes are not real rnix
+		// processes — exclude them from the resumable set so `rnix ps
+		// --resumable` / `rnix resume <uuid>` never attempt to spawn a virtual
+		// node (Epic 42 treats Dead as resumable, so this must be explicit).
+		if d.Synthetic {
 			continue
 		}
 		// Require either steps.jsonl OR checkpoint.json — both are valid resume
