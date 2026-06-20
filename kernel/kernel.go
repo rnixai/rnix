@@ -676,6 +676,12 @@ type MCPProbeResult struct {
 //
 // Returns a zero-stage result with OK=false when transportFactory is nil
 // (mis-wired daemon: factor up via cmd/rnix/main.go:1519's SetTransportFactory).
+// mcpProbeMaxDuration bounds RunMCPProbe's own deadline, independent of the
+// caller's ctx. A package var (not const) so tests can shrink it to keep the
+// suite fast; production keeps the 10s budget. Safe to mutate from tests
+// because all kernel RunMCPProbe tests run serially (no t.Parallel).
+var mcpProbeMaxDuration = 10 * time.Second
+
 func (k *KernelImpl) RunMCPProbe(ctx gocontext.Context, cfg vfs.MCPConfig) MCPProbeResult {
 	res := MCPProbeResult{}
 
@@ -684,7 +690,7 @@ func (k *KernelImpl) RunMCPProbe(ctx gocontext.Context, cfg vfs.MCPConfig) MCPPr
 		return res
 	}
 
-	probeCtx, cancel := gocontext.WithTimeout(ctx, 10*time.Second)
+	probeCtx, cancel := gocontext.WithTimeout(ctx, mcpProbeMaxDuration)
 	defer cancel()
 
 	transport, err := k.transportFactory(cfg)

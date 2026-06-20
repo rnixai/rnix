@@ -146,11 +146,16 @@ func newTrackingTransportFactory(transports map[string]*trackingMCPTransport) vf
 // AC2: daemon 优雅 shutdown → 全部 MCP server 子进程树清理（≤ 5.5s）
 // -----------------------------------------------------------------------------
 func TestATDD_48_2_002_DaemonShutdown_CleansAllMCPSubprocesses(t *testing.T) {
+	// slowClose simulates a transport whose SIGTERM is ignored and gets
+	// force-killed near the graceful budget. Kept small (was 4.95s) to keep the
+	// suite fast; the assertions below are expressed relative to it, preserving
+	// the original "UnmountAll must not waste extra time per transport" semantics.
+	const slowClose = 200 * time.Millisecond
 	// Three transports — two healthy fast-closers, one forced-kill simulator.
 	transports := map[string]*trackingMCPTransport{
 		"github":     {},
 		"slack":      {},
-		"playwright": {closeDelay: 4950 * time.Millisecond, closeErr: types.NewDriverError("Close", "/mnt/mcp/3-playwright", errors.New("SIGTERM ignored, force-killed"), types.ErrForceKilled)},
+		"playwright": {closeDelay: slowClose, closeErr: types.NewDriverError("Close", "/mnt/mcp/3-playwright", errors.New("SIGTERM ignored, force-killed"), types.ErrForceKilled)},
 	}
 	factory := newTrackingTransportFactory(transports)
 
@@ -186,18 +191,18 @@ func TestATDD_48_2_002_DaemonShutdown_CleansAllMCPSubprocesses(t *testing.T) {
 	}
 
 	// k.Shutdown internally calls mountMgr.UnmountAll. We time the entire
-	// shutdown to enforce the NFR-48-S2 ≤ 5.5s upper bound. The playwright
-	// transport alone takes 4.95s; the other two should be <50ms each;
-	// UnmountAll is serial (`for path := range paths`) so total ≈ 5.05s.
+	// shutdown to enforce the NFR-48-S2 upper bound. The playwright transport
+	// alone takes slowClose; the other two are near-instant; UnmountAll is
+	// serial (`for path := range paths`) so total ≈ slowClose + overhead.
 	start := time.Now()
 	k.Shutdown()
 	elapsed := time.Since(start)
 
-	if elapsed > 5500*time.Millisecond {
-		t.Errorf("Shutdown took %v > 5.5s NFR upper bound — UnmountAll is wasting time per transport", elapsed)
+	if elapsed > slowClose+1*time.Second {
+		t.Errorf("Shutdown took %v > slowClose+1s — UnmountAll is wasting time per transport", elapsed)
 	}
-	if elapsed < 4900*time.Millisecond {
-		t.Errorf("Shutdown took %v < 4.9s — playwright transport's forced-kill simulation skipped (mock not wired)", elapsed)
+	if elapsed < slowClose {
+		t.Errorf("Shutdown took %v < slowClose(%v) — playwright transport's forced-kill simulation skipped (mock not wired)", elapsed, slowClose)
 	}
 
 	// Every transport must have been Close'd exactly once.
@@ -220,12 +225,12 @@ func TestATDD_48_2_002_DaemonShutdown_CleansAllMCPSubprocesses(t *testing.T) {
 		}
 	}
 
-	// Per-transport elapsed sanity: playwright took ~5s, others <500ms.
-	if got := transports["playwright"].closeElapsed(); got < 4900*time.Millisecond {
-		t.Errorf("playwright Close elapsed = %v, want ≥ 4.9s (forced-kill path skipped?)", got)
+	// Per-transport elapsed sanity: playwright took ~slowClose, others near-instant.
+	if got := transports["playwright"].closeElapsed(); got < slowClose {
+		t.Errorf("playwright Close elapsed = %v, want ≥ slowClose(%v) (forced-kill path skipped?)", got, slowClose)
 	}
-	if got := transports["github"].closeElapsed(); got > 500*time.Millisecond {
-		t.Errorf("github Close elapsed = %v > 500ms — fast-path mock unexpectedly slow", got)
+	if got := transports["github"].closeElapsed(); got > 100*time.Millisecond {
+		t.Errorf("github Close elapsed = %v > 100ms — fast-path mock unexpectedly slow", got)
 	}
 }
 

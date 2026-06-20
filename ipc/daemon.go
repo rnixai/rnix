@@ -10,10 +10,12 @@ import (
 	"time"
 )
 
-const (
-	daemonStartTimeout = 3 * time.Second
-	daemonPollInterval = 100 * time.Millisecond
-)
+const daemonPollInterval = 100 * time.Millisecond
+
+// DaemonStartTimeout bounds how long EnsureDaemon waits for a freshly started
+// daemon to become ready. A var (not const) and exported so tests can shrink
+// it — same pattern as DaemonExe / SocketPathOverride. Production keeps 3s.
+var DaemonStartTimeout = 3 * time.Second
 
 // DaemonExe is the executable path used to re-exec the daemon process.
 // Defaults to os.Args[0]; overridable for testing.
@@ -108,7 +110,7 @@ func startDaemon() error {
 
 // waitForDaemon polls until the daemon is ready, up to daemonStartTimeout.
 func waitForDaemon(sockPath string) (*Client, error) {
-	deadline := time.Now().Add(daemonStartTimeout)
+	deadline := time.Now().Add(DaemonStartTimeout)
 	for time.Now().Before(deadline) {
 		client, err := tryConnect(sockPath)
 		if err == nil {
@@ -119,9 +121,9 @@ func waitForDaemon(sockPath string) (*Client, error) {
 
 	detail := readDaemonStderr()
 	if detail != "" {
-		return nil, fmt.Errorf("ipc: daemon did not start within %s: %s", daemonStartTimeout, detail)
+		return nil, fmt.Errorf("ipc: daemon did not start within %s: %s", DaemonStartTimeout, detail)
 	}
-	return nil, fmt.Errorf("ipc: daemon did not start within %s", daemonStartTimeout)
+	return nil, fmt.Errorf("ipc: daemon did not start within %s", DaemonStartTimeout)
 }
 
 // readDaemonStderr reads the daemon stderr log for startup failure diagnostics.

@@ -154,7 +154,7 @@ func TestATDD_23_6_AC2_HealthCheckTimeout(t *testing.T) {
 	_ = reg.Register("slow-api", drv)
 
 	start := time.Now()
-	llm.RunHealthChecks(cfg, reg, 1*time.Second)
+	llm.RunHealthChecks(cfg, reg, 100*time.Millisecond)
 
 	deadline := time.Now().Add(3 * time.Second)
 	for time.Now().Before(deadline) {

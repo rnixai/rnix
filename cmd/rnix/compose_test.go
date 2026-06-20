@@ -398,11 +398,15 @@ func TestComposeUp_NoDaemon(t *testing.T) {
 	savedFile := flagComposeFile
 	savedExit := exitCode
 	savedOverride := ipc.SocketPathOverride
+	savedTimeout := ipc.DaemonStartTimeout
 	t.Cleanup(func() {
 		flagComposeFile = savedFile
 		exitCode = savedExit
 		ipc.SocketPathOverride = savedOverride
+		ipc.DaemonStartTimeout = savedTimeout
 	})
+	// Shrink the daemon-start wait so this no-daemon path fails fast (was 3s).
+	ipc.DaemonStartTimeout = 100 * time.Millisecond
 
 	tmpDir := t.TempDir()
 	composeYAML := `version: "1.0"

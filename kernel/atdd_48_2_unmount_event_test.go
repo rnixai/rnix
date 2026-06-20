@@ -40,10 +40,14 @@ import (
 // -----------------------------------------------------------------------------
 func TestATDD_48_2_007_UnmountEvent_ForcedKill_AnnotatesArgs(t *testing.T) {
 	// Single mount with a transport that simulates the SIGTERM-timeout path:
-	// Close blocks 4.95s and returns *types.DriverError{Code: ErrForceKilled}.
+	// Close blocks slowClose and returns *types.DriverError{Code: ErrForceKilled}.
+	// slowClose was 4.95s; shrunk to keep the suite fast — the assertion below
+	// is expressed relative to it, preserving the "finishProcess waits for
+	// Close" check.
+	const slowClose = 200 * time.Millisecond
 	transports := map[string]*trackingMCPTransport{
 		"playwright": {
-			closeDelay: 4950 * time.Millisecond,
+			closeDelay: slowClose,
 			closeErr: types.NewDriverError("Close", "/mnt/mcp/100-playwright",
 				errors.New("SIGTERM ignored, force-killed"), types.ErrForceKilled),
 		},
@@ -94,8 +98,8 @@ func TestATDD_48_2_007_UnmountEvent_ForcedKill_AnnotatesArgs(t *testing.T) {
 	elapsed := time.Since(start)
 
 	// finishProcess synchronously walks mcpMounts (line 104-113), so the
-	// 4.95s Close delay must have been waited for.
-	if elapsed < 4900*time.Millisecond {
+	// slowClose Close delay must have been waited for.
+	if elapsed < slowClose {
 		t.Fatalf("finishProcess returned in %v — Unmount path skipped or transport mock not honoured",
 			elapsed)
 	}
@@ -134,8 +138,8 @@ func TestATDD_48_2_007_UnmountEvent_ForcedKill_AnnotatesArgs(t *testing.T) {
 		t.Errorf("Unmount args.auto = %v, want true", unmountEvt.Args["auto"])
 	}
 
-	// duration_ms — graceful path test (below) also asserts this; here we
-	// pin the lower bound to ≥ 4900 because we delayed Close 4950ms.
+	// duration_ms — graceful path test (below) also asserts this; here we pin
+	// the lower bound to ≥ slowClose because we delayed Close by slowClose.
 	durRaw, ok := unmountEvt.Args["duration_ms"]
 	if !ok {
 		t.Fatal("Unmount args missing duration_ms (Task 3.1 not landed)")
@@ -144,8 +148,8 @@ func TestATDD_48_2_007_UnmountEvent_ForcedKill_AnnotatesArgs(t *testing.T) {
 	if !ok {
 		t.Fatalf("Unmount args.duration_ms type = %T, want float64", durRaw)
 	}
-	if int64(dur) < 4900 {
-		t.Errorf("Unmount args.duration_ms = %v, want ≥ 4900", dur)
+	if int64(dur) < slowClose.Milliseconds() {
+		t.Errorf("Unmount args.duration_ms = %v, want ≥ slowClose(%dms)", dur, slowClose.Milliseconds())
 	}
 
 	// forced + reason — the AC7 distinguishing markers.

@@ -94,27 +94,34 @@ func TestATDD_48_3_022_RunMCPProbe_OptionalCallsFail_OverallOK(t *testing.T) {
 // _023: connect hangs past 10s ctx deadline → timeout stage + Close still runs
 // -----------------------------------------------------------------------------
 func TestATDD_48_3_023_RunMCPProbe_ConnectTimeout(t *testing.T) {
-	tp := &hangingMockTransport{hangFor: 12 * time.Second}
+	// Shrink the probe's internal deadline so the suite stays fast; the test
+	// still verifies RunMCPProbe enforces its OWN deadline (independent of the
+	// caller's ctx). Production default is 10s.
+	const probeBudget = 200 * time.Millisecond
+	saved := mcpProbeMaxDuration
+	mcpProbeMaxDuration = probeBudget
+	defer func() { mcpProbeMaxDuration = saved }()
+
+	tp := &hangingMockTransport{hangFor: 2 * time.Second}
 	k := newKernelOnly(t)
 	k.SetTransportFactory(func(_ vfs.MCPConfig) (vfs.MCPTransport, error) { return tp, nil })
 
 	cfg := vfs.MCPConfig{ServerName: "slow", Command: "slow-mcp"}
 
-	// Caller passes a parent ctx with a 12s budget; RunMCPProbe should derive
-	// its OWN 10s deadline. After ~10s the connect stage records timeout and
-	// the function returns — caller's ctx still has ~2s left.
-	parent, cancel := context.WithTimeout(context.Background(), 12*time.Second)
+	// Caller passes a parent ctx with a budget LONGER than the probe's own, so
+	// the probe's internal deadline is what fires (not the caller's ctx).
+	parent, cancel := context.WithTimeout(context.Background(), 1*time.Second)
 	defer cancel()
 
 	start := time.Now()
 	res := k.RunMCPProbe(parent, cfg)
 	elapsed := time.Since(start)
 
-	if elapsed > 11*time.Second {
-		t.Errorf("RunMCPProbe took %v > 11s — internal 10s deadline broken", elapsed)
+	if elapsed > probeBudget+400*time.Millisecond {
+		t.Errorf("RunMCPProbe took %v > probeBudget+400ms — internal deadline broken", elapsed)
 	}
-	if elapsed < 9*time.Second {
-		t.Errorf("RunMCPProbe took %v < 9s — timeout path skipped (transport returned too early)", elapsed)
+	if elapsed < probeBudget {
+		t.Errorf("RunMCPProbe took %v < probeBudget(%v) — timeout path skipped (transport returned too early)", elapsed, probeBudget)
 	}
 
 	if res.OK {
