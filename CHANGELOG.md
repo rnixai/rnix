@@ -7,13 +7,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.10.0] - 2026-06-20
+
+Theme: **Deep Observability & Reasoning Control (Epics 55, 56)** — every LLM call can now be captured and inspected after the fact, model reasoning becomes visible in the UI, sub-agents spawned inside CLI drivers are reconstructed into the process tree, MCP gains an HTTP transport, and reasoning effort can be controlled end to end.
+
 ### Added
 
-- **`reasoning_effort` passthrough across all LLM drivers (Epic 55)**: `providers.yaml` gains a `reasoning_effort` field per provider, passed through verbatim (no validation/mapping — open string, so `xhigh` and future vendor levels work without a code change) to each driver's native surface: OpenAI `ChatCompletionNewParams.ReasoningEffort`, openai-compat request body `reasoning_effort`, Anthropic `OutputConfig.Effort`, Gemini `ThinkingConfig.ThinkingLevel`, claude-cli `--effort`, codex-cli `-c model_reasoning_effort=`. cursor-cli and qwen-cli have no effort parameter and intentionally no-op with a warning (cursor expresses level via model-name suffix; Qwen3-Coder has no effort concept). See [docs/reasoning-effort.md](docs/reasoning-effort.md).
+- **Raw LLM request/response inspection (Epic 56)**: each LLM call can be recorded and inspected after the fact — the request and response for API-based providers, and the full command invocation plus output for CLI-based providers. This makes it possible to verify exactly what was sent to a model (prompts, parameters, reasoning effort) when debugging behavior. Credentials (authorization headers, API keys, and similar secrets) are automatically redacted before anything is written. Captures are queryable three ways: `rnix strace <pid> --raw`, a new **Raw I/O** view in the Dashboard inspector, and over IPC. Enabled by default, with size limits and a retention policy.
+- **LLM reasoning visualization**: a model's thinking/reasoning output is now aggregated into events and rendered in the Dashboard and Timeline, making the reasoning process visible alongside tool calls and results.
+- **CLI sub-agent process tree reconstruction (Epic 56)**: when the Claude CLI driver runs an agentic loop containing sub-agents (e.g. Task/Agent) inside a single process, those sub-agents — and their internal steps — are now reconstructed as nodes in the process tree and shown in the Dashboard. Reconstructed nodes are marked as synthetic and are excluded from resume.
+- **MCP Streamable HTTP transport**: MCP devices can now connect over a Streamable HTTP transport in addition to stdio, with HTTP protocol-version negotiation and hot-reload of `mcp.yaml`.
+- **`reasoning_effort` across all LLM drivers (Epic 55)**: providers gain a `reasoning_effort` setting, passed through verbatim to each driver's native surface (OpenAI, openai-compat, Anthropic, Gemini, claude-cli, codex-cli). cursor-cli and qwen-cli have no effort parameter and intentionally no-op with a warning. See [docs/reasoning-effort.md](docs/reasoning-effort.md).
+- **Per-request `reasoning_effort` entry points (Epic 55)**: effort can now be set per spawn — a CLI `--reasoning-effort` flag, a `reasoning_effort` field in compose YAML, an AgentShell `spawn --effort` option, and a `models.reasoning_effort` default in agent manifests. Resolution follows a four-tier fallback: per-spawn → agent → provider → native default.
+- **Project-root `AGENTS.md` injection (Story 35.7)**: at spawn time, a project-root `AGENTS.md` is read and injected into the system prompt as a cached section, aligning with the AGENTS.md industry standard (same mechanism as CLAUDE.md injection). Uses nearest-wins lookup and can be disabled per agent via `project_doc: false`. See [docs/agents-md-injection.md](docs/agents-md-injection.md).
+- **AgentShell per-spawn provider overrides**: `spawn` now accepts `--provider`, `--fallback-provider`, and `--fallback-model`, so the provider and fallback chain can be chosen per spawn.
+- **Configurable shell command timeout**: shell command execution now supports a configurable timeout, with more robust timeout and cancellation handling.
 
 ### Changed
 
-- **Anthropic / Gemini `thinking_budget` → effort migration (Epic 55)**: the legacy `thinking_budget(int)` path is retained but effort now takes priority where set. For Anthropic, `reasoning_effort` writes `OutputConfig.Effort` while `thinking_budget` stays as the fallback required by DeepSeek V4 Anthropic-compat endpoints (its removal triggers HTTP 400 on multi-turn tool calls). For Gemini, `thinking_level` and `thinking_budget` are mutually exclusive (Gemini 3 rejects both), so effort suppresses the budget; the budget path remains for Gemini ≤2.5. ⚠️ Gemini levels are UPPERCASE (`HIGH`) while OpenAI/Anthropic are lowercase (`high`) — passthrough does not normalize case.
+- **Anthropic / Gemini `thinking_budget` → effort migration (Epic 55)**: where `reasoning_effort` is set, it now takes priority over the legacy `thinking_budget`. The budget path is retained as a fallback for providers that still require it. Note: Gemini effort levels are uppercase (`HIGH`) while OpenAI/Anthropic are lowercase (`high`); the value is passed through without case normalization.
+
+### Fixed
+
+- **CLI tool-input display (Story 40.4)**: tool-call inputs that previously showed up empty or truncated in the Dashboard Timeline (for some CLI driver streaming sequences) are now captured and displayed correctly.
+- **Cross-project resume**: resume now resolves configuration from the resumed process's own project directory, so processes can be resumed correctly across different projects.
+- **Spawn cleanup & early event capture**: observation data is now attached earlier in the spawn path so early events are no longer lost, and failed spawns clean up their partial data more reliably.
+- **Dashboard failed-process display**: a failed process's exit reason is now folded into its card's first line for at-a-glance visibility.
 
 ## [0.9.4] - 2026-06-14
 
