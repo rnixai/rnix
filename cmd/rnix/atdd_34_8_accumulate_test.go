@@ -246,3 +246,48 @@ func Test_34_8_Glue_FetchPagedProcs_MultiPageAccumulate(t *testing.T) {
 		t.Errorf("最近优先累积应含 p4..p1、不含 p0，got %v", seen)
 	}
 }
+
+// ---------------------------------------------------------------------------
+// 34.8 D1 (code-review) — recentDeadFailures：近期 Dead 失败回注健康计数
+// ---------------------------------------------------------------------------
+//
+// D1(a) 根治：实时监控改吃 list_procs(active-only) 后，computeHealthCounts 的
+// `Dead && IsProcessFailed` 进程集路径失效（active 子集无 Dead）。recentDeadFailures
+// 从累积全集筛「近期(window 内) Dead 失败」回注 computeHealthCounts，使快速
+// Running→Dead 退出仍计入 E，而老历史失败 age out（满足 AC6「当前非历史」意图）。
+func TestRecentDeadFailures_WindowAndFailureFilter(t *testing.T) {
+	now := time.Now()
+	procs := []vfs.ProcInfo{
+		// 近期 Dead 失败（ExitCode!=0）→ 包含
+		{UUID: "recent-fail", State: types.StateDead, ExitCode: 1, ExitCodeSet: true, DeadAt: now.Add(-10 * time.Second)},
+		// 老 Dead 失败（window 外，age out）→ 排除
+		{UUID: "old-fail", State: types.StateDead, ExitCode: 1, ExitCodeSet: true, DeadAt: now.Add(-5 * time.Minute)},
+		// 近期 Dead 但成功（ExitCode==0）→ 排除
+		{UUID: "recent-ok", State: types.StateDead, ExitCode: 0, ExitCodeSet: true, DeadAt: now.Add(-10 * time.Second)},
+		// active（Running）→ 排除（不是 Dead）
+		{UUID: "active-run", State: types.StateRunning, ExitCode: 1, ExitCodeSet: true},
+		// Dead 失败但 DeadAt 零（legacy/unknown）→ 排除（不算近期，防 stale 常驻 E）
+		{UUID: "zero-deadat", State: types.StateDead, ExitCode: 1, ExitCodeSet: true},
+	}
+
+	got := recentDeadFailures(procs, now, recentDeadFailureWindow)
+
+	if len(got) != 1 {
+		t.Fatalf("D1(a): 应只含 1 条近期 Dead 失败，got %d: %+v", len(got), got)
+	}
+	if got[0].UUID != "recent-fail" {
+		t.Errorf("D1(a): 应为 recent-fail，got %q", got[0].UUID)
+	}
+}
+
+// window 边界：DeadAt 恰好 = now-window 时仍算近期（实现用 `> window` 排除，== 不排除）。
+func TestRecentDeadFailures_WindowBoundaryInclusive(t *testing.T) {
+	now := time.Now()
+	procs := []vfs.ProcInfo{
+		{UUID: "at-boundary", State: types.StateDead, ExitCode: 1, ExitCodeSet: true, DeadAt: now.Add(-recentDeadFailureWindow)},
+	}
+	got := recentDeadFailures(procs, now, recentDeadFailureWindow)
+	if len(got) != 1 {
+		t.Errorf("边界 DeadAt=now-window 应仍算近期（>window 才排除），got %d", len(got))
+	}
+}

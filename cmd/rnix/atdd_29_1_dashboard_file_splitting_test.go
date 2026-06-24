@@ -148,7 +148,13 @@ func TestDashboardFileSplitting_MainFileLineCount(t *testing.T) {
 		t.Fatalf("failed to count lines in dashboard.go: %v", err)
 	}
 
-	const maxLines = 1600
+	// Story 34.8 D1 (code-review) raised this from 1600: the tick now fetches an
+	// authoritative active-only list_procs result (within the same read deadline)
+	// for realtime monitoring. The derivation logic lives in dashboard_events.go
+	// (realtimeMonitorInputs / recentDeadFailures), but the in-tick query + wiring
+	// adds ~16 lines to the main file. Phase 3 (PR11) deprecated-getter removal
+	// will shrink dashboard.go materially; revisit this bound then.
+	const maxLines = 1620
 	if lines > maxLines {
 		t.Errorf("dashboard.go has %d lines, expected ≤ %d after splitting", lines, maxLines)
 	}

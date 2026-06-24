@@ -628,6 +628,17 @@ func (m dashboardModel) dashboardTick() (tea.Model, tea.Cmd) {
 	// blank UI). The deadline set above covers the whole fetch loop; scrolling the
 	// tree to the bottom grows procPaging.LoadedPages (dashboard_pane_dispatcher.go).
 	procs, pageTotal, pageHasMore, ferr := m.fetchPagedProcs()
+	// Story 34.8 D1 (code-review): realtime monitoring runs on an authoritative
+	// active-only list_procs query (never exceeds the scanner buffer) rather than
+	// the paginated cumulative set — the latter misses actives on not-yet-loaded
+	// pages (false EXIT on page-boundary drift) and can't see a process's failure
+	// once it goes Dead. Fetched within the same read deadline; on query error we
+	// fall back to filtering the cumulative set (monitorInputProcs).
+	var activeProcs []vfs.ProcInfo
+	var activeErr error
+	if ferr == nil {
+		activeProcs, activeErr = m.client.ListProcs()
+	}
 	// Clear deadline for future non-tick operations.
 	_ = m.client.SetReadDeadline(time.Time{})
 	if ferr != nil {
@@ -764,11 +775,11 @@ func (m dashboardModel) dashboardTick() (tea.Model, tea.Cmd) {
 		}
 	}
 
-	// Story 34.8 AC6: the realtime monitoring consumers below run on the ACTIVE
-	// subset only — feeding them the cumulative m.processes would misreport
-	// later-page actives as SPAWNs and inflate E/W with historical dead errors.
-	// m.processes stays the tree-render source. (See monitorInputProcs for why.)
-	monitorProcs := monitorInputProcs(m.processes)
+	// Story 34.8 AC6 + D1 (code-review): realtime monitoring runs on an
+	// authoritative active-only list (list_procs); healthProcs adds recently-Dead
+	// failures so a fast Running→Dead exit still reaches E. m.processes stays the
+	// tree-render source. See realtimeMonitorInputs.
+	monitorProcs, healthProcs := m.realtimeMonitorInputs(activeProcs, activeErr, time.Now())
 
 	// Detect spawn/exit events by comparing with previous tick's process list
 	spawnExitEvents := detectSpawnExitEvents(m.prevProcessPIDs, monitorProcs)
@@ -826,10 +837,11 @@ func (m dashboardModel) dashboardTick() (tea.Model, tea.Cmd) {
 	// extends this to route Immune targets to the Security pane cursor).
 	m = m.resolveAlertJumpTarget()
 
-	// Compute health counters for title bar (Story 34.2). Story 34.8 AC6: feed the
-	// ACTIVE subset so historical dead-process failures don't re-count into E each
-	// tick; current failures still reach E via their SevError EXIT event.
-	m.errorCount, m.warnCount = computeHealthCounts(monitorProcs, m.unifiedEvents, m.heartbeatStatus)
+	// Compute health counters for title bar (Story 34.2). healthProcs (Story 34.8
+	// D1, code-review) = active subset + recently-Dead failures (see
+	// realtimeMonitorInputs) so a fast Running→Dead failure still reaches E while
+	// stale failures age out; warn count only applies to actives.
+	m.errorCount, m.warnCount = computeHealthCounts(healthProcs, m.unifiedEvents, m.heartbeatStatus)
 
 	// Most active process tracking — update lastEventByPID from unified events
 	now := time.Now()

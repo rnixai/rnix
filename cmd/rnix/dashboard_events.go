@@ -689,7 +689,10 @@ func mergeAccumulatedProcs(acc, page []vfs.ProcInfo) []vfs.ProcInfo {
 	return merged
 }
 
-// monitorInputProcs isolates the input for the dashboard's realtime monitoring
+// monitorInputProcs is the FALLBACK active-subset filter (Story 34.8 D1,
+// code-review): the tick now prefers an authoritative list_procs query and only
+// uses this cumulative-set filter when that query fails.
+// It isolates the input for the dashboard's realtime monitoring
 // consumers (detectSpawnExitEvents / detectBudgetEvents / computeHealthCounts /
 // prevProcessPIDs snapshot) from the accumulated tree-render set (Story 34.8 AC6).
 //
@@ -709,8 +712,9 @@ func mergeAccumulatedProcs(acc, page []vfs.ProcInfo) []vfs.ProcInfo {
 // 34.8-UNIT-009 green-guard pins down (a PID present in both prev & curr never
 // reports SPAWN). The residual edge case — a long-lived active process whose
 // CreatedAt is old enough to sit on a not-yet-loaded page — would report a single
-// SPAWN the first time its page loads; this is an accepted boundary (see story
-// dev notes), far cheaper than an extra per-tick list_procs round-trip.
+// SPAWN the first time its page loads. Story 34.8 D1 (code-review) removed that
+// boundary on the primary path by switching to list_procs; this fallback keeps
+// the original (imperfect) behavior only for the query-failure case.
 func monitorInputProcs(accumulated []vfs.ProcInfo) []vfs.ProcInfo {
 	active := make([]vfs.ProcInfo, 0, len(accumulated))
 	for _, p := range accumulated {
@@ -720,6 +724,64 @@ func monitorInputProcs(accumulated []vfs.ProcInfo) []vfs.ProcInfo {
 		active = append(active, p)
 	}
 	return active
+}
+
+// recentDeadFailureWindow bounds how long a just-failed process keeps counting
+// toward the title-bar error tally after it goes Dead (Story 34.8 D1,
+// code-review). The realtime monitoring input is the active-only list_procs
+// result, which by construction can't see a Dead process's failure;
+// recentDeadFailures re-injects recently-Dead failures into the health count for
+// this window so a fast Running→Dead exit isn't silently dropped from E, while
+// older historical failures age out (matching AC6's "current, not historical"
+// intent). 60s spans dozens of ~1Hz ticks — long enough to notice, short enough
+// that stale errors don't linger.
+const recentDeadFailureWindow = 60 * time.Second
+
+// recentDeadFailures returns the accumulated processes that died within `window`
+// of `now` AND failed (Story 34.8 D1, code-review). It is fed to
+// computeHealthCounts ALONGSIDE the active subset so a process that failed and
+// went Dead between ticks still reaches the error tally for a bounded window —
+// the active-only monitoring input alone can't, because list_procs (and the
+// monitorInputProcs fallback) exclude Dead processes by construction.
+//
+// Residual boundary (accepted): m.processes is a paginated cumulative set, so a
+// failure whose Dead snapshot sits on a not-yet-loaded page is still missed.
+// This is strictly better than the pre-fix behavior (every fast Running→Dead
+// failure dropped from E); full coverage would need an unpaginated recent-death
+// query (out of scope; tracked alongside deferred D2).
+func recentDeadFailures(accumulated []vfs.ProcInfo, now time.Time, window time.Duration) []vfs.ProcInfo {
+	var out []vfs.ProcInfo
+	for _, p := range accumulated {
+		if p.State != types.StateDead {
+			continue
+		}
+		if !ui.IsProcessFailed(p.ExitCode, p.ExitCodeSet, p.Result) {
+			continue
+		}
+		// Zero DeadAt (legacy/unknown) is treated as not-recent so stale data
+		// can't permanently occupy E.
+		if p.DeadAt.IsZero() || now.Sub(p.DeadAt) > window {
+			continue
+		}
+		out = append(out, p)
+	}
+	return out
+}
+
+// realtimeMonitorInputs derives the two process slices the tick's realtime
+// monitoring needs (Story 34.8 D1, code-review):
+//   - monitor: the authoritative active-only set (the list_procs result, or the
+//     monitorInputProcs cumulative-set fallback on query error) — fed to
+//     detectSpawnExitEvents / detectBudgetEvents / prevProcessPIDs.
+//   - health: monitor PLUS recently-Dead failures, so computeHealthCounts still
+//     counts a fast Running→Dead failure into E while stale failures age out.
+func (m dashboardModel) realtimeMonitorInputs(activeProcs []vfs.ProcInfo, activeErr error, now time.Time) (monitor, health []vfs.ProcInfo) {
+	monitor = activeProcs
+	if activeErr != nil {
+		monitor = monitorInputProcs(m.processes)
+	}
+	health = append(append([]vfs.ProcInfo(nil), monitor...), recentDeadFailures(m.processes, now, recentDeadFailureWindow)...)
+	return monitor, health
 }
 
 // fetchPagedProcs re-fetches every currently-loaded list_all_procs page
