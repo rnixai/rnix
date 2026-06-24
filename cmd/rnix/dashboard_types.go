@@ -118,6 +118,26 @@ const statusMsgDefaultTTL = 4
 
 const slowStepThresholdMs = 1000.0
 
+// defaultProcPageSize is the dashboard's list_all_procs page size (Story 34.8).
+// At the measured ~1.28 KB/proc mean a 100-proc page is ≈128 KB — an order of
+// magnitude under the 1 MB legacy scanner frame and far under the new 64 MB
+// buffer. A long-running daemon's ~900 historical procs span ~9 pages, fully
+// loadable by scrolling the tree to the bottom.
+const defaultProcPageSize = 100
+
+// procPaging is the dashboard's list_all_procs pagination cursor (Story 34.8).
+// Aggregated into one struct (not loose dashboardModel fields) per the field-count
+// guard's sub-state convention. The dashboard pages list_all_procs
+// "most-recent-first" and merges pages by UUID into dashboardModel.processes so a
+// single wire response stays well under the IPC scanner buffer (root cause: a
+// 1.11 MB full response tripped the 1 MB frame → "token too long" → blank UI).
+type procPaging struct {
+	PageSize    int  // page size for ListAllProcsPaged (0 → defaultProcPageSize)
+	LoadedPages int  // pages fetched each tick (≥1); grows on scroll-to-bottom
+	Total       int  // deduped total process count (from pagination metadata)
+	HasMore     bool // whether older pages remain beyond the loaded range
+}
+
 // --- Step detail types ---
 //
 // Story 38-5 PR4 Step 1: stepDetailLevel / stepEntry / timelineExpandMode 类型迁出至

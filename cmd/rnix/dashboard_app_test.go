@@ -305,19 +305,23 @@ func TestAppModel_BatchesAllSubModelCmds_FromTickPath(t *testing.T) {
 // dashboardModelExpectedFieldCount — spec § Tasks 11.5「TestDashboardModel_FieldCount_Bounded」
 // 字段守门常量。当前阶段守门当前实际字段数 · 防止任意 PR 再加字段。
 //
-// **spec § AC8 收尾目标：≤ 30 字段**。当前 65 字段（Phase 1+2 阶段 · State 字段 +
-// *PaneModel 字段并存 · deprecated getter 过渡期）。Phase 3 收尾删除 deprecated
-// getter + State 字段统一通过 *PaneModel.State() 读取后预期降至 ~30。
+// **spec § AC8 收尾目标：≤ 30 字段**。当前 67 字段（Phase 1+2 阶段 · State 字段 +
+// *PaneModel 字段并存 · deprecated getter 过渡期 · 含 Story 34.8 聚合字段 procPaging）。
+// Phase 3 收尾删除 deprecated getter + State 字段统一通过 *PaneModel.State() 读取后
+// 预期降至 ~30。
 //
 // 守门策略：
-//   - 当前值（65）作为 lower bound（防止误删字段导致行为回归）；
-//   - upper bound = 当前值 + 1（容忍 1 字段微调 · 多于 1 必须 retro 解释）。
+//   - lower bound 66：防止误删字段（含 Story 34.8 procPaging）导致行为回归；
+//   - upper bound 67：当前实际字段数 · 再加散字段须 retro 解释（spec § AC8）。
+//
+// Story 34.8（2026-06-24）：+1 字段 = 聚合的 procPaging（4 个 list_all_procs 分页游标
+// PageSize/LoadedPages/Total/HasMore 收成 1 个 struct，遵 sub-state 约定而非 4 个散字段）。
 //
 // Phase 3 收尾时（PR11 Step 4(b) 全部完成 + deprecated getter 删除）需要把这两个
 // 常量降到 30/31。
 const (
-	dashboardModelFieldCountLower = 65
-	dashboardModelFieldCountUpper = 66
+	dashboardModelFieldCountLower = 66
+	dashboardModelFieldCountUpper = 67
 )
 
 // TestDashboardModel_FieldCount_Bounded — spec § Tasks 11.5 字段守门。

@@ -392,7 +392,7 @@ func (s *Server) handleConn(conn net.Conn) {
 		case MethodTraceTree:
 			s.handleTraceTree(conn, req.Payload)
 		case MethodListAllProcs:
-			s.handleListAllProcs(conn)
+			s.handleListAllProcs(conn, req.Payload)
 		case MethodSuspend:
 			s.handleSuspend(conn, req.Payload)
 		case MethodResume:

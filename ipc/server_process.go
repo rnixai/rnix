@@ -26,7 +26,21 @@ func (s *Server) handleListProcs(conn net.Conn) {
 	writeResponse(conn, Response{OK: true, Payload: payload})
 }
 
-func (s *Server) handleListAllProcs(conn net.Conn) {
+// handleListAllProcs serves MethodListAllProcs. Story 34.8: it now accepts an
+// optional ListAllProcsRequest{Offset, Limit} payload to page through the
+// (potentially unbounded) historical process set so a single wire response
+// stays well under the IPC scanner buffer.
+//
+// Backward compatibility (AC1): a nil/empty/unparseable payload, or
+// Offset==0 && Limit==0 (Limit<=0 in general), returns the FULL set with no
+// Total/HasMore metadata — exactly the legacy behavior the 5 full-fetch callers
+// (ps -a / resume / apply / compose_resume) rely on.
+//
+// Pagination direction is "most-recent-first" (AC2): kernel ListAllProcs()
+// sorts ascending by CreatedAt (oldest first), but the dashboard cares about
+// the newest processes. Offset=0 returns the newest Limit entries (counting
+// back from the tail); increasing Offset reaches progressively older batches.
+func (s *Server) handleListAllProcs(conn net.Conn, rawPayload json.RawMessage) {
 	procs := s.kern.ListAllProcs()
 	// Diagnostic dump for tree-structure debugging — gated by RNIX_DEBUG_TREE=1
 	// to avoid spamming stderr on the ~1Hz dashboard tick. Each line: PID /
@@ -40,12 +54,70 @@ func (s *Server) handleListAllProcs(conn net.Conn) {
 				p.PID, shortUUID(p.UUID), p.PPID, shortUUID(p.ParentUUID), p.State, p.IsPaused)
 		}
 	}
+
+	total := len(procs)
+
+	// Parse the optional pagination payload. Lenient by design: any decode
+	// failure or zero-value request falls back to the full set (no metadata),
+	// mirroring the fail-open style of the other handlers.
+	var req ListAllProcsRequest
+	if len(rawPayload) > 0 {
+		_ = json.Unmarshal(rawPayload, &req)
+	}
+
+	if req.Limit <= 0 {
+		// Full set, no pagination metadata (backward compatible).
+		writeResponse(conn, Response{OK: true, Payload: marshalProcList(procs, 0, false, false)})
+		return
+	}
+
+	// Most-recent-first slicing over the CreatedAt-ascending result: treat the
+	// tail as page 0. Offset counts newest entries to skip; Limit is the page
+	// size. The returned page is itself ordered newest-first.
+	page, hasMore := pageMostRecentFirst(procs, req.Offset, req.Limit)
+	writeResponse(conn, Response{OK: true, Payload: marshalProcList(page, total, hasMore, true)})
+}
+
+// pageMostRecentFirst returns one "most-recent-first" page of a CreatedAt-ascending
+// slice (oldest first). Offset is the number of newest entries to skip and limit
+// is the page size; the returned page is ordered newest-first. An out-of-range
+// offset yields an empty page with hasMore=false (never panics).
+func pageMostRecentFirst(procs []vfs.ProcInfo, offset, limit int) (page []vfs.ProcInfo, hasMore bool) {
+	n := len(procs)
+	if offset < 0 {
+		offset = 0
+	}
+	if offset >= n {
+		return []vfs.ProcInfo{}, false
+	}
+	// Walk from the newest (tail) backwards: index n-1-offset down to
+	// n-offset-limit (clamped at 0).
+	end := n - offset          // exclusive upper bound in ascending slice
+	start := max(end-limit, 0) // inclusive lower bound
+	page = make([]vfs.ProcInfo, 0, end-start)
+	for i := end - 1; i >= start; i-- {
+		page = append(page, procs[i])
+	}
+	hasMore = start > 0
+	return page, hasMore
+}
+
+// marshalProcList builds the ListProcsResponse wire payload. When withMeta is
+// true the Total/HasMore pagination fields are populated (Story 34.8); when
+// false they are omitted entirely (omitempty) so legacy full-fetch responses
+// are byte-for-byte unchanged.
+func marshalProcList(procs []vfs.ProcInfo, total int, hasMore, withMeta bool) json.RawMessage {
 	wireProcs := make([]ProcInfoWire, len(procs))
 	for i, p := range procs {
 		wireProcs[i] = ProcInfoToWire(p)
 	}
-	payload, _ := json.Marshal(ListProcsResponse{Processes: wireProcs})
-	writeResponse(conn, Response{OK: true, Payload: payload})
+	resp := ListProcsResponse{Processes: wireProcs}
+	if withMeta {
+		resp.Total = total
+		resp.HasMore = hasMore
+	}
+	payload, _ := json.Marshal(resp)
+	return payload
 }
 
 // shortUUID 返回 UUID 的诊断用短串：前 8 hex（时间戳高位）+ ".." + 后 4 hex

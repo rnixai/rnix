@@ -199,6 +199,13 @@ func (m dashboardModel) dispatchPaneKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd
 		}
 		if ui.HandleListKey(key, nil, &m.tree.Cursor, len(m.tree.Rows), navOpts) {
 			m.tree.UserManualSelect = true // AC5
+			// Story 34.8: scrolling to the bottom of the tree loads the next
+			// (older) page on the following tick. Most-recent-first paging means
+			// the newly loaded page is overwhelmingly historical, progressively
+			// filling in the deeper process tree until HasMore is exhausted.
+			if m.procPaging.HasMore && m.tree.Cursor >= len(m.tree.Rows)-1 {
+				m.procPaging.LoadedPages++
+			}
 			if m.selectedPID != prevPID {
 				m2, cmd := m.handlePIDChange()
 				return m2, cmd

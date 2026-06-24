@@ -56,6 +56,9 @@ type dashboardModel struct {
 	selectedUUID string
 	processes    []vfs.ProcInfo
 
+	// Story 34.8: list_all_procs pagination cursor (see procPaging in dashboard_types.go).
+	procPaging procPaging
+
 	// Story 38-5 PR2 Step 1: TreeState 抽离（13 字段聚合到 internal/dashboard/tree.TreeState）
 	tree tree.TreeState
 
@@ -193,6 +196,7 @@ func newDashboardModel(client *ipc.Client) dashboardModel {
 		dispatcher:         newDispatcher(),
 		startTime:          time.Now(),
 		connected:          client != nil,
+		procPaging:         procPaging{PageSize: defaultProcPageSize, LoadedPages: 1}, // Story 34.8
 		rightPane:          paneTimeline,
 		recording:          make(map[string]string),
 		detail:             detail.DetailState{Cache: make(map[string]*ipc.GetProcDetailResponse)}, // Story 38-5 PR5 Step 1: DetailState init
@@ -618,20 +622,27 @@ func (m dashboardModel) dashboardTick() (tea.Model, tea.Cmd) {
 		m.connected = false
 		return m, tickCmd()
 	}
-	procs, err := m.client.ListAllProcs()
+	// Story 34.8: fetchPagedProcs pages list_all_procs and merges by UUID into a
+	// cumulative set, keeping each wire response well under the IPC scanner buffer
+	// (a 1.11 MB full response tripped the legacy 1 MB frame → "token too long" →
+	// blank UI). The deadline set above covers the whole fetch loop; scrolling the
+	// tree to the bottom grows procPaging.LoadedPages (dashboard_pane_dispatcher.go).
+	procs, pageTotal, pageHasMore, ferr := m.fetchPagedProcs()
 	// Clear deadline for future non-tick operations.
 	_ = m.client.SetReadDeadline(time.Time{})
-	if err != nil {
+	if ferr != nil {
 		m.client.Close()
 		m.client = nil
 		m.connected = false
-		m.err = err
+		m.err = ferr
 		return m, tickCmd()
 	}
 
 	m.err = nil
 	m.connected = true
 	m.processes = procs
+	m.procPaging.Total = pageTotal
+	m.procPaging.HasMore = pageHasMore
 
 	// Story 36-2: Track first-seen time for new process highlight
 	seenNow := make(map[types.PID]bool, len(procs))
@@ -753,15 +764,21 @@ func (m dashboardModel) dashboardTick() (tea.Model, tea.Cmd) {
 		}
 	}
 
+	// Story 34.8 AC6: the realtime monitoring consumers below run on the ACTIVE
+	// subset only — feeding them the cumulative m.processes would misreport
+	// later-page actives as SPAWNs and inflate E/W with historical dead errors.
+	// m.processes stays the tree-render source. (See monitorInputProcs for why.)
+	monitorProcs := monitorInputProcs(m.processes)
+
 	// Detect spawn/exit events by comparing with previous tick's process list
-	spawnExitEvents := detectSpawnExitEvents(m.prevProcessPIDs, m.processes)
+	spawnExitEvents := detectSpawnExitEvents(m.prevProcessPIDs, monitorProcs)
 	if len(spawnExitEvents) > 0 {
 		deduped := sysEventDedup(spawnExitEvents, m.sysEventSeen)
 		m.sysEvents = append(m.sysEvents, deduped...)
 	}
 
 	// Detect budget threshold events
-	budgetEvents := detectBudgetEvents(m.processes, m.budgetAlertSeen)
+	budgetEvents := detectBudgetEvents(monitorProcs, m.budgetAlertSeen)
 	if len(budgetEvents) > 0 {
 		deduped := sysEventDedup(budgetEvents, m.sysEventSeen)
 		m.sysEvents = append(m.sysEvents, deduped...)
@@ -778,11 +795,12 @@ func (m dashboardModel) dashboardTick() (tea.Model, tea.Cmd) {
 	m.sysEvents = sysEventFIFO(m.sysEvents, m.sysEventSeen)
 
 	// Prune budget alert entries for dead processes (F5)
-	pruneBudgetAlertSeen(m.budgetAlertSeen, m.processes)
+	pruneBudgetAlertSeen(m.budgetAlertSeen, monitorProcs)
 
-	// Update previous process snapshot for next tick
-	m.prevProcessPIDs = make(map[types.PID]vfs.ProcInfo, len(m.processes))
-	for _, p := range m.processes {
+	// Update previous process snapshot for next tick (Story 34.8 AC6: active
+	// subset only, so the next tick's spawn/exit diff is stable across paging).
+	m.prevProcessPIDs = make(map[types.PID]vfs.ProcInfo, len(monitorProcs))
+	for _, p := range monitorProcs {
 		m.prevProcessPIDs[p.PID] = p
 	}
 
@@ -808,8 +826,10 @@ func (m dashboardModel) dashboardTick() (tea.Model, tea.Cmd) {
 	// extends this to route Immune targets to the Security pane cursor).
 	m = m.resolveAlertJumpTarget()
 
-	// Compute health counters for title bar (Story 34.2)
-	m.errorCount, m.warnCount = computeHealthCounts(m.processes, m.unifiedEvents, m.heartbeatStatus)
+	// Compute health counters for title bar (Story 34.2). Story 34.8 AC6: feed the
+	// ACTIVE subset so historical dead-process failures don't re-count into E each
+	// tick; current failures still reach E via their SevError EXIT event.
+	m.errorCount, m.warnCount = computeHealthCounts(monitorProcs, m.unifiedEvents, m.heartbeatStatus)
 
 	// Most active process tracking — update lastEventByPID from unified events
 	now := time.Now()

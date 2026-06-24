@@ -647,3 +647,99 @@ func (m dashboardModel) resolveAlertJumpTarget() dashboardModel {
 // length-based gate it served was replaced by applyUnreadMarks's
 // identity-set comparison, which handles PID-switch and ring-buffer
 // trim cases the length gate silently skipped.)
+
+// mergeAccumulatedProcs merges a freshly fetched page of processes into the
+// accumulated set, keyed by UUID (Story 34.8 AC4). Same UUID → overwrite with
+// the newer page data; new UUID → append. Unlike the previous whole-set
+// replacement at dashboard.go:634, this preserves processes from earlier pages
+// so the cross-page process tree fills in incrementally as more pages load
+// (AC5: a child loaded on an earlier page is adopted once its parent arrives on
+// a later page, dissolving the "[missing parent …]" synthetic placeholder root).
+//
+// Ordering is deterministic: existing acc entries keep their position (their
+// data refreshed in place when the page carries the same UUID), then page-only
+// UUIDs are appended. Entries with an empty UUID can't be deduped, so they are
+// passed through verbatim (defensive — real processes always carry a UUID).
+func mergeAccumulatedProcs(acc, page []vfs.ProcInfo) []vfs.ProcInfo {
+	idx := make(map[string]int, len(acc)+len(page))
+	merged := make([]vfs.ProcInfo, 0, len(acc)+len(page))
+	for _, p := range acc {
+		if p.UUID == "" {
+			merged = append(merged, p)
+			continue
+		}
+		if _, ok := idx[p.UUID]; ok {
+			continue // collapse any pre-existing duplicates in acc (defensive)
+		}
+		idx[p.UUID] = len(merged)
+		merged = append(merged, p)
+	}
+	for _, p := range page {
+		if p.UUID == "" {
+			merged = append(merged, p)
+			continue
+		}
+		if i, ok := idx[p.UUID]; ok {
+			merged[i] = p // same UUID → overwrite with the newer page data
+			continue
+		}
+		idx[p.UUID] = len(merged)
+		merged = append(merged, p)
+	}
+	return merged
+}
+
+// monitorInputProcs isolates the input for the dashboard's realtime monitoring
+// consumers (detectSpawnExitEvents / detectBudgetEvents / computeHealthCounts /
+// prevProcessPIDs snapshot) from the accumulated tree-render set (Story 34.8 AC6).
+//
+// Under cumulative accumulation, m.processes grows to hold every historical
+// process. Feeding that whole set to the realtime consumers would (a) misreport
+// later-page active processes as new SPAWN events, (b) inflate E/W health counts
+// with historical dead-process errors, and (c) emit budget alerts for dead
+// processes. This helper returns only the subset those consumers should see —
+// the live (non-Dead) processes — while m.processes (the full accumulation)
+// stays the tree-render source.
+//
+// Why this is sufficient given most-recent-first paging (AC6 trap): the kernel
+// sorts by CreatedAt and the dashboard pages newest-first, so scrolling loads
+// progressively OLDER processes — which are overwhelmingly historical (Dead) and
+// thus filtered out here, never reaching detectSpawnExitEvents as a false SPAWN.
+// In steady state (page range unchanged) the active subset is stable, which the
+// 34.8-UNIT-009 green-guard pins down (a PID present in both prev & curr never
+// reports SPAWN). The residual edge case — a long-lived active process whose
+// CreatedAt is old enough to sit on a not-yet-loaded page — would report a single
+// SPAWN the first time its page loads; this is an accepted boundary (see story
+// dev notes), far cheaper than an extra per-tick list_procs round-trip.
+func monitorInputProcs(accumulated []vfs.ProcInfo) []vfs.ProcInfo {
+	active := make([]vfs.ProcInfo, 0, len(accumulated))
+	for _, p := range accumulated {
+		if p.State == types.StateDead {
+			continue
+		}
+		active = append(active, p)
+	}
+	return active
+}
+
+// fetchPagedProcs re-fetches every currently-loaded list_all_procs page
+// ("most-recent-first", page 0 = newest) and merges them by UUID into one
+// cumulative set (Story 34.8 AC4). The caller is responsible for the read
+// deadline around this call. Any page error aborts and is returned verbatim so
+// the tick handler can apply its existing disconnect/degrade path.
+func (m dashboardModel) fetchPagedProcs() (procs []vfs.ProcInfo, total int, hasMore bool, err error) {
+	pageSize := m.procPaging.PageSize
+	if pageSize <= 0 {
+		pageSize = defaultProcPageSize
+	}
+	pages := max(m.procPaging.LoadedPages, 1)
+	for page := range pages {
+		pageProcs, t, hm, perr := m.client.ListAllProcsPaged(page*pageSize, pageSize)
+		if perr != nil {
+			return nil, 0, false, perr
+		}
+		procs = mergeAccumulatedProcs(procs, pageProcs)
+		total, hasMore = t, hm
+	}
+	return procs, total, hasMore, nil
+}

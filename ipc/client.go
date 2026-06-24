@@ -31,7 +31,18 @@ func DialTimeout(socketPath string, timeout time.Duration) (*Client, error) {
 		return nil, fmt.Errorf("ipc: dial %s: %w", socketPath, err)
 	}
 	scanner := bufio.NewScanner(conn)
-	scanner.Buffer(make([]byte, 0, 1<<20), 1<<20)
+	// Story 34.8: the single shared scanner backs ~15 c.scanner.Scan() call
+	// sites (readResponse + every *AndWatch streaming loop). The legacy 1 MB
+	// cap (1<<20) truncated any single NDJSON frame larger than 1 MB with
+	// "bufio.Scanner: token too long" — list_all_procs on a long-running daemon
+	// crossed it at ~780 historical processes (measured 1.11 MB at 904), which
+	// killed the dashboard tick. The dashboard now pages via ListAllProcsPaged,
+	// but the 5 unbounded full-fetch callers (ps -a / resume / apply /
+	// compose_resume) share this scanner too, so the cap must be high enough to
+	// cover a large full response. 64 MB gives generous headroom (≈50k procs at
+	// the measured ~1.28 KB/proc mean) while staying bounded. Truly unbounded
+	// memory is out of scope here (directions B/D, separate stories).
+	scanner.Buffer(make([]byte, 0, 64*1024), 64*1024*1024)
 	return &Client{conn: conn, scanner: scanner, socketPath: socketPath}, nil
 }
 
@@ -108,6 +119,33 @@ func (c *Client) ListAllProcs() ([]vfs.ProcInfo, error) {
 		result[i] = WireToProcInfo(w)
 	}
 	return result, nil
+}
+
+// ListAllProcsPaged returns one page of processes (active + historical) from
+// the daemon, plus pagination metadata (total deduped count + whether more
+// pages remain). Story 34.8: dashboard tick uses this instead of the unbounded
+// ListAllProcs() so a single wire response stays well under the IPC scanner
+// buffer; offset/limit semantics ("most-recent-first") are defined kernel/
+// server-side. The no-parameter ListAllProcs() above is intentionally retained
+// for the 5 full-fetch callers (ps -a / resume / apply / compose_resume).
+//
+// RED-PHASE SKELETON (Story 34.8): superseded — now sends the
+// ListAllProcsRequest payload through call() and parses the total/has_more
+// metadata from the shared ListProcsResponse.
+func (c *Client) ListAllProcsPaged(offset, limit int) (procs []vfs.ProcInfo, total int, hasMore bool, err error) {
+	resp, err := c.call(MethodListAllProcs, ListAllProcsRequest{Offset: offset, Limit: limit})
+	if err != nil {
+		return nil, 0, false, err
+	}
+	var lr ListProcsResponse
+	if err := json.Unmarshal(resp.Payload, &lr); err != nil {
+		return nil, 0, false, fmt.Errorf("ipc: unmarshal list_all_procs (paged): %w", err)
+	}
+	result := make([]vfs.ProcInfo, len(lr.Processes))
+	for i, w := range lr.Processes {
+		result[i] = WireToProcInfo(w)
+	}
+	return result, lr.Total, lr.HasMore, nil
 }
 
 // CtxProfile returns context profiling results for the given PID.

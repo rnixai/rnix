@@ -204,8 +204,43 @@ type SpawnResponse struct {
 // --- ListProcs ---
 
 // ListProcsResponse is the payload for MethodListProcs.
+//
+// Story 34.8: shared by list_procs and list_all_procs. The Total/HasMore
+// pagination metadata is set ONLY by the paginated list_all_procs path
+// (ListAllProcsRequest with Limit>0); both list_procs and the full-set
+// list_all_procs path leave them at zero value so omitempty keeps the wire
+// identical to the pre-34.8 format (backward compatible — no existing consumer
+// reads these fields, and the JSON shape for full fetches is unchanged).
 type ListProcsResponse struct {
 	Processes []ProcInfoWire `json:"processes"`
+
+	// Total is the deduped total process count BEFORE pagination slicing.
+	// Set only on the paginated list_all_procs path.
+	Total int `json:"total,omitempty"`
+	// HasMore reports whether older pages remain beyond this one. Set only on
+	// the paginated list_all_procs path.
+	HasMore bool `json:"has_more,omitempty"`
+}
+
+// ListAllProcsRequest is the optional payload for MethodListAllProcs (Story 34.8).
+//
+// Pagination is OPT-IN and backward compatible: a nil/empty payload, or
+// Offset==0 && Limit==0, means "return the full set" so the 5 existing
+// callers that invoke list_all_procs with no payload (ps -a / resume / apply /
+// compose_resume) are unaffected. Limit<=0 is treated as full-set.
+//
+// Pagination direction is "most-recent-first": kernel ListAllProcs() returns
+// entries sorted by CreatedAt ascending (oldest first), but the dashboard cares
+// about the newest processes, so Offset=0 must return the newest Limit entries
+// (counting back from the tail), with increasing Offset reaching older batches.
+//
+// Response shape (dev选型, Story 34.8): the Total/HasMore metadata is carried by
+// reusing ListProcsResponse with two added omitempty fields rather than a new
+// ListAllProcsResponse type — list_procs and list_all_procs already share that
+// response struct, and omitempty keeps the full-fetch wire byte-identical.
+type ListAllProcsRequest struct {
+	Offset int `json:"offset,omitempty"`
+	Limit  int `json:"limit,omitempty"`
 }
 
 // ProcInfoWire is the wire-format representation of vfs.ProcInfo.
