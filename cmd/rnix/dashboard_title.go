@@ -219,6 +219,20 @@ func (m dashboardModel) renderDashboardTitle() string {
 	return titleLine
 }
 
+// titleBarHeight returns the rendered height, in lines, of the title bar: 1 on
+// narrow terminals (<60 cols), 2 normally (title + pane tabs), 3 when the Mode
+// Strip shows (an active pane reporting modes — the Tree pane always reports
+// sort+dir, so 3 is the common case at width ≥60).
+//
+// Single source of truth for title height, shared by renderDashboard's layout
+// math and dashboardVisibleLines's scroll math. The two previously drifted (the
+// latter hardcoded 2 lines), over-counting the tree's visible capacity by one
+// whenever the Mode Strip added a 3rd line — pushing the last row out of view
+// (clipped by renderFixedPanel).
+func (m dashboardModel) titleBarHeight() int {
+	return strings.Count(m.renderDashboardTitle(), "\n") + 1
+}
+
 // renderModeStrip renders the active modes for the current pane, sourced from
 // Layer 2 KeyLayer.ActiveModesFn (Story 38.1 AC#6).
 //

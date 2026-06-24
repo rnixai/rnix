@@ -1030,8 +1030,9 @@ func (m dashboardModel) dashboardVisibleLines() int {
 	if alertH > 0 {
 		alertOffset = alertH + 1 // +1 for top border
 	}
-	// titleBar(2) + statusBar(1) + panelBorder(2) + headerLine(1) = 6
-	return max(m.height-6-detailOffset-statsOffset-alertOffset, 1)
+	// statusBar(1) + panelBorder(2) + headerLine(1) = 4; title bar height is
+	// dynamic (see titleBarHeight) and MUST match renderDashboard's titleLines.
+	return max(m.height-m.titleBarHeight()-4-detailOffset-statsOffset-alertOffset, 1)
 }
 
 func (m dashboardModel) View() tea.View {
@@ -1061,6 +1062,8 @@ func (m dashboardModel) renderDashboard() string {
 	titleBar := m.renderDashboardTitle()
 	statusBar := m.renderDashboardStatus()
 
+	// Mirrors titleBarHeight(); inline to reuse the already-rendered titleBar
+	// (avoids a 2nd renderDashboardTitle on the per-frame View path).
 	titleLines := strings.Count(titleBar, "\n") + 1
 
 	// Reserve lines for alert strip (Story 34.4)
