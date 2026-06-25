@@ -56,10 +56,30 @@ jobs:
           go-version: ${{ env.GO_VERSION }}
           cache-dependency-path: go.sum
 
+      - name: Extract release notes from CHANGELOG
+        id: notes
+        env:
+          TAG_NAME: ${{ github.ref_name }}
+        run: |
+          version="${TAG_NAME#v}"
+          awk -v v="$version" '
+            $0 ~ "^## \\[" v "\\]" {f=1; next}
+            /^## / {f=0}
+            f' CHANGELOG.md > release-notes.md
+          if [ -s release-notes.md ]; then
+            echo "found=true" >> "$GITHUB_OUTPUT"
+            echo "Release notes for v$version extracted from CHANGELOG.md"
+          else
+            echo "found=false" >> "$GITHUB_OUTPUT"
+            echo "::warning::No CHANGELOG.md section for v$version; GoReleaser will auto-generate notes from commits."
+          fi
+
       - name: Run GoReleaser
         uses: goreleaser/goreleaser-action@v6
         with:
           version: latest
-          args: release --clean
+          args: >-
+            release --clean
+            ${{ steps.notes.outputs.found == 'true' && '--release-notes=release-notes.md' || '' }}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

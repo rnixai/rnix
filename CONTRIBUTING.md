@@ -54,7 +54,7 @@ refactor: extract provider resolution to helper
 
 ## Release Workflow
 
-Releases are driven by Makefile targets and documented in [CHANGELOG.md](CHANGELOG.md). The flow is two steps — a local, reversible `release` followed by an outward-facing `publish`.
+Releases are driven by Makefile targets and documented in [CHANGELOG.md](CHANGELOG.md). The flow is two steps — a local, reversible `release` followed by a `publish` that pushes the tag. Pushing the tag triggers the **Release** GitHub Actions workflow, which runs [GoReleaser](https://goreleaser.com) to build cross-platform archives and create the GitHub release. GoReleaser is the single source of release artifacts — never upload binaries by hand.
 
 ### 1. Document the release
 
@@ -78,7 +78,7 @@ Also add the comparison link at the bottom of the file:
 [0.10.1]: https://github.com/rnixai/rnix/compare/v0.10.0...v0.10.1
 ```
 
-Document only user-facing feature and behavior changes. Keep fixes concise and avoid leaking internal implementation details.
+Document only user-facing feature and behavior changes. Keep fixes concise and avoid leaking internal implementation details. The matching section becomes the GitHub release notes verbatim, so write it for readers of the release page.
 
 ### 2. Tag and build (local, reversible)
 
@@ -86,15 +86,23 @@ Document only user-facing feature and behavior changes. Keep fixes concise and a
 make release VERSION=0.10.1
 ```
 
-This validates the version is semver, checks the working tree is clean, verifies `CHANGELOG.md` has a matching section, runs `lint + vet + modernize-check + test`, creates the annotated tag `v0.10.1`, and builds the release binary. Nothing leaves your machine.
+This validates the version is semver, checks the working tree is clean, verifies `CHANGELOG.md` has a matching section, runs `lint + vet + modernize-check + test`, creates the annotated tag `v0.10.1`, and builds a local binary as a smoke test. Nothing leaves your machine.
 
-### 3. Publish (pushes to GitHub)
+### 3. Publish (push the tag)
 
 ```bash
 make publish VERSION=0.10.1
 ```
 
-This pushes the tag and creates the GitHub release, pulling the release notes straight from the matching `CHANGELOG.md` section.
+This pushes the tag. That is the only outward action it takes. The pushed `v*` tag triggers the **Release** workflow, which runs the test suite, then GoReleaser builds the cross-platform archives + checksums and creates the GitHub release. Release notes are pulled from the matching `CHANGELOG.md` section; if no section exists, GoReleaser falls back to generating notes from commits and the workflow logs a warning.
+
+Watch the run to completion:
+
+```bash
+make release-watch
+```
+
+> Do **not** run `gh release create` or upload assets manually — GoReleaser owns every release artifact. A hand-uploaded binary will sit alongside the proper archives without a checksum and only covers one platform.
 
 ### Supporting targets
 

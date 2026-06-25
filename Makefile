@@ -11,8 +11,8 @@ LDFLAGS := -X main.ldVersion=$(GIT_VERSION) -X main.ldGitCommit=$(GIT_COMMIT) -X
 GH := NO_PROXY="*" HTTP_PROXY="" HTTPS_PROXY="" gh
 
 .PHONY: build install test test-cover lint vet modernize modernize-check clean cache-clean all \
-	changelog-check release-notes release publish help \
-	gh-status gh-view gh-repo-edit gh-pr gh-pr-list gh-issue gh-issue-list gh-release-publish gh-push
+	changelog-check release-notes release publish release-watch help \
+	gh-status gh-view gh-repo-edit gh-pr gh-pr-list gh-issue gh-issue-list gh-push
 .DEFAULT_GOAL := help
 
 build:
@@ -85,25 +85,31 @@ release:
 	$(MAKE) lint vet modernize-check test
 	@echo "==> Creating tag v$(VERSION)..."
 	git tag -a "v$(VERSION)" -m "Release v$(VERSION)"
-	@echo "==> Building release binary..."
+	@echo "==> Building local binary (smoke test; GoReleaser builds the real artifacts)..."
 	go build -ldflags "-X main.ldVersion=$(VERSION) -X main.ldGitCommit=$$(git rev-parse --short HEAD) -X main.ldBuildDate=$$(date -u '+%Y-%m-%dT%H:%M:%SZ')" -o $(BINARY) ./cmd/rnix/
 	@echo ""
-	@echo "Done! Release v$(VERSION) tagged and built."
-	@echo "To publish: make publish VERSION=$(VERSION)"
+	@echo "Done! Release v$(VERSION) tagged and built locally."
+	@echo "To publish (push tag → GoReleaser): make publish VERSION=$(VERSION)"
 
-# Push the tag and create the GitHub release with notes pulled from CHANGELOG.
+# Push the tag — this is the ONLY publish action. Pushing a `v*` tag triggers
+# the Release workflow (.github/workflows/release.yml), which runs GoReleaser
+# to build cross-platform archives + checksums and create the GitHub release.
+# Do NOT create the release or upload assets here; GoReleaser owns that.
 # Run after `make release VERSION=x.y.z`.
 publish:
 	@test -n "$(VERSION)" || (echo "ERROR: VERSION is required. Usage: make publish VERSION=0.2.0"; exit 1)
 	@git rev-parse "v$(VERSION)" >/dev/null 2>&1 || (echo "ERROR: tag v$(VERSION) not found. Run 'make release VERSION=$(VERSION)' first."; exit 1)
 	$(MAKE) changelog-check VERSION=$(VERSION)
-	@echo "==> Pushing tag v$(VERSION)..."
+	@echo "==> Pushing tag v$(VERSION) (triggers GoReleaser via GitHub Actions)..."
 	git push origin "v$(VERSION)"
-	@echo "==> Creating GitHub release v$(VERSION)..."
-	@$(MAKE) --no-print-directory release-notes VERSION=$(VERSION) > /tmp/rnix-release-notes-$(VERSION).md
-	$(GH) release create "v$(VERSION)" $(BINARY) --title "v$(VERSION)" --notes-file /tmp/rnix-release-notes-$(VERSION).md
-	@rm -f /tmp/rnix-release-notes-$(VERSION).md
-	@echo "Done! Release v$(VERSION) published."
+	@echo ""
+	@echo "Done! Tag v$(VERSION) pushed."
+	@echo "GoReleaser will build cross-platform archives and create the release."
+	@echo "Watch progress: make release-watch"
+
+# Watch the most recent Release workflow run (GoReleaser) to completion.
+release-watch:
+	$(GH) run watch $$($(GH) run list --workflow=release.yml --limit 1 --json databaseId --jq '.[0].databaseId')
 
 # --- GitHub CLI (gh) ---
 # All gh calls go through $(GH) to clear the global proxy that breaks gh.
@@ -153,7 +159,8 @@ help: ## Show this help
 	@printf "  \033[36m%-18s\033[0m %s\n" "changelog-check" "Verify CHANGELOG.md has a section for VERSION"
 	@printf "  \033[36m%-18s\033[0m %s\n" "release-notes"   "Print the CHANGELOG body for VERSION"
 	@printf "  \033[36m%-18s\033[0m %s\n" "release"         "Validate + test + tag + build a release"
-	@printf "  \033[36m%-18s\033[0m %s\n" "publish"         "Push tag + create GitHub release (after release)"
+	@printf "  \033[36m%-18s\033[0m %s\n" "publish"         "Push tag → GoReleaser builds & publishes (after release)"
+	@printf "  \033[36m%-18s\033[0m %s\n" "release-watch"   "Watch the GoReleaser run to completion"
 	@printf "\n  \033[1mGitHub (gh):\033[0m\n"
 	@printf "  \033[36m%-18s\033[0m %s\n" "gh-status"       "Check gh auth status"
 	@printf "  \033[36m%-18s\033[0m %s\n" "gh-view"         "Open rnixai/rnix in browser"
