@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.10.1] - 2026-06-25
+
+Theme: **Dashboard Monitoring at Scale** — the Dashboard handles large process histories smoothly and reports process health more accurately, building on the observability work in 0.10.0.
+
+### Added
+
+- **Process-list pagination**: the Dashboard now loads processes page by page in most-recent-first order, so sessions with large process histories stay responsive instead of fetching everything at once. Historical processes are preserved as new pages load, keeping the process tree intact.
+
+### Fixed
+
+- **More accurate real-time health counts**: realtime monitoring now distinguishes the active process set from historical entries and folds in recently failed processes, so fast Running→Dead transitions are no longer missed or misreported.
+- **Tree pane scrolling**: the process tree now scrolls correctly when the title bar grows taller, so the last row is always reachable instead of being clipped.
+
 ## [0.10.0] - 2026-06-20
 
 Theme: **Deep Observability & Reasoning Control (Epics 55, 56)** — every LLM call can now be captured and inspected after the fact, model reasoning becomes visible in the UI, sub-agents spawned inside CLI drivers are reconstructed into the process tree, MCP gains an HTTP transport, and reasoning effort can be controlled end to end.
@@ -528,6 +541,8 @@ Theme: **Process lifecycle reshape** — resume from history, unified subtree pa
 - **IPC Protocol**: NDJSON over Unix socket request/response protocol
 - **VFS Devices**: `/dev/llm/claude`, `/dev/fs`, `/dev/shell` device implementations
 
+[0.10.1]: https://github.com/rnixai/rnix/compare/v0.10.0...v0.10.1
+[0.10.0]: https://github.com/rnixai/rnix/compare/v0.9.4...v0.10.0
 [0.9.4]: https://github.com/rnixai/rnix/compare/v0.9.3...v0.9.4
 [0.9.3]: https://github.com/rnixai/rnix/compare/v0.9.2...v0.9.3
 [0.9.2]: https://github.com/rnixai/rnix/compare/v0.9.1...v0.9.2

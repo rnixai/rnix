@@ -13,7 +13,7 @@ Thanks for your interest in contributing to Rnix! This document covers the guide
 ```bash
 git clone https://github.com/rnixai/rnix.git
 cd rnix
-make all    # lint + vet + test + build
+make all    # lint + vet + modernize-check + test + build
 ```
 
 ## Development Workflow
@@ -25,7 +25,7 @@ make build          # Build binary → ./rnix
 make test           # Run all tests with race detection
 make lint           # golangci-lint
 make vet            # go vet
-make all            # lint + vet + test + build (run this before every PR)
+make all            # lint + vet + modernize-check + test + build (run this before every PR)
 ```
 
 Run a single test:
@@ -51,6 +51,59 @@ fix: handle nil provider in spawn callback
 docs: update CLI reference with new commands
 refactor: extract provider resolution to helper
 ```
+
+## Release Workflow
+
+Releases are driven by Makefile targets and documented in [CHANGELOG.md](CHANGELOG.md). The flow is two steps — a local, reversible `release` followed by an outward-facing `publish`.
+
+### 1. Document the release
+
+Add a new version section to `CHANGELOG.md` under `## [Unreleased]`, following the [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) format:
+
+```markdown
+## [0.10.1] - 2026-06-25
+
+Theme: **One-line summary of the release**
+
+### Added
+- ...
+
+### Fixed
+- ...
+```
+
+Also add the comparison link at the bottom of the file:
+
+```markdown
+[0.10.1]: https://github.com/rnixai/rnix/compare/v0.10.0...v0.10.1
+```
+
+Document only user-facing feature and behavior changes. Keep fixes concise and avoid leaking internal implementation details.
+
+### 2. Tag and build (local, reversible)
+
+```bash
+make release VERSION=0.10.1
+```
+
+This validates the version is semver, checks the working tree is clean, verifies `CHANGELOG.md` has a matching section, runs `lint + vet + modernize-check + test`, creates the annotated tag `v0.10.1`, and builds the release binary. Nothing leaves your machine.
+
+### 3. Publish (pushes to GitHub)
+
+```bash
+make publish VERSION=0.10.1
+```
+
+This pushes the tag and creates the GitHub release, pulling the release notes straight from the matching `CHANGELOG.md` section.
+
+### Supporting targets
+
+```bash
+make changelog-check VERSION=0.10.1   # verify CHANGELOG has the version section
+make release-notes VERSION=0.10.1     # print the CHANGELOG body for that version
+```
+
+Version numbers follow [Semantic Versioning](https://semver.org/): patch for fixes and small polish, minor for new features, major for breaking changes.
 
 ## Code Conventions
 
