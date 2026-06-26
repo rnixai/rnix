@@ -2,6 +2,7 @@ package intentdriver
 
 import (
 	"context"
+	"errors"
 	"strings"
 	"testing"
 
@@ -30,8 +31,10 @@ func (s *failingSpawner) Kill(_ types.PID) error { return nil }
 // fail, the decompose Write returns an error rather than a successful tree.
 // reconciler.Execute returns nil even on IntentFailed, so without this check the
 // failed tree surfaced as a successful tool result and the orchestrator reported
-// "fake success" with exit 0. The error trips the caller's HasToolError so
-// `rnix apply` exits non-zero.
+// "fake success" with exit 0. The error is marked FailsParent so the kernel routes
+// it through the orchestrator's failedChildren (a Layer-1 child failure) and
+// `rnix apply` exits non-zero (spec-exit-code-tool-error-fidelity C8 — this
+// replaced the removed HasToolError exit path).
 func TestIntentFile_AutoStart_FailedTree_ReturnsError(t *testing.T) {
 	nodesJSON := `[{"id":"a","intent":"do task a","depends_on":[]}]`
 	mgr := intent.NewManager(
@@ -53,6 +56,16 @@ func TestIntentFile_AutoStart_FailedTree_ReturnsError(t *testing.T) {
 	}
 	if !strings.Contains(werr.Error(), "intent execution failed") {
 		t.Errorf("error = %q, want substring 'intent execution failed'", werr.Error())
+	}
+	// C8 (spec-exit-code-tool-error-fidelity): the failure must carry FailsParent so
+	// the kernel promotes it to a Layer-1 child failure (MarkFailedChild) — the only
+	// remaining exit driver after HasToolError was removed from the exit path.
+	var de *types.DriverError
+	if !errors.As(werr, &de) {
+		t.Fatalf("error type = %T, want *types.DriverError", werr)
+	}
+	if !de.FailsParent {
+		t.Error("DriverError.FailsParent = false, want true (intent failed tree must drive orchestrator exit≠0 via failedChildren)")
 	}
 }
 

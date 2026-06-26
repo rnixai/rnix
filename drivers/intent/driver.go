@@ -276,8 +276,13 @@ func (f *IntentFile) handleDecompose(ctx context.Context, data []byte) (*intent.
 		// (orchestrator) then emits `complete` with exit 0, masking child
 		// failures (the rnix-eval mcp/hello-mcp "fake success"). Reflect the
 		// real terminal state: a failed tree returns a DriverError listing the
-		// failed sub-tasks, so the caller's HasToolError trips and `rnix apply`
-		// exits non-zero.
+		// failed sub-tasks, marked FailsParent so the kernel routes it through
+		// the orchestrator's failedChildren (a Layer-1 child failure) and
+		// `rnix apply` exits non-zero (spec-exit-code-tool-error-fidelity C8).
+		// intent sub-tasks do NOT flow through kernel ActionSpawn/MarkFailedChild
+		// on their own, so without this explicit signal the orchestration
+		// fake-success guard would silently vanish once the old HasToolError flag
+		// was removed from the exit path.
 		if tree.State == intent.IntentFailed {
 			failed := make([]string, 0, len(tree.Nodes))
 			for _, node := range tree.Nodes {
@@ -291,7 +296,8 @@ func (f *IntentFile) handleDecompose(ctx context.Context, data []byte) (*intent.
 			}
 			sort.Strings(failed)
 			return nil, &types.DriverError{Op: "Write", Device: f.devicePath, Code: types.ErrDriver,
-				Err: fmt.Errorf("intent execution failed: %d of %d sub-task(s) failed [%s]", len(failed), len(tree.Nodes), strings.Join(failed, "; "))}
+				FailsParent: true,
+				Err:         fmt.Errorf("intent execution failed: %d of %d sub-task(s) failed [%s]", len(failed), len(tree.Nodes), strings.Join(failed, "; "))}
 		}
 	}
 

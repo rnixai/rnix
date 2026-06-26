@@ -274,9 +274,17 @@ toolLoop:
 					break toolLoop
 				}
 				k.emitEvent(proc, "CtxWrite", map[string]any{"cid": proc.CtxID, "op": "AppendToolResult", "tool": tc.Name}, nil, nil, time.Since(appendToolStart))
-				proc.mu.Lock()
-				proc.HasToolError = true
-				proc.mu.Unlock()
+				// C8 (spec-exit-code-tool-error-fidelity): an orchestration sub-task
+				// failure (e.g. /dev/intent decompose whose sub-task tree failed) is a
+				// Layer-1 child failure — route it through failedChildren so the
+				// parent's completion exit code is non-zero, mirroring a non-zero
+				// ActionSpawn child. Plain VFS tool errors leave FailsParent false and
+				// stay content-layer (observability only) per the 2-layer model; the
+				// old sticky HasToolError flag is gone (exit no longer reads it).
+				var de *types.DriverError
+				if errors.As(err, &de) && de.FailsParent {
+					proc.MarkFailedChild()
+				}
 				k.emitLog(proc, step, types.LogTool, errMsg, mapping.VFSPath)
 				inputJSON, _ := json.Marshal(tc.Input)
 				toolCalls = append(toolCalls, types.ToolCallRecord{
@@ -320,9 +328,6 @@ toolLoop:
 			}
 			k.emitLog(proc, step, types.LogTool, toolContent, mapping.VFSPath)
 			counter.recordSuccess()
-			proc.mu.Lock()
-			proc.HasToolError = false
-			proc.mu.Unlock()
 
 			inputJSON, _ := json.Marshal(tc.Input)
 			toolCalls = append(toolCalls, types.ToolCallRecord{
@@ -728,7 +733,6 @@ func (k *KernelImpl) executeMetaAction(proc *Process, tc llmToolCall, mapping to
 		resultStr, _ := tc.Input["result"].(string)
 		proc.mu.Lock()
 		proc.Result = resultStr
-		hadError := proc.HasToolError
 		failedChildren := proc.failedChildren
 		proc.mu.Unlock()
 		k.emitLog(proc, step, types.LogOutput, resultStr, "")
@@ -739,17 +743,24 @@ func (k *KernelImpl) executeMetaAction(proc *Process, tc llmToolCall, mapping to
 		if k.callbacks != nil {
 			k.callbacks.OnStepComplete(proc.PID, step, "complete", briefTextSummary(resultStr), false, float64(stepDur.Microseconds())/1000.0)
 		}
+		// Exit code is a Layer-1 program-level signal
+		// (spec-exit-code-tool-error-fidelity, C1): reaching `complete` proves the
+		// agent routed every VFS tool result through its content layer, so the 13
+		// VFS tool error codes never drive the exit code. Only program-level machine
+		// failures do — failedChildren here, and the circuit breaker which exits via
+		// finishProcess at its trip point (bumpToolError) and never reaches this
+		// completion point. Mirror this exact verdict in the final-text path
+		// (reason.go) per CAP-3.
 		exitCode := 0
 		reason := "completed"
-		if hadError {
-			exitCode = 1
-			reason = "completed_with_tool_errors"
-		} else if failedChildren > 0 {
+		if failedChildren > 0 {
 			// F2 (assessment integrity): a parent that spawned children which
 			// exited non-zero must not report success — otherwise child
 			// failures (e.g. 401s, no output) are masked behind the parent's
 			// own `complete` and `rnix apply` reports exit 0 (the rnix-eval
-			// mcp/hello-mcp "fake success").
+			// mcp/hello-mcp "fake success"). intent/orchestration sub-task
+			// failures also flow here via MarkFailedChild (C8 — see the
+			// DriverError.FailsParent handling in the vfs tool-error branch).
 			exitCode = 1
 			reason = fmt.Sprintf("completed_with_%d_failed_children", failedChildren)
 		}

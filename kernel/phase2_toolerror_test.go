@@ -9,11 +9,17 @@ import (
 	"github.com/rnixai/rnix/vfs"
 )
 
-// --- BUG-004: Tool Error Propagation Tests ---
+// --- spec-exit-code-tool-error-fidelity: 2-layer exit-code contract ---
+//
+// Layer-1 (program-level) failures drive the completion exit code: failedChildren>0
+// and the circuit breaker. The 13 VFS tool error codes are content-layer results —
+// reaching `complete`/final `text` proves the agent routed them through its content
+// layer, so they NEVER drive the exit code. The removed sticky HasToolError flag is
+// intentionally not asserted anywhere below.
 
-func TestReasonStep_ToolOpenFails_SetsHasToolError(t *testing.T) {
-	// When LLM requests a tool whose VFS device Open fails,
-	// the error is caught → HasToolError is set → exit code is 1.
+func TestReasonStep_ToolOpenError_ExitCodeZero(t *testing.T) {
+	// A tool whose VFS device Open fails is a content-layer result; the process
+	// reaches its final text and exits 0/"completed" (no failedChildren/breaker).
 	reg := vfs.NewDeviceRegistry()
 
 	seqFile := &sequenceLLMFile{
@@ -46,33 +52,26 @@ func TestReasonStep_ToolOpenFails_SetsHasToolError(t *testing.T) {
 	proc, _ := k.GetProcess(pid)
 	select {
 	case exit := <-proc.Done:
-		if exit.Code != 1 {
-			t.Fatalf("expected exit code 1 (HasToolError), got %d: reason=%q", exit.Code, exit.Reason)
+		if exit.Code != 0 {
+			t.Fatalf("expected exit code 0 (tool errors are content-layer, not Layer-1 program failures), got %d: reason=%q", exit.Code, exit.Reason)
 		}
-		if exit.Reason != "completed_with_tool_errors" {
-			t.Fatalf("expected reason 'completed_with_tool_errors', got %q", exit.Reason)
+		if exit.Reason != "completed" {
+			t.Fatalf("expected reason 'completed', got %q", exit.Reason)
 		}
 	case <-time.After(5 * time.Second):
 		t.Fatal("timed out waiting for process to complete")
 	}
 
-	// Verify HasToolError flag is set
-	proc.mu.Lock()
-	hasErr := proc.HasToolError
-	proc.mu.Unlock()
-	if !hasErr {
-		t.Error("expected HasToolError to be true")
-	}
-
-	// Verify process still produced a result (LLM continued reasoning)
+	// Process still produced a result (LLM continued reasoning despite the tool
+	// error). The removed HasToolError flag is intentionally not asserted.
 	if proc.Result == "" {
 		t.Error("expected non-empty result despite tool error")
 	}
 }
 
-func TestReasonStep_ToolWriteFails_SetsHasToolError(t *testing.T) {
-	// When a tool device is registered but Write fails,
-	// the error is caught, FD is closed, and HasToolError is set.
+func TestReasonStep_ToolWriteError_ExitCodeZero(t *testing.T) {
+	// A tool device Write failure is a content-layer result; the process exits
+	// 0/"completed" (no failedChildren/breaker).
 	reg := vfs.NewDeviceRegistry()
 
 	seqFile := &sequenceLLMFile{
@@ -105,27 +104,21 @@ func TestReasonStep_ToolWriteFails_SetsHasToolError(t *testing.T) {
 	proc, _ := k.GetProcess(pid)
 	select {
 	case exit := <-proc.Done:
-		if exit.Code != 1 {
-			t.Fatalf("expected exit code 1 (HasToolError), got %d: reason=%q", exit.Code, exit.Reason)
+		if exit.Code != 0 {
+			t.Fatalf("expected exit code 0 (tool errors are content-layer, not Layer-1 program failures), got %d: reason=%q", exit.Code, exit.Reason)
 		}
-		if exit.Reason != "completed_with_tool_errors" {
-			t.Fatalf("expected reason 'completed_with_tool_errors', got %q", exit.Reason)
+		if exit.Reason != "completed" {
+			t.Fatalf("expected reason 'completed', got %q", exit.Reason)
 		}
 	case <-time.After(5 * time.Second):
 		t.Fatal("timed out")
 	}
 
-	proc.mu.Lock()
-	hasErr := proc.HasToolError
-	proc.mu.Unlock()
-	if !hasErr {
-		t.Error("expected HasToolError to be true")
-	}
 }
 
-func TestReasonStep_ToolReadFails_SetsHasToolError(t *testing.T) {
-	// When a tool device Write succeeds but Read fails,
-	// error is caught, FD is closed, and HasToolError is set.
+func TestReasonStep_ToolReadError_ExitCodeZero(t *testing.T) {
+	// A tool device Read failure is a content-layer result; the process exits
+	// 0/"completed" (no failedChildren/breaker).
 	reg := vfs.NewDeviceRegistry()
 
 	seqFile := &sequenceLLMFile{
@@ -158,26 +151,20 @@ func TestReasonStep_ToolReadFails_SetsHasToolError(t *testing.T) {
 	proc, _ := k.GetProcess(pid)
 	select {
 	case exit := <-proc.Done:
-		if exit.Code != 1 {
-			t.Fatalf("expected exit code 1 (HasToolError), got %d: reason=%q", exit.Code, exit.Reason)
+		if exit.Code != 0 {
+			t.Fatalf("expected exit code 0 (tool errors are content-layer, not Layer-1 program failures), got %d: reason=%q", exit.Code, exit.Reason)
 		}
-		if exit.Reason != "completed_with_tool_errors" {
-			t.Fatalf("expected reason 'completed_with_tool_errors', got %q", exit.Reason)
+		if exit.Reason != "completed" {
+			t.Fatalf("expected reason 'completed', got %q", exit.Reason)
 		}
 	case <-time.After(5 * time.Second):
 		t.Fatal("timed out")
 	}
 
-	proc.mu.Lock()
-	hasErr := proc.HasToolError
-	proc.mu.Unlock()
-	if !hasErr {
-		t.Error("expected HasToolError to be true")
-	}
 }
 
 func TestReasonStep_NoToolError_ExitCodeZero(t *testing.T) {
-	// When all tool calls succeed, HasToolError remains false and exit code is 0.
+	// When all tool calls succeed, exit code is 0/"completed".
 	reg := vfs.NewDeviceRegistry()
 
 	seqFile := &sequenceLLMFile{
@@ -216,12 +203,6 @@ func TestReasonStep_NoToolError_ExitCodeZero(t *testing.T) {
 		t.Fatal("timed out")
 	}
 
-	proc.mu.Lock()
-	hasErr := proc.HasToolError
-	proc.mu.Unlock()
-	if hasErr {
-		t.Error("expected HasToolError to be false when no tool errors occurred")
-	}
 }
 
 // Sentinel errors for mock tool devices.
@@ -231,15 +212,16 @@ var (
 )
 
 func TestReasonStep_ToolErrorRecovered_ExitCodeZero(t *testing.T) {
-	// When a tool call fails but the LLM recovers by making a subsequent
-	// successful tool call, HasToolError should be cleared and exit code should be 0.
+	// When a tool call fails but the LLM recovers with a subsequent successful tool
+	// call, exit is 0/"completed" — independent of the error (the removed last-call
+	// HasToolError semantics no longer affect the exit code).
 	reg := vfs.NewDeviceRegistry()
 
 	seqFile := &sequenceLLMFile{
 		responses: [][]byte{
-			// Step 1: LLM requests a tool at a non-existent path (will fail → HasToolError = true)
+			// Step 1: LLM requests a tool at a non-existent path (will fail)
 			makeToolCallResponse("/dev/nonexistent", map[string]any{"query": "test"}, 50),
-			// Step 2: LLM recovers by calling a working tool (should clear HasToolError)
+			// Step 2: LLM recovers by calling a working tool
 			makeToolCallResponse("/dev/tools/ok", map[string]any{"data": "recovery"}, 40),
 			// Step 3: LLM produces final text response
 			makeLLMResponse("recovered successfully", 20),
@@ -277,15 +259,7 @@ func TestReasonStep_ToolErrorRecovered_ExitCodeZero(t *testing.T) {
 		t.Fatal("timed out waiting for process to complete")
 	}
 
-	// Verify HasToolError was cleared by the successful recovery
-	proc.mu.Lock()
-	hasErr := proc.HasToolError
-	proc.mu.Unlock()
-	if hasErr {
-		t.Error("expected HasToolError to be false after successful recovery")
-	}
-
-	// Verify process produced a result
+	// Process produced a result after recovery.
 	if proc.Result == "" {
 		t.Error("expected non-empty result after recovery")
 	}

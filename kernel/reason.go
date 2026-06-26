@@ -895,7 +895,7 @@ func (k *KernelImpl) reasonStep(proc *Process, llmFD types.FD, opts SpawnOpts) {
 
 		proc.mu.Lock()
 		proc.Result = resp.Content
-		hadError := proc.HasToolError
+		failedChildren := proc.failedChildren
 		proc.mu.Unlock()
 		k.emitEvent(proc, "ReasonStep", map[string]any{"step": step, "action": "text"}, resp.Content, nil, time.Since(stepStart))
 		stepDur := time.Since(stepStart)
@@ -905,11 +905,17 @@ func (k *KernelImpl) reasonStep(proc *Process, llmFD types.FD, opts SpawnOpts) {
 		// Record completed step so an in-memory SIGPAUSE/SIGRESUME cycle
 		// restarts at step+1 instead of step 1 (Story 44.1 code review F5).
 		proc.LastCompletedStep.Store(int64(step))
+		// Layer-1 exit verdict — identical to the ActionComplete path (CAP-3,
+		// spec-exit-code-tool-error-fidelity). VFS tool error codes never drive
+		// exit; only failedChildren (here) and the circuit breaker (an earlier
+		// early-exit) do. This path previously LACKED the failedChildren guard
+		// (asymmetry vs ActionComplete), letting a process exiting via final text
+		// mask failed children with exit 0 — adding it closes that fake-success hole.
 		exitCode := 0
 		reason := "completed"
-		if hadError {
+		if failedChildren > 0 {
 			exitCode = 1
-			reason = "completed_with_tool_errors"
+			reason = fmt.Sprintf("completed_with_%d_failed_children", failedChildren)
 		}
 		k.finishProcess(proc, ExitStatus{Code: exitCode, Reason: reason})
 		return

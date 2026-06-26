@@ -123,8 +123,13 @@ type Process struct {
 	TraceID          types.TraceID
 	SpanID           types.SpanID
 	ParentSpanID     types.SpanID
-	HasToolError     bool // true if any tool call failed (mu protected)
-	failedChildren   int  // F2: count of spawned children that exited non-zero (mu protected)
+	// failedChildren counts spawned children (ActionSpawn) and orchestration
+	// sub-tasks (intent, via DriverError.FailsParent → MarkFailedChild) that
+	// exited non-zero. It is the sole Layer-1 program-level driver of a non-zero
+	// completion exit code (spec-exit-code-tool-error-fidelity). VFS tool error
+	// codes are content-layer results and do NOT affect the exit code — the old
+	// sticky HasToolError flag (removed by this spec) is intentionally gone.
+	failedChildren int // F2: count of children/sub-tasks that exited non-zero (mu protected)
 
 	// Log history ring buffer (mu protected)
 	logHistory []types.LogEntry

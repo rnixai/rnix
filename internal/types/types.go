@@ -145,6 +145,15 @@ type DriverError struct {
 	Device string
 	Err    error
 	Code   ErrCode
+	// FailsParent marks this error as an orchestration sub-task failure that must
+	// drive the calling (parent/orchestrator) process's Layer-1 exit code —
+	// equivalent to a spawned child exiting non-zero. The kernel's VFS tool-error
+	// branch checks this (errors.As) and calls MarkFailedChild, so the failure
+	// flows through failedChildren rather than via the removed sticky HasToolError
+	// flag (spec-exit-code-tool-error-fidelity C8). Drivers whose errors are pure
+	// content-layer tool results (the default for all 13 ErrCodes) leave this
+	// false, keeping them observability-only at the completion exit verdict.
+	FailsParent bool
 }
 
 // Error returns a formatted error string.
