@@ -248,6 +248,16 @@ func (k *KernelImpl) finishProcess(proc *Process, exit ExitStatus) {
 // isTransientLLMError checks if an error from the LLM driver is transient
 // and worth retrying (socket disconnect, overloaded, connection reset, etc.).
 func isTransientLLMError(err error) bool {
+	// Permanent-error veto: auth/login/context-length/model-not-found are 4xx-class
+	// failures that never succeed on retry. Check them first so a provider error
+	// body containing words like "timeout" cannot be misclassified as transient
+	// by the substring fallbacks below.
+	if errors.Is(err, llm.ErrAuth) ||
+		errors.Is(err, llm.ErrLoginRequired) ||
+		errors.Is(err, llm.ErrContextLength) ||
+		errors.Is(err, llm.ErrModelNotFound) {
+		return false
+	}
 	// Check via the llm package's IsTransient (uses sentinel errors including ErrStreamIncomplete)
 	if llm.IsTransient(err) {
 		return true
@@ -265,16 +275,23 @@ func isTransientLLMError(err error) bool {
 				strings.Contains(lower, "overloaded") ||
 				strings.Contains(lower, "eof") ||
 				strings.Contains(lower, "reset by peer") ||
+				strings.Contains(lower, "timeout") ||
+				strings.Contains(lower, "timed out") ||
 				strings.Contains(lower, "stream") {
 				return true
 			}
 		}
 	}
-	// Also match on the outer error string as a fallback
+	// Also match on the outer error string as a fallback. Timeout-flavoured
+	// transport failures (e.g. "net/http: TLS handshake timeout" from a flaky
+	// relay) are transient by nature; without this they skip the retry path
+	// and kill the process outright (7/4 apex case).
 	lower := strings.ToLower(err.Error())
 	return strings.Contains(lower, "socket") ||
 		strings.Contains(lower, "connection") ||
 		strings.Contains(lower, "overloaded") ||
+		strings.Contains(lower, "timeout") ||
+		strings.Contains(lower, "timed out") ||
 		strings.Contains(lower, "stream ended without result")
 }
 

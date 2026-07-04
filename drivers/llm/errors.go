@@ -3,6 +3,7 @@ package llm
 import (
 	"errors"
 	"fmt"
+	"net"
 )
 
 // Sentinel errors for LLM-specific failure categories.
@@ -25,6 +26,21 @@ func IsTransient(err error) bool {
 		errors.Is(err, ErrRateLimit) ||
 		errors.Is(err, ErrTimeout) ||
 		errors.Is(err, ErrStreamIncomplete)
+}
+
+// classifyTransportError maps low-level HTTP transport failures to typed LLM
+// errors. Timeout-flavoured net.Error values (TLS handshake timeout, dial
+// timeout, response header timeout) are transient by nature and map to
+// ErrTimeout so the kernel retry path applies; anything else keeps the
+// generic wrap.
+func classifyTransportError(provider string, err error) error {
+	var ne net.Error
+	if errors.As(err, &ne) && ne.Timeout() {
+		// Preserve the original error text ("TLS handshake timeout", "dial
+		// timeout", …) for logs while keeping errors.Is(…, ErrTimeout) true.
+		return NewLLMError(provider, 0, fmt.Errorf("%w: %v", ErrTimeout, err))
+	}
+	return fmt.Errorf("http request failed: %w", err)
 }
 
 // LLMError represents a typed error from an LLM driver.

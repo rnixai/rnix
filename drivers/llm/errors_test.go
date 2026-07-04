@@ -3,6 +3,8 @@ package llm
 import (
 	"errors"
 	"fmt"
+	"net/url"
+	"strings"
 	"testing"
 )
 
@@ -61,5 +63,57 @@ func TestSentinelErrors_Distinct(t *testing.T) {
 				t.Errorf("sentinel[%d] (%v) should not match sentinel[%d] (%v)", i, sentinels[i], j, sentinels[j])
 			}
 		}
+	}
+}
+
+// fakeTimeoutErr implements net.Error with Timeout()==true, mimicking
+// net/http transport timeouts (TLS handshake timeout, dial timeout).
+type fakeTimeoutErr struct{ msg string }
+
+func (e *fakeTimeoutErr) Error() string   { return e.msg }
+func (e *fakeTimeoutErr) Timeout() bool   { return true }
+func (e *fakeTimeoutErr) Temporary() bool { return true }
+
+func TestClassifyTransportError_TimeoutMapsToErrTimeout(t *testing.T) {
+	// net/http wraps transport errors in *url.Error which delegates Timeout()
+	// to the inner error; a plain net.Error is equivalent for errors.As.
+	err := classifyTransportError("opencodezen", &fakeTimeoutErr{msg: "net/http: TLS handshake timeout"})
+	if !IsTransient(err) {
+		t.Fatalf("timeout transport error must be transient, got %v", err)
+	}
+	if !errors.Is(err, ErrTimeout) {
+		t.Fatalf("timeout transport error must map to ErrTimeout, got %v", err)
+	}
+	if !strings.Contains(err.Error(), "TLS handshake timeout") {
+		t.Fatalf("classified error must preserve original text, got %q", err.Error())
+	}
+}
+
+func TestClassifyTransportError_URLErrorWrappedTimeout(t *testing.T) {
+	// Production shape: net/http wraps transport failures in *url.Error, which
+	// delegates Timeout() to the inner error. Classification must still map
+	// to ErrTimeout through the wrap.
+	wrapped := &url.Error{
+		Op:  "Post",
+		URL: "https://x",
+		Err: &fakeTimeoutErr{msg: "net/http: TLS handshake timeout"},
+	}
+	err := classifyTransportError("opencodezen", wrapped)
+	if !errors.Is(err, ErrTimeout) {
+		t.Fatalf("url.Error-wrapped timeout must map to ErrTimeout, got %v", err)
+	}
+	if !strings.Contains(err.Error(), "TLS handshake timeout") {
+		t.Fatalf("classified error must preserve original text, got %q", err.Error())
+	}
+}
+
+func TestClassifyTransportError_NonTimeoutKeepsGenericWrap(t *testing.T) {
+	inner := errors.New("certificate signed by unknown authority")
+	err := classifyTransportError("opencodezen", inner)
+	if errors.Is(err, ErrTimeout) {
+		t.Fatalf("non-timeout error must not map to ErrTimeout, got %v", err)
+	}
+	if !errors.Is(err, inner) {
+		t.Fatalf("generic wrap must preserve the original error chain, got %v", err)
 	}
 }

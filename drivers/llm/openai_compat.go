@@ -524,7 +524,7 @@ func (d *OpenAICompatDriver) callInternal(ctx context.Context, req LLMRequest, t
 		if ctx.Err() == context.DeadlineExceeded {
 			return nil, NewLLMError(d.name, 0, ErrTimeout)
 		}
-		return nil, fmt.Errorf("http request failed: %w", err)
+		return nil, classifyTransportError(d.name, err)
 	}
 	defer resp.Body.Close()
 
@@ -600,7 +600,7 @@ func (d *OpenAICompatDriver) streamInternal(ctx context.Context, req LLMRequest,
 		if IsStreamTimeout(ctx) {
 			return nil, NewLLMError(d.name, 0, ErrTimeout)
 		}
-		return nil, fmt.Errorf("http request failed: %w", err)
+		return nil, classifyTransportError(d.name, err)
 	}
 
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
