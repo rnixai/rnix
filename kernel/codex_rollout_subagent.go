@@ -76,6 +76,7 @@ type codexRolloutTracker struct {
 
 	children     map[string]*codexRolloutChild // keyed by child thread id
 	childByFile  map[string]*codexRolloutChild
+	rejectedFile map[string]bool // negative cache for unrelated rollout files
 	warnedBadDir bool
 
 	stopOnce sync.Once
@@ -92,6 +93,7 @@ func newCodexRolloutTracker(k *KernelImpl, host *Process, baseDir, parentThreadI
 		rolloutDir:     rolloutDir,
 		children:       make(map[string]*codexRolloutChild),
 		childByFile:    make(map[string]*codexRolloutChild),
+		rejectedFile:   make(map[string]bool),
 		stopCh:         make(chan struct{}),
 		doneCh:         make(chan struct{}),
 	}
@@ -110,9 +112,13 @@ func defaultCodexRolloutDir(now time.Time) string {
 }
 
 func (t *codexRolloutTracker) start() {
+	_ = t.scanOnce()
+	if len(t.children) == 0 {
+		close(t.doneCh)
+		return
+	}
 	go func() {
 		defer close(t.doneCh)
-		_ = t.scanOnce()
 		ticker := time.NewTicker(codexRolloutPollInterval)
 		defer ticker.Stop()
 		for {
@@ -160,8 +166,15 @@ func (t *codexRolloutTracker) scanOnce() error {
 	}
 	sort.Strings(paths)
 	for _, path := range paths {
-		if err := t.scanFile(path); err != nil && !errors.Is(err, errCodexRolloutUnrelated) {
-			log.Printf("[codex-rollout] scan %s: %v", path, err)
+		if t.rejectedFile[path] {
+			continue
+		}
+		if err := t.scanFile(path); err != nil {
+			if errors.Is(err, errCodexRolloutUnrelated) {
+				t.rejectedFile[path] = true
+			} else {
+				log.Printf("[codex-rollout] scan %s: %v", path, err)
+			}
 		}
 	}
 	return nil
@@ -180,6 +193,10 @@ func (t *codexRolloutTracker) scanFile(path string) error {
 	sc := bufio.NewScanner(f)
 	sc.Buffer(make([]byte, 256*1024), 16*1024*1024)
 	lineNo := 0
+	lastGoodLine := 0
+	if child != nil {
+		lastGoodLine = child.seenLines
+	}
 	processed := false
 	for sc.Scan() {
 		lineNo++
@@ -203,12 +220,13 @@ func (t *codexRolloutTracker) scanFile(path string) error {
 		}
 		t.processRecord(child, rec)
 		processed = true
+		lastGoodLine = lineNo
 	}
 	if err := sc.Err(); err != nil {
 		return err
 	}
 	if child != nil {
-		child.seenLines = lineNo
+		child.seenLines = lastGoodLine
 	}
 	if !processed && child == nil {
 		return errCodexRolloutUnrelated
@@ -436,6 +454,20 @@ func (t *codexRolloutTracker) finalize(c *codexRolloutChild, report string) {
 		return
 	}
 	c.finalized = true
+	for _, p := range c.pending {
+		if c.sw != nil {
+			_ = c.sw.WriteStep(types.StepRecord{
+				Step:      p.step,
+				Timestamp: sinceOrZero(p.start, c.createdAt),
+				Action:    p.name,
+				Summary:   driverToolSummary(p.name, p.name, p.input),
+				ToolPath:  p.name,
+				ToolInput: p.input,
+				ToolError: "interrupted",
+			})
+		}
+	}
+	c.pending = nil
 	if c.sw != nil {
 		_ = c.sw.Close()
 		c.sw = nil
