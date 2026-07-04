@@ -10,6 +10,7 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"unicode/utf8"
 
 	"github.com/rnixai/rnix/vfs"
 )
@@ -462,4 +463,59 @@ func processExitCode(cmd *exec.Cmd) int {
 		return -1
 	}
 	return cmd.ProcessState.ExitCode()
+}
+
+// stderrTailMax bounds how much stderr is inlined into error messages (Story
+// 56.7 裁决 4). Error messages flow into events.jsonl's error field — the tail
+// keeps that bounded while the full stderr still lands in the raw capture's
+// Response.stderr for post-mortem audit.
+const stderrTailMax = 2048
+
+// stderrTail returns the trailing max bytes of s after TrimSpace — CLI error
+// text almost always sits at the end of stderr. The cut is advanced to a UTF-8
+// rune boundary so multi-byte characters are never split (Story 56.7 裁决 4).
+func stderrTail(s string, max int) string {
+	s = strings.TrimSpace(s)
+	if max <= 0 || len(s) <= max {
+		return s
+	}
+	cut := len(s) - max
+	for cut < len(s) && !utf8.RuneStart(s[cut]) {
+		cut++
+	}
+	return s[cut:]
+}
+
+// cliFailureDetail composes the shared " (exit N): <stderr tail>" suffix for
+// CLI stream-failure error messages (Story 56.7 裁决 4 — codex/cursor error
+// events previously carried no diagnostics). exit code is always included;
+// the stderr tail only when non-empty. Callers must cmd.Wait() first so both
+// stderr buffer and ProcessState are final.
+func cliFailureDetail(stderr string, exitCode int) string {
+	detail := fmt.Sprintf(" (exit %d)", exitCode)
+	if tail := stderrTail(stderr, stderrTailMax); tail != "" {
+		detail += ": " + tail
+	}
+	return detail
+}
+
+// streamIncompleteDiag builds the diagnostic suffix for the generic
+// ErrStreamIncomplete wrap in LLMFile.writeStream (Story 56.7 G7). It reads
+// the collected raw capture's Response — stderr / exit_code are the CLI-family
+// fields (56.3 铁律: stderr is always a string; type-assert failure reads as
+// empty). Returns "" when there is no stderr to show (API-family captures or
+// a clean-but-silent CLI exit).
+func streamIncompleteDiag(c *vfs.RawCapture) string {
+	if c == nil || c.Response == nil {
+		return ""
+	}
+	stderr, _ := c.Response["stderr"].(string)
+	tail := stderrTail(stderr, stderrTailMax)
+	if tail == "" {
+		return ""
+	}
+	if ec, ok := c.Response["exit_code"]; ok {
+		return fmt.Sprintf(" (exit %v; stderr: %s)", ec, tail)
+	}
+	return fmt.Sprintf(" (stderr: %s)", tail)
 }

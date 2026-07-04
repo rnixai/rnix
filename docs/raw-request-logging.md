@@ -35,7 +35,9 @@ raw_capture:
   "request":  { /* 由 driver 决定字段集 */ },
   "response": { /* 由 driver 决定字段集 */ },
   "truncated": false,
-  "original_bytes": 0
+  "original_bytes": 0,
+  "outcome": "error",               // 仅失败记录出现（56.7）；成功记录无此键
+  "error": "gateway returned …"     // 仅失败记录出现（56.7）：callErr.Error()
 }
 ```
 
@@ -50,6 +52,18 @@ raw_capture:
 - `stdin` / `stdout` / `stderr` **必须是 `string` 类型**：kernel `truncateRawCapture` → `largestStringKey` 只截断 map 中 string 值字段；非 string 会逃过 per-record 截断。stdout 可能巨大（stream-json 全量），必须 string 才能被 4MB 截断。
 - `exit_code` 是 `int`（CLI driver 写 `cmd.ProcessState.ExitCode()`，启动失败 / pre-Wait 状态返回 `-1`）。
 - API driver 的字段在 56.2 已锁死并由 4 个 driver 共享填充；CLI driver 的字段在 56.3 已锁死并由 4 个 driver 共享填充。
+- `outcome` / `error`（56.7，additive + `omitempty`）：kernel hook 在调用**失败**时于深拷贝后的记录上填 `outcome: "error"` + `error: <callErr 文本>`；成功记录两键不序列化，旧格式文件读回为零值——新旧双向兼容。
+
+## 失败调用语义（56.7）
+
+失败恰恰是最需要「取回真实请求」的场景。56.7 把 raw capture 链路补到失败路径：
+
+- **primary Write 失败**（transient 与终态都算；suspend 早退除外——挂起非失败，进程将 resume）→ 该次调用照常落盘，带 `outcome`/`error` 标记。
+- **fallback 调用**（`attemptFallback` 的 fbFD）→ 成败均落盘。primary 失败 + fallback 成功时同一 `step` 会有**两条**记录（前者带 outcome=error，后者无 outcome 键）。
+- **同 step 多条记录的查询语义**：`ReadRawForStep` / `get_raw_capture --step` 取 **last-match**（终态优先——fallback 记录晚于 primary 失败记录）。旧数据（每 step 单条）行为不变。transient retry 因 reason 循环的 `continue` 会 `step++`，失败记录与重试成功记录分属相邻 step，不叠加。
+- **Stream 失败归集**（`LLMFile.writeStream`）：error 事件不再提前 return——drain 到 channel close 再归集 sink（56.3 时序铁律：`sink.set` 先于 `close(ch)`），失败调用的 `LastRawCapture()` 是含已累积 stdout/stderr/exit_code 的终态。`ErrStreamIncomplete` 泛化错误在 capture 有 stderr 时追加 `(exit N; stderr: <尾部≤2KB>)` 诊断。
+- **codex/cursor stderr 透传**：Stream 无 result 退出时 error 事件消息追加 `(exit N): <stderr 尾部≤2KB>`（`stderrTail`，UTF-8 边界安全）；全量 stderr 仍在 raw capture 的 `response.stderr`。claude/qwen 的 no-result 路径原本就先 `cmd.Wait()` 再读 stderr，行为不变。
+- **渲染**：`RenderRawLens` 对 `outcome=="error"` 记录在 Response 段之前渲染一行 `⚠ outcome: error — <error>`，`rnix strace --raw` 与 dashboard Raw lens 双路自动生效。
 
 ## 脱敏（写盘前横切）
 

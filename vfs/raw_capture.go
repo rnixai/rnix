@@ -21,6 +21,12 @@ type RawCapture struct {
 	Response      map[string]any `json:"response,omitempty"`
 	Truncated     bool           `json:"truncated"`
 	OriginalBytes int64          `json:"original_bytes"`
+	// Outcome / Error mark a failed LLM call (Story 56.7 裁决 3, additive).
+	// The kernel hook fills both on the deep-copied record when the call
+	// errored; successful records leave them empty so the JSON keys never
+	// appear (omitempty) and old readers/renderers are unaffected.
+	Outcome string `json:"outcome,omitempty"` // "error"; empty on success
+	Error   string `json:"error,omitempty"`   // callErr.Error(); empty on success
 }
 
 // RawCaptureProvider is an optional interface for VFSFile implementations

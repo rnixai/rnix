@@ -194,3 +194,43 @@ func TestRenderRawCLIStepHint_NonEmptyAndMentionsStep1(t *testing.T) {
 		t.Errorf("hint should reference step 1, got: %q", out)
 	}
 }
+
+// --- Story 56.7 AC6: outcome=error 记录渲染 outcome/error 行 ---
+
+func TestATDD_56_7_AC6_RenderRawLens_OutcomeErrorLine(t *testing.T) {
+	rc := rawCLIFixture()
+	rc.Outcome = "error"
+	rc.Error = "cli failed (exit 2): quota exhausted"
+
+	out := RenderRawLens(rc, 80)
+	if !strings.Contains(out, "outcome: error") {
+		t.Errorf("outcome line missing:\n%s", out)
+	}
+	if !strings.Contains(out, "quota exhausted") {
+		t.Errorf("error detail missing from outcome line:\n%s", out)
+	}
+	// outcome 行必须在 Response 段之前（裁决 3）
+	oIdx := strings.Index(out, "outcome: error")
+	rIdx := strings.Index(out, "Response")
+	if oIdx < 0 || rIdx < 0 || oIdx > rIdx {
+		t.Errorf("outcome line must render before the Response section (o=%d r=%d):\n%s", oIdx, rIdx, out)
+	}
+}
+
+func TestATDD_56_7_AC6_RenderRawLens_APIKindAlsoRendersOutcome(t *testing.T) {
+	rc := rawAPIFixture()
+	rc.Outcome = "error"
+	rc.Error = "gateway returned malformed 200"
+
+	out := RenderRawLens(rc, 80)
+	if !strings.Contains(out, "outcome: error") || !strings.Contains(out, "malformed 200") {
+		t.Errorf("API-kind outcome line missing:\n%s", out)
+	}
+}
+
+func TestATDD_56_7_AC6_RenderRawLens_SuccessRecordNoOutcomeLine(t *testing.T) {
+	out := RenderRawLens(rawCLIFixture(), 80)
+	if strings.Contains(out, "outcome:") {
+		t.Errorf("success record must not render an outcome line:\n%s", out)
+	}
+}

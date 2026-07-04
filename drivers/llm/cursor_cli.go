@@ -342,8 +342,15 @@ func (d *CursorCliDriver) Stream(ctx context.Context, req LLMRequest) (<-chan St
 						se.Err = NewLLMError("cursor", 0, fmt.Errorf("%s", errMsg))
 					}
 				} else if evt.Result == "" {
+					// 56.7 (G6): Wait BEFORE composing the error so stderrBuf /
+					// exit code are final (mirrors codex G5; the IsError branch
+					// above keeps evt.Result only — claude :644 race 注释约束).
+					// Double Wait with the send-path Wait below plus the defer
+					// safety net is harmless ("Wait was already called" → _).
+					_ = cmd.Wait()
 					se.Type = "error"
-					se.Err = NewLLMError("cursor", 0, fmt.Errorf("response truncated: no result"))
+					se.Err = NewLLMError("cursor", 0, fmt.Errorf("response truncated: no result%s",
+						cliFailureDetail(stderrBuf.String(), processExitCode(cmd))))
 				}
 				select {
 				case ch <- se:
@@ -359,8 +366,13 @@ func (d *CursorCliDriver) Stream(ctx context.Context, req LLMRequest) (<-chan St
 		}
 
 		if err := scanner.Err(); err != nil {
+			// 56.7 (G6): Wait first — scanner loop has ended (stdout drained /
+			// errored), so Wait is safe and finalizes stderrBuf + exit code
+			// for the diagnostic suffix.
+			_ = cmd.Wait()
 			select {
-			case ch <- StreamEvent{Type: "error", Err: NewLLMError("cursor", 0, fmt.Errorf("stream read error: %w", err))}:
+			case ch <- StreamEvent{Type: "error", Err: NewLLMError("cursor", 0, fmt.Errorf("stream read error: %w%s",
+				err, cliFailureDetail(stderrBuf.String(), processExitCode(cmd))))}:
 			case <-ctx.Done():
 			}
 		}

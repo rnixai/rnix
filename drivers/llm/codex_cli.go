@@ -259,6 +259,7 @@ func (d *CodexCliDriver) Stream(ctx context.Context, req LLMRequest) (<-chan Str
 			cachedInputTokens int
 		}
 		var lastAgentMessage string
+		var scanErr error
 
 		scanner := newStreamScanner(scannerSrc)
 		for scanner.Scan() {
@@ -387,10 +388,7 @@ func (d *CodexCliDriver) Stream(ctx context.Context, req LLMRequest) (<-chan Str
 		}
 
 		if err := scanner.Err(); err != nil {
-			select {
-			case ch <- StreamEvent{Type: "error", Err: NewLLMError("codex", 0, fmt.Errorf("stream read error: %w", err))}:
-			case <-ctx.Done():
-			}
+			scanErr = err
 		}
 
 		// Emit done event with the last agent message and accumulated usage.
@@ -402,9 +400,22 @@ func (d *CodexCliDriver) Stream(ctx context.Context, req LLMRequest) (<-chan Str
 			OutputTokens:      lastUsage.outputTokens,
 			CachedInputTokens: lastUsage.cachedInputTokens,
 		}
-		if lastAgentMessage == "" {
+		if scanErr != nil {
+			_ = cmd.Wait()
 			se.Type = "error"
-			se.Err = NewLLMError("codex", 0, fmt.Errorf("response truncated: no agent message received"))
+			se.Err = NewLLMError("codex", 0, fmt.Errorf("stream read error: %w%s",
+				scanErr, cliFailureDetail(stderrBuf.String(), processExitCode(cmd))))
+		} else if lastAgentMessage == "" {
+			// 56.7 (G5): Wait BEFORE composing the error — the scanner loop is
+			// done so stdout is drained and Wait is safe (claude no-result 路径
+			// 范本); reading stderrBuf without Wait would race the subprocess.
+			// The done path below keeps its original send-then-Wait order so
+			// normal completion is never delayed. Double Wait is harmless
+			// ("Wait was already called" is discarded via _).
+			_ = cmd.Wait()
+			se.Type = "error"
+			se.Err = NewLLMError("codex", 0, fmt.Errorf("response truncated: no agent message received%s",
+				cliFailureDetail(stderrBuf.String(), processExitCode(cmd))))
 		}
 		select {
 		case ch <- se:

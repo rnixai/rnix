@@ -218,12 +218,19 @@ func ReadRawForStep(path string, step int) (*vfs.RawCapture, error) {
 // parse-error count keeps "N lines skipped (malformed)" observable on the
 // single-step query path too (dashboard lens / `strace --raw --step N`), not
 // just the Step=0 full-listing path — matching AC#8's 三路 parity intent.
+//
+// Match semantics are last-match (Story 56.7 裁决 2): a step can now carry
+// multiple records — a failed primary call (outcome=error) followed by its
+// fallback call in the same reason-loop iteration. The fallback record is
+// appended later and represents the step's terminal outcome, so the single-step
+// query returns it. Files with one record per step (all pre-56.7 data) behave
+// identically to the previous first-match scan.
 func ReadRawForStepWithErrors(path string, step int) (*vfs.RawCapture, int, error) {
 	all, parseErrors, err := ReadAllRawWithErrors(path)
 	if err != nil {
 		return nil, parseErrors, err
 	}
-	for i := range all {
+	for i := len(all) - 1; i >= 0; i-- {
 		if all[i].Step == step {
 			return &all[i], parseErrors, nil
 		}
@@ -234,7 +241,9 @@ func ReadRawForStepWithErrors(path string, step int) (*vfs.RawCapture, int, erro
 // captureRawLLMCall is the kernel reasonStep hook (Story 56.1 AC#6/#7). It
 // runs after a successful LLM Read (review patch P6 — moved post-Read so
 // future Stream-style drivers can populate Last with both request and full
-// response) and:
+// response) and, since Story 56.7, also on the Write-failure branch and on
+// all three attemptFallback exits — a non-nil callErr marks the record with
+// Outcome="error" + Error so failed calls remain auditable (裁决 2/3). It:
 //
 //  1. Bails out fast when raw capture is disabled or the process has no
 //     RawWriter attached (degrades to no-op).
@@ -254,7 +263,7 @@ func ReadRawForStepWithErrors(path string, step int) (*vfs.RawCapture, int, erro
 //
 // All failures are logged but never propagated upward; the reasonStep loop
 // is the source of truth for liveness, raw observability is best-effort.
-func (k *KernelImpl) captureRawLLMCall(proc *Process, fd types.FD, step int) {
+func (k *KernelImpl) captureRawLLMCall(proc *Process, fd types.FD, step int, callErr error) {
 	cfg := k.RawCaptureCfg()
 	if !cfg.Enabled {
 		return
@@ -288,6 +297,14 @@ func (k *KernelImpl) captureRawLLMCall(proc *Process, fd types.FD, step int) {
 	rec.Response = deepCopyMap(capture.Response)
 	if rec.Step == 0 {
 		rec.Step = step
+	}
+	// Story 56.7 裁决 3: failure markers go on the deep-copied rec only (P4
+	// deep-copy discipline — never mutate the driver's cached capture).
+	// Successful records leave both fields empty so omitempty keeps the JSON
+	// keys absent (AC7 backward compatibility).
+	if callErr != nil {
+		rec.Outcome = "error"
+		rec.Error = redactRawCaptureError(callErr.Error())
 	}
 	maxBytes := cfg.MaxOutputBytes
 	if maxBytes <= 0 {
@@ -366,10 +383,72 @@ func truncateRawCapture(rec *vfs.RawCapture, maxBytes int64) bool {
 			break
 		}
 	}
+	if data, err = json.Marshal(rec); err == nil && int64(len(data)) > maxBytes &&
+		rec.Error != "" && !strings.HasPrefix(rec.Error, "<truncated:") {
+		sz := len(rec.Error)
+		rec.OriginalBytes += int64(sz)
+		rec.Error = fmt.Sprintf("<truncated: %d bytes, max=%d>", sz, maxBytes)
+		truncated = true
+	}
 	if truncated {
 		rec.Truncated = true
 	}
 	return truncated
+}
+
+var rawErrorCredentialKeys = []string{
+	"authorization",
+	"proxy-authorization",
+	"api-key",
+	"x-api-key",
+	"x-goog-api-key",
+	"x-auth-token",
+	"cookie",
+	"set-cookie",
+}
+
+// redactRawCaptureError is a conservative defense-in-depth pass for the top
+// level RawCapture.Error field. Drivers should avoid putting secrets in errors,
+// but provider/CLI diagnostics can echo header-looking lines. When a line
+// contains "Authorization: ..." or similar, redact the value using the same VFS
+// header redaction primitive as request/response maps.
+func redactRawCaptureError(s string) string {
+	if s == "" {
+		return s
+	}
+	lines := strings.Split(s, "\n")
+	for i, line := range lines {
+		lines[i] = redactRawCaptureErrorLine(line)
+	}
+	return strings.Join(lines, "\n")
+}
+
+func redactRawCaptureErrorLine(line string) string {
+	lower := strings.ToLower(line)
+	for _, key := range rawErrorCredentialKeys {
+		idx := strings.Index(lower, key)
+		if idx < 0 {
+			continue
+		}
+		pos := idx + len(key)
+		for pos < len(line) && (line[pos] == ' ' || line[pos] == '\t') {
+			pos++
+		}
+		if pos >= len(line) || (line[pos] != ':' && line[pos] != '=') {
+			continue
+		}
+		valueStart := pos + 1
+		for valueStart < len(line) && (line[valueStart] == ' ' || line[valueStart] == '\t') {
+			valueStart++
+		}
+		value := strings.TrimSpace(line[valueStart:])
+		if value == "" {
+			return line
+		}
+		redacted := vfs.RedactHeaders(map[string]string{key: value})[key]
+		return line[:valueStart] + redacted
+	}
+	return line
 }
 
 // largestStringKey returns the key of the largest string-valued entry in m

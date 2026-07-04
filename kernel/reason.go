@@ -347,6 +347,11 @@ func (k *KernelImpl) attemptFallback(proc *Process, req llmRequest, primaryDevic
 			"fallback_device": proc.FallbackDevice,
 			"fallback_error":  err.Error(),
 		}, nil, err, time.Since(fallbackStart))
+		// Story 56.7 (G4): the fallback call is persisted to raw.jsonl whether
+		// it succeeds or fails. Explicit calls before each return — the
+		// `defer Close(fbFD)` above runs at function return, so the FD is
+		// still valid at capture time.
+		k.captureRawLLMCall(proc, fbFD, step, err)
 		return nil, fmt.Errorf("primary %s: %v; fallback %s: %v", primaryDevice, primaryErr, proc.FallbackDevice, err)
 	}
 
@@ -360,6 +365,7 @@ func (k *KernelImpl) attemptFallback(proc *Process, req llmRequest, primaryDevic
 			"fallback_device": proc.FallbackDevice,
 			"fallback_error":  err.Error(),
 		}, nil, err, time.Since(fallbackStart))
+		k.captureRawLLMCall(proc, fbFD, step, err)
 		return nil, fmt.Errorf("primary %s: %v; fallback %s: %v", primaryDevice, primaryErr, proc.FallbackDevice, err)
 	}
 
@@ -371,6 +377,11 @@ func (k *KernelImpl) attemptFallback(proc *Process, req llmRequest, primaryDevic
 		"fallback_device": proc.FallbackDevice,
 		"fallback_model":  proc.FallbackModel,
 	}, nil, nil, time.Since(fallbackStart))
+
+	// Story 56.7 (G4): successful fallback record (no outcome marker). Same
+	// step as the primary-failure record — ReadRawForStep resolves via
+	// last-match (terminal outcome wins).
+	k.captureRawLLMCall(proc, fbFD, step, nil)
 
 	return respData, nil
 }
@@ -612,6 +623,13 @@ func (k *KernelImpl) reasonStep(proc *Process, llmFD types.FD, opts SpawnOpts) {
 				return
 			}
 
+			// Story 56.7 (G3): persist the failed primary request to raw.jsonl
+			// with outcome=error. Placed after the suspend early-return (a
+			// pause is not a failure — the process will resume) and before the
+			// transient-retry check so both transient and terminal failures
+			// are captured (AC1/AC3).
+			k.captureRawLLMCall(proc, llmFD, step, err)
+
 			// Transient error retry (socket disconnect, overloaded, etc.)
 			if isTransientLLMError(err) && consecutiveTransientRetries < 2 {
 				consecutiveTransientRetries++
@@ -659,8 +677,9 @@ func (k *KernelImpl) reasonStep(proc *Process, llmFD types.FD, opts SpawnOpts) {
 			// Review patch P6: moved post-Read so future Stream-style drivers
 			// can populate Last with both request + accumulated response in
 			// one go. Best-effort — failures are logged via captureRawLLMCall
-			// and must NOT abort reasonStep.
-			k.captureRawLLMCall(proc, llmFD, step)
+			// and must NOT abort reasonStep. Story 56.7: readErr (nil on the
+			// happy path) marks the record outcome=error when the Read failed.
+			k.captureRawLLMCall(proc, llmFD, step, readErr)
 			if readErr != nil {
 				// Story 44.5 AC1 — same suspend-vs-kill race as the Write path
 				// above. ctx cancel triggered by SIGPAUSE surfaces as a Read

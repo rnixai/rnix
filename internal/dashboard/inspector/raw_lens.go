@@ -108,6 +108,8 @@ func renderRawAPI(b *strings.Builder, rc *vfs.RawCapture, width int) {
 		}
 	}
 
+	renderRawOutcome(b, rc)
+
 	b.WriteString("\n" + RenderMetaSectionHeader("Response", width) + "\n")
 	if m := rc.Response; m != nil {
 		if status := rawStatusString(m["status"]); status != "" {
@@ -135,6 +137,8 @@ func renderRawCLI(b *strings.Builder, rc *vfs.RawCapture, width int) {
 		renderRawEnv(b, m["env"])
 	}
 
+	renderRawOutcome(b, rc)
+
 	b.WriteString("\n" + RenderMetaSectionHeader("Response", width) + "\n")
 	if m := rc.Response; m != nil {
 		if ec := m["exit_code"]; ec != nil {
@@ -149,6 +153,24 @@ func renderRawCLI(b *strings.Builder, rc *vfs.RawCapture, width int) {
 			b.WriteString(indentBlock(stderr))
 		}
 	}
+}
+
+// renderRawOutcome 渲染失败标记行（Story 56.7 裁决 3）：记录含 Outcome=="error"
+// 时在 Response 段之前渲染一行 `outcome: error — <Error>`；成功记录（Outcome
+// 空）零输出。strace --raw 与 dashboard Raw lens 共用本 helper，双路自动生效。
+func renderRawOutcome(b *strings.Builder, rc *vfs.RawCapture) {
+	if rc.Outcome != "error" {
+		return
+	}
+	dash := "—"
+	if ui.IsASCIIMode() {
+		dash = "-"
+	}
+	line := "outcome: error"
+	if rc.Error != "" {
+		line += " " + dash + " " + rc.Error
+	}
+	fmt.Fprintf(b, "\n%s %s\n", rawWarnGlyph(true), line)
 }
 
 // renderRawHeaders 渲染 headers map（脱敏指纹原样显示，AC#5）。键按字母序排序

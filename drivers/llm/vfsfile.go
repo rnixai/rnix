@@ -102,6 +102,10 @@ func (f *LLMFile) Write(ctx context.Context, data []byte) error {
 	if f.closed {
 		return fmt.Errorf("write to closed llm file")
 	}
+	// Per-open raw capture is per Write attempt. Clear any previous attempt
+	// before parsing/dispatch so a startup or no-capture failure cannot be
+	// persisted as the current call by the kernel failure hook.
+	f.lastRawCapture = nil
 
 	var req LLMRequest
 	if err := json.Unmarshal(data, &req); err != nil {
@@ -218,8 +222,18 @@ func (f *LLMFile) writeStream(ctx context.Context, req LLMRequest) error {
 	var toolCalls []ToolCall
 	var reasoningBlocks []ReasoningBlock
 	var receivedDone bool
+	var streamErr error
 
 	for evt := range ch {
+		// 56.7 裁决 1（G1）：error 事件不再立即 return——CLI driver 的 sink.set
+		// 发生在 error 事件之后、close(ch) 之前（56.3 Stream 时序铁律），提前
+		// return 会拿到过早态 sink。改为记住首个 error，继续 drain 到 channel
+		// close 再归集。drain 不会永久阻塞：driver 后续 send 均有 ctx.Done
+		// 兜底，close(ch) 由 driver goroutine 的 defer 保证。错误已定局，
+		// drain 期间忽略后续 content/done 事件（不回填 response buffer）。
+		if streamErr != nil {
+			continue
+		}
 		switch evt.Type {
 		case "content":
 			content.WriteString(evt.Content)
@@ -281,10 +295,24 @@ func (f *LLMFile) writeStream(ctx context.Context, req LLMRequest) error {
 			}
 		case "error":
 			if evt.Err != nil {
-				return evt.Err
+				streamErr = evt.Err
+			} else {
+				streamErr = fmt.Errorf("stream error: %s", evt.Content)
 			}
-			return fmt.Errorf("stream error: %s", evt.Content)
 		}
+	}
+
+	// 56.7 裁决 1（G1/G2）：sink 归集前移——失败路径（error 事件 /
+	// ErrStreamIncomplete）也归集到 per-Open 字段，对齐 writeCall 的「即便
+	// err != nil 也保留 Request 形态」语义。range ch 已结束 = close(ch) 已
+	// 发生，happens-after driver 的最后一次 sink.set，get() 是终态。
+	collected := sink.get()
+	if collected != nil {
+		f.lastRawCapture = collected
+	}
+
+	if streamErr != nil {
+		return streamErr
 	}
 
 	finalContent := content.String()
@@ -292,9 +320,11 @@ func (f *LLMFile) writeStream(ctx context.Context, req LLMRequest) error {
 		finalContent = reasoning.String()
 	}
 
-	// Guard: stream closed without a "done" event and no usable content
+	// Guard: stream closed without a "done" event and no usable content.
+	// 56.7 (G7): append stderr tail + exit code from the collected capture
+	// (when present) so a silent CLI break is no longer undiagnosable.
 	if !receivedDone && finalContent == "" && len(toolCalls) == 0 {
-		return fmt.Errorf("stream closed without result event: %w", ErrStreamIncomplete)
+		return fmt.Errorf("stream closed without result event%s: %w", streamIncompleteDiag(collected), ErrStreamIncomplete)
 	}
 
 	resp := &LLMResponse{
@@ -308,13 +338,6 @@ func (f *LLMFile) writeStream(ctx context.Context, req LLMRequest) error {
 		CostUSD:           costUSD,
 		StopReason:        stopReason,
 		ToolCalls:         toolCalls,
-	}
-	// 56.2: 归集 sink → per-Open 字段。range ch 已结束意味着 driver
-	// goroutine 已退出（defer close(ch)）；driver goroutine 退出前会
-	// defer resp.Body.Close()——captureResponseBody.Close 此时已把原样
-	// 字节落入 cap.Response，sink.get() 是终态。
-	if c := sink.get(); c != nil {
-		f.lastRawCapture = c
 	}
 	return f.bufferResponse(resp)
 }
