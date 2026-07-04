@@ -75,6 +75,9 @@ func runWait(cmd *cobra.Command, args []string) error {
 			return nil
 		}
 		timeoutMs = d.Milliseconds()
+		if timeoutMs == 0 {
+			timeoutMs = 1
+		}
 	}
 
 	client, err := ipc.Dial(ipc.SocketPath())

@@ -351,6 +351,30 @@ func TestATDD_63_1_INT_007_NotFound(t *testing.T) {
 	}
 }
 
+// Regression: malformed IPC timeout values must fail fast instead of being
+// interpreted as unbounded waits or overflowing time.Duration.
+func TestATDD_63_1_INT_007a_InvalidTimeoutMsRejected(t *testing.T) {
+	sockPath, _, _, _ := setupWaitIPCTest(t)
+
+	for _, tc := range []struct {
+		name      string
+		timeoutMs int64
+	}{
+		{name: "negative", timeoutMs: -1},
+		{name: "overflow", timeoutMs: maxWaitTimeoutMs + 1},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			_, err := waitViaNewConn(t, sockPath, types.PID(999999), tc.timeoutMs)
+			if err == nil {
+				t.Fatal("Wait with invalid timeout_ms should fail")
+			}
+			if !strings.Contains(err.Error(), "INVALID") {
+				t.Errorf("error = %v, want INVALID code in message", err)
+			}
+		})
+	}
+}
+
 // --- 63.1-INT-008: 并发多 waiter 同 PID — broadcast 全部唤醒且结果一致 (AC8) ---
 
 func TestATDD_63_1_INT_008_ConcurrentWaiters_ConsistentResults(t *testing.T) {

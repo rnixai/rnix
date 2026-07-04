@@ -10,6 +10,8 @@ import (
 	"github.com/rnixai/rnix/vfs"
 )
 
+const maxWaitTimeoutMs = int64(1<<63-1) / int64(time.Millisecond)
+
 // handleWait implements MethodWait (Story 63.1). It blocks until the target
 // process reaches a terminal state (Zombie/Dead), then propagates its exit
 // code — or returns TimedOut=true after req.TimeoutMs (0 = wait forever).
@@ -47,6 +49,14 @@ func (s *Server) handleWait(conn net.Conn, payload json.RawMessage) {
 	}
 	if s.kern == nil {
 		writeResponse(conn, Response{OK: false, Error: &ErrorPayload{Code: "internal", Message: "kernel not wired"}})
+		return
+	}
+	if req.TimeoutMs < 0 {
+		writeResponse(conn, Response{OK: false, Error: &ErrorPayload{Code: "INVALID", Message: "timeout_ms must be non-negative"}})
+		return
+	}
+	if req.TimeoutMs > maxWaitTimeoutMs {
+		writeResponse(conn, Response{OK: false, Error: &ErrorPayload{Code: "INVALID", Message: fmt.Sprintf("timeout_ms exceeds maximum %d", maxWaitTimeoutMs)}})
 		return
 	}
 

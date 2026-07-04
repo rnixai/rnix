@@ -206,6 +206,27 @@ func TestRunWait_Timeout_Exit124(t *testing.T) {
 	}
 }
 
+// Regression: positive durations below 1ms must remain bounded. time.Duration
+// truncates these to 0 milliseconds; wire timeout_ms=0 means "wait forever".
+func TestRunWait_SubMillisecondTimeout_StillBounded(t *testing.T) {
+	sockPath, kern := setupTestIPCServer(t)
+	resetWaitTestGlobals(t)
+	ipc.SocketPathOverride = sockPath
+	flagWaitTimeout = "500us"
+
+	proc := kernel.NewProcess(0, "parked forever sub-ms", nil)
+	_ = proc.Start()
+	kern.AddProcess(proc)
+
+	err := runWait(&cobra.Command{}, []string{fmt.Sprintf("%d", proc.PID)})
+	if err != nil {
+		t.Fatalf("runWait should return nil, got %v", err)
+	}
+	if exitCode != 124 {
+		t.Errorf("expected exitCode 124 for sub-millisecond timeout, got %d", exitCode)
+	}
+}
+
 // AC4: --json emits pid / exit_code / exit_reason / timed_out inside data.
 func TestRunWait_JSONOutput_TerminalState(t *testing.T) {
 	sockPath, kern := setupTestIPCServer(t)
