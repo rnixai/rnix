@@ -34,10 +34,11 @@ func TestCursorHelperProcess(t *testing.T) {
 		fmt.Fprint(os.Stdout, `{"type":"result","subtype":"success","result":"ok","is_error":false}`)
 	case "cursor_stream_success":
 		fmt.Fprintln(os.Stdout, `{"type":"system","subtype":"init","model":"gpt-4"}`)
+		fmt.Fprintln(os.Stdout, `{"type":"user","message":{"content":[{"type":"text","text":"inspect go.mod"}]}}`)
 		fmt.Fprintln(os.Stdout, `{"type":"assistant","message":{"content":[{"type":"text","text":"hello "}]}}`)
 		fmt.Fprintln(os.Stdout, `{"type":"tool_call","subtype":"started"}`)
 		fmt.Fprintln(os.Stdout, `{"type":"tool_call","subtype":"completed"}`)
-		fmt.Fprintln(os.Stdout, `{"type":"assistant","message":{"content":[{"type":"text","text":"world"}]}}`)
+		fmt.Fprintln(os.Stdout, `{"type":"assistant","message":{"content":[{"type":"text","text":"world"},{"type":"tool_use","id":"toolu_1","name":"read_file","input":{"path":"go.mod"}}]}}`)
 		fmt.Fprintln(os.Stdout, `{"type":"result","subtype":"success","result":"hello world","is_error":false,"num_turns":1,"input_tokens":80,"output_tokens":40}`)
 	case "cursor_stream_error":
 		fmt.Fprintln(os.Stdout, `{"type":"result","subtype":"error","result":"stream error message","is_error":true}`)
@@ -330,32 +331,62 @@ func TestCursorCliDriver_Stream_Success(t *testing.T) {
 		events = append(events, evt)
 	}
 
-	// Should have 6 events: 1 system + 2 content (from assistant) + 2 tool_call (started/completed) + 1 done (from result)
+	// Should have 9 events: 1 system + 1 user + 2 assistant + 2 content
+	// (from assistant) + 2 tool_call (started/completed) + 1 done (from result).
 	// system events are now forwarded; tool_call events are forwarded
-	if len(events) != 6 {
-		t.Fatalf("expected 6 events (system forwarded, tool_call forwarded), got %d: %+v", len(events), events)
+	if len(events) != 9 {
+		t.Fatalf("expected 9 events (system/user/assistant/content/tool/done), got %d: %+v", len(events), events)
 	}
 
 	if events[0].Type != "system" || events[0].Content != "init" {
 		t.Errorf("event[0]: expected system 'init', got type=%q content=%q", events[0].Type, events[0].Content)
 	}
-	if events[1].Type != "content" || events[1].Content != "hello " {
-		t.Errorf("event[1]: expected content 'hello ', got type=%q content=%q", events[1].Type, events[1].Content)
+	if events[1].Type != "user" {
+		t.Fatalf("event[1]: expected user, got type=%q content=%q data=%v", events[1].Type, events[1].Content, events[1].Data)
 	}
-	if events[2].Type != "tool_call" || events[2].Content != "started" {
-		t.Errorf("event[2]: expected tool_call 'started', got type=%q content=%q", events[2].Type, events[2].Content)
+	if events[1].Data["role"] != "user" {
+		t.Errorf("event[1]: expected role=user, got %v", events[1].Data["role"])
 	}
-	if events[3].Type != "tool_call" || events[3].Content != "completed" {
-		t.Errorf("event[3]: expected tool_call 'completed', got type=%q content=%q", events[3].Type, events[3].Content)
+	userContent, ok := events[1].Data["content"].([]map[string]any)
+	if !ok || len(userContent) != 1 || userContent[0]["text"] != "inspect go.mod" {
+		t.Errorf("event[1]: expected user message content, got %#v", events[1].Data["content"])
 	}
-	if events[4].Type != "content" || events[4].Content != "world" {
-		t.Errorf("event[4]: expected content 'world', got type=%q content=%q", events[4].Type, events[4].Content)
+	if events[2].Type != "assistant" {
+		t.Fatalf("event[2]: expected assistant, got type=%q content=%q data=%v", events[2].Type, events[2].Content, events[2].Data)
 	}
-	if events[5].Type != "done" || events[5].Content != "hello world" {
-		t.Errorf("event[5]: expected done 'hello world', got type=%q content=%q", events[5].Type, events[5].Content)
+	if events[2].Data["role"] != "assistant" {
+		t.Errorf("event[2]: expected role=assistant, got %v", events[2].Data["role"])
 	}
-	if events[5].TokensUsed != 120 {
-		t.Errorf("expected tokens_used 120, got %d", events[5].TokensUsed)
+	if events[3].Type != "content" || events[3].Content != "hello " {
+		t.Errorf("event[3]: expected content 'hello ', got type=%q content=%q", events[3].Type, events[3].Content)
+	}
+	if events[4].Type != "tool_call" || events[4].Content != "started" {
+		t.Errorf("event[4]: expected tool_call 'started', got type=%q content=%q", events[4].Type, events[4].Content)
+	}
+	if events[5].Type != "tool_call" || events[5].Content != "completed" {
+		t.Errorf("event[5]: expected tool_call 'completed', got type=%q content=%q", events[5].Type, events[5].Content)
+	}
+	if events[6].Type != "assistant" {
+		t.Fatalf("event[6]: expected assistant, got type=%q content=%q data=%v", events[6].Type, events[6].Content, events[6].Data)
+	}
+	assistantContent, ok := events[6].Data["content"].([]map[string]any)
+	if !ok || len(assistantContent) != 2 {
+		t.Fatalf("event[6]: expected two assistant content blocks, got %#v", events[6].Data["content"])
+	}
+	if assistantContent[0]["text"] != "world" {
+		t.Errorf("event[6]: expected text block 'world', got %#v", assistantContent[0])
+	}
+	if assistantContent[1]["type"] != "tool_use" || assistantContent[1]["id"] != "toolu_1" || assistantContent[1]["name"] != "read_file" {
+		t.Errorf("event[6]: expected tool_use block, got %#v", assistantContent[1])
+	}
+	if events[7].Type != "content" || events[7].Content != "world" {
+		t.Errorf("event[7]: expected content 'world', got type=%q content=%q", events[7].Type, events[7].Content)
+	}
+	if events[8].Type != "done" || events[8].Content != "hello world" {
+		t.Errorf("event[8]: expected done 'hello world', got type=%q content=%q", events[8].Type, events[8].Content)
+	}
+	if events[8].TokensUsed != 120 {
+		t.Errorf("expected tokens_used 120, got %d", events[8].TokensUsed)
 	}
 }
 

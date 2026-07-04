@@ -179,10 +179,7 @@ type cursorStreamEvent struct {
 	CallID  string `json:"call_id,omitempty"`
 	Text    string `json:"text,omitempty"` // thinking delta text
 	Message struct {
-		Content []struct {
-			Type string `json:"type"`
-			Text string `json:"text"`
-		} `json:"content,omitempty"`
+		Content []claudeContentBlock `json:"content,omitempty"`
 	} `json:"message,omitzero"`
 	ToolCall     json.RawMessage `json:"tool_call,omitempty"` // raw JSON for tool_call details
 	Result       string          `json:"result,omitempty"`
@@ -283,7 +280,11 @@ func (d *CursorCliDriver) Stream(ctx context.Context, req LLMRequest) (<-chan St
 					return
 				}
 			case "user":
-				se := StreamEvent{Type: "user"}
+				data := map[string]any{"role": "user"}
+				if len(evt.Message.Content) > 0 {
+					data["content"] = contentBlocksToAny(evt.Message.Content)
+				}
+				se := StreamEvent{Type: "user", Data: data}
 				select {
 				case ch <- se:
 				case <-ctx.Done():
@@ -312,6 +313,15 @@ func (d *CursorCliDriver) Stream(ctx context.Context, req LLMRequest) (<-chan St
 					return
 				}
 			case "assistant":
+				data := map[string]any{"role": "assistant"}
+				if len(evt.Message.Content) > 0 {
+					data["content"] = contentBlocksToAny(evt.Message.Content)
+				}
+				select {
+				case ch <- StreamEvent{Type: "assistant", Data: data}:
+				case <-ctx.Done():
+					return
+				}
 				for _, c := range evt.Message.Content {
 					if c.Type == "text" {
 						// 消息级 content：subtype 使 kernel 落 events.jsonl

@@ -459,6 +459,19 @@ func driverEventToLog(evt map[string]any) (types.LogCategory, string, string, bo
 			text = string(r[:80]) + "..."
 		}
 		return types.LogThink, text, "", true
+	case "content":
+		if subtype != "agent_message" {
+			return "", "", "", false
+		}
+		text := strings.TrimSpace(contentField)
+		if text == "" {
+			return "", "", "", false
+		}
+		r := []rune(text)
+		if len(r) > 80 {
+			text = string(r[:80]) + "..."
+		}
+		return types.LogOutput, text, "", true
 	default:
 		return "", "", "", false
 	}
