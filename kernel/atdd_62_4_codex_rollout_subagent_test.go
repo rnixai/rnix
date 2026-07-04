@@ -1,13 +1,19 @@
 package kernel
 
 import (
+	gocontext "context"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/rnixai/rnix/agents"
+	rnixctx "github.com/rnixai/rnix/context"
+	"github.com/rnixai/rnix/drivers/llm"
 	"github.com/rnixai/rnix/internal/types"
+	"github.com/rnixai/rnix/vfs"
 )
 
 func writeCodexRolloutFixture624(t *testing.T, dir, name string, lines ...string) string {
@@ -166,5 +172,79 @@ func TestATDD_62_4_INT_005_ObserveDriverInitStartsCodexRolloutTracker(t *testing
 	children = syntheticChildren566(h.tk.k, h.tk.proc.UUID)
 	if children[0].State != types.StateDead {
 		t.Fatalf("AC3 FAIL: host done did not finalize codex rollout child, state=%v", children[0].State)
+	}
+}
+
+type atdd624FailingCodexStream struct {
+	handler func(map[string]any)
+}
+
+func (f *atdd624FailingCodexStream) Write(_ gocontext.Context, _ []byte) error {
+	if f.handler != nil {
+		f.handler(map[string]any{
+			"type":      "system",
+			"subtype":   "init",
+			"thread_id": "parent-abort-thread",
+		})
+	}
+	return errors.New("codex stream aborted before terminal event")
+}
+
+func (f *atdd624FailingCodexStream) Read(_ int) ([]byte, error) { return nil, nil }
+func (f *atdd624FailingCodexStream) Close() error               { return nil }
+func (f *atdd624FailingCodexStream) Stat() (vfs.FileStat, error) {
+	return vfs.FileStat{Name: "/dev/llm/claude", IsDevice: true}, nil
+}
+func (f *atdd624FailingCodexStream) SupportsToolCalling() bool { return true }
+func (f *atdd624FailingCodexStream) SetStreamHandler(fn func(map[string]any)) {
+	f.handler = fn
+}
+func (f *atdd624FailingCodexStream) DriverType() string { return llm.DriverCodexCLI }
+
+func TestATDD_62_4_INT_006_WriteAbortFinalizesCodexRolloutChild(t *testing.T) {
+	parentThreadID := "parent-abort-thread"
+	rolloutDir := t.TempDir()
+	lines := codexRolloutLines624(parentThreadID)
+	lines = lines[:len(lines)-1] // no task_complete: Write abort must clean up.
+	writeCodexRolloutFixture624(t, rolloutDir, "rollout-abort-subagent.jsonl", lines...)
+
+	oldDir := codexRolloutDirForNow
+	codexRolloutDirForNow = func(time.Time) string { return rolloutDir }
+	t.Cleanup(func() { codexRolloutDirForNow = oldDir })
+
+	llmFile := &atdd624FailingCodexStream{}
+	reg := vfs.NewDeviceRegistry()
+	if err := reg.Register("/dev/llm/claude", func(_ string, _ vfs.OpenFlag, _ string) (vfs.VFSFile, error) {
+		return llmFile, nil
+	}); err != nil {
+		t.Fatalf("register codex stream stub: %v", err)
+	}
+	k := NewKernel(vfs.NewVFS(reg), rnixctx.NewManager(), nil)
+	t.Cleanup(k.Shutdown)
+	k.SetStepDataDir(t.TempDir())
+
+	pid, err := k.Spawn("trigger codex rollout abort", &agents.AgentInfo{
+		Manifest: agents.AgentManifest{Name: "atdd62-codex-abort"},
+	}, SpawnOpts{MaxTurns: 1})
+	if err != nil {
+		t.Fatalf("Spawn failed: %v", err)
+	}
+
+	deadline := time.Now().Add(3 * time.Second)
+	var children []vfs.ProcInfo
+	for time.Now().Before(deadline) {
+		if proc, ok := k.procTable.Load(pid); ok {
+			children = syntheticChildren566(k, proc.UUID)
+		}
+		if len(children) == 1 && children[0].State == types.StateDead {
+			return
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	if len(children) != 1 {
+		t.Fatalf("AC3 cleanup FAIL: synthetic codex children=%d, want 1", len(children))
+	}
+	if children[0].State != types.StateDead {
+		t.Fatalf("AC3 cleanup FAIL: stream abort left codex child state=%v, want Dead", children[0].State)
 	}
 }

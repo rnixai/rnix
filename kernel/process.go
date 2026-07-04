@@ -197,6 +197,7 @@ type Process struct {
 	stepWriter        *StepWriter  // NDJSON step recorder (mu protected)
 	eventWriter       *EventWriter // NDJSON syscall event recorder (mu protected)
 	rawWriter         *RawWriter   // NDJSON raw LLM request/response recorder (mu protected; Story 56.1)
+	streamCleanups    []func()     // stream observer cleanup hooks (mu protected)
 	// eventDropWarned ensures emitEvent logs at most one warning per process
 	// when it discovers the EventWriter is nil and a disk drop happens. This
 	// converts the previously-silent skip (observe.go:55) into a per-process
@@ -1015,6 +1016,28 @@ func (p *Process) CancelStep() {
 		p.stepCancel()
 	}
 	p.mu.Unlock()
+}
+
+// AddStreamCleanup registers best-effort cleanup for stream observers attached
+// to the process's LLM FD. Cleanup functions must be idempotent; they may be
+// called by driver terminal events and by reasonStep failure paths.
+func (p *Process) AddStreamCleanup(fn func()) {
+	if fn == nil {
+		return
+	}
+	p.mu.Lock()
+	p.streamCleanups = append(p.streamCleanups, fn)
+	p.mu.Unlock()
+}
+
+// RunStreamCleanups runs registered stream cleanup hooks outside proc.mu.
+func (p *Process) RunStreamCleanups() {
+	p.mu.Lock()
+	cleanups := append([]func(){}, p.streamCleanups...)
+	p.mu.Unlock()
+	for _, fn := range cleanups {
+		fn()
+	}
 }
 
 // Suspend transitions the process from Running to Suspended.

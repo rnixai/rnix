@@ -595,6 +595,7 @@ func (k *KernelImpl) reasonStep(proc *Process, llmFD types.FD, opts SpawnOpts) {
 		writeStart := time.Now()
 		var respData []byte
 		if err := k.vfs.Write(stepCtx, proc.PID, llmFD, reqJSON); err != nil {
+			proc.RunStreamCleanups()
 			proc.SetStepCancel(nil)
 
 			// Check if this was a step-level cancel (heartbeat retry), not process cancel
@@ -681,6 +682,7 @@ func (k *KernelImpl) reasonStep(proc *Process, llmFD types.FD, opts SpawnOpts) {
 			// happy path) marks the record outcome=error when the Read failed.
 			k.captureRawLLMCall(proc, llmFD, step, readErr)
 			if readErr != nil {
+				proc.RunStreamCleanups()
 				// Story 44.5 AC1 — same suspend-vs-kill race as the Write path
 				// above. ctx cancel triggered by SIGPAUSE surfaces as a Read
 				// error; return so the defer at reason.go:237 hands off to
@@ -701,6 +703,7 @@ func (k *KernelImpl) reasonStep(proc *Process, llmFD types.FD, opts SpawnOpts) {
 		var resp llmResponse
 		rawResponseStr := string(respData)
 		if err := json.Unmarshal(respData, &resp); err != nil {
+			proc.RunStreamCleanups()
 			// Story 44.5 AC1 — completing the pause-protocol coverage: if the
 			// driver was mid-stream when SIGPAUSE arrived, the Read can return
 			// a truncated/empty buffer that fails unmarshal. Treat as suspend

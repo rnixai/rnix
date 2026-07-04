@@ -6,6 +6,7 @@ import (
 	"log"
 	"maps"
 	"strings"
+	"sync"
 	"time"
 
 	rnixctx "github.com/rnixai/rnix/context"
@@ -654,6 +655,19 @@ func (k *KernelImpl) setupDriverStreamHandler(proc *Process, llmFD types.FD) {
 		if llm.IsCLIDriver(driverType) {
 			subagentTracker = k.newCLISubagentTracker(proc)
 		}
+		var streamTrackerMu sync.Mutex
+		cleanupStreamTrackers := func() {
+			streamTrackerMu.Lock()
+			defer streamTrackerMu.Unlock()
+			if subagentTracker != nil {
+				subagentTracker.finalizeAll()
+			}
+			if codexRolloutTracker != nil {
+				codexRolloutTracker.stop()
+				codexRolloutTracker = nil
+			}
+		}
+		proc.AddStreamCleanup(cleanupStreamTrackers)
 		obs.SetStreamHandler(func(evt map[string]any) {
 			// Driver activity refreshes heartbeat — prevents false stall
 			// detection during long-running streaming LLM calls.
@@ -706,12 +720,16 @@ func (k *KernelImpl) setupDriverStreamHandler(proc *Process, llmFD types.FD) {
 			}
 
 			if evtType == "system" {
-				if driverType == llm.DriverCodexCLI && codexRolloutTracker == nil {
+				if driverType == llm.DriverCodexCLI {
 					if sub, _ := evt["subtype"].(string); sub == "init" {
 						if threadID, _ := evt["thread_id"].(string); threadID != "" {
-							codexRolloutTracker = newCodexRolloutTracker(k, proc,
-								k.syntheticChildBaseDir(proc), threadID, codexRolloutDirForNow(time.Now()))
-							codexRolloutTracker.start()
+							streamTrackerMu.Lock()
+							if codexRolloutTracker == nil {
+								codexRolloutTracker = newCodexRolloutTracker(k, proc,
+									k.syntheticChildBaseDir(proc), threadID, codexRolloutDirForNow(time.Now()))
+								codexRolloutTracker.start()
+							}
+							streamTrackerMu.Unlock()
 						}
 					}
 				}
@@ -990,13 +1008,7 @@ func (k *KernelImpl) setupDriverStreamHandler(proc *Process, llmFD types.FD) {
 				// Story 56.6 (AC4): finalize any subagent child still Running at
 				// stream end (no explicit Task tool_result) so synthetic nodes
 				// never leak in a perpetual Running state.
-				if subagentTracker != nil {
-					subagentTracker.finalizeAll()
-				}
-				if codexRolloutTracker != nil {
-					codexRolloutTracker.stop()
-					codexRolloutTracker = nil
-				}
+				cleanupStreamTrackers()
 			// NOTE (Stories 40.4/62.5): user events only flush tools when their
 			// tool_result block matches the pending call_id. This preserves the
 			// 40.4 input fix (no unconditional user flush of the next tool) while
@@ -1006,13 +1018,7 @@ func (k *KernelImpl) setupDriverStreamHandler(proc *Process, llmFD types.FD) {
 			case "error":
 				// Story 56.6 (AC4): a terminating error also ends the stream —
 				// finalize dangling subagent children so they do not leak.
-				if subagentTracker != nil {
-					subagentTracker.finalizeAll()
-				}
-				if codexRolloutTracker != nil {
-					codexRolloutTracker.stop()
-					codexRolloutTracker = nil
-				}
+				cleanupStreamTrackers()
 			}
 		})
 	}
