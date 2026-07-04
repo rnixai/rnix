@@ -67,6 +67,15 @@ func TestCodexHelperProcess(t *testing.T) {
 		fmt.Fprintln(os.Stdout, `{"type":"thread.started","thread_id":"tid-789"}`)
 		fmt.Fprintln(os.Stdout, `{"type":"turn.started"}`)
 		fmt.Fprintln(os.Stdout, `{"type":"turn.completed","usage":{"input_tokens":100,"output_tokens":0}}`)
+	case "codex_stream_truncated":
+		fmt.Fprintln(os.Stdout, `{"type":"thread.started","thread_id":"tid-truncated"}`)
+		fmt.Fprintln(os.Stdout, `{"type":"turn.started"}`)
+		fmt.Fprintln(os.Stdout, `{"type":"item.completed","item":{"id":"item_1","type":"agent_message","text":"Waiting for worker to finish."}}`)
+	case "codex_stream_idle_timeout":
+		fmt.Fprintln(os.Stdout, `{"type":"thread.started","thread_id":"tid-timeout"}`)
+		fmt.Fprintln(os.Stdout, `{"type":"turn.started"}`)
+		fmt.Fprintln(os.Stdout, `{"type":"item.completed","item":{"id":"item_1","type":"agent_message","text":"Waiting for worker to finish."}}`)
+		time.Sleep(5 * time.Second)
 	case "codex_call_rate_limit":
 		fmt.Fprint(os.Stderr, "rate limit exceeded")
 		os.Exit(1)
@@ -534,6 +543,43 @@ func TestCodexCliDriver_Stream_NoAgentMessage(t *testing.T) {
 			typeSeq[i] = e.Type
 		}
 		t.Errorf("expected truncation error event, got types: %v", typeSeq)
+	}
+}
+
+func TestCodexCliDriver_Stream_TruncatedAfterAgentMessage(t *testing.T) {
+	t.Parallel()
+	d := NewCodexCliDriver(CodexWithCommandBuilder(codexMockCmdBuilder("codex_stream_truncated")))
+	ch, err := d.Stream(context.Background(), LLMRequest{Intent: "test"})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	streamErr := collectStreamError(t, ch)
+	if streamErr == nil {
+		t.Fatal("expected truncated stream error, got nil")
+	}
+	if !strings.Contains(streamErr.Error(), "stream ended before turn.completed") {
+		t.Fatalf("expected turn.completed truncation detail, got: %v", streamErr)
+	}
+}
+
+func TestCodexCliDriver_Stream_IdleTimeoutAfterAgentMessage(t *testing.T) {
+	t.Parallel()
+	d := NewCodexCliDriver(
+		CodexWithCommandBuilder(codexMockCmdBuilder("codex_stream_idle_timeout")),
+		CodexWithTimeout(100*time.Millisecond),
+	)
+	ch, err := d.Stream(context.Background(), LLMRequest{Intent: "test"})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	streamErr := collectStreamError(t, ch)
+	if streamErr == nil {
+		t.Fatal("expected timeout stream error, got nil")
+	}
+	if !errors.Is(streamErr, ErrTimeout) {
+		t.Fatalf("expected ErrTimeout sentinel, got: %v", streamErr)
 	}
 }
 

@@ -285,6 +285,7 @@ func (d *CodexCliDriver) Stream(ctx context.Context, req LLMRequest) (<-chan Str
 			cachedInputTokens int
 		}
 		var lastAgentMessage string
+		var sawTurnCompleted bool
 		var scanErr error
 
 		scanner := newStreamScanner(scannerSrc)
@@ -453,6 +454,7 @@ func (d *CodexCliDriver) Stream(ctx context.Context, req LLMRequest) (<-chan Str
 				}
 
 			case "turn.completed":
+				sawTurnCompleted = true
 				if evt.Usage != nil {
 					lastUsage.inputTokens += evt.Usage.InputTokens
 					lastUsage.outputTokens += evt.Usage.OutputTokens
@@ -501,7 +503,12 @@ func (d *CodexCliDriver) Stream(ctx context.Context, req LLMRequest) (<-chan Str
 			OutputTokens:      lastUsage.outputTokens,
 			CachedInputTokens: lastUsage.cachedInputTokens,
 		}
-		if scanErr != nil {
+		if IsStreamTimeout(ctx) {
+			_ = cmd.Wait()
+			se.Type = "error"
+			se.Err = NewLLMError("codex", 0, fmt.Errorf("%w%s",
+				ErrTimeout, cliFailureDetail(stderrBuf.String(), processExitCode(cmd))))
+		} else if scanErr != nil {
 			_ = cmd.Wait()
 			se.Type = "error"
 			se.Err = NewLLMError("codex", 0, fmt.Errorf("stream read error: %w%s",
@@ -517,10 +524,19 @@ func (d *CodexCliDriver) Stream(ctx context.Context, req LLMRequest) (<-chan Str
 			se.Type = "error"
 			se.Err = NewLLMError("codex", 0, fmt.Errorf("response truncated: no agent message received%s",
 				cliFailureDetail(stderrBuf.String(), processExitCode(cmd))))
+		} else if !sawTurnCompleted {
+			_ = cmd.Wait()
+			se.Type = "error"
+			se.Err = NewLLMError("codex", 0, fmt.Errorf("response truncated: stream ended before turn.completed%s",
+				cliFailureDetail(stderrBuf.String(), processExitCode(cmd))))
 		}
 		select {
 		case ch <- se:
-		case <-ctx.Done():
+		default:
+			select {
+			case ch <- se:
+			case <-ctx.Done():
+			}
 		}
 
 		_ = cmd.Wait()
