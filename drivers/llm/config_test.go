@@ -963,6 +963,46 @@ providers:
 	}
 }
 
+func TestLoadProvidersConfig_CodexSandboxMode_Invalid(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	yaml := `version: "1"
+providers:
+  - name: codex
+    driver: codex-cli
+    sandbox_mode: yolo
+`
+	path := writeYAML(t, dir, ProvidersConfigFile, yaml)
+
+	_, err := LoadProvidersConfig(path)
+	if err == nil {
+		t.Fatal("expected LoadProvidersConfig to reject invalid sandbox_mode, got nil")
+	}
+	msg := err.Error()
+	if !strings.Contains(msg, "sandbox_mode") || !strings.Contains(msg, "yolo") {
+		t.Errorf("error should mention invalid sandbox_mode value, got: %s", msg)
+	}
+	for _, valid := range []string{"read-only", "workspace-write", "danger-full-access"} {
+		if !strings.Contains(msg, valid) {
+			t.Errorf("error should list valid value %q, got: %s", valid, msg)
+		}
+	}
+}
+
+func TestProvidersConfig_Validate_SandboxAndPermissionModeOrthogonal(t *testing.T) {
+	t.Parallel()
+	cfg := ProvidersConfig{
+		Version: "1",
+		Providers: []ProviderConfig{
+			{Name: "claude", Driver: DriverClaudeCLI, PermissionMode: "plan", SandboxMode: "not-a-codex-mode"},
+			{Name: "codex", Driver: DriverCodexCLI, PermissionMode: "not-a-claude-mode", SandboxMode: "read-only"},
+		},
+	}
+	if err := cfg.Validate(); err != nil {
+		t.Fatalf("Validate() should gate permission_mode and sandbox_mode by driver independently, got: %v", err)
+	}
+}
+
 func TestParseProvidersConfig_WithCommand(t *testing.T) {
 	t.Parallel()
 	yaml := `version: "1"
