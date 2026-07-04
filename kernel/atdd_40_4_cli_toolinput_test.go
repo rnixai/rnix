@@ -99,10 +99,13 @@ func newStreamHarness(t *testing.T) *streamHarness {
 // feed injects one stream event into the captured handler.
 func (h *streamHarness) feed(evt map[string]any) { h.stub.handler(evt) }
 
-// flushAndReadSteps closes the stepWriter so its buffer flushes, then reads back
-// all persisted step records from steps.jsonl.
+// flushAndReadSteps simulates stream end, closes the stepWriter so its buffer
+// flushes, then reads back all persisted step records from steps.jsonl.
 func (h *streamHarness) flushAndReadSteps(t *testing.T) []types.StepRecord {
 	t.Helper()
+	if h.stub.handler != nil {
+		h.feed(map[string]any{"type": "done"})
+	}
 	if h.tk.proc.stepWriter != nil {
 		_ = h.tk.proc.stepWriter.Close()
 		h.tk.proc.stepWriter = nil
@@ -177,10 +180,10 @@ func findStepByToolInputOwner(t *testing.T, recs []types.StepRecord, tool string
 func TestATDD_40_4_INT_001_InterleavedUserDoesNotTruncate(t *testing.T) {
 	h := newStreamHarness(t)
 	// 错位序列（story raw[907..921] tooluse_dPiNSh）:
-	h.feed(evtStarted("Read", "call_A"))                                   // 工具A started
-	h.feed(evtInputDelta(`{"file_p`))                                      // A 首分片
-	h.feed(evtUserToolResult("call_PREV", "previous tool output"))         // ⚡ 属上一轮，不该 flush A
-	h.feed(evtInputDelta(`ath":"/etc/hosts"}`))                            // A 剩余分片
+	h.feed(evtStarted("Read", "call_A"))                                                     // 工具A started
+	h.feed(evtInputDelta(`{"file_p`))                                                        // A 首分片
+	h.feed(evtUserToolResult("call_PREV", "previous tool output"))                           // ⚡ 属上一轮，不该 flush A
+	h.feed(evtInputDelta(`ath":"/etc/hosts"}`))                                              // A 剩余分片
 	h.feed(evtAssistantToolUse("call_A", "Read", map[string]any{"file_path": "/etc/hosts"})) // A 权威 input
 
 	recs := h.flushAndReadSteps(t)
@@ -198,9 +201,9 @@ func TestATDD_40_4_INT_001_InterleavedUserDoesNotTruncate(t *testing.T) {
 // -----------------------------------------------------------------------------
 func TestATDD_40_4_INT_002_UserBeforeFirstDeltaBackfilled(t *testing.T) {
 	h := newStreamHarness(t)
-	h.feed(evtStarted("Write", "call_A"))                          // started，inputBuf 空
-	h.feed(evtUserToolResult("call_PREV", "prev"))                 // ⚡ USER 抢在首 delta 前
-	h.feed(evtInputDelta(`{"file_path":"a.txt","content":"hi"}`))  // delta（已被截断 flush，丢失）
+	h.feed(evtStarted("Write", "call_A"))                         // started，inputBuf 空
+	h.feed(evtUserToolResult("call_PREV", "prev"))                // ⚡ USER 抢在首 delta 前
+	h.feed(evtInputDelta(`{"file_path":"a.txt","content":"hi"}`)) // delta（已被截断 flush，丢失）
 	h.feed(evtAssistantToolUse("call_A", "Write", map[string]any{"file_path": "a.txt", "content": "hi"}))
 
 	recs := h.flushAndReadSteps(t)

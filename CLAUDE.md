@@ -179,12 +179,13 @@ providers:
 
 The Epic 62 production failure had two causes: `--yolo` conflicted with the old hardcoded `--full-auto`, and `--full-auto` forced Codex into `workspace-write` where Linux bubblewrap fail-closed on protected metadata symlinks such as `.agents` in worktrees. The config channel exists so operators can select the right sandbox strength explicitly.
 
-### 工具 Input 权威回填与 flush 时序 (Story 40-4)
+### 工具 Input/Result 权威回填与 flush 时序 (Story 40-4 / 62-5)
 
-CLI driver（`/dev/llm/claude` 等）的工具调用 Input 经 **assistant 块权威回填 + flush 时序修正**，不再受 `--include-partial-messages` 下的交错时序影响：
+CLI driver（`/dev/llm/claude`、qwen 等）的工具调用 Input 经 **assistant 块权威回填 + flush 时序修正**，Result 经 **user(tool_result) 精确回填**，不再受 `--include-partial-messages` 下的交错时序影响：
 
 - **根因**：claude CLI 把上一轮 `user`(tool_result) 与下一轮工具的 partial input deltas 交错输出。`kernel/observe.go::setupDriverStreamHandler` 旧逻辑在 `user` 事件无条件 `flushPendingTool()`，把刚 `started`、只累积首分片的下一轮工具提前截断 flush（全局 4834 工具步骤中 51 空 + 192 截断）。
-- **修复**：①assistant tool_use 三种 content 形态（`[]map[string]any` / `[]any` / `map[string]any`）均读 `block["input"]`，按 `call_id` 存为权威 input；②`user` 事件不再 flush 正在收 input 的下一轮工具——claude 工具改由「assistant 权威 input 已到」驱动 flush，`started` 作 backstop；③flush 时若 `call_id` 命中权威 input 则覆盖不完整的 inputBuf，否则回退 inputBuf。
+- **修复**：①assistant tool_use 三种 content 形态（`[]map[string]any` / `[]any` / `map[string]any`）均读 `block["input"]`，按 `call_id` 存为权威 input；②assistant 只记录权威 input，不立即 flush；③`user` 事件只在 tool_result 的 `tool_use_id` 命中 pending `call_id` 时回填 result 并 flush，避免误 flush 正在收 input 的下一轮工具；④done backstop 仍负责终端工具兜底，result 允许为空。
+- **可观测取舍**：claude/qwen 的 steps.jsonl 写盘时机从 assistant 后移到 user(tool_result) 或 done；步骤序号仍按 started 顺序，实时视图出现会略晚，但 ToolInput/ToolResult 完整性优先。
 - **driver 兼容**：codex/cursor 工具仍由各自的 `completed` 事件 flush，不受影响（它们不 emit 携带 tool_use block 的 assistant 事件）。渲染层（`internal/dashboard/timeline/render.go`）零改动——`detail.ToolInput` 完整即自动正确。
 
 ### Timeline Fold & Navigation (Story 41-3)
