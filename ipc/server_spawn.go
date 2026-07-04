@@ -2,6 +2,7 @@ package ipc
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log"
 	"net"
@@ -58,7 +59,18 @@ func (s *Server) handleSpawn(conn net.Conn, rawPayload json.RawMessage) {
 
 	eventCh := make(chan StreamEvent, 64)
 
-	pid, err := s.kern.Spawn(req.Intent, agentInfo, kernel.SpawnOpts{
+	var parentPID types.PID
+	var depth int
+	if req.ParentPID > 0 {
+		if parent, ok := s.kern.GetProcess(req.ParentPID); ok {
+			parentPID = req.ParentPID
+			depth = parent.Depth + 1
+		} else {
+			log.Printf("[spawn] parent PID %d not found (stale RNIX_PARENT_PID or daemon restarted?) — spawning as root", req.ParentPID)
+		}
+	}
+
+	spawnOpts := kernel.SpawnOpts{
 		Model:            req.Model,
 		Provider:         req.Provider,
 		FallbackModel:    req.FallbackModel,
@@ -68,6 +80,8 @@ func (s *Server) handleSpawn(conn net.Conn, rawPayload json.RawMessage) {
 		ContextBudget:    req.ContextBudget,
 		MaxTokens:        req.MaxTokens,
 		TimeoutMs:        req.TimeoutMs,
+		ParentPID:        parentPID,
+		Depth:            depth,
 		TraceID:          types.TraceID(req.TraceID),
 		ParentSpanID:     types.SpanID(req.ParentSpanID),
 		ProjectConfig:    projectCfg,
@@ -75,7 +89,15 @@ func (s *Server) handleSpawn(conn net.Conn, rawPayload json.RawMessage) {
 		ComposeDeps:      req.ComposeDeps,
 		PipelineIndex:    req.PipelineIndex,
 		PipelineTotal:    req.PipelineTotal,
-	})
+	}
+
+	pid, err := s.kern.Spawn(req.Intent, agentInfo, spawnOpts)
+	if parentPID > 0 && isSpawnParentNotFound(err) {
+		log.Printf("[spawn] parent PID %d disappeared during spawn — retrying as root", parentPID)
+		spawnOpts.ParentPID = 0
+		spawnOpts.Depth = 0
+		pid, err = s.kern.Spawn(req.Intent, agentInfo, spawnOpts)
+	}
 	if err != nil {
 		writeResponse(conn, Response{OK: false, Error: &ErrorPayload{Code: "INTERNAL", Message: err.Error()}})
 		return
@@ -174,6 +196,14 @@ func (s *Server) handleSpawn(conn net.Conn, rawPayload json.RawMessage) {
 			return
 		}
 	}
+}
+
+func isSpawnParentNotFound(err error) bool {
+	if err == nil {
+		return false
+	}
+	var scErr *kernel.SyscallError
+	return errors.As(err, &scErr) && scErr.Syscall == "Spawn" && scErr.Code == types.ErrNotFound
 }
 
 // resolveProjectContext builds a ProjectConfig and project-aware agent loader for a spawn request.

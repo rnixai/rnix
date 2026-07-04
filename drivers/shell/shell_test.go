@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -41,6 +42,10 @@ func TestHelperProcess(t *testing.T) {
 		fmt.Fprint(os.Stdout, os.Getenv("HOME"))
 	case "env_spawn_depth":
 		fmt.Fprint(os.Stdout, os.Getenv("RNIX_SPAWN_DEPTH"))
+	case "env_parent_pid":
+		fmt.Fprint(os.Stdout, os.Getenv("RNIX_PARENT_PID"))
+	case "env_parent_and_depth":
+		fmt.Fprintf(os.Stdout, "%s/%s", os.Getenv("RNIX_PARENT_PID"), os.Getenv("RNIX_SPAWN_DEPTH"))
 	}
 	os.Exit(0)
 }
@@ -782,8 +787,6 @@ func TestDangerousCommand_RnixApplyBlocked(t *testing.T) {
 		`rnix apply --yes "add auth"`,
 		`rnix  apply "test"`,
 		`echo x && rnix apply "nested"`,
-		`rnix -i "intent text"`,
-		`rnix -yi "with flags"`,
 	}
 	for _, cmd := range blocked {
 		if err := checkDangerousCommand(cmd); err == nil {
@@ -796,6 +799,8 @@ func TestDangerousCommand_RnixApplyBlocked(t *testing.T) {
 		`rnix daemon status`,
 		`rnix log 42`,
 		`rnix intent status intent-1`,
+		`rnix -i "intent text"`,
+		`rnix -yi "with flags"`,
 	}
 	for _, cmd := range allowed {
 		if err := checkDangerousCommand(cmd); err != nil {
@@ -811,6 +816,9 @@ func TestShellFile_CallerProcessInfoAware(t *testing.T) {
 	var cpia vfs.CallerProcessInfoAware = f
 	cpia.SetCallerProcessInfo(42, 3)
 
+	if f.callerPID != 42 {
+		t.Errorf("expected callerPID=42, got %d", f.callerPID)
+	}
 	if f.callerDepth != 3 {
 		t.Errorf("expected callerDepth=3, got %d", f.callerDepth)
 	}
@@ -873,6 +881,85 @@ func TestShellFile_Write_SpawnDepthEnvPropagation(t *testing.T) {
 	}
 	if string(data) != "5" {
 		t.Errorf("expected RNIX_SPAWN_DEPTH=5, got %q", string(data))
+	}
+}
+
+func TestShellFile_Write_ParentPIDEnvPropagation(t *testing.T) {
+	gocovDir := t.TempDir()
+	builder := func(ctx context.Context, name string, args ...string) *exec.Cmd {
+		cs := []string{"-test.run=TestHelperProcess", "--"}
+		cs = append(cs, args...)
+		cmd := exec.CommandContext(ctx, os.Args[0], cs...)
+		cmd.Env = []string{"GO_TEST_PROCESS=1", "GO_TEST_CASE=env_parent_pid", "GOCOVERDIR=" + gocovDir}
+		return cmd
+	}
+
+	driver := NewDriverWithOptions(DriverOpts{CmdBuilder: builder})
+	f := &ShellFile{driver: driver, devicePath: "/dev/shell", callerPID: 42}
+
+	err := f.Write(context.Background(), []byte("echo $RNIX_PARENT_PID"))
+	if err != nil {
+		t.Fatalf("unexpected Write error: %v", err)
+	}
+
+	data, err := f.Read(0)
+	if err != nil {
+		t.Fatalf("unexpected Read error: %v", err)
+	}
+	if string(data) != "42" {
+		t.Errorf("expected RNIX_PARENT_PID=42, got %q", string(data))
+	}
+}
+
+func TestShellFile_Write_ParentPIDZeroDoesNotInject(t *testing.T) {
+	var cmdSeen *exec.Cmd
+	builder := func(ctx context.Context, name string, args ...string) *exec.Cmd {
+		cs := []string{"-test.run=TestHelperProcess", "--"}
+		cs = append(cs, args...)
+		cmd := exec.CommandContext(ctx, os.Args[0], cs...)
+		cmd.Env = []string{"GO_TEST_PROCESS=1", "GO_TEST_CASE=echo_hello", "GOCOVERDIR=" + t.TempDir()}
+		cmdSeen = cmd
+		return cmd
+	}
+
+	driver := NewDriverWithOptions(DriverOpts{CmdBuilder: builder})
+	f := &ShellFile{driver: driver, devicePath: "/dev/shell", callerPID: 0}
+
+	if err := f.Write(context.Background(), []byte("echo test")); err != nil {
+		t.Fatalf("unexpected Write error: %v", err)
+	}
+	if cmdSeen == nil {
+		t.Fatal("command builder was not called")
+	}
+	if slices.ContainsFunc(cmdSeen.Env, func(v string) bool { return strings.HasPrefix(v, "RNIX_PARENT_PID=") }) {
+		t.Fatalf("RNIX_PARENT_PID should not be injected when callerPID=0, env=%v", cmdSeen.Env)
+	}
+}
+
+func TestShellFile_Write_ParentPIDAndSpawnDepthCoexist(t *testing.T) {
+	gocovDir := t.TempDir()
+	builder := func(ctx context.Context, name string, args ...string) *exec.Cmd {
+		cs := []string{"-test.run=TestHelperProcess", "--"}
+		cs = append(cs, args...)
+		cmd := exec.CommandContext(ctx, os.Args[0], cs...)
+		cmd.Env = []string{"GO_TEST_PROCESS=1", "GO_TEST_CASE=env_parent_and_depth", "GOCOVERDIR=" + gocovDir}
+		return cmd
+	}
+
+	driver := NewDriverWithOptions(DriverOpts{CmdBuilder: builder})
+	f := &ShellFile{driver: driver, devicePath: "/dev/shell", callerPID: 77, callerDepth: 3}
+
+	err := f.Write(context.Background(), []byte("echo parent/depth"))
+	if err != nil {
+		t.Fatalf("unexpected Write error: %v", err)
+	}
+
+	data, err := f.Read(0)
+	if err != nil {
+		t.Fatalf("unexpected Read error: %v", err)
+	}
+	if string(data) != "77/3" {
+		t.Errorf("expected RNIX_PARENT_PID/RNIX_SPAWN_DEPTH = 77/3, got %q", string(data))
 	}
 }
 

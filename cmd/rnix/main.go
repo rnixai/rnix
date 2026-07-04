@@ -73,6 +73,7 @@ var (
 	flagFallbackProvider string
 	flagReasoningEffort  string
 	flagIntent           string
+	flagParentPID        uint64
 
 	// strace --raw 模式（Story 56.4 · CAP-3 路①）
 	flagStraceRaw  bool
@@ -321,6 +322,7 @@ func init() {
 	rootCmd.Flags().IntVar(&flagMaxSteps, "max-steps", 0, "Max reasoning steps (0 = infinite, default 0)")
 	rootCmd.Flags().StringVar(&flagAgent, "agent", "", "Agent definition to use (e.g., code-analyst)")
 	rootCmd.Flags().StringVarP(&flagIntent, "intent", "i", "", "Intent string to spawn an agent")
+	rootCmd.Flags().Uint64Var(&flagParentPID, "parent", 0, "Attach spawned process under this parent PID (defaults to $RNIX_PARENT_PID when set)")
 	rootCmd.Flags().Bool("dashboard", false, "Open dashboard after spawning agent")
 	daemonCmd.Flags().BoolVar(&flagDaemonInternal, "internal", false, "Internal flag (not for user use)")
 	_ = daemonCmd.Flags().MarkHidden("internal")
@@ -452,6 +454,18 @@ func rejectPositionalArgs(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("unknown command %q, did you mean %q?\n\n  Usage: rnix -i <intent>\n  Run 'rnix --help' for available commands.", display, suggestion) //nolint:staticcheck // user-facing CLI message requires newlines and punctuation
 	}
 	return fmt.Errorf("unknown command %q\n\n  Usage: rnix -i <intent>\n  Run 'rnix --help' for available commands.", display) //nolint:staticcheck // user-facing CLI message requires newlines and punctuation
+}
+
+func resolveParentPIDForSpawn(flagValue uint64, lookupEnv func(string) (string, bool)) types.PID {
+	parentPID := flagValue
+	if parentPID == 0 {
+		if v, ok := lookupEnv("RNIX_PARENT_PID"); ok && v != "" {
+			if p, err := strconv.ParseUint(v, 10, 64); err == nil {
+				parentPID = p
+			}
+		}
+	}
+	return types.PID(parentPID)
 }
 
 func resolveOutputMode() ui.OutputMode {
@@ -592,6 +606,7 @@ func runRoot(cmd *cobra.Command, args []string) error {
 		FallbackProvider: flagFallbackProvider,
 		ReasoningEffort:  flagReasoningEffort,
 		MaxSteps:         flagMaxSteps,
+		ParentPID:        resolveParentPIDForSpawn(flagParentPID, os.LookupEnv),
 		ProjectDir:       projectDir,
 		RnixEnv:          os.Getenv("RNIX_ENV"),
 	}

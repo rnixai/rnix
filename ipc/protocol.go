@@ -189,19 +189,20 @@ type SpawnRequest struct {
 	FallbackProvider string `json:"fallback_provider,omitempty"`
 	// ReasoningEffort: per-spawn reasoning effort override (passthrough, Story 55.2).
 	// Empty = inherit driver/provider default. Verbatim — no validation/mapping/case-fold.
-	ReasoningEffort string   `json:"reasoning_effort,omitempty"`
-	MaxSteps        int      `json:"max_steps,omitempty"`
-	ContextBudget   int      `json:"context_budget,omitempty"`
-	MaxTokens       int64    `json:"max_tokens,omitempty"`
-	TimeoutMs       int64    `json:"timeout_ms,omitempty"`
-	TraceID         string   `json:"trace_id,omitempty"`
-	ParentSpanID    string   `json:"parent_span_id,omitempty"`
-	ProjectDir      string   `json:"project_dir,omitempty"`
-	RnixEnv         string   `json:"rnix_env,omitempty"`
-	ComposeNode     string   `json:"compose_node,omitempty"`
-	ComposeDeps     []string `json:"compose_deps,omitempty"`
-	PipelineIndex   int      `json:"pipeline_index"`
-	PipelineTotal   int      `json:"pipeline_total"`
+	ReasoningEffort string    `json:"reasoning_effort,omitempty"`
+	MaxSteps        int       `json:"max_steps,omitempty"`
+	ContextBudget   int       `json:"context_budget,omitempty"`
+	MaxTokens       int64     `json:"max_tokens,omitempty"`
+	TimeoutMs       int64     `json:"timeout_ms,omitempty"`
+	ParentPID       types.PID `json:"parent_pid,omitempty"` // Story 63.2: optional parent process for shell-channel spawns.
+	TraceID         string    `json:"trace_id,omitempty"`
+	ParentSpanID    string    `json:"parent_span_id,omitempty"`
+	ProjectDir      string    `json:"project_dir,omitempty"`
+	RnixEnv         string    `json:"rnix_env,omitempty"`
+	ComposeNode     string    `json:"compose_node,omitempty"`
+	ComposeDeps     []string  `json:"compose_deps,omitempty"`
+	PipelineIndex   int       `json:"pipeline_index"`
+	PipelineTotal   int       `json:"pipeline_total"`
 }
 
 // SpawnResponse is the initial (non-streaming) response to a Spawn.

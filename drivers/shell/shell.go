@@ -129,6 +129,7 @@ type ShellFile struct {
 	driver      *ShellDriver
 	devicePath  string
 	workDir     string
+	callerPID   types.PID
 	callerDepth int
 	response    []byte
 	offset      int
@@ -136,7 +137,8 @@ type ShellFile struct {
 }
 
 // SetCallerProcessInfo implements vfs.CallerProcessInfoAware.
-func (f *ShellFile) SetCallerProcessInfo(_ types.PID, depth int) {
+func (f *ShellFile) SetCallerProcessInfo(pid types.PID, depth int) {
+	f.callerPID = pid
 	f.callerDepth = depth
 }
 
@@ -172,11 +174,16 @@ func (f *ShellFile) Write(ctx context.Context, data []byte) error {
 		cmd.Dir = f.workDir
 	}
 
-	if f.callerDepth > 0 {
+	if f.callerPID > 0 || f.callerDepth > 0 {
 		if cmd.Env == nil {
 			cmd.Env = os.Environ()
 		}
-		cmd.Env = append(cmd.Env, fmt.Sprintf("RNIX_SPAWN_DEPTH=%d", f.callerDepth))
+		if f.callerPID > 0 {
+			cmd.Env = append(cmd.Env, fmt.Sprintf("RNIX_PARENT_PID=%d", f.callerPID))
+		}
+		if f.callerDepth > 0 {
+			cmd.Env = append(cmd.Env, fmt.Sprintf("RNIX_SPAWN_DEPTH=%d", f.callerDepth))
+		}
 	}
 
 	// Isolate the child into its own process group so cmd.Cancel can kill
@@ -350,21 +357,21 @@ func extractCommand(data []byte) (string, time.Duration) {
 // dangerousPatterns lists regex patterns for commands that are too dangerous to execute.
 // Basic pattern matching only — AST parsing is deferred to Phase 3+ (Decision 35).
 var dangerousPatterns = []*regexp.Regexp{
-	regexp.MustCompile(`\brm\s+(-[a-zA-Z]*f[a-zA-Z]*\s+)?/\s*$`),        // rm -rf /
-	regexp.MustCompile(`\brm\s+(-[a-zA-Z]*r[a-zA-Z]*\s+)+-rf\s+/\*`),    // rm -rf /*
-	regexp.MustCompile(`>\s*/dev/sd[a-z]`),                                 // > /dev/sda
-	regexp.MustCompile(`\bmkfs\b`),                                         // mkfs
-	regexp.MustCompile(`\bdd\b.*\bof=/dev/`),                               // dd of=/dev/
-	regexp.MustCompile(`:\(\)\s*\{\s*:\|\s*:\s*&\s*\}\s*;`),               // fork bomb :(){ :|:& };
-	regexp.MustCompile(`\bchmod\s+(-[rR]\s+)?777\s+/\s*$`),                // chmod 777 /
-	regexp.MustCompile(`\bchmod\s+(-[rR]\s+)?777\s+/etc\b`),               // chmod 777 /etc
-	regexp.MustCompile(`\b(halt|poweroff|shutdown|reboot)\b`),              // system power commands
-	regexp.MustCompile(`>\s*/etc/(passwd|shadow|sudoers)`),                 // overwrite auth files
-	regexp.MustCompile(`\bcurl\b.*\|\s*(ba)?sh`),                           // curl | sh (pipe to shell)
-	regexp.MustCompile(`\bwget\b.*\|\s*(ba)?sh`),                           // wget | sh
-	regexp.MustCompile(`\bcurl\b.*\|\s*(zsh|python[23]?|perl|ruby)\b`),    // curl | python/perl/ruby/zsh
-	regexp.MustCompile(`\bwget\b.*\|\s*(zsh|python[23]?|perl|ruby)\b`),    // wget | python/perl/ruby/zsh
-	regexp.MustCompile(`\brnix\s+(apply\b|(-[a-zA-Z]*i))`),               // block recursive rnix apply/intent via shell
+	regexp.MustCompile(`\brm\s+(-[a-zA-Z]*f[a-zA-Z]*\s+)?/\s*$`),       // rm -rf /
+	regexp.MustCompile(`\brm\s+(-[a-zA-Z]*r[a-zA-Z]*\s+)+-rf\s+/\*`),   // rm -rf /*
+	regexp.MustCompile(`>\s*/dev/sd[a-z]`),                             // > /dev/sda
+	regexp.MustCompile(`\bmkfs\b`),                                     // mkfs
+	regexp.MustCompile(`\bdd\b.*\bof=/dev/`),                           // dd of=/dev/
+	regexp.MustCompile(`:\(\)\s*\{\s*:\|\s*:\s*&\s*\}\s*;`),            // fork bomb :(){ :|:& };
+	regexp.MustCompile(`\bchmod\s+(-[rR]\s+)?777\s+/\s*$`),             // chmod 777 /
+	regexp.MustCompile(`\bchmod\s+(-[rR]\s+)?777\s+/etc\b`),            // chmod 777 /etc
+	regexp.MustCompile(`\b(halt|poweroff|shutdown|reboot)\b`),          // system power commands
+	regexp.MustCompile(`>\s*/etc/(passwd|shadow|sudoers)`),             // overwrite auth files
+	regexp.MustCompile(`\bcurl\b.*\|\s*(ba)?sh`),                       // curl | sh (pipe to shell)
+	regexp.MustCompile(`\bwget\b.*\|\s*(ba)?sh`),                       // wget | sh
+	regexp.MustCompile(`\bcurl\b.*\|\s*(zsh|python[23]?|perl|ruby)\b`), // curl | python/perl/ruby/zsh
+	regexp.MustCompile(`\bwget\b.*\|\s*(zsh|python[23]?|perl|ruby)\b`), // wget | python/perl/ruby/zsh
+	regexp.MustCompile(`\brnix\s+apply\b`),                             // block recursive rnix apply; rnix -i is governed by MaxSpawnDepth via RNIX_PARENT_PID.
 }
 
 // checkDangerousCommand returns an error if the command matches a dangerous pattern.

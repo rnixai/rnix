@@ -84,7 +84,7 @@ type SpawnOpts struct {
 	MaxTurns         int
 	TimeoutMs        int64
 	ParentPID        types.PID     // parent process PID; 0 = top-level/CLI spawn
-	Depth            int           // process-tree depth for the spawn-recursion guard; 0 = top-level. Only ActionSpawn sets this (parent.Depth+1); all other spawn paths leave 0.
+	Depth            int           // process-tree depth for the spawn-recursion guard; 0 = top-level. ActionSpawn and IPC handleSpawn (Story 63.2) set this (parent.Depth+1); other spawn paths leave 0.
 	ContextBudget    int           // 0 = no limit; >0 = terminate when TokensUsed >= ContextBudget
 	CtxSize          int           // 0 = use DefaultCtxSize; >0 = context message slot limit
 	MaxTokens        int64         // per-process token budget; 0 = unlimited; >0 = suspend when exhausted

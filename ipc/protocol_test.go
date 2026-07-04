@@ -3,6 +3,7 @@ package ipc
 import (
 	"encoding/json"
 	"os"
+	"strings"
 	"testing"
 	"time"
 
@@ -89,10 +90,11 @@ func TestResponse_ErrorRoundTrip(t *testing.T) {
 
 func TestSpawnRequest_MarshalRoundTrip(t *testing.T) {
 	sr := SpawnRequest{
-		Intent:   "test intent",
-		Agent:    "code-analyst",
-		Model:    "opus",
-		MaxSteps: 20,
+		Intent:    "test intent",
+		Agent:     "code-analyst",
+		Model:     "opus",
+		ParentPID: 42,
+		MaxSteps:  20,
 	}
 	data, err := json.Marshal(sr)
 	if err != nil {
@@ -102,10 +104,38 @@ func TestSpawnRequest_MarshalRoundTrip(t *testing.T) {
 	if err := json.Unmarshal(data, &decoded); err != nil {
 		t.Fatalf("unmarshal: %v", err)
 	}
-	if decoded.Intent != sr.Intent || decoded.Agent != sr.Agent || decoded.Model != sr.Model || decoded.MaxSteps != sr.MaxSteps ||
+	if decoded.Intent != sr.Intent || decoded.Agent != sr.Agent || decoded.Model != sr.Model || decoded.ParentPID != sr.ParentPID || decoded.MaxSteps != sr.MaxSteps ||
 		decoded.ContextBudget != sr.ContextBudget || decoded.TimeoutMs != sr.TimeoutMs ||
 		decoded.ComposeNode != sr.ComposeNode || decoded.PipelineIndex != sr.PipelineIndex || decoded.PipelineTotal != sr.PipelineTotal {
 		t.Errorf("got %+v, want %+v", decoded, sr)
+	}
+}
+
+func TestSpawnRequest_ParentPIDWire(t *testing.T) {
+	data, err := json.Marshal(SpawnRequest{Intent: "child", ParentPID: 99})
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+	if !strings.Contains(string(data), `"parent_pid":99`) {
+		t.Fatalf("parent_pid missing from wire payload: %s", data)
+	}
+
+	var decoded SpawnRequest
+	if err := json.Unmarshal(data, &decoded); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if decoded.ParentPID != 99 {
+		t.Fatalf("ParentPID = %d, want 99", decoded.ParentPID)
+	}
+}
+
+func TestSpawnRequest_ParentPIDOmitempty(t *testing.T) {
+	data, err := json.Marshal(SpawnRequest{Intent: "root"})
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+	if strings.Contains(string(data), "parent_pid") {
+		t.Fatalf("parent_pid should be omitted when zero: %s", data)
 	}
 }
 
