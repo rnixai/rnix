@@ -32,12 +32,27 @@ func TestCodexHelperProcess(t *testing.T) {
 		fmt.Fprint(os.Stderr, strings.Join(os.Args, "\x00"))
 		fmt.Fprint(os.Stdout, "ok")
 	case "codex_stream_success":
+		// Mock lines mirror the REAL codex 0.14x --json schema (verified live,
+		// investigation codex-cli-observability-parity): command_execution
+		// carries aggregated_output + exit_code, NOT "output".
 		fmt.Fprintln(os.Stdout, `{"type":"thread.started","thread_id":"tid-123"}`)
 		fmt.Fprintln(os.Stdout, `{"type":"turn.started"}`)
-		fmt.Fprintln(os.Stdout, `{"type":"item.started","item":{"id":"item_1","type":"command_execution","command":"bash -lc ls","status":"in_progress"}}`)
-		fmt.Fprintln(os.Stdout, `{"type":"item.completed","item":{"id":"item_1","type":"command_execution","command":"bash -lc ls","status":"completed","output":"file1.go\nfile2.go"}}`)
+		fmt.Fprintln(os.Stdout, `{"type":"item.started","item":{"id":"item_1","type":"command_execution","command":"bash -lc ls","status":"in_progress","aggregated_output":"","exit_code":null}}`)
+		fmt.Fprintln(os.Stdout, `{"type":"item.completed","item":{"id":"item_1","type":"command_execution","command":"bash -lc ls","status":"completed","aggregated_output":"file1.go\nfile2.go","exit_code":0}}`)
 		fmt.Fprintln(os.Stdout, `{"type":"item.completed","item":{"id":"item_2","type":"agent_message","text":"Found 2 Go files in the repository."}}`)
 		fmt.Fprintln(os.Stdout, `{"type":"turn.completed","usage":{"input_tokens":500,"cached_input_tokens":400,"output_tokens":50}}`)
+	case "codex_stream_collab":
+		// multi_agent_v2 collab session: spawn_agent + wait items, plus an
+		// unknown "error" item that must pass through (not be dropped).
+		fmt.Fprintln(os.Stdout, `{"type":"thread.started","thread_id":"tid-collab"}`)
+		fmt.Fprintln(os.Stdout, `{"type":"item.completed","item":{"id":"item_0","type":"error","message":"Under-development features enabled: multi_agent_v2."}}`)
+		fmt.Fprintln(os.Stdout, `{"type":"turn.started"}`)
+		fmt.Fprintln(os.Stdout, `{"type":"item.started","item":{"id":"item_1","type":"collab_tool_call","tool":"spawn_agent","sender_thread_id":"tid-collab","status":"in_progress"}}`)
+		fmt.Fprintln(os.Stdout, `{"type":"item.completed","item":{"id":"item_1","type":"collab_tool_call","tool":"spawn_agent","sender_thread_id":"tid-collab","status":"completed"}}`)
+		fmt.Fprintln(os.Stdout, `{"type":"item.started","item":{"id":"item_2","type":"collab_tool_call","tool":"wait","sender_thread_id":"tid-collab","status":"in_progress"}}`)
+		fmt.Fprintln(os.Stdout, `{"type":"item.completed","item":{"id":"item_2","type":"collab_tool_call","tool":"wait","sender_thread_id":"tid-collab","status":"completed"}}`)
+		fmt.Fprintln(os.Stdout, `{"type":"item.completed","item":{"id":"item_3","type":"agent_message","text":"Worker finished."}}`)
+		fmt.Fprintln(os.Stdout, `{"type":"turn.completed","usage":{"input_tokens":10,"output_tokens":5}}`)
 	case "codex_stream_error":
 		fmt.Fprintln(os.Stdout, `{"type":"error","message":"rate limit exceeded"}`)
 	case "codex_stream_turn_failed":
@@ -225,6 +240,83 @@ func TestCodexCliDriver_Call_DefaultArgs(t *testing.T) {
 	}
 }
 
+// TestCodexCliDriver_Stream_CollabToolCalls verifies multi_agent_v2 collab
+// items (spawn_agent/wait) surface as tool_call events, agent_message content
+// carries the subtype marker, and unknown item types (error) pass through as
+// generic "item" events instead of being silently dropped.
+// Investigation: codex-cli-observability-parity (R2).
+func TestCodexCliDriver_Stream_CollabToolCalls(t *testing.T) {
+	t.Parallel()
+	d := NewCodexCliDriver(CodexWithCommandBuilder(codexMockCmdBuilder("codex_stream_collab")))
+	ch, err := d.Stream(context.Background(), LLMRequest{Intent: "test"})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	var events []StreamEvent
+	for evt := range ch {
+		events = append(events, evt)
+	}
+	typeSeq := make([]string, len(events))
+	for i, e := range events {
+		typeSeq[i] = e.Type
+	}
+
+	// spawn_agent + wait: started/completed pairs as tool_call events with
+	// the collab tool name and call_id.
+	for _, want := range []struct{ tool, callID string }{
+		{"spawn_agent", "item_1"},
+		{"wait", "item_2"},
+	} {
+		var started, completed bool
+		for _, e := range events {
+			if e.Type != "tool_call" || e.Data["tool"] != want.tool || e.Data["call_id"] != want.callID {
+				continue
+			}
+			switch e.Content {
+			case "started":
+				started = true
+			case "completed":
+				completed = true
+				if e.Data["result"] != "completed" {
+					t.Errorf("collab %s completed: expected result=completed, got %v", want.tool, e.Data["result"])
+				}
+			}
+		}
+		if !started || !completed {
+			t.Errorf("collab %s: started=%v completed=%v, types: %v", want.tool, started, completed, typeSeq)
+		}
+	}
+
+	// agent_message content carries the message-level subtype marker.
+	found := false
+	for _, e := range events {
+		if e.Type == "content" && e.Content == "Worker finished." {
+			if e.Data["subtype"] == "agent_message" {
+				found = true
+			}
+			break
+		}
+	}
+	if !found {
+		t.Errorf("expected content event with subtype=agent_message, got types: %v", typeSeq)
+	}
+
+	// Unknown "error" item passes through as a generic item event.
+	found = false
+	for _, e := range events {
+		if e.Type == "item" && e.Data["item_type"] == "error" {
+			if msg, _ := e.Data["message"].(string); strings.Contains(msg, "multi_agent_v2") {
+				found = true
+			}
+			break
+		}
+	}
+	if !found {
+		t.Errorf("expected pass-through item event for error item, got types: %v", typeSeq)
+	}
+}
+
 func TestCodexCliDriver_Stream_Success(t *testing.T) {
 	t.Parallel()
 	d := NewCodexCliDriver(CodexWithCommandBuilder(codexMockCmdBuilder("codex_stream_success")))
@@ -269,18 +361,19 @@ func TestCodexCliDriver_Stream_Success(t *testing.T) {
 		t.Errorf("expected tool_call:started event, got types: %v", typeSeq)
 	}
 
-	// Verify tool_call completed event.
+	// Verify tool_call completed event carries the aggregated output under
+	// the "result" key (kernel backfill whitelist) plus the exit code.
 	found = false
 	for _, e := range events {
 		if e.Type == "tool_call" && e.Content == "completed" {
-			if e.Data["output"] == "file1.go\nfile2.go" {
+			if e.Data["result"] == "file1.go\nfile2.go" && e.Data["exit_code"] == 0 {
 				found = true
 			}
 			break
 		}
 	}
 	if !found {
-		t.Errorf("expected tool_call:completed event with output, got types: %v", typeSeq)
+		t.Errorf("expected tool_call:completed event with result+exit_code, got types: %v", typeSeq)
 	}
 
 	// Verify content event (from agent_message).

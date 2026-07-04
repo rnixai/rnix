@@ -237,6 +237,22 @@ func (f *LLMFile) writeStream(ctx context.Context, req LLMRequest) error {
 		switch evt.Type {
 		case "content":
 			content.WriteString(evt.Content)
+			// 调查 codex-cli-observability-parity R3（apex-pid517 同症根修）：
+			// content 也转发 onEvent，使 kernel 能在长内容流期间刷新
+			// heartbeat——此前纯 content 阶段（codex agent_message、openai
+			// 长文本生成）handler 全程静默，HeartbeatMonitor 误报 STALL。
+			// API driver 的 token 级 delta 高频，kernel 侧仅 touch 不落盘；
+			// CLI driver 的消息级 content（Data.subtype=agent_message）会被
+			// 记录到 events.jsonl。
+			if f.onEvent != nil {
+				evtData := map[string]any{}
+				maps.Copy(evtData, evt.Data)
+				evtData["type"] = "content"
+				if evt.Content != "" {
+					evtData["content"] = evt.Content
+				}
+				f.onEvent(evtData)
+			}
 		case "reasoning":
 			reasoning.WriteString(evt.Content)
 			// Story 60.1 AC1: 把 reasoning 增量也转发到 onEvent,归一为
@@ -258,7 +274,7 @@ func (f *LLMFile) writeStream(ctx context.Context, req LLMRequest) error {
 				}
 				f.onEvent(evtData)
 			}
-		case "tool_call", "thinking", "system", "user", "assistant":
+		case "tool_call", "thinking", "system", "user", "assistant", "item":
 			if f.onEvent != nil {
 				evtData := map[string]any{
 					"type": evt.Type,

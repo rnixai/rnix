@@ -362,10 +362,12 @@ func (d *QwenCliDriver) Stream(ctx context.Context, req LLMRequest) (<-chan Stre
 					return
 				}
 				// Also emit text content events for existing consumers.
+				// 消息级 content：subtype 使 kernel 落 events.jsonl（token 级
+				// delta 仅刷 heartbeat）。
 				for _, c := range evt.Message.Content {
 					if c.Type == "text" {
 						select {
-						case ch <- StreamEvent{Type: "content", Content: c.Text}:
+						case ch <- StreamEvent{Type: "content", Content: c.Text, Data: map[string]any{"subtype": "agent_message"}}:
 						case <-ctx.Done():
 							return
 						}

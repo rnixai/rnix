@@ -141,7 +141,14 @@ type codexStreamEvent struct {
 		Text    string `json:"text,omitempty"`
 		Command string `json:"command,omitempty"`
 		Status  string `json:"status,omitempty"`
-		Output  string `json:"output,omitempty"`
+		// Codex 0.14x 实测 schema（调查 codex-cli-observability-parity）：
+		// command_execution 的输出字段是 aggregated_output（非 output），
+		// 另携带 exit_code；collab_tool_call（multi_agent_v2）携带 tool
+		// （wait/spawn_agent/...）；error item 携带 message。
+		AggregatedOutput string `json:"aggregated_output,omitempty"`
+		ExitCode         *int   `json:"exit_code,omitempty"`
+		Tool             string `json:"tool,omitempty"`
+		Message          string `json:"message,omitempty"`
 	} `json:"item,omitempty"`
 	Usage *struct {
 		InputTokens       int `json:"input_tokens"`
@@ -315,13 +322,40 @@ func (d *CodexCliDriver) Stream(ctx context.Context, req LLMRequest) (<-chan Str
 				}
 
 			case "item.started":
-				if evt.Item != nil && evt.Item.Type == "command_execution" {
+				if evt.Item == nil {
+					continue
+				}
+				switch evt.Item.Type {
+				case "command_execution":
 					se := StreamEvent{
 						Type:    "tool_call",
 						Content: "started",
 						Data: map[string]any{
 							"tool":    "shell",
 							"command": evt.Item.Command,
+							"call_id": evt.Item.ID,
+							"subtype": "started",
+						},
+					}
+					select {
+					case ch <- se:
+					case <-ctx.Done():
+						return
+					}
+				case "collab_tool_call":
+					// multi_agent_v2 协作工具（wait/spawn_agent/close_agent/...）。
+					// 作为 tool_call 接入使子代理编排在 steps/events 可见，且
+					// started 帧刷新 kernel heartbeat，避免长 wait 期间的 STALL
+					// 误报（调查 codex-cli-observability-parity R2/R3）。
+					tool := evt.Item.Tool
+					if tool == "" {
+						tool = "collab"
+					}
+					se := StreamEvent{
+						Type:    "tool_call",
+						Content: "started",
+						Data: map[string]any{
+							"tool":    tool,
 							"call_id": evt.Item.ID,
 							"subtype": "started",
 						},
@@ -340,22 +374,31 @@ func (d *CodexCliDriver) Stream(ctx context.Context, req LLMRequest) (<-chan Str
 				switch evt.Item.Type {
 				case "agent_message":
 					lastAgentMessage = evt.Item.Text
+					// subtype 标记消息级 content：kernel 据此落 events.jsonl，
+					// 而 API driver 的 token 级 content delta 仅刷 heartbeat。
 					select {
-					case ch <- StreamEvent{Type: "content", Content: evt.Item.Text}:
+					case ch <- StreamEvent{Type: "content", Content: evt.Item.Text, Data: map[string]any{"subtype": "agent_message"}}:
 					case <-ctx.Done():
 						return
 					}
 				case "command_execution":
+					// "result" 键对齐 kernel 的回填白名单（observe.go completed
+					// 分支读 result/tool_result）；输出取实测 schema 的
+					// aggregated_output。
+					data := map[string]any{
+						"tool":    "shell",
+						"command": evt.Item.Command,
+						"call_id": evt.Item.ID,
+						"result":  evt.Item.AggregatedOutput,
+						"subtype": "completed",
+					}
+					if evt.Item.ExitCode != nil {
+						data["exit_code"] = *evt.Item.ExitCode
+					}
 					se := StreamEvent{
 						Type:    "tool_call",
 						Content: "completed",
-						Data: map[string]any{
-							"tool":    "shell",
-							"command": evt.Item.Command,
-							"call_id": evt.Item.ID,
-							"output":  evt.Item.Output,
-							"subtype": "completed",
-						},
+						Data:    data,
 					}
 					select {
 					case ch <- se:
@@ -365,6 +408,45 @@ func (d *CodexCliDriver) Stream(ctx context.Context, req LLMRequest) (<-chan Str
 				case "reasoning":
 					select {
 					case ch <- StreamEvent{Type: "thinking", Content: evt.Item.Text}:
+					case <-ctx.Done():
+						return
+					}
+				case "collab_tool_call":
+					tool := evt.Item.Tool
+					if tool == "" {
+						tool = "collab"
+					}
+					se := StreamEvent{
+						Type:    "tool_call",
+						Content: "completed",
+						Data: map[string]any{
+							"tool":    tool,
+							"call_id": evt.Item.ID,
+							"result":  evt.Item.Status,
+							"subtype": "completed",
+						},
+					}
+					select {
+					case ch <- se:
+					case <-ctx.Done():
+						return
+					}
+				default:
+					// 未知 item 类型不再静默丢弃：以通用 "item" 事件透传，
+					// kernel 落 events.jsonl 留痕（如 error item 承载的
+					// multi_agent_v2 警告此前完全不可见）。
+					data := map[string]any{
+						"item_type": evt.Item.Type,
+						"call_id":   evt.Item.ID,
+					}
+					if evt.Item.Text != "" {
+						data["text"] = evt.Item.Text
+					}
+					if evt.Item.Message != "" {
+						data["message"] = evt.Item.Message
+					}
+					select {
+					case ch <- StreamEvent{Type: "item", Content: evt.Item.Type, Data: data}:
 					case <-ctx.Done():
 						return
 					}

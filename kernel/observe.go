@@ -404,6 +404,12 @@ func driverEventToSyscall(evtType string) string {
 		return "DriverInit"
 	case "user":
 		return "DriverUser"
+	case "content":
+		// 消息级 agent_message（token 级 delta 在 handler 入口已被过滤）。
+		return "DriverMessage"
+	case "item":
+		// driver 透传的未知 item 类型（如 codex error item）。
+		return "DriverItem"
 	default:
 		return "DriverEvent"
 	}
@@ -647,6 +653,17 @@ func (k *KernelImpl) setupDriverStreamHandler(proc *Process, llmFD types.FD) {
 			// host processing below.
 			if subagentTracker != nil && subagentTracker.route(evt) {
 				return
+			}
+
+			// content 事件分流（调查 codex-cli-observability-parity R3）：
+			// API driver 的 token 级 content delta 高频到达，仅用于刷新
+			// heartbeat（上面的 TouchHeartbeat 已完成），直接返回避免
+			// events.jsonl 洪泛；CLI driver 的消息级 agent_message
+			// （subtype 标记）继续向下落盘留痕。
+			if evtType == "content" {
+				if sub, _ := evt["subtype"].(string); sub != "agent_message" {
+					return
+				}
 			}
 
 			syscallName := driverEventToSyscall(evtType)
