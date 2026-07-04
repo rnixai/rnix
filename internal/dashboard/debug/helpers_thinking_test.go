@@ -9,6 +9,7 @@
 package debug
 
 import (
+	"reflect"
 	"strings"
 	"testing"
 
@@ -104,6 +105,54 @@ func TestCollapseThinkingGroups_PassesThroughNonThinking(t *testing.T) {
 	}
 	if out[2].RawEvent == nil || out[2].RawEvent.Syscall != "DriverInit" {
 		t.Errorf("row2 should passthrough DriverInit, got %+v", out[2].RawEvent)
+	}
+}
+
+// AC#4：非 DriverThinking 事件必须逐字段原样透传；CollapseThinkingGroups 只能
+// 替换 DriverThinking run 为合成 thinking 行，不能改动相邻普通 syscall 事件。
+func TestCollapseThinkingGroups_PreservesNonThinkingEventsExactly(t *testing.T) {
+	raw := []event.UnifiedEvent{
+		nonThinkEv("DriverToolCall"),
+		thinkEv("started", "started", 1000),
+		thinkEv("delta", "thinking", 1010),
+		nonThinkEv("DriverInit"),
+	}
+	raw[0].Severity = event.SevWarn
+	raw[0].Summary = "tool passthrough"
+	raw[0].Detail = "tool detail"
+	raw[0].IsSynthetic = true
+	raw[0].RawEvent.TimestampMs = 100
+	raw[0].RawEvent.Args = map[string]any{"path": "/dev/fs", "op": "read"}
+	raw[0].RawEvent.Result = "ok"
+	raw[0].RawEvent.DurationMs = 1.5
+	raw[0].RawEvent.TraceID = "trace-tool"
+	raw[0].RawEvent.SpanID = "span-tool"
+
+	raw[3].Severity = event.SevError
+	raw[3].Summary = "init passthrough"
+	raw[3].Detail = "init detail"
+	raw[3].RawEvent.TimestampMs = 200
+	raw[3].RawEvent.Args = map[string]any{"provider": "claude"}
+	raw[3].RawEvent.Result = "ready"
+	raw[3].RawEvent.Error = "init warning"
+	raw[3].RawEvent.DurationMs = 2.5
+	raw[3].RawEvent.TraceID = "trace-init"
+	raw[3].RawEvent.SpanID = "span-init"
+
+	wantFirst := raw[0]
+	wantLast := raw[3]
+	out := CollapseThinkingGroups(raw, nil, false)
+	if len(out) != 3 {
+		t.Fatalf("want 3 rows (first passthrough + folded thinking + last passthrough), got %d", len(out))
+	}
+	if !reflect.DeepEqual(out[0], wantFirst) {
+		t.Fatalf("first non-thinking event changed during thinking collapse:\n got: %#v\nwant: %#v", out[0], wantFirst)
+	}
+	if out[1].Type != event.EventThinking {
+		t.Fatalf("middle row should be folded thinking, got %q", out[1].Type)
+	}
+	if !reflect.DeepEqual(out[2], wantLast) {
+		t.Fatalf("last non-thinking event changed during thinking collapse:\n got: %#v\nwant: %#v", out[2], wantLast)
 	}
 }
 
