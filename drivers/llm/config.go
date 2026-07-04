@@ -45,6 +45,12 @@ var validModes = map[string]bool{
 	ModeCall:   true,
 }
 
+var validCodexSandboxModes = map[string]bool{
+	"read-only":          true,
+	"workspace-write":    true,
+	"danger-full-access": true,
+}
+
 // cliDrivers is the set of driver types that shell out to a local CLI binary and
 // run the entire agentic loop — including Task/Agent subagent dispatch — inside a
 // single OS process (Story 56.6). API drivers take the kernel's real ActionSpawn
@@ -92,6 +98,7 @@ type ProviderConfig struct {
 	TimeoutSec      int                    `yaml:"timeout_sec"`      // per-request timeout in seconds; 0 = driver default (5 min for CLI)
 	GraceSec        int                    `yaml:"grace_sec"`        // CLI grace period between SIGTERM and SIGKILL; 0 = driver default (20s)
 	PermissionMode  string                 `yaml:"permission_mode"`  // claude-cli only: --permission-mode value (bypassPermissions/acceptEdits/plan/default); empty = driver default (bypassPermissions)
+	SandboxMode     string                 `yaml:"sandbox_mode"`     // codex-cli only: --sandbox value (read-only/workspace-write/danger-full-access); empty = workspace-write
 	Models          map[string]ModelConfig `yaml:"models,omitempty"`
 }
 
@@ -202,6 +209,10 @@ func (c *ProvidersConfig) Validate() error {
 
 		if p.Driver == DriverClaudeCLI && p.PermissionMode != "" && !validPermissionModes[p.PermissionMode] {
 			errs = append(errs, fmt.Errorf("provider[%d] %q: invalid permission_mode %q (valid: bypassPermissions, acceptEdits, plan, default)", i, p.Name, p.PermissionMode))
+		}
+
+		if p.Driver == DriverCodexCLI && p.SandboxMode != "" && !validCodexSandboxModes[p.SandboxMode] {
+			errs = append(errs, fmt.Errorf("provider[%d] %q: invalid sandbox_mode %q (valid: read-only, workspace-write, danger-full-access)", i, p.Name, p.SandboxMode))
 		}
 	}
 

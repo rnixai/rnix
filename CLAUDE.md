@@ -158,6 +158,27 @@ Claude CLI driver (`/dev/llm/claude`) uses capability probing to adapt to differ
 | `fallback_candidates` | Comma-joined candidate binary names (split to `candidates[]` in the `claude_cli.resolve` event) | `claude,openclaude` |
 | `probe_duration_ms` | Capability-probe wall-clock duration in ms (emitted as `probe_duration_ms` in the `claude_cli.capabilities` event) | `12` |
 
+### Codex CLI Driver 沙箱配置约定 (Epic 62)
+
+Codex CLI driver (`/dev/llm/codex`) configures shell-command sandboxing through `providers.yaml`:
+
+```yaml
+providers:
+  - name: codex
+    driver: codex-cli
+    default_model: gpt-5.1-codex
+    sandbox_mode: danger-full-access  # worktree with protected metadata symlinks
+```
+
+- **Config key**: `sandbox_mode` (codex-cli only)
+- **Valid values**: `read-only`, `workspace-write`, `danger-full-access`
+- **Default**: empty means `workspace-write`; the driver emits `codex exec --sandbox workspace-write`, not deprecated `--full-auto`
+- **Safety visibility**: `danger-full-access` logs a construction-time warning because Codex sandboxing is fully disabled
+- **Non-codex providers**: `sandbox_mode` is ignored with a warning; do not map it to Claude `permission_mode`
+- **Escape hatch**: prefer `sandbox_mode` for normal use. `extra_args` remains a raw Codex escape hatch, but `--yolo` / `--dangerously-bypass-approvals-and-sandbox` can conflict with `--sandbox`; for worktrees that need no sandbox, use `sandbox_mode: danger-full-access` instead of `extra_args: [--yolo]`
+
+The Epic 62 production failure had two causes: `--yolo` conflicted with the old hardcoded `--full-auto`, and `--full-auto` forced Codex into `workspace-write` where Linux bubblewrap fail-closed on protected metadata symlinks such as `.agents` in worktrees. The config channel exists so operators can select the right sandbox strength explicitly.
+
 ### 工具 Input 权威回填与 flush 时序 (Story 40-4)
 
 CLI driver（`/dev/llm/claude` 等）的工具调用 Input 经 **assistant 块权威回填 + flush 时序修正**，不再受 `--include-partial-messages` 下的交错时序影响：

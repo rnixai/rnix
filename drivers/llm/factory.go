@@ -27,6 +27,12 @@ func CreateDriver(cfg ProviderConfig) (LLMDriver, error) {
 // using the provided envLookup function to resolve environment variables.
 // This allows project-level .env overrides without polluting os.Environ.
 func CreateDriverWithEnv(cfg ProviderConfig, envLookup func(string) string) (LLMDriver, error) {
+	if cfg.SandboxMode != "" && cfg.Driver != DriverCodexCLI {
+		log.Printf("[llm] warning: provider %q (%s): sandbox_mode=%q ignored — "+
+			"sandbox_mode applies only to codex-cli",
+			cfg.Name, cfg.Driver, cfg.SandboxMode)
+	}
+
 	switch cfg.Driver {
 	case DriverClaudeCLI:
 		var opts []ClaudeCliOption
@@ -124,6 +130,13 @@ func CreateDriverWithEnv(cfg ProviderConfig, envLookup func(string) string) (LLM
 		}
 		if cfg.ReasoningEffort != "" {
 			opts = append(opts, CodexWithReasoningEffort(cfg.ReasoningEffort))
+		}
+		if cfg.SandboxMode != "" {
+			opts = append(opts, CodexWithSandboxMode(cfg.SandboxMode))
+			if cfg.SandboxMode == "danger-full-access" {
+				log.Printf("[llm] warning: provider %q (codex-cli): sandbox_mode=danger-full-access disables Codex sandboxing; use only for trusted projects/worktrees",
+					cfg.Name)
+			}
 		}
 		return NewCodexCliDriver(opts...), nil
 

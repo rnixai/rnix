@@ -175,8 +175,11 @@ func TestCodexCliDriver_Call_Args(t *testing.T) {
 	if !strings.Contains(argsStr, "exec") {
 		t.Errorf("expected 'exec' subcommand, got: %s", argsStr)
 	}
-	if !strings.Contains(argsStr, "--full-auto") {
-		t.Errorf("expected --full-auto flag, got: %s", argsStr)
+	if !argsContainPair(capturedArgs, "--sandbox", "workspace-write") {
+		t.Errorf("expected --sandbox workspace-write flag, got: %s", argsStr)
+	}
+	if strings.Contains(argsStr, "--full-auto") {
+		t.Errorf("unexpected --full-auto flag, got: %s", argsStr)
 	}
 	if !strings.Contains(argsStr, "-m o3") {
 		t.Errorf("expected -m o3, got: %s", argsStr)
@@ -204,8 +207,11 @@ func TestCodexCliDriver_Call_DefaultArgs(t *testing.T) {
 	if !strings.Contains(argsStr, "-m "+CodexDefaultModel) {
 		t.Errorf("expected default model %q, got: %s", CodexDefaultModel, argsStr)
 	}
-	if !strings.Contains(argsStr, "--full-auto") {
-		t.Errorf("expected --full-auto, got: %s", argsStr)
+	if !argsContainPair(capturedArgs, "--sandbox", "workspace-write") {
+		t.Errorf("expected --sandbox workspace-write, got: %s", argsStr)
+	}
+	if strings.Contains(argsStr, "--full-auto") {
+		t.Errorf("unexpected --full-auto, got: %s", argsStr)
 	}
 	// Should NOT contain Claude/Qwen-specific flags.
 	if strings.Contains(argsStr, "--bare") {
@@ -458,8 +464,11 @@ func TestCodexCliDriver_Stream_Args(t *testing.T) {
 	if !strings.Contains(argsStr, "--json") {
 		t.Errorf("expected --json in stream mode, got: %s", argsStr)
 	}
-	if !strings.Contains(argsStr, "--full-auto") {
-		t.Errorf("expected --full-auto, got: %s", argsStr)
+	if !argsContainPair(capturedArgs, "--sandbox", "workspace-write") {
+		t.Errorf("expected --sandbox workspace-write, got: %s", argsStr)
+	}
+	if strings.Contains(argsStr, "--full-auto") {
+		t.Errorf("unexpected --full-auto, got: %s", argsStr)
 	}
 	if !strings.Contains(argsStr, "-m o4-mini") {
 		t.Errorf("expected -m o4-mini, got: %s", argsStr)

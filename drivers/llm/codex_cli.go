@@ -15,6 +15,9 @@ import (
 const (
 	// CodexDefaultModel is the default Codex model to use.
 	CodexDefaultModel = "codex-mini-latest"
+	// CodexDefaultSandboxMode preserves the old `--full-auto` exec sandbox
+	// behavior without using the deprecated alias.
+	CodexDefaultSandboxMode = "workspace-write"
 	// CodexDefaultTimeout is the default timeout for a single Codex CLI invocation.
 	// Codex exec tasks with tool use can take several minutes.
 	CodexDefaultTimeout = 5 * time.Minute
@@ -29,6 +32,7 @@ type CodexCliDriver struct {
 	cmdBuilder     CommandBuilder
 	extraArgs      []string
 	effort         string
+	sandboxMode    string
 }
 
 // CodexCliOption configures a CodexCliDriver.
@@ -87,6 +91,14 @@ func CodexWithReasoningEffort(effort string) CodexCliOption {
 	}
 }
 
+// CodexWithSandboxMode appends `--sandbox <mode>` to every invocation when set.
+// Empty = default workspace-write in buildArgs.
+func CodexWithSandboxMode(mode string) CodexCliOption {
+	return func(d *CodexCliDriver) {
+		d.sandboxMode = mode
+	}
+}
+
 // resolveEffort returns the per-request reasoning effort override, or the
 // driver instance default (d.effort) when the request leaves it empty.
 // Value is passed through verbatim (no validation/mapping). Computed per call
@@ -96,6 +108,13 @@ func (d *CodexCliDriver) resolveEffort(req LLMRequest) string {
 		return req.ReasoningEffort
 	}
 	return d.effort
+}
+
+func (d *CodexCliDriver) resolveSandboxMode() string {
+	if d.sandboxMode != "" {
+		return d.sandboxMode
+	}
+	return CodexDefaultSandboxMode
 }
 
 // NewCodexCliDriver creates a new CodexCliDriver with the given options.
@@ -452,7 +471,7 @@ func (d *CodexCliDriver) Info() DriverInfo {
 // buildArgs constructs CLI arguments for a Codex exec invocation.
 func (d *CodexCliDriver) buildArgs(req LLMRequest, jsonMode bool) []string {
 	prompt := d.buildPrompt(req)
-	args := []string{"exec", "--full-auto"}
+	args := []string{"exec", "--sandbox", d.resolveSandboxMode()}
 
 	if jsonMode {
 		args = append(args, "--json")

@@ -889,6 +889,80 @@ providers:
 	}
 }
 
+// --- Story 62.1: codex sandbox_mode validation ---
+
+func TestProvidersConfig_Validate_CodexSandboxMode_Valid(t *testing.T) {
+	t.Parallel()
+	for _, mode := range []string{"read-only", "workspace-write", "danger-full-access"} {
+		t.Run(mode, func(t *testing.T) {
+			cfg := ProvidersConfig{
+				Version: "1",
+				Providers: []ProviderConfig{
+					{Name: "codex", Driver: DriverCodexCLI, SandboxMode: mode},
+				},
+			}
+			if err := cfg.Validate(); err != nil {
+				t.Errorf("Validate() unexpected error for sandbox_mode=%q: %v", mode, err)
+			}
+		})
+	}
+}
+
+func TestProvidersConfig_Validate_CodexSandboxMode_Invalid(t *testing.T) {
+	t.Parallel()
+	cfg := ProvidersConfig{
+		Version: "1",
+		Providers: []ProviderConfig{
+			{Name: "codex", Driver: DriverCodexCLI, SandboxMode: "danger_full_access"},
+		},
+	}
+	err := cfg.Validate()
+	if err == nil {
+		t.Fatal("expected validation error for invalid sandbox_mode, got nil")
+	}
+	msg := err.Error()
+	if !strings.Contains(msg, "danger_full_access") {
+		t.Errorf("error should echo invalid value, got: %s", msg)
+	}
+	for _, valid := range []string{"read-only", "workspace-write", "danger-full-access"} {
+		if !strings.Contains(msg, valid) {
+			t.Errorf("error should list valid value %q, got: %s", valid, msg)
+		}
+	}
+}
+
+func TestProvidersConfig_Validate_CodexSandboxMode_NonCodexIgnored(t *testing.T) {
+	t.Parallel()
+	cfg := ProvidersConfig{
+		Version: "1",
+		Providers: []ProviderConfig{
+			{Name: "claude", Driver: DriverClaudeCLI, SandboxMode: "not-a-codex-mode"},
+		},
+	}
+	if err := cfg.Validate(); err != nil {
+		t.Errorf("Validate() should ignore sandbox_mode for non-codex driver, got: %v", err)
+	}
+}
+
+func TestProvidersConfig_CodexSandboxMode_YAMLRoundTrip(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	yaml := `version: "1"
+providers:
+  - name: codex
+    driver: codex-cli
+    sandbox_mode: danger-full-access
+`
+	path := writeYAML(t, dir, ProvidersConfigFile, yaml)
+	cfg, err := LoadProvidersConfig(path)
+	if err != nil {
+		t.Fatalf("LoadProvidersConfig: %v", err)
+	}
+	if got := cfg.Providers[0].SandboxMode; got != "danger-full-access" {
+		t.Errorf("SandboxMode = %q, want %q", got, "danger-full-access")
+	}
+}
+
 func TestParseProvidersConfig_WithCommand(t *testing.T) {
 	t.Parallel()
 	yaml := `version: "1"
