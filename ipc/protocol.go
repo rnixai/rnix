@@ -101,6 +101,15 @@ const (
 	// downstream consumers can verify which rnix commit the running daemon
 	// was built from without a Ping wire change.
 	MethodDaemonStatus Method = "daemon_status"
+
+	// Story 63.1 — MethodWait blocks until the target process reaches a
+	// terminal state (Zombie/Dead) and returns its exit code, or returns
+	// TimedOut=true after timeout_ms (0 = wait forever). Long-blocking
+	// method: the handler manages the connection lifetime (mirror
+	// MethodSpawn's dispatch `return`). Pure observer — never consumes
+	// proc.Done, never reaps; the same PID can be waited any number of
+	// times (pollable semantics).
+	MethodWait Method = "wait"
 )
 
 // --- Trace Wire Types (Story 27.9) ---
@@ -1631,6 +1640,23 @@ func (r MCPReloadResponse) MarshalJSON() ([]byte, error) {
 		a.Servers = []string{}
 	}
 	return json.Marshal(a)
+}
+
+// WaitRequest is the payload for MethodWait (Story 63.1).
+// TimeoutMs = 0 (omitted) means wait forever.
+type WaitRequest struct {
+	PID       types.PID `json:"pid"`
+	TimeoutMs int64     `json:"timeout_ms,omitempty"`
+}
+
+// WaitResponse is the response for MethodWait. On timeout the envelope stays
+// OK=true with TimedOut=true and ExitCode/ExitReason zeroed — timeout is a
+// business result, not a protocol error (mirror MCPTest's envelope rule).
+type WaitResponse struct {
+	PID        types.PID `json:"pid"`
+	ExitCode   int       `json:"exit_code"`
+	ExitReason string    `json:"exit_reason,omitempty"`
+	TimedOut   bool      `json:"timed_out"`
 }
 
 // --- /dev/tty AskUser Wire Types (Story 33-2) ---

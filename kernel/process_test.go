@@ -713,3 +713,77 @@ func TestProcess_IsSuspendRequested(t *testing.T) {
 		t.Fatal("suspend should be requested after Store(true)")
 	}
 }
+
+// --- Story 63.1 Task 1.2: TerminatedCh accessor (AC 1, 8) ---
+
+// TestProcess_TerminatedCh_ClosedOnTerminate verifies the broadcast channel is
+// open while Running and closed after Terminate, with Exit readable (裁决 1:
+// Exit assignment happens-before close).
+func TestProcess_TerminatedCh_ClosedOnTerminate(t *testing.T) {
+	p := NewProcess(0, "test", nil)
+	_ = p.Start()
+
+	select {
+	case <-p.TerminatedCh():
+		t.Fatal("TerminatedCh should not be closed while Running")
+	default:
+	}
+
+	if err := p.Terminate(ExitStatus{Code: 3, Reason: "test-exit"}); err != nil {
+		t.Fatalf("Terminate failed: %v", err)
+	}
+
+	select {
+	case <-p.TerminatedCh():
+	default:
+		t.Fatal("TerminatedCh should be closed after Terminate")
+	}
+	p.mu.Lock()
+	exit := p.Exit
+	p.mu.Unlock()
+	if exit == nil || exit.Code != 3 {
+		t.Fatalf("Exit must be non-nil with Code=3 after wakeup, got %+v", exit)
+	}
+}
+
+// TestProcess_TerminatedCh_BroadcastToAllWaiters verifies broadcast semantics:
+// N concurrent waiters all wake up on a single Terminate (AC8).
+func TestProcess_TerminatedCh_BroadcastToAllWaiters(t *testing.T) {
+	p := NewProcess(0, "test", nil)
+	_ = p.Start()
+
+	const waiters = 8
+	var woke atomic.Int32
+	var wg sync.WaitGroup
+	for range waiters {
+		wg.Go(func() {
+			<-p.TerminatedCh()
+			woke.Add(1)
+		})
+	}
+
+	if err := p.Terminate(ExitStatus{Code: 0, Reason: "complete"}); err != nil {
+		t.Fatalf("Terminate failed: %v", err)
+	}
+	wg.Wait()
+	if got := woke.Load(); got != waiters {
+		t.Fatalf("all %d waiters should wake, got %d", waiters, got)
+	}
+}
+
+// TestProcess_TerminatedCh_NotClosedOnSuspend verifies Suspended is not a
+// terminal state: the Running→Suspended transition must not close the channel
+// (裁决 6 — Unix wait(2) semantics, wait blocks across suspend).
+func TestProcess_TerminatedCh_NotClosedOnSuspend(t *testing.T) {
+	p := NewProcess(0, "test", nil)
+	_ = p.Start()
+
+	if err := p.Suspend(); err != nil {
+		t.Fatalf("Suspend failed: %v", err)
+	}
+	select {
+	case <-p.TerminatedCh():
+		t.Fatal("TerminatedCh must not be closed for a Suspended process")
+	default:
+	}
+}

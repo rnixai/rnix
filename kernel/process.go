@@ -605,6 +605,17 @@ func (p *Process) CancelledCh() <-chan struct{} {
 	return ctx.Done()
 }
 
+// TerminatedCh returns a channel that is closed when the process reaches a
+// terminal state (Zombie via Terminate, or Dead via killSuspendedProcess).
+// Broadcast semantics: safe for any number of concurrent waiters; never
+// consumes proc.Done. By the time this channel is closed, proc.Exit is
+// guaranteed non-nil (both close sites assign Exit under p.mu before closing).
+// The channel is unconditionally allocated in NewProcess, so no nil guard or
+// lock is needed (unlike CancelledCh, whose ctx can be nil).
+func (p *Process) TerminatedCh() <-chan struct{} {
+	return p.terminated
+}
+
 // AddChild appends a child PID to the Children slice (thread-safe).
 func (p *Process) AddChild(pid types.PID) {
 	p.mu.Lock()

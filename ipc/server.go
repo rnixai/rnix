@@ -425,6 +425,9 @@ func (s *Server) handleConn(conn net.Conn) {
 			s.handleMCPLogs(conn, req.Payload)
 		case MethodMCPReload:
 			s.handleMCPReload(conn)
+		case MethodWait:
+			s.handleWait(conn, req.Payload)
+			return // long-blocking method — handler manages connection lifetime (mirror MethodSpawn)
 		case MethodShutdown:
 			s.handleShutdown(conn)
 			return

@@ -355,6 +355,8 @@ func init() {
 	rootCmd.AddCommand(mcpCmd)
 	rootCmd.AddCommand(checkCmd)
 	rootCmd.AddCommand(configCmd)
+	waitCmd.Flags().StringVar(&flagWaitTimeout, "timeout", "", "Bound the wait (e.g. 30s, 2m); exits 124 on expiry. Must be positive; omit to wait forever")
+	rootCmd.AddCommand(waitCmd)
 }
 
 // levenshtein computes the standard Levenshtein distance between two strings

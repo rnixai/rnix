@@ -436,6 +436,22 @@ func (c *Client) MCPReload() (*MCPReloadResponse, error) {
 	return &result, nil
 }
 
+// Wait blocks until the target process reaches a terminal state and returns
+// its exit code, or until timeoutMs elapses daemon-side (TimedOut=true in the
+// response). timeoutMs = 0 means wait forever. The underlying readResponse
+// has no read deadline, so an unbounded wait is safe (Story 63.1).
+func (c *Client) Wait(pid types.PID, timeoutMs int64) (*WaitResponse, error) {
+	resp, err := c.call(MethodWait, WaitRequest{PID: pid, TimeoutMs: timeoutMs})
+	if err != nil {
+		return nil, err
+	}
+	var result WaitResponse
+	if err := json.Unmarshal(resp.Payload, &result); err != nil {
+		return nil, fmt.Errorf("ipc: unmarshal wait: %w", err)
+	}
+	return &result, nil
+}
+
 // SpawnAndWatch spawns a process and streams events until completion.
 // The onEvent callback is called for each StreamEvent. Returns the final SpawnResponse PID
 // and the complete ProgressPayload (from the complete/error event).
