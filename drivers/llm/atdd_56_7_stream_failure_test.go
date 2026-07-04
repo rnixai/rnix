@@ -108,6 +108,33 @@ func TestATDD_56_7_AC4_StreamErrorEvent_SinkCollectedAtTerminalState(t *testing.
 	}
 }
 
+func TestATDD_56_7_AC4_StreamErrorEvent_KeepsFirstError(t *testing.T) {
+	t.Parallel()
+	d := &drainOrderDriver{
+		// 裁决 1：首个 error 事件优先，drain 期间后续 error 只用于让
+		// driver 走到 close 并发布终态 capture，不能覆盖返回错误。
+		extraAfterError: []StreamEvent{
+			{Type: "error", Err: NewLLMError("fake", 0, errors.New("second error should be ignored"))},
+		},
+	}
+	f := openLLMFile(t, d, ModeStream)
+	defer f.Close()
+
+	err := f.Write(context.Background(), []byte(`{"intent":"test"}`))
+	if err == nil {
+		t.Fatal("expected error from stream error event")
+	}
+	if !strings.Contains(err.Error(), "stream exploded") {
+		t.Errorf("returned error must keep the first error event, got: %v", err)
+	}
+	if strings.Contains(err.Error(), "second error should be ignored") {
+		t.Errorf("returned error was overwritten by a later error event: %v", err)
+	}
+	if cap := f.LastRawCapture(); cap == nil || cap.Response == nil {
+		t.Fatalf("drain-to-close must still collect terminal capture after repeated errors, got: %+v", cap)
+	}
+}
+
 // silentIncompleteDriver: 不发 done、不发 content、不发 error——直接 set 带
 // stderr 的终态 capture 后 close(ch)，触发 ErrStreamIncomplete 路径。
 type silentIncompleteDriver struct {
@@ -433,6 +460,14 @@ func TestATDD_56_7_StderrTail_UTF8BoundarySafe(t *testing.T) {
 	// 空输入
 	if got := stderrTail("", 2048); got != "" {
 		t.Errorf("stderrTail empty = %q", got)
+	}
+}
+
+func TestATDD_56_7_AC5_CliFailureDetail_EmptyStderrStillIncludesExitCode(t *testing.T) {
+	t.Parallel()
+	got := cliFailureDetail(" \n\t ", 7)
+	if got != " (exit 7)" {
+		t.Errorf("cliFailureDetail empty stderr = %q, want only exit-code suffix", got)
 	}
 }
 
