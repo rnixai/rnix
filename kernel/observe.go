@@ -632,7 +632,12 @@ func (k *KernelImpl) setupDriverStreamHandler(proc *Process, llmFD types.FD) {
 		// provider-named device path — a claude-cli provider named anything other
 		// than "claude" still reconstructs its subagents (Story 56.6 review).
 		var subagentTracker *cliSubagentTracker
-		if dtp, ok := file.(vfs.DriverTypeProvider); ok && llm.IsCLIDriver(dtp.DriverType()) {
+		var codexRolloutTracker *codexRolloutTracker
+		var driverType string
+		if dtp, ok := file.(vfs.DriverTypeProvider); ok {
+			driverType = dtp.DriverType()
+		}
+		if llm.IsCLIDriver(driverType) {
 			subagentTracker = k.newCLISubagentTracker(proc)
 		}
 		obs.SetStreamHandler(func(evt map[string]any) {
@@ -687,6 +692,15 @@ func (k *KernelImpl) setupDriverStreamHandler(proc *Process, llmFD types.FD) {
 			}
 
 			if evtType == "system" {
+				if driverType == llm.DriverCodexCLI && codexRolloutTracker == nil {
+					if sub, _ := evt["subtype"].(string); sub == "init" {
+						if threadID, _ := evt["thread_id"].(string); threadID != "" {
+							codexRolloutTracker = newCodexRolloutTracker(k, proc,
+								k.syntheticChildBaseDir(proc), threadID, codexRolloutDirForNow(time.Now()))
+							codexRolloutTracker.start()
+						}
+					}
+				}
 				// Merge driver-reported tools into existing nativeToolDefs
 				// (which already contains VFS + meta tools from buildToolDefs).
 				// Never overwrite — only append new entries to avoid losing
@@ -974,6 +988,10 @@ func (k *KernelImpl) setupDriverStreamHandler(proc *Process, llmFD types.FD) {
 				if subagentTracker != nil {
 					subagentTracker.finalizeAll()
 				}
+				if codexRolloutTracker != nil {
+					codexRolloutTracker.stop()
+					codexRolloutTracker = nil
+				}
 			// NOTE (Story 40.4): the `user` event no longer flushes pending
 			// tools. claude CLI interleaves the previous round's user(tool_result)
 			// with the next tool's partial input deltas, so an unconditional user
@@ -986,6 +1004,10 @@ func (k *KernelImpl) setupDriverStreamHandler(proc *Process, llmFD types.FD) {
 				// finalize dangling subagent children so they do not leak.
 				if subagentTracker != nil {
 					subagentTracker.finalizeAll()
+				}
+				if codexRolloutTracker != nil {
+					codexRolloutTracker.stop()
+					codexRolloutTracker = nil
 				}
 			}
 		})
