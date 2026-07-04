@@ -129,3 +129,43 @@ func TestATDD_62_5_INT_005_LongToolResultTruncatedUTF8Safe(t *testing.T) {
 		t.Fatalf("ToolResult missing truncation marker: len=%d", len(rec.ToolResult))
 	}
 }
+
+func TestATDD_62_5_INT_006_QwenAnyContentBlocksBackfillToolResult(t *testing.T) {
+	h := newStreamHarness(t)
+
+	h.feed(evtStarted("Read", "call_qwen"))
+	h.feed(map[string]any{
+		"type": "assistant",
+		"role": "assistant",
+		"content": []any{
+			map[string]any{
+				"type":  "tool_use",
+				"id":    "call_qwen",
+				"name":  "Read",
+				"input": map[string]any{"file_path": "qwen.txt"},
+			},
+		},
+	})
+	h.feed(map[string]any{
+		"type": "user",
+		"role": "user",
+		"content": []any{
+			map[string]any{
+				"type":        "tool_result",
+				"tool_use_id": "call_qwen",
+				"content": []any{
+					map[string]any{"type": "text", "text": "qwen contents"},
+				},
+			},
+		},
+	})
+
+	recs := h.flushAndReadSteps(t)
+	rec := findStepByAction625(t, recs, "Read")
+	if !jsonHasField(t, rec.ToolInput, "file_path", "qwen.txt") {
+		t.Fatalf("ToolInput should accept qwen []any assistant blocks, got %q", rec.ToolInput)
+	}
+	if rec.ToolResult != "qwen contents" {
+		t.Fatalf("ToolResult = %q, want qwen contents", rec.ToolResult)
+	}
+}
