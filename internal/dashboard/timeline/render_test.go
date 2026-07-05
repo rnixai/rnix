@@ -633,7 +633,7 @@ func TestAggGroupSize_Value(t *testing.T) {
 func TestRenderAggregatedTimeline_EmptyFiltered(t *testing.T) {
 	state := TimelineState{}
 	var b strings.Builder
-	used := RenderAggregatedTimeline(&b, state, nil, 80, 10, false, false)
+	used := RenderAggregatedTimeline(&b, state, nil, state.StepCursor, 80, 10, false, false)
 	if used != 0 {
 		t.Fatalf("empty filtered: linesUsed = %d, want 0", used)
 	}
@@ -650,11 +650,11 @@ func TestRenderAggregatedTimeline_CollapsedSingleGroup(t *testing.T) {
 			makeAggEntry(3, "plan", 50, 30, false, "third"),
 		},
 		StepCursor:        0,
-		ExpandedAggGroups: nil,
+		ExpandedChunkGroups: nil,
 	}
 	filtered := []int{0, 1, 2}
 	var b strings.Builder
-	used := RenderAggregatedTimeline(&b, state, filtered, 200, 5, false, false)
+	used := RenderAggregatedTimeline(&b, state, filtered, state.StepCursor, 200, 5, false, false)
 	if used != 1 {
 		t.Fatalf("collapsed single group: linesUsed = %d, want 1", used)
 	}
@@ -679,7 +679,7 @@ func TestRenderAggregatedTimeline_CollapsedWithErrors(t *testing.T) {
 	}
 	filtered := []int{0, 1, 2}
 	var b strings.Builder
-	used := RenderAggregatedTimeline(&b, state, filtered, 200, 5, false, false)
+	used := RenderAggregatedTimeline(&b, state, filtered, state.StepCursor, 200, 5, false, false)
 	if used != 1 {
 		t.Fatalf("linesUsed = %d, want 1", used)
 	}
@@ -699,7 +699,7 @@ func TestRenderAggregatedTimeline_CollapsedWithSingleError(t *testing.T) {
 	}
 	filtered := []int{0, 1}
 	var b strings.Builder
-	used := RenderAggregatedTimeline(&b, state, filtered, 200, 5, false, false)
+	used := RenderAggregatedTimeline(&b, state, filtered, state.StepCursor, 200, 5, false, false)
 	if used != 1 {
 		t.Fatalf("linesUsed = %d, want 1", used)
 	}
@@ -723,7 +723,7 @@ func TestRenderAggregatedTimeline_CollapsedWithToken(t *testing.T) {
 	}
 	filtered := []int{0, 1}
 	var b strings.Builder
-	used := RenderAggregatedTimeline(&b, state, filtered, 200, 5, true /*showToken*/, false)
+	used := RenderAggregatedTimeline(&b, state, filtered, state.StepCursor, 200, 5, true /*showToken*/, false)
 	if used != 1 {
 		t.Fatalf("linesUsed = %d, want 1", used)
 	}
@@ -741,13 +741,13 @@ func TestRenderAggregatedTimeline_ExpandedGroup(t *testing.T) {
 			makeAggEntry(2, "plan", 200, 100, false, "second"),
 		},
 		StepCursor: 0,
-		ExpandedAggGroups: map[int]bool{
+		ExpandedChunkGroups: map[int]bool{
 			0: true,
 		},
 	}
 	filtered := []int{0, 1}
 	var b strings.Builder
-	used := RenderAggregatedTimeline(&b, state, filtered, 200, 10, false, false)
+	used := RenderAggregatedTimeline(&b, state, filtered, state.StepCursor, 200, 10, false, false)
 	// header (1) + 2 entries = 3 lines
 	if used != 3 {
 		t.Fatalf("expanded group: linesUsed = %d, want 3", used)
@@ -768,11 +768,11 @@ func TestRenderAggregatedTimeline_ExpandedSlowDurationWarning(t *testing.T) {
 			makeAggEntry(1, "tool_call", 100, SlowStepThresholdMs+1, false, "slow"),
 		},
 		StepCursor:        0,
-		ExpandedAggGroups: map[int]bool{0: true},
+		ExpandedChunkGroups: map[int]bool{0: true},
 	}
 	filtered := []int{0}
 	var b strings.Builder
-	used := RenderAggregatedTimeline(&b, state, filtered, 200, 10, false, true /*showDuration*/)
+	used := RenderAggregatedTimeline(&b, state, filtered, state.StepCursor, 200, 10, false, true /*showDuration*/)
 	if used != 2 { // header + 1 entry
 		t.Fatalf("linesUsed = %d, want 2", used)
 	}
@@ -802,7 +802,7 @@ func TestRenderAggregatedTimeline_MultipleGroups(t *testing.T) {
 		StepCursor:  55, // cursor 在第 2 个 group
 	}
 	var b strings.Builder
-	used := RenderAggregatedTimeline(&b, state, filtered, 200, 10, false, false)
+	used := RenderAggregatedTimeline(&b, state, filtered, state.StepCursor, 200, 10, false, false)
 	if used == 0 {
 		t.Fatal("expected at least one line written")
 	}
@@ -835,14 +835,14 @@ func TestRenderAggregatedTimeline_ListLinesCap(t *testing.T) {
 	state := TimelineState{
 		StepEntries: entries,
 		StepCursor:  0,
-		ExpandedAggGroups: map[int]bool{
+		ExpandedChunkGroups: map[int]bool{
 			0: true,
 			1: true,
 			2: true,
 		},
 	}
 	var b strings.Builder
-	used := RenderAggregatedTimeline(&b, state, filtered, 200, 5 /*listLines*/, false, false)
+	used := RenderAggregatedTimeline(&b, state, filtered, state.StepCursor, 200, 5 /*listLines*/, false, false)
 	if used > 5 {
 		t.Fatalf("listLines cap not enforced: linesUsed = %d, want ≤ 5", used)
 	}
@@ -855,11 +855,11 @@ func TestRenderAggregatedTimeline_ExpandedWithErrorBackground(t *testing.T) {
 			makeAggEntry(1, "tool_call", 0, 0, true /*HasError*/, "err"),
 		},
 		StepCursor:        -1, // cursor 不在任何 entry
-		ExpandedAggGroups: map[int]bool{0: true},
+		ExpandedChunkGroups: map[int]bool{0: true},
 	}
 	filtered := []int{0}
 	var b strings.Builder
-	used := RenderAggregatedTimeline(&b, state, filtered, 200, 10, false, false)
+	used := RenderAggregatedTimeline(&b, state, filtered, state.StepCursor, 200, 10, false, false)
 	if used != 2 { // header + 1 entry
 		t.Fatalf("linesUsed = %d, want 2", used)
 	}
@@ -885,7 +885,7 @@ func TestRenderAggregatedTimeline_ScrollStartGroupAdvances(t *testing.T) {
 		StepCursor:  175, // cursorGroupIdx = 175/50 = 3
 	}
 	var b strings.Builder
-	used := RenderAggregatedTimeline(&b, state, filtered, 200, 2, false, false)
+	used := RenderAggregatedTimeline(&b, state, filtered, state.StepCursor, 200, 2, false, false)
 	if used == 0 {
 		t.Fatal("expected output")
 	}

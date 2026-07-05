@@ -122,6 +122,119 @@ func toFoldGroups(groups []toolAggGroup) []timeline.FoldGroup {
 	return fg
 }
 
+// unifiedCursorToStepOrd 把 filtered unified 事件索引空间的 cursor 换算成 step-only
+// 序号（cursor 之前及其位置的 StepEntry 计数 · 0-based）。cursor 落在 sys 事件上时
+// 投影到其之前的最近 step 序号。与 dashboard_pane_dispatcher.go Enter 分支的 stepIdx
+// 计算同源（spec-timeline-agg-nav-fix Finding 8：aggregation 渲染/导航统一 step-only 空间）。
+func unifiedCursorToStepOrd(filtered []UnifiedEvent, cursor int) int {
+	cursorPos := min(cursor, len(filtered)-1)
+	ord := 0
+	for i := 0; i < cursorPos && i < len(filtered); i++ {
+		if filtered[i].StepEntry != nil {
+			ord++
+		}
+	}
+	return ord
+}
+
+// stepOrdToUnifiedCursor 把 step-only 序号（0-based）映射回 filtered unified 索引空间的
+// cursor（第 ord 个 StepEntry 的 unified 下标）。ord 越界时 clamp 到末尾 unified 索引。
+func stepOrdToUnifiedCursor(filtered []UnifiedEvent, ord int) int {
+	if len(filtered) == 0 {
+		return 0
+	}
+	count := 0
+	for i, ev := range filtered {
+		if ev.StepEntry != nil {
+			if count == ord {
+				return i
+			}
+			count++
+		}
+	}
+	return len(filtered) - 1
+}
+
+// aggStepAnchor 把一个 step-only 序号 ord 归一化为该组的「导航锚点」序号：
+// 折叠组内的任何 ord 都锚定到组起点（group*AggGroupSize），展开组内 ord 原样保留。
+// 这让折叠组作为单一可见单元、展开组按行——j/k 的移动因此对称（Finding 缺陷 2）。
+func aggStepAnchor(ord int, expanded map[int]bool) int {
+	group := ord / timeline.AggGroupSize
+	if expanded[group] {
+		return ord
+	}
+	return group * timeline.AggGroupSize
+}
+
+// aggNextVisibleOrd 从当前 step-only 序号 ord 沿 dir（+1 前进 / -1 后退）移动一个
+// 「可见单元」：折叠组整体算 1 个单元（跳到相邻组起点），展开组内每行算 1 个单元。
+// clamp 到 [0, stepCount-1]。这是 aggregation 导航的对称移动核心。
+func aggNextVisibleOrd(ord, dir, stepCount int, expanded map[int]bool) int {
+	ord = aggStepAnchor(ord, expanded)
+	group := ord / timeline.AggGroupSize
+	if dir > 0 {
+		if expanded[group] {
+			// 展开组内：逐行前进。next 若跨入新组则恰为下一组锚点起点，语义一致。
+			return min(ord+1, stepCount-1)
+		}
+		// 折叠组：跳到下一组起点。
+		return min((group+1)*timeline.AggGroupSize, stepCount-1)
+	}
+	// dir < 0
+	if group == 0 && ord == 0 {
+		return 0
+	}
+	if expanded[group] && ord > group*timeline.AggGroupSize {
+		// 展开组内且不在组起点：逐行后退。
+		return ord - 1
+	}
+	// 位于组起点（或折叠组）：退到上一组的「末可见单元」。
+	prevGroup := group - 1
+	if prevGroup < 0 {
+		return 0
+	}
+	if expanded[prevGroup] {
+		// 上一组展开：落到其最后一行（组末 ord），clamp 到 stepCount-1。
+		return min((prevGroup+1)*timeline.AggGroupSize-1, stepCount-1)
+	}
+	// 上一组折叠：落到其起点。
+	return prevGroup * timeline.AggGroupSize
+}
+
+// aggNavigate 处理 aggregation 模式（step 数 >100）下的导航键。不同于普通折叠导航，
+// 它在 step-only 序号空间以「可见单元」为粒度移动（折叠 chunk 组整体 1 单元 · 展开组内
+// 逐行），再经 stepOrdToUnifiedCursor 映射回 StepCursor —— 彻底跳过 ToolPath 折叠 vis
+// 路径，修复 spec-timeline-agg-nav-fix 的 j/k 弹跳/冻结（Finding 6/7）。
+func (m dashboardModel) aggNavigate(key string, filtered []UnifiedEvent, stepCount, pageSize int) dashboardModel {
+	curOrd := unifiedCursorToStepOrd(filtered, m.timeline.StepCursor)
+	expanded := m.timeline.ExpandedChunkGroups
+	newOrd := aggStepAnchor(curOrd, expanded)
+	switch key {
+	case "j", "down":
+		newOrd = aggNextVisibleOrd(curOrd, +1, stepCount, expanded)
+	case "k", "up":
+		newOrd = aggNextVisibleOrd(curOrd, -1, stepCount, expanded)
+	case "g", "home":
+		newOrd = 0
+		m.timeline.StepScrollTop = 0
+	case "G", "end", "shift+G":
+		newOrd = stepCount - 1
+	case "pgdown":
+		// 翻页 = 连续前进 pageSize 个可见单元（每单元 clamp，对折叠/展开一致）。
+		for range max(pageSize, 1) {
+			newOrd = aggNextVisibleOrd(newOrd, +1, stepCount, expanded)
+		}
+	case "pgup":
+		for range max(pageSize, 1) {
+			newOrd = aggNextVisibleOrd(newOrd, -1, stepCount, expanded)
+		}
+	}
+	newOrd = max(0, min(newOrd, stepCount-1))
+	m.timeline.StepCursor = stepOrdToUnifiedCursor(filtered, newOrd)
+	m.ensureStepCursorVisible(pageSize)
+	return m
+}
+
 // handleTimelineKey dispatches keys for the unified Step timeline.
 func (m dashboardModel) handleTimelineKey(key string) dashboardModel {
 	if m.timeline.StepFilterMode {
@@ -132,6 +245,22 @@ func (m dashboardModel) handleTimelineKey(key string) dashboardModel {
 	}
 	filtered := m.filteredUnifiedEvents()
 	pageSize := max(m.dashboardVisibleLines()-4, 1)
+
+	// spec-timeline-agg-nav-fix: aggregation 模式（step 数 >100 · 与 Enter 分支和
+	// renderStepTimeline 的 useAggregation 同条件）下导航键走 chunk-group 专属路径，
+	// 跳过 ToolPath 折叠 vis（否则巨型同 ToolPath 组会把 vis 收缩到 2-3 个索引 →
+	// j/k 弹跳/冻结 · Finding 6/7）。非导航键（/ [ ] f e E C o n N）仍落到下方 switch。
+	//
+	// 阈值口径与渲染层同源（filteredStepCount = filtered unified 里 EventStep 计数 ·
+	// 见 filteredStepCount godoc）——渲染层是显示模式的真相源，导航/Enter 必须匹配它，
+	// 否则 100 边界处会出现「导航走 chunk 空间但渲染走普通折叠」的模式失配（评审观察项 1）。
+	stepCount := m.filteredStepCount()
+	if stepCount > 100 {
+		switch key {
+		case "j", "down", "k", "up", "g", "home", "G", "end", "shift+G", "pgdown", "pgup":
+			return m.aggNavigate(key, filtered, stepCount, pageSize)
+		}
+	}
 
 	// Story 41-3: build fold navigation data for visible-index navigation
 	aggGroups := buildToolAggGroups(filtered)
@@ -338,6 +467,21 @@ func (m dashboardModel) filteredStepEntries() []int {
 	return timeline.FilteredStepEntries(m.timeline)
 }
 
+// filteredStepCount 返回 filtered unified 事件里 EventStep 的数量——这是 aggregation
+// 显示模式（renderStepTimeline 的 useAggregation）的判据真相源。spec-timeline-agg-nav-fix
+// 观察项 1：导航守卫（handleTimelineKey）、Enter 分支（dashboard_pane_dispatcher.go）
+// 与渲染层三处必须用同一计数口径，否则数据合并时序窗口下可能在 100 边界出现
+// 「导航走 chunk 空间但渲染走普通折叠」的分叉。统一走此 helper 杜绝漂移。
+func (m dashboardModel) filteredStepCount() int {
+	n := 0
+	for _, ev := range m.filteredUnifiedEvents() {
+		if ev.Type == EventStep {
+			n++
+		}
+	}
+	return n
+}
+
 // isEventVisible — thin wrapper · 见 internal/dashboard/event.IsEventVisible.
 //
 // Story 38-5 PR11 Step 4(c) FilterDebugEvents 迁出后 cmd/rnix 端 caller 减少（仅
@@ -413,16 +557,10 @@ func (m dashboardModel) renderStepTimeline(width, height int) string {
 	total := len(m.timeline.StepEntries)
 	filtered := m.filteredUnifiedEvents()
 
-	// Count step events and system events in filtered list
-	stepCount := 0
-	sysCount := 0
-	for _, ev := range filtered {
-		if ev.Type == EventStep {
-			stepCount++
-		} else {
-			sysCount++
-		}
-	}
+	// Count step events and system events in filtered list.
+	// stepCount 走 filteredStepCount helper（与导航守卫/Enter 分支同源 · 观察项 1）。
+	stepCount := m.filteredStepCount()
+	sysCount := len(filtered) - stepCount
 
 	// Header
 	if m.timeline.StepFilterMode {
@@ -539,7 +677,10 @@ func (m dashboardModel) renderStepTimeline(width, height int) string {
 				sysEventsForAgg = append(sysEventsForAgg, ev)
 			}
 		}
-		aggLines := m.renderAggregatedTimeline(&b, stepIndices, truncW, listLines, showToken, showDuration)
+		// spec-timeline-agg-nav-fix Finding 8: StepCursor 是 filtered unified 索引空间，
+		// 换算成 step-only 序号后传给渲染层，修正 cursor 高亮 off-by-N。
+		cursorStepOrd := unifiedCursorToStepOrd(filtered, m.timeline.StepCursor)
+		aggLines := m.renderAggregatedTimeline(&b, stepIndices, cursorStepOrd, truncW, listLines, showToken, showDuration)
 		// Render system events after aggregation groups (always visible)
 		remaining := listLines - aggLines
 		for _, ev := range sysEventsForAgg {
@@ -1039,8 +1180,8 @@ func (m dashboardModel) renderStepFilterBar(maxW int) string {
 // 保留 (m dashboardModel) receiver 让 dashboard_timeline.go::renderStepTimeline
 // line ~470 的 callsite 零修改通过 ATDD 27-3 + 36-3 + 36-4 契约。函数体仅依赖
 // m.timeline (TimelineState) · 直接委托至 internal/dashboard/timeline 包。
-func (m dashboardModel) renderAggregatedTimeline(b *strings.Builder, filtered []int, truncW, listLines int, showToken, showDuration bool) int {
-	return timeline.RenderAggregatedTimeline(b, m.timeline, filtered, truncW, listLines, showToken, showDuration)
+func (m dashboardModel) renderAggregatedTimeline(b *strings.Builder, filtered []int, cursorStepOrd, truncW, listLines int, showToken, showDuration bool) int {
+	return timeline.RenderAggregatedTimeline(b, m.timeline, filtered, cursorStepOrd, truncW, listLines, showToken, showDuration)
 }
 
 // hasExpandableContent — thin wrapper 委托 timeline.HasExpandableContent

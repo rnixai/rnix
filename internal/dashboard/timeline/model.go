@@ -165,6 +165,7 @@ func (m *TimelineModel) OnSelectPID(pid types.PID) tea.Cmd {
 	m.state.FetchingDetail = false
 	m.state.StepExpandedIdx = -1
 	m.state.ExpandedAggGroups = make(map[int]bool)
+	m.state.ExpandedChunkGroups = make(map[int]bool)     // spec-timeline-agg-nav-fix: 50-chunk 组展开态
 	m.state.ExpandedScriptAggGroups = make(map[int]bool) // Story 43-3 review patch P11
 	// ExpandMode 切 PID 时重置为 collapsed（Story 36-4 行为）
 	m.state.ExpandMode = ExpandModeCollapsed

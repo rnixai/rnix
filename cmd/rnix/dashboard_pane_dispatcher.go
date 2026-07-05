@@ -18,6 +18,7 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 
+	"github.com/rnixai/rnix/internal/dashboard/timeline"
 	"github.com/rnixai/rnix/internal/types"
 	"github.com/rnixai/rnix/internal/ui"
 )
@@ -36,30 +37,28 @@ func (m dashboardModel) dispatchPaneKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd
 	// Step Timeline 按键（enter/v/V/p）— V must be checked before v
 	if m.activePane == paneTimeline && (len(m.timeline.StepEntries) > 0 || len(m.unifiedEvents) > 0) {
 		// Aggregation group toggle (Story 30.8 AC#5)
-		// F3: Use step-only count from filtered unified events, not filteredStepEntries
-		filteredStep := m.filteredStepEntries()
-		if len(filteredStep) > 100 && key == "enter" {
-			const aggGroupSize = 50
-			// F3: Convert unified cursor to step-only index for group calculation
-			stepIdx := 0
+		// spec-timeline-agg-nav-fix 观察项1：阈值口径与 handleTimelineKey 导航守卫和
+		// renderStepTimeline 的 useAggregation 同源（filteredStepCount = filtered unified
+		// 里 EventStep 计数）——渲染层是显示模式真相源，Enter/导航必须匹配它。
+		if m.filteredStepCount() > 100 && key == "enter" {
+			// stepIdx = cursor 在 step-only 序号空间的位置（复用 handleTimelineKey 的
+			// unifiedCursorToStepOrd · 与导航路径同一换算逻辑）。
 			filtered := m.filteredUnifiedEvents()
-			cursorPos := min(m.timeline.StepCursor, len(filtered)-1)
-			for i := 0; i < cursorPos && i < len(filtered); i++ {
-				if filtered[i].StepEntry != nil {
-					stepIdx++
-				}
+			groupIdx := unifiedCursorToStepOrd(filtered, m.timeline.StepCursor) / timeline.AggGroupSize
+			// spec-timeline-agg-nav-fix Finding 7: chunk-group 展开态写入
+			// ExpandedChunkGroups（groupIdx 键），与 ToolPath 折叠组的
+			// ExpandedAggGroups（StepNums[0] 步号键）彻底分离命名空间，
+			// 杜绝低步号（0-3）与组索引（0-3）碰撞污染。
+			if m.timeline.ExpandedChunkGroups == nil {
+				m.timeline.ExpandedChunkGroups = make(map[int]bool)
 			}
-			groupIdx := stepIdx / aggGroupSize
-			if m.timeline.ExpandedAggGroups == nil {
-				m.timeline.ExpandedAggGroups = make(map[int]bool)
-			}
-			m.timeline.ExpandedAggGroups[groupIdx] = !m.timeline.ExpandedAggGroups[groupIdx]
+			m.timeline.ExpandedChunkGroups[groupIdx] = !m.timeline.ExpandedChunkGroups[groupIdx]
 			return m, nil
 		}
 
 		// Story 41-3 AC2: Enter context-aware — only toggle fold when cursor
 		// is at group StartIdx; otherwise fall through to drill-in (v/enter).
-		if key == "enter" && len(filteredStep) <= 100 {
+		if key == "enter" && m.filteredStepCount() <= 100 {
 			filtered := m.filteredUnifiedEvents()
 			if len(filtered) > 0 {
 				aggGroups := buildToolAggGroups(filtered)

@@ -769,17 +769,17 @@ func EnsureStepCursorVisible(state TimelineState, filteredLen, viewportLines int
 //     - g.firstStep / g.lastStep 取自 group 内第一个 / 最后一个 entry 的 step number
 //     - g.actionCounts 累计 group 内每种 action 出现次数
 //     - g.errCount / g.totalTokens 累计 HasError / TokenCount
-//   - Cursor group 计算：cursorFilterIdx = min(state.StepCursor, len(filtered)-1)
+//   - Cursor group 计算：cursorFilterIdx = min(cursorStepOrd, len(filtered)-1)
 //     · cursorGroupIdx = cursorFilterIdx / AggGroupSize · 越界 clamp 到 len(groups)-1
 //   - 滚动起点 startGi：从 0 开始递增 · 直到 [startGi..cursorGroupIdx] 总高度 ≤ listLines
 //     · 保证 cursor group 始终在视野内（与 cmd/rnix 等价）
-//   - 折叠态行（!ExpandedAggGroups[gi]）：1 行
+//   - 折叠态行（!ExpandedChunkGroups[gi]）：1 行
 //     · cursorMark "▸ " 或 "  " · marker "▸"（cursor 在该 group 时退避为空格避免双 ▸）
 //     · "Steps {first}-{last}: <action-summary>[, {N} error(s)]<token>"
 //     · action-summary 按固定顺序 [tool_call/plan/text/spawn/specialize/replan/complete]
 //       渲染（每个 type 用 ActionColor 上色 · 跳过 count==0）
 //     · cursor 在 group 内 → 整行 #2D2D3D 背景 + #FFFFFF 前景高亮
-//   - 展开态（ExpandedAggGroups[gi]==true）：1 行 header + N 行 entries
+//   - 展开态（ExpandedChunkGroups[gi]==true）：1 行 header + N 行 entries
 //     · header "  ▾ Steps {first}-{last}"（Muted 灰色）
 //     · entry 行同 RenderStepTimeline 的 collapsed entry 格式（步号 + abbrev +
 //       optional token + optional duration + optional ✗ + summary）
@@ -794,12 +794,16 @@ func EnsureStepCursorVisible(state TimelineState, filteredLen, viewportLines int
 // lipgloss · 零 cmd/rnix 反向依赖。
 //
 // **签名设计**：
-//   - 接受 TimelineState（值类型 · 仅读 StepEntries / StepCursor /
-//     ExpandedAggGroups 三个字段 · 不修改）
+//   - 接受 TimelineState（值类型 · 仅读 StepEntries / ExpandedChunkGroups
+//     字段 · 不修改）；cursor 高亮走 cursorStepOrd 参数而非 state.StepCursor
 //   - 返回 linesUsed（实际写入行数 · 调用方用于后续布局计算）
 //   - 写入 *strings.Builder（与 cmd/rnix.renderAggregatedTimeline 同模式 ·
 //     避免大字符串拷贝 · 调用方负责 b 的生命周期）
-func RenderAggregatedTimeline(b *strings.Builder, state TimelineState, filtered []int, truncW, listLines int, showToken, showDuration bool) int {
+// cursorStepOrd 是 cursor 在 step-only 序号空间的位置（filtered 数组下标），由调用方
+// 从 unified 索引空间的 StepCursor 换算得到。timeline 包无 UnifiedEvent 依赖，故不能
+// 在此内部换算——必须由 cmd/rnix 端 renderStepTimeline 传入（spec-timeline-agg-nav-fix
+// Finding 8：修正 state.StepCursor 被当作 step-only 序号误用导致的 off-by-N 高亮）。
+func RenderAggregatedTimeline(b *strings.Builder, state TimelineState, filtered []int, cursorStepOrd, truncW, listLines int, showToken, showDuration bool) int {
 	// dimStyle 使用 #888888 而非 ui.ColorMuted (#666666) · 与 cmd/rnix
 	// .renderAggregatedTimeline 1:1 行为等价（aggregation mode 用稍亮的灰色 ·
 	// 与 step entry 行 dim style 区分 · ATDD 27-3 视觉契约）。
@@ -841,7 +845,7 @@ func RenderAggregatedTimeline(b *strings.Builder, state TimelineState, filtered 
 	}
 
 	linesUsed := 0
-	cursorFilterIdx := min(state.StepCursor, len(filtered)-1)
+	cursorFilterIdx := min(cursorStepOrd, len(filtered)-1)
 
 	// F3: Calculate group heights and find start group for viewport scrolling
 	cursorGroupIdx := 0
@@ -854,7 +858,7 @@ func RenderAggregatedTimeline(b *strings.Builder, state TimelineState, filtered 
 
 	groupHeights := make([]int, len(groups))
 	for gi, g := range groups {
-		if state.ExpandedAggGroups[gi] {
+		if state.ExpandedChunkGroups[gi] {
 			groupHeights[gi] = 1 + (g.endIdx - g.startIdx) // header + entries
 		} else {
 			groupHeights[gi] = 1
@@ -880,7 +884,7 @@ func RenderAggregatedTimeline(b *strings.Builder, state TimelineState, filtered 
 			break
 		}
 
-		isExpanded := state.ExpandedAggGroups[gi]
+		isExpanded := state.ExpandedChunkGroups[gi]
 		// Check if cursor is in this group
 		cursorInGroup := cursorFilterIdx >= g.startIdx && cursorFilterIdx < g.endIdx
 
@@ -943,7 +947,7 @@ func RenderAggregatedTimeline(b *strings.Builder, state TimelineState, filtered 
 				s := entry.Summary
 
 				cursorMark := "  "
-				if fi == state.StepCursor {
+				if fi == cursorStepOrd {
 					cursorMark = "▸ "
 				}
 
@@ -1003,7 +1007,7 @@ func RenderAggregatedTimeline(b *strings.Builder, state TimelineState, filtered 
 
 				if s.HasError {
 					line = lipgloss.NewStyle().Background(lipgloss.Color("#3D1F1F")).Render(line)
-				} else if fi == state.StepCursor {
+				} else if fi == cursorStepOrd {
 					line = lipgloss.NewStyle().
 						Background(lipgloss.Color("#2D2D3D")).
 						Foreground(lipgloss.Color("#FFFFFF")).

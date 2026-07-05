@@ -51,6 +51,7 @@ func HandlePIDUUIDChange(state TimelineState, pid types.PID, uuid string) Timeli
 	state.StepFilterMode = false
 	state.StepExpandedIdx = -1
 	state.ExpandedAggGroups = make(map[int]bool)
+	state.ExpandedChunkGroups = make(map[int]bool) // spec-timeline-agg-nav-fix
 	state.ExpandMode = ExpandModeCollapsed
 	return state
 }

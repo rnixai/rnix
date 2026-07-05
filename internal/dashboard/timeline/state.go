@@ -67,4 +67,14 @@ type TimelineState struct {
 	// independent of ToolAggGroup's step-number namespace. Per-process,
 	// reset on PID switch alongside ExpandedAggGroups (see model.go::Reset).
 	ExpandedScriptAggGroups map[int]bool
+
+	// Timeline aggregation (>100 steps) 50-step chunk fold state.
+	// **命名空间区别**：与 ExpandedAggGroups 彻底分离——
+	//   - ExpandedAggGroups：ToolPath 折叠组，键 = StepNums[0]（步号），
+	//     step ≤100 时经 BuildVisibleIndices 驱动 j/k 可见索引导航。
+	//   - ExpandedChunkGroups：50-step chunk 聚合组，键 = groupIdx（0..N），
+	//     step >100 时经 RenderAggregatedTimeline 渲染 + aggregation 导航分支使用。
+	// 两者共用一张 map 会在低步号（0-3）时互相污染（investigation Finding 7），
+	// 故拆分为独立字段。Per-process，reset on PID switch (see model.go::Reset)。
+	ExpandedChunkGroups map[int]bool
 }
