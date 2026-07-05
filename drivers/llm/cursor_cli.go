@@ -114,6 +114,7 @@ func (d *CursorCliDriver) Call(ctx context.Context, req LLMRequest) (*LLMRespons
 	cmd := d.cmdBuilder(ctx, d.cliCommand, args...)
 	configureCommandGrace(cmd, d.graceSec)
 	configureCommandDir(cmd, req.ProjectDir)
+	configureCommandRnixParentEnv(cmd, req)
 
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout
@@ -206,6 +207,7 @@ func (d *CursorCliDriver) Stream(ctx context.Context, req LLMRequest) (<-chan St
 	cmd := d.cmdBuilder(ctx, d.cliCommand, args...)
 	configureCommandGrace(cmd, d.graceSec)
 	configureCommandDir(cmd, req.ProjectDir)
+	configureCommandRnixParentEnv(cmd, req)
 
 	// 56.3 raw capture: capture stderr on the Stream path. MUST be set before
 	// cmd.Start() — os/exec wires the child's stderr fd at Start time, so a

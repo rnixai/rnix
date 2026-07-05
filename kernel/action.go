@@ -37,6 +37,8 @@ type llmRequest struct {
 	Tools           []vfs.ToolDef     `json:"tools,omitempty"`
 	Skills          []llm.Skill       `json:"skills,omitempty"`
 	ProjectDir      string            `json:"project_dir,omitempty"`
+	CallerPID       uint64            `json:"caller_pid,omitempty"`
+	CallerDepth     int               `json:"caller_depth,omitempty"`
 }
 
 // llmToolCall represents a tool invocation in an LLM response.

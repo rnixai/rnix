@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -165,6 +166,45 @@ func TestRunRoot_ParentFlagSentToSpawnRequest(t *testing.T) {
 	children := parent.GetChildren()
 	if len(children) != 1 {
 		t.Fatalf("parent children = %v, want exactly one child from --parent", children)
+	}
+	child, ok := kern.GetProcess(children[0])
+	if !ok {
+		t.Fatalf("child PID %d not found", children[0])
+	}
+	if child.PPID != parent.PID {
+		t.Fatalf("child PPID = %d, want %d", child.PPID, parent.PID)
+	}
+	if child.ParentUUID != parent.UUID {
+		t.Fatalf("child ParentUUID = %q, want %q", child.ParentUUID, parent.UUID)
+	}
+}
+
+func TestRunRoot_ParentPIDEnvSentToSpawnRequest(t *testing.T) {
+	resetParentFlagTestGlobals(t)
+	sockPath, kern := setupParentFlagIPCServer(t)
+	ipc.SocketPathOverride = sockPath
+
+	parent := kernel.NewProcess(0, "cmd env parent", []string{"test"})
+	if err := parent.Start(); err != nil {
+		t.Fatalf("parent Start: %v", err)
+	}
+	kern.AddProcess(parent)
+	t.Setenv("RNIX_PARENT_PID", strconv.FormatUint(uint64(parent.PID), 10))
+
+	flagIntent = "cmd env parent child"
+	flagParentPID = 0
+	flagQuiet = true
+
+	if err := runRoot(rootCmd, []string{}); err != nil {
+		t.Fatalf("runRoot: %v", err)
+	}
+	if exitCode != 0 {
+		t.Fatalf("exitCode = %d, want 0", exitCode)
+	}
+
+	children := parent.GetChildren()
+	if len(children) != 1 {
+		t.Fatalf("parent children = %v, want exactly one child from RNIX_PARENT_PID", children)
 	}
 	child, ok := kern.GetProcess(children[0])
 	if !ok {

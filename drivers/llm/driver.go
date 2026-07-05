@@ -4,7 +4,9 @@ package llm
 import (
 	"bufio"
 	"context"
+	"fmt"
 	"io"
+	"os"
 	"os/exec"
 	"path/filepath"
 	"syscall"
@@ -80,6 +82,23 @@ func configureCommandDir(cmd *exec.Cmd, projectDir string) {
 	}
 }
 
+// configureCommandRnixParentEnv lets CLI-agent-native shell tools preserve the
+// rnix process tree when they invoke `rnix -i ...` themselves.
+func configureCommandRnixParentEnv(cmd *exec.Cmd, req LLMRequest) {
+	if cmd == nil || (req.CallerPID == 0 && req.CallerDepth == 0) {
+		return
+	}
+	if cmd.Env == nil {
+		cmd.Env = os.Environ()
+	}
+	if req.CallerPID > 0 {
+		cmd.Env = append(cmd.Env, fmt.Sprintf("RNIX_PARENT_PID=%d", req.CallerPID))
+	}
+	if req.CallerDepth > 0 {
+		cmd.Env = append(cmd.Env, fmt.Sprintf("RNIX_SPAWN_DEPTH=%d", req.CallerDepth))
+	}
+}
+
 // ReasoningBlock represents a single thinking-mode content block.
 // Type selects the provider shape:
 //   - "thinking" (Anthropic): Signature + Thinking text
@@ -139,6 +158,8 @@ type LLMRequest struct {
 	Tools           []ToolDef `json:"tools,omitempty"`
 	Skills          []Skill   `json:"skills,omitempty"`      // R5: carried to bundle-capable drivers
 	ProjectDir      string    `json:"project_dir,omitempty"` // R5: project root for bundle placement
+	CallerPID       uint64    `json:"caller_pid,omitempty"`  // rnix parent PID for CLI-native shell tools
+	CallerDepth     int       `json:"caller_depth,omitempty"`
 }
 
 // LLMResponse represents a response from an LLM driver.

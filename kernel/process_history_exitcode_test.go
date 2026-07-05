@@ -2,7 +2,10 @@ package kernel
 
 import (
 	"encoding/json"
+	"os"
+	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/rnixai/rnix/internal/types"
 	"github.com/rnixai/rnix/vfs"
@@ -96,5 +99,62 @@ func TestProcInfoExitCodeBackwardCompat(t *testing.T) {
 	}
 	if info.ExitCode != 0 {
 		t.Errorf("legacy proc-info.json must produce ExitCode=0, got %d", info.ExitCode)
+	}
+}
+
+func TestFinishProcessPersistsTerminalProcInfoBeforeReap(t *testing.T) {
+	llmFile := &mockLLMFile{readData: makeLLMResponse("terminal result", 37)}
+	k, _, _ := newTestKernel(t, llmFile)
+	_, projectBaseDir := TestSetupDataDir(t, k)
+
+	pid, err := k.Spawn("terminal proc-info", nil, SpawnOpts{
+		ProjectConfig: TestProjectConfig(),
+	})
+	if err != nil {
+		t.Fatalf("Spawn failed: %v", err)
+	}
+
+	proc, ok := k.GetProcess(pid)
+	if !ok {
+		t.Fatalf("process %d not found", pid)
+	}
+
+	select {
+	case exit := <-proc.Done:
+		if exit.Code != 0 {
+			t.Fatalf("exit code = %d, want 0: %s", exit.Code, exit.Reason)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("timed out waiting for process completion")
+	}
+	if proc.GetState() != types.StateZombie {
+		t.Fatalf("state = %s, want zombie before reap", proc.GetState())
+	}
+
+	raw, err := os.ReadFile(filepath.Join(projectBaseDir, "steps", proc.UUID, procInfoFilename))
+	if err != nil {
+		t.Fatalf("read proc-info.json before reap: %v", err)
+	}
+	var disk procInfoDisk
+	if err := json.Unmarshal(raw, &disk); err != nil {
+		t.Fatalf("unmarshal proc-info.json: %v", err)
+	}
+	if disk.State != types.StateZombie.String() {
+		t.Fatalf("disk state = %q, want %q", disk.State, types.StateZombie.String())
+	}
+	if !disk.ExitCodeSet {
+		t.Fatal("disk exit_code_set = false, want true")
+	}
+	if disk.ExitCode != 0 {
+		t.Fatalf("disk exit_code = %d, want 0", disk.ExitCode)
+	}
+	if disk.ExitReason != "completed" {
+		t.Fatalf("disk exit_reason = %q, want completed", disk.ExitReason)
+	}
+	if disk.TokensUsed != 37 {
+		t.Fatalf("disk tokens_used = %d, want 37", disk.TokensUsed)
+	}
+	if disk.Result != "terminal result" {
+		t.Fatalf("disk result = %q, want terminal result", disk.Result)
 	}
 }

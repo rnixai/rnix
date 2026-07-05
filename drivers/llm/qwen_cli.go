@@ -129,6 +129,7 @@ func (d *QwenCliDriver) Call(ctx context.Context, req LLMRequest) (*LLMResponse,
 	cmd := d.cmdBuilder(ctx, d.cliCommand, args...)
 	configureCommandGrace(cmd, d.graceSec)
 	configureCommandDir(cmd, req.ProjectDir)
+	configureCommandRnixParentEnv(cmd, req)
 	// 56.3: build the prompt once and reuse for both stdin and raw capture
 	// (story 56.3 review fix: was calling d.buildPrompt(req) twice).
 	prompt := d.buildPrompt(req)
@@ -258,6 +259,7 @@ func (d *QwenCliDriver) Stream(ctx context.Context, req LLMRequest) (<-chan Stre
 	cmd := d.cmdBuilder(ctx, d.cliCommand, args...)
 	configureCommandGrace(cmd, d.graceSec)
 	configureCommandDir(cmd, req.ProjectDir)
+	configureCommandRnixParentEnv(cmd, req)
 	// 56.3: build the prompt once and reuse for both stdin and raw capture
 	// (story 56.3 review fix: was calling d.buildPrompt(req) twice).
 	prompt := d.buildPrompt(req)

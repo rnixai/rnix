@@ -293,6 +293,7 @@ func (d *ClaudeCliDriver) Call(ctx context.Context, req LLMRequest) (*LLMRespons
 	cmd := d.cmdBuilder(ctx, d.effectiveBinary(), args...)
 	configureCommandGrace(cmd, d.graceSec)
 	configureCommandDir(cmd, req.ProjectDir)
+	configureCommandRnixParentEnv(cmd, req)
 
 	prompt := d.buildPrompt(req)
 	stdinPipe, pipeErr := cmd.StdinPipe()
@@ -464,6 +465,7 @@ func (d *ClaudeCliDriver) Stream(ctx context.Context, req LLMRequest) (<-chan St
 	cmd := d.cmdBuilder(ctx, d.effectiveBinary(), args...)
 	configureCommandGrace(cmd, d.graceSec)
 	configureCommandDir(cmd, req.ProjectDir)
+	configureCommandRnixParentEnv(cmd, req)
 
 	prompt := d.buildPrompt(req)
 	stdinPipe, pipeErr := cmd.StdinPipe()

@@ -192,6 +192,11 @@ func (k *KernelImpl) finishProcess(proc *Process, exit ExitStatus) {
 	}
 
 	_ = proc.Terminate(exit)
+	if info, err := k.GetProcInfo(proc.PID); err == nil {
+		if err := SaveProcInfo(k.ResolveStepBaseDir(proc), *info); err != nil {
+			log.Printf("[finish] proc-info.json write error pid=%d uuid=%s: %v", proc.PID, proc.UUID, err)
+		}
+	}
 
 	if k.recordMgr != nil && k.recordMgr.IsRecording(proc.PID) {
 		stateEvent := debug.RecordEvent{
@@ -596,6 +601,8 @@ func (k *KernelImpl) reasonStep(proc *Process, llmFD types.FD, opts SpawnOpts) {
 			Messages:        promptResult.Messages,
 			Skills:          skillList,
 			ProjectDir:      projectDir,
+			CallerPID:       uint64(proc.PID),
+			CallerDepth:     proc.Depth,
 		}
 		req.Tools = proc.nativeToolDefs
 		reqJSON, err := json.Marshal(req)
