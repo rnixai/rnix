@@ -49,3 +49,6 @@ logo/
 .github/agents/
 .codegraph/
 .clauge-worktrees/
+
+# BMAD output
+_bmad-output/
