@@ -237,3 +237,150 @@ func TestRender_PausedProc_FreezesAtPausedAtMinusTotal(t *testing.T) {
 		t.Errorf("expected elapsed=22s (30s wall - 8s paused-total), got %q", rows1[1])
 	}
 }
+
+// --- 标识列（pidPart）三分支 + ShortUUIDSuffix（spec-dashboard-tree-stable-sort-identity） ---
+
+// renderSingleRow 渲染单行进程并返回数据行（跳过 title 行）。
+func renderSingleRow(t *testing.T, p vfs.ProcInfo, reused map[types.PID]int) string {
+	t.Helper()
+	row := FlatRow{Proc: p}
+	state := makeState([]FlatRow{row})
+	ctx := makeRenderCtx(p.CreatedAt.Add(time.Minute))
+	if reused != nil {
+		ctx.ReusedPIDs = reused
+	}
+	out := Render(state, ctx, 200, 10)
+	lines := strings.Split(out, "\n")
+	if len(lines) < 2 {
+		t.Fatalf("unexpected render output: %q", out)
+	}
+	return lines[1]
+}
+
+// TestShortUUIDSuffix_Cases 验证短标识 helper 的边界：末 6 位 + 模式前缀；
+// 空/短 UUID 返回 ""（调用方回退纯 PID）。
+func TestShortUUIDSuffix_Cases(t *testing.T) {
+	t.Setenv("RNIX_ASCII", "0")
+	if got := ShortUUIDSuffix("019f2d24-1111-7000-8000-0000008f3a2c"); got != "…8f3a2c" {
+		t.Errorf("ShortUUIDSuffix(full uuid) = %q, want %q", got, "…8f3a2c")
+	}
+	if got := ShortUUIDSuffix("abcdef"); got != "…abcdef" {
+		t.Errorf("ShortUUIDSuffix(len==6) = %q, want %q", got, "…abcdef")
+	}
+	if got := ShortUUIDSuffix(""); got != "" {
+		t.Errorf("ShortUUIDSuffix(empty) = %q, want \"\"", got)
+	}
+	if got := ShortUUIDSuffix("u1"); got != "" {
+		t.Errorf("ShortUUIDSuffix(short) = %q, want \"\"", got)
+	}
+	t.Setenv("RNIX_ASCII", "1")
+	if got := ShortUUIDSuffix("019f2d24-1111-7000-8000-0000008f3a2c"); got != "~8f3a2c" {
+		t.Errorf("ASCII mode ShortUUIDSuffix = %q, want %q", got, "~8f3a2c")
+	}
+}
+
+// TestRender_HistoricalPIDZero_ShowsUUIDSuffix 验证历史进程（PID=0）标识列显示
+// UUID 末 6 位短标识（…8f3a2c），且不再出现误导性的 "0(" 形态。
+func TestRender_HistoricalPIDZero_ShowsUUIDSuffix(t *testing.T) {
+	t.Setenv("RNIX_ASCII", "0")
+	created := time.Date(2026, 7, 4, 9, 0, 0, 0, time.UTC)
+	p := vfs.ProcInfo{
+		PID: 0, UUID: "019f2d24-1111-7000-8000-0000008f3a2c",
+		State: types.StateDead, Intent: "historical", Result: "done",
+		CreatedAt: created, DeadAt: created.Add(3 * time.Second),
+	}
+	// 历史进程 PID=0 计数 ≥2 即命中 ReusedPIDs（helper 行为保留）——
+	// 渲染层必须优先走 PID=0 分支，不受复用分支影响。
+	line := renderSingleRow(t, p, map[types.PID]int{0: 2})
+	if !strings.Contains(line, "…8f3a2c") {
+		t.Errorf("historical row should contain UUID suffix …8f3a2c, got %q", line)
+	}
+	if strings.Contains(line, "0(") {
+		t.Errorf("historical row must not contain misleading \"0(\" form, got %q", line)
+	}
+}
+
+// TestRender_ReusedPID_ShowsPIDWithUUIDSuffix 验证活跃进程 PID 被复用时显示
+// "42(…xxxxxx)" 消歧形态。
+func TestRender_ReusedPID_ShowsPIDWithUUIDSuffix(t *testing.T) {
+	t.Setenv("RNIX_ASCII", "0")
+	created := time.Date(2026, 7, 4, 9, 0, 0, 0, time.UTC)
+	p := vfs.ProcInfo{
+		PID: 42, UUID: "019f2d24-2222-7000-8000-0000aa77cc99",
+		State: types.StateRunning, Intent: "active reused", CreatedAt: created,
+	}
+	line := renderSingleRow(t, p, map[types.PID]int{42: 2})
+	if !strings.Contains(line, "42(…77cc99)") {
+		t.Errorf("reused-PID row should contain \"42(…77cc99)\", got %q", line)
+	}
+}
+
+// TestRender_UniquePID_PlainDigits 验证活跃唯一 PID 仅显示纯数字（无短标识、无括号）。
+func TestRender_UniquePID_PlainDigits(t *testing.T) {
+	t.Setenv("RNIX_ASCII", "0")
+	created := time.Date(2026, 7, 4, 9, 0, 0, 0, time.UTC)
+	p := vfs.ProcInfo{
+		PID: 17, UUID: "019f2d24-3333-7000-8000-0000deadbeef",
+		State: types.StateRunning, Intent: "active unique", CreatedAt: created,
+	}
+	line := renderSingleRow(t, p, nil)
+	if !strings.Contains(line, "17") {
+		t.Errorf("unique-PID row should contain plain PID 17, got %q", line)
+	}
+	if strings.Contains(line, "(") {
+		t.Errorf("unique-PID row should not contain parenthesized suffix, got %q", line)
+	}
+	if strings.Contains(line, "…deadbe") || strings.Contains(line, "…adbeef") {
+		t.Errorf("unique-PID row should not contain UUID short suffix, got %q", line)
+	}
+}
+
+// TestRender_ShortOrEmptyUUID_FallbackToPID 验证 UUID 为空或长度 <6 的 PID=0
+// 进程回退显示纯 "0"，不 panic 不越界。
+func TestRender_ShortOrEmptyUUID_FallbackToPID(t *testing.T) {
+	t.Setenv("RNIX_ASCII", "0")
+	created := time.Date(2026, 7, 4, 9, 0, 0, 0, time.UTC)
+	for _, uuid := range []string{"", "u1"} {
+		p := vfs.ProcInfo{
+			PID: 0, UUID: uuid,
+			State: types.StateDead, Intent: "legacy", Result: "done",
+			CreatedAt: created, DeadAt: created.Add(time.Second),
+		}
+		line := renderSingleRow(t, p, nil)
+		if strings.Contains(line, "…") || strings.Contains(line, "~") {
+			t.Errorf("uuid=%q: fallback row should not contain suffix prefix, got %q", uuid, line)
+		}
+		if !strings.Contains(line, "0") {
+			t.Errorf("uuid=%q: fallback row should contain plain PID 0, got %q", uuid, line)
+		}
+	}
+}
+
+// TestRender_ASCIIMode_UUIDSuffixUsesTildePrefix 验证 RNIX_ASCII=1 下短标识
+// 前缀降级为 "~"（历史进程 + PID 复用两个分支）。
+func TestRender_ASCIIMode_UUIDSuffixUsesTildePrefix(t *testing.T) {
+	t.Setenv("RNIX_ASCII", "1")
+	created := time.Date(2026, 7, 4, 9, 0, 0, 0, time.UTC)
+
+	historical := vfs.ProcInfo{
+		PID: 0, UUID: "019f2d24-1111-7000-8000-0000008f3a2c",
+		State: types.StateDead, Intent: "historical", Result: "done",
+		CreatedAt: created, DeadAt: created.Add(time.Second),
+	}
+	line := renderSingleRow(t, historical, nil)
+	if !strings.Contains(line, "~8f3a2c") {
+		t.Errorf("ASCII historical row should contain ~8f3a2c, got %q", line)
+	}
+	if strings.Contains(line, "…") {
+		t.Errorf("ASCII row must not contain Unicode ellipsis, got %q", line)
+	}
+
+	reusedProc := vfs.ProcInfo{
+		PID: 42, UUID: "019f2d24-2222-7000-8000-0000aa77cc99",
+		State: types.StateRunning, Intent: "active reused", CreatedAt: created,
+	}
+	line = renderSingleRow(t, reusedProc, map[types.PID]int{42: 2})
+	if !strings.Contains(line, "42(~77cc99)") {
+		t.Errorf("ASCII reused-PID row should contain \"42(~77cc99)\", got %q", line)
+	}
+}

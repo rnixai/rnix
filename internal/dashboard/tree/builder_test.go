@@ -429,3 +429,69 @@ func contains(haystack, needle string) bool {
 	}
 	return false
 }
+
+// TestBuildProcessTree_DeterministicOrder_EqualCreatedAtPIDZero 验证排序全序契约
+// （spec-dashboard-tree-stable-sort-identity）：CreatedAt 完全相同、PID 全为 0（历史
+// 进程，PID tiebreak 失效）、仅 UUID 不同的节点，无论输入切片顺序如何（原序 vs
+// 逆序）、无论 BuildProcessTree 内部 map 迭代顺序如何，展平后的输出序恒定。
+func TestBuildProcessTree_DeterministicOrder_EqualCreatedAtPIDZero(t *testing.T) {
+	t.Parallel()
+	tie := time.Date(2026, 7, 4, 11, 0, 0, 0, time.UTC)
+	uuids := []string{
+		"019f2d24-0000-7000-8000-00000000000e",
+		"019f2d24-0000-7000-8000-00000000000a",
+		"019f2d24-0000-7000-8000-00000000000c",
+		"019f2d24-0000-7000-8000-00000000000f",
+		"019f2d24-0000-7000-8000-00000000000b",
+		"019f2d24-0000-7000-8000-00000000000d",
+	}
+	makeProcs := func(order []string) []vfs.ProcInfo {
+		procs := make([]vfs.ProcInfo, 0, len(order))
+		for _, u := range order {
+			// PID=0 且 PPID=0 命中 self-parent 根短路，全部为 root。
+			procs = append(procs, vfs.ProcInfo{
+				PID: 0, PPID: 0, UUID: u,
+				State: types.StateDead, Intent: "tie", CreatedAt: tie,
+			})
+		}
+		return procs
+	}
+	flattenUUIDs := func(procs []vfs.ProcInfo) []string {
+		rows := FlattenTree(BuildProcessTree(procs, 0, false))
+		out := make([]string, len(rows))
+		for i, r := range rows {
+			out[i] = r.Proc.UUID
+		}
+		return out
+	}
+
+	forward := makeProcs(uuids)
+	reversed := make([]string, len(uuids))
+	for i, u := range uuids {
+		reversed[len(uuids)-1-i] = u
+	}
+	backward := makeProcs(reversed)
+
+	seqA := flattenUUIDs(forward)
+	seqB := flattenUUIDs(backward)
+	if len(seqA) != len(uuids) || len(seqB) != len(uuids) {
+		t.Fatalf("expected %d rows, got forward=%d backward=%d", len(uuids), len(seqA), len(seqB))
+	}
+	for i := range seqA {
+		if seqA[i] != seqB[i] {
+			t.Fatalf("output order depends on input slice order at index %d: forward=%q backward=%q",
+				i, seqA[i], seqB[i])
+		}
+	}
+
+	// 同一输入连跑 ≥5 次输出恒定——覆盖 BuildProcessTree 内部 map 迭代随机性。
+	for run := range 5 {
+		got := flattenUUIDs(forward)
+		for i := range got {
+			if got[i] != seqA[i] {
+				t.Fatalf("run %d: output order drifted at index %d: got %q, want %q",
+					run, i, got[i], seqA[i])
+			}
+		}
+	}
+}

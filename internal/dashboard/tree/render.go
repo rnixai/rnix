@@ -50,6 +50,27 @@ var SortDirLabelsASCII = [3][2]string{
 	{"v", "^"},
 }
 
+// ShortUUIDSuffix 返回进程 UUID 的短标识：**末 6 位** + 省略前缀
+// （Unicode 模式 `…`，ASCII 模式 RNIX_ASCII=1 时 `~`）。
+//
+// 为何取后缀而非前缀：UUID 是 v7（时间有序），同一时段生成的进程前 6-8 位几乎
+// 全相同（如都以 `019f2e` 开头），前缀无区分度；随机熵集中在尾部，末 6 位即有
+// 高区分度。用于 Tree pane 标识列显示历史进程（PID=0）与 PID 复用消歧。
+//
+// UUID 为空或不足 6 个字符（按 rune 计——防御脏数据中的多字节字符，避免按
+// byte 切片截断出非法 UTF-8）时返回 ""，调用方回退为纯 PID 数字显示。
+func ShortUUIDSuffix(uuid string) string {
+	r := []rune(uuid)
+	if len(r) < 6 {
+		return ""
+	}
+	tail := string(r[len(r)-6:])
+	if ui.IsASCIIMode() {
+		return "~" + tail
+	}
+	return "…" + tail
+}
+
 // RenderContext 是 Render 调用时需要的运行时上下文。
 //
 // 包含 cmd/rnix 端在每次 render 调用前构造的临时数据（不便放进 TreeState 的、
@@ -222,8 +243,19 @@ func Render(state TreeState, ctx RenderContext, innerW, innerH int) string {
 			}
 		}
 
-		// Compact metadata suffix
+		// Compact metadata suffix — identity column (three branches):
+		//   PID == 0 (historical, reaped)      → UUID short suffix only ("…8f3a2c");
+		//   PID > 0 and PID reused across gens → "42(…8f3a2c)" disambiguation;
+		//   otherwise                          → plain PID digits.
+		// Falls back to plain PID digits when the UUID is empty/too short.
 		pidPart := fmt.Sprintf("%d", row.Proc.PID)
+		if suffix := ShortUUIDSuffix(row.Proc.UUID); suffix != "" {
+			if row.Proc.PID == 0 {
+				pidPart = suffix
+			} else if _, isReused := ctx.ReusedPIDs[row.Proc.PID]; isReused {
+				pidPart = fmt.Sprintf("%d(%s)", row.Proc.PID, suffix)
+			}
+		}
 
 		isDead := row.Proc.State == types.StateDead || row.Proc.State == types.StateZombie
 		failed := isDead && ui.IsProcessFailed(row.Proc.ExitCode, row.Proc.ExitCodeSet, row.Proc.Result)
@@ -297,15 +329,6 @@ func Render(state TreeState, ctx RenderContext, innerW, innerH int) string {
 			} else {
 				elapsed = ui.FormatDuration(ctx.Now.Sub(row.Proc.CreatedAt) - row.Proc.PausedTotal)
 			}
-		}
-
-		// PID reuse indicator
-		if _, isReused := ctx.ReusedPIDs[row.Proc.PID]; isReused {
-			uuidShort := row.Proc.UUID
-			if len(uuidShort) > 6 {
-				uuidShort = uuidShort[:6]
-			}
-			pidPart = fmt.Sprintf("%d(%s)", row.Proc.PID, uuidShort)
 		}
 
 		// Recording indicator

@@ -1,10 +1,12 @@
 package kernel
 
 import (
+	"cmp"
 	"fmt"
 	"log"
 	"maps"
 	"slices"
+	"strings"
 	"time"
 
 	"github.com/rnixai/rnix/internal/types"
@@ -523,8 +525,24 @@ func (k *KernelImpl) ListAllProcs() []vfs.ProcInfo {
 		result = append(result, p)
 	}
 
-	slices.SortFunc(result, func(a, b vfs.ProcInfo) int {
-		return a.CreatedAt.Compare(b.CreatedAt)
+	// Comparator chain: CreatedAt → UUID → PID. The input order is random
+	// (active comes from SyncMap.Range) — so CreatedAt ties MUST be broken
+	// deterministically, or the result order (and the IPC pagination windows
+	// sliced from it) drifts between calls, making dashboard rows jump every
+	// tick. UUID breaks ties for all real processes; PID covers legacy entries
+	// with empty UUIDs. The residual full-tie case (historical entries with
+	// PID zeroed above, empty UUID, equal CreatedAt) is closed by the STABLE
+	// sort: procHistory.List() preserves FIFO insertion order, and active
+	// processes always have unique PIDs, so equal elements keep a fixed
+	// relative order across calls.
+	slices.SortStableFunc(result, func(a, b vfs.ProcInfo) int {
+		if c := a.CreatedAt.Compare(b.CreatedAt); c != 0 {
+			return c
+		}
+		if c := strings.Compare(a.UUID, b.UUID); c != 0 {
+			return c
+		}
+		return cmp.Compare(a.PID, b.PID)
 	})
 	return result
 }

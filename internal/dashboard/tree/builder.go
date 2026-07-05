@@ -166,13 +166,16 @@ func StateRank(s types.ProcessState) int {
 
 // SortNodes 按指定 sortMode 与方向（asc=true 升序 / false 降序）原地排序 TreeNode 切片。
 //
-// 所有 sort 模式都用 PID 作为最末次级 key 防止位置抖动。
+// 所有 sort 模式的比较链都以 PID → UUID（固定升序）收尾构成**全序**：历史进程
+// PID 全为 0，仅靠 PID tiebreak 会失效，而 BuildProcessTree 以 map 随机迭代序
+// 组装输入——UUID 终极 tiebreak 保证输出顺序与输入/迭代顺序无关（消除 Dashboard
+// 行跳动）。asc/desc 方向只作用于 primary/secondary key，tiebreak 恒为升序。
 //
 // 三种 sortMode（与 cmd/rnix/dashboard_tree.go::sortTreeNodes 完全等价）：
 //
-//	0 (Time):   primary=CreatedAt, secondary=StateRank, tertiary=PID asc
-//	1 (PID):    primary=PID,       secondary=CreatedAt asc
-//	2 (State):  primary=StateRank, secondary=PID asc
+//	0 (Time):   primary=CreatedAt, secondary=StateRank, tertiary=PID asc, final=UUID asc
+//	1 (PID):    primary=PID,       secondary=CreatedAt asc,               final=UUID asc
+//	2 (State):  primary=StateRank, secondary=PID asc,                     final=UUID asc
 //
 // 默认（其他 sortMode 值）：按 PID 排序。
 //
@@ -202,7 +205,10 @@ func SortNodes(ns []*TreeNode, sortMode int, asc bool) {
 			if ri != rj {
 				return cmp(ri, rj)
 			}
-			return ai.PID < aj.PID
+			if ai.PID != aj.PID {
+				return ai.PID < aj.PID
+			}
+			return ai.UUID < aj.UUID
 		})
 	case 2: // State
 		sort.SliceStable(ns, func(i, j int) bool {
@@ -211,15 +217,21 @@ func SortNodes(ns []*TreeNode, sortMode int, asc bool) {
 			if ri != rj {
 				return cmp(ri, rj)
 			}
-			return ai.PID < aj.PID
+			if ai.PID != aj.PID {
+				return ai.PID < aj.PID
+			}
+			return ai.UUID < aj.UUID
 		})
 	default: // PID (and any unknown mode)
 		sort.SliceStable(ns, func(i, j int) bool {
-			pi, pj := ns[i].Proc.PID, ns[j].Proc.PID
-			if pi != pj {
-				return cmp(int(pi), int(pj))
+			ai, aj := ns[i].Proc, ns[j].Proc
+			if ai.PID != aj.PID {
+				return cmp(int(ai.PID), int(aj.PID))
 			}
-			return ns[i].Proc.CreatedAt.Before(ns[j].Proc.CreatedAt)
+			if !ai.CreatedAt.Equal(aj.CreatedAt) {
+				return ai.CreatedAt.Before(aj.CreatedAt)
+			}
+			return ai.UUID < aj.UUID
 		})
 	}
 }
