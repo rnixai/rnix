@@ -1018,14 +1018,39 @@ func (k *KernelImpl) executeMetaAction(proc *Process, tc llmToolCall, mapping to
 		// lockstep so enforcement stays tool-granular after specialize (an
 		// unrestricted process becomes restricted to the skill's tools).
 		declTools, declDevices := k.normalizeDeclaredAllowedTools(skillInfo.Manifest.AllowedTools())
+		// Privilege-escalation guard: a permission-constrained process must not
+		// widen its own whitelists by loading a skill — the child ⊆ parent
+		// invariant established at spawn (intersectDevices) has to survive
+		// specialize. proc.AllowedDevices/AllowedTools ARE the spawn-time
+		// constraint result, so intersecting the skill's declarations against
+		// them gives only-narrow semantics: the skill body still loads
+		// (knowledge), but declared tools/devices outside the whitelist are
+		// withheld and enforcement keeps denying them. Unconstrained processes
+		// (both lists empty = allow-all) keep the historical behavior of
+		// adopting the skill's toolset verbatim. The lists are intersected as a
+		// pair — narrowing only one would let a tool-name grant bypass an
+		// active device-level whitelist (executeVFSTool is first-match).
+		declaredToolCount := len(declTools)
+		if len(proc.AllowedDevices) > 0 || len(proc.AllowedTools) > 0 {
+			declDevices = intersectDevices(proc.AllowedDevices, declDevices)
+			declTools = intersectDevices(proc.AllowedTools, declTools)
+		}
+		toolsWithheld := declaredToolCount - len(declTools)
+		// Track what this specialize actually appended so the context-full
+		// rollback below removes exactly that — never pre-existing entries the
+		// process already held (which a recompute-from-manifest removal would
+		// strip, silently revoking permissions on rollback).
+		var addedDevices, addedTools []string
 		for _, dev := range declDevices {
 			if !slices.Contains(proc.AllowedDevices, dev) {
 				proc.AllowedDevices = append(proc.AllowedDevices, dev)
+				addedDevices = append(addedDevices, dev)
 			}
 		}
 		for _, tool := range declTools {
 			if !slices.Contains(proc.AllowedTools, tool) {
 				proc.AllowedTools = append(proc.AllowedTools, tool)
+				addedTools = append(addedTools, tool)
 			}
 		}
 		if skillInfo.Body != "" {
@@ -1049,7 +1074,11 @@ func (k *KernelImpl) executeMetaAction(proc *Process, tc llmToolCall, mapping to
 		copy(allSkills, proc.Skills)
 		proc.mu.Unlock()
 
-		k.emitEvent(proc, "StemSpecialize", map[string]any{"skill": skillName, "total_skills": totalSkills}, nil, nil, 0)
+		specializePayload := map[string]any{"skill": skillName, "total_skills": totalSkills}
+		if toolsWithheld > 0 {
+			specializePayload["tools_withheld"] = toolsWithheld
+		}
+		k.emitEvent(proc, "StemSpecialize", specializePayload, nil, nil, 0)
 
 		if k.diffMemory != nil {
 			var ac int
@@ -1092,14 +1121,14 @@ func (k *KernelImpl) executeMetaAction(proc *Process, tc llmToolCall, mapping to
 				proc.Skills = slices.DeleteFunc(proc.Skills, func(s string) bool { return s == skillName })
 				delete(proc.SkillBodies, skillName)
 				delete(proc.SkillDirs, skillName)
-				// Story 54.5: normalize the skill's declared allowed-tools the same
-				// way the append above did, so the rollback removes the exact device
-				// ROOTS and tool names it contributed — symmetric for both semantic
-				// tool-name and legacy device-path declarations.
-				removedTools, removedDevices := k.normalizeDeclaredAllowedTools(skillInfo.Manifest.AllowedTools())
-				if len(removedDevices) > 0 {
-					devRemoveSet := make(map[string]struct{}, len(removedDevices))
-					for _, d := range removedDevices {
+				// Roll back exactly the entries the append above contributed
+				// (addedDevices/addedTools), NOT a recompute from the manifest —
+				// a manifest recompute would also strip pre-existing entries the
+				// process held before specialize when the skill's declarations
+				// overlap them (silent permission revocation on rollback).
+				if len(addedDevices) > 0 {
+					devRemoveSet := make(map[string]struct{}, len(addedDevices))
+					for _, d := range addedDevices {
 						devRemoveSet[d] = struct{}{}
 					}
 					proc.AllowedDevices = slices.DeleteFunc(proc.AllowedDevices, func(d string) bool {
@@ -1107,11 +1136,11 @@ func (k *KernelImpl) executeMetaAction(proc *Process, tc llmToolCall, mapping to
 						return rm
 					})
 				}
-				// Symmetric tool-level rollback — drop the normalized tool names this
-				// skill contributed, mirroring the device removal above.
-				if len(removedTools) > 0 {
-					toolRemoveSet := make(map[string]struct{}, len(removedTools))
-					for _, t := range removedTools {
+				// Symmetric tool-level rollback — drop the tool names this
+				// specialize actually added, mirroring the device removal above.
+				if len(addedTools) > 0 {
+					toolRemoveSet := make(map[string]struct{}, len(addedTools))
+					for _, t := range addedTools {
 						toolRemoveSet[t] = struct{}{}
 					}
 					proc.AllowedTools = slices.DeleteFunc(proc.AllowedTools, func(t string) bool {
@@ -1130,6 +1159,9 @@ func (k *KernelImpl) executeMetaAction(proc *Process, tc llmToolCall, mapping to
 		}
 
 		resultMsg := fmt.Sprintf("skill %q loaded successfully", skillName)
+		if toolsWithheld > 0 {
+			resultMsg += fmt.Sprintf(" (%d declared tool(s) outside this process's permission whitelist were not granted)", toolsWithheld)
+		}
 		_ = k.appendToolResult(proc, step, tc.ID, tc.Name, resultMsg)
 
 		if needsUserMessage {

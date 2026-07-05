@@ -120,6 +120,7 @@ Two-tier configuration: global (`~/.config/rnix/`) + project (`.rnix/`). Run `rn
 - Signals: `types.SIGTERM`, `types.SIGKILL`, `types.SIGINT`, `types.SIGPAUSE`, `types.SIGRESUME`
 - Environment: `RNIX_ASCII=1` forces ASCII mode (disables Unicode glyphs in UI)
 - Environment: `RNIX_ENV` selects .env file set (default: `development`); CLI passes to daemon via IPC
+- Environment: `RNIX_FEATURE_PROFILE` overrides the feature profile — **read once at daemon startup**（daemon 进程内 `os.Getenv`）；对已运行的 daemon 无效（CLI 侧检测到不匹配会打 stderr 警告），需 `rnix daemon stop` 后重跑生效；CLI 自启动 daemon 时因 env 继承而生效
 - Project `.env` files: loaded per-spawn from project root (`.env` → `.env.local` → `.env.{RNIX_ENV}` → `.env.{RNIX_ENV}.local`); API keys resolved via env snapshot, not `os.Getenv`
 
 ### Prompt Design Convention (Architecture Decision 33)

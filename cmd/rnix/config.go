@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"io"
+	"os"
 	"path/filepath"
 	"sort"
 
@@ -41,9 +42,36 @@ func runConfigShow(cmd *cobra.Command, _ []string) error {
 		return configShowFallback(w)
 	}
 
+	warnFeatureProfileEnvIgnored(ds.FeatureProfile)
 	fmt.Fprintf(w, "Feature Profile: %s\n", ds.FeatureProfile)
 	printFlags(w, ds.FeatureFlags)
 	return nil
+}
+
+// warnFeatureProfileEnvIgnored prints a stderr warning when RNIX_FEATURE_PROFILE
+// is set in the CLI environment but the running daemon resolved a different
+// profile. ResolveFeatures reads the variable inside the daemon process at
+// startup, so a per-CLI override never crosses the IPC boundary — surface that
+// instead of letting it be silently ignored (it only appears to work when the
+// CLI happens to auto-start the daemon, which inherits the CLI environment).
+func warnFeatureProfileEnvIgnored(daemonProfile string) {
+	envProfile := os.Getenv("RNIX_FEATURE_PROFILE")
+	if envProfile == "" || envProfile == daemonProfile {
+		return
+	}
+	fmt.Fprintf(os.Stderr, "[config] warn: RNIX_FEATURE_PROFILE=%q has no effect on the running daemon (profile %q) — the variable is read once at daemon startup; run `rnix daemon stop` and retry to apply\n", envProfile, daemonProfile)
+}
+
+// checkFeatureProfileEnv fetches the daemon profile and delegates to
+// warnFeatureProfileEnvIgnored. The extra DaemonStatus round-trip is only paid
+// when the env var is actually set.
+func checkFeatureProfileEnv(client *ipc.Client) {
+	if os.Getenv("RNIX_FEATURE_PROFILE") == "" {
+		return
+	}
+	if ds, err := client.DaemonStatus(); err == nil {
+		warnFeatureProfileEnvIgnored(ds.FeatureProfile)
+	}
 }
 
 func configShowFallback(w io.Writer) error {
@@ -53,7 +81,10 @@ func configShowFallback(w io.Writer) error {
 	}
 	configPath := filepath.Join(globalDir, "config.yaml")
 
-	flags, profile, _ := config.ResolveFeatures(configPath)
+	flags, profile, warnings := config.ResolveFeatures(configPath)
+	for _, warn := range warnings {
+		fmt.Fprintf(os.Stderr, "[config] warn: %s\n", warn)
+	}
 	fmt.Fprintf(w, "Feature Profile: %s (from config, daemon not running)\n", profile)
 	printFlags(w, map[string]bool{
 		"planning":       flags.Planning,

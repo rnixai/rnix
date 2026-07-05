@@ -89,6 +89,14 @@ type configFile struct {
 // RNIX_FEATURE_PROFILE env override, and expands into FeatureFlags.
 // Returns the resolved flags, the effective profile name, and any warnings.
 // Missing/malformed config files silently default to ProfileFull.
+//
+// The env override is read from the CALLING process's environment. In the
+// daemon model this function runs inside the daemon at startup, so
+// `RNIX_FEATURE_PROFILE=x rnix spawn ...` against an already-running daemon
+// has no effect (the CLI warns on the mismatch — see cmd/rnix
+// warnFeatureProfileEnvIgnored); it only applies when the daemon itself is
+// (re)started with the variable set, including CLI auto-start via
+// EnsureDaemon, which inherits the CLI environment.
 func ResolveFeatures(configPath string) (FeatureFlags, FeatureProfile, []string) {
 	var warnings []string
 	var cfg configFile

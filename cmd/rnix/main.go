@@ -545,6 +545,10 @@ func runRoot(cmd *cobra.Command, args []string) error {
 	}
 	defer client.Close()
 
+	// RNIX_FEATURE_PROFILE only takes effect at daemon startup; warn when a
+	// CLI-side override is being silently ignored by an already-running daemon.
+	checkFeatureProfileEnv(client)
+
 	if isScriptSyntax(intent) {
 		runScript(renderer, mode, progress, client, intent, start, projectDir)
 		return nil
