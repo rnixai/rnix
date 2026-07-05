@@ -21,42 +21,67 @@ import (
 // 复用 check.go::mcpConfigPathForCheck 同款 monkey-patch 思路
 // -----------------------------------------------------------------------------
 
-// swapGlobalDirForInit redirects config.GlobalDir() to a tempdir for the duration
-// of the test. dev-story 需要在 init.go 暴露一个 var globalDirForInit (默认调
-// config.GlobalDir),与 check.go 的 mcpConfigPathForCheck 注入风格一致.
+// swapGlobalDirForInit redirects init's global config directory to a tempdir for
+// the duration of the test and flips skipProjectInitForTest so runInit never
+// touches the real CWD's .rnix. Both are package-level seams (globalDirForInit is
+// also read by spawn_preflight.go); restoring them on cleanup keeps the suite
+// hermetic. Because these vars are shared package state — as is the cobra rootCmd
+// singleton driven by runInitCmd — this test group runs SERIALLY (no t.Parallel):
+// distinct tempdirs across concurrent tests would race on globalDirForInit.
 func swapGlobalDirForInit(t *testing.T, dir string) func() {
 	t.Helper()
-	old := globalDirForInit
+	oldDir := globalDirForInit
+	oldSkip := skipProjectInitForTest
 	globalDirForInit = dir
-	return func() { globalDirForInit = old }
+	skipProjectInitForTest = true
+	return func() {
+		globalDirForInit = oldDir
+		skipProjectInitForTest = oldSkip
+	}
 }
 
-// runInitCmd executes `rnix init [flags]` against the cobra rootCmd and returns
-// the captured stdout/stderr buffer.
+// runInitCmd executes `rnix init [flags]` and returns the captured output.
+//
+// It uses the cobra-idiomatic test pattern: SetArgs on the ROOT command with the
+// sub-command name prepended, then rootCmd.Execute(). cobra's Execute() always
+// dispatches from Root().ExecuteC() using the root's args, so setting args on a
+// sub-command (the old helper's rootCmd.Find + cmd.SetArgs) is silently ignored
+// and Execute falls back to os.Args[1:] (the test binary's -test.* flags). Using
+// root.SetArgs makes cmd.Flags().GetBool resolve correctly with no production-side
+// test heuristics. flagQuiet is a persistent flag bound to a package var, so we
+// reset it on cleanup to prevent leakage into later serial tests.
 func runInitCmd(t *testing.T, args ...string) string {
 	t.Helper()
-	// Other ATDD tests in this package call rootCmd.SetArgs([...]) without
-	// resetting it. cobra v1.10.2 bubbles initCmd.Execute() up to rootCmd
-	// and reads root.args, so leftover values from earlier tests would
-	// reroute this dispatch to whatever sub-command they last invoked.
-	// Reset BOTH rootCmd and initCmd args (the dispatch hack in runRoot also
-	// reads initCmd.args via reflect) and re-clear in cleanup so this helper
-	// is hermetic regardless of who runs after.
-	rootCmd.SetArgs(nil)
-	initCmd.SetArgs(nil)
+	// cobra retains a flag's parsed value AND its Changed bit on the singleton
+	// command between Execute() calls within one test process — real `rnix`
+	// invocations are separate processes and never see this. Reset both flags
+	// (value + Changed) to their defaults before parsing so a prior test's
+	// `--with-mcp-examples` or `--quiet` cannot leak into a later run. --quiet is
+	// a persistent flag on rootCmd bound to flagQuiet; resetting Value keeps its
+	// Changed bit consistent with GetBool for any future Changed("quiet") reader.
+	resetInitFlags := func() {
+		if f := initCmd.Flags().Lookup("with-mcp-examples"); f != nil {
+			_ = f.Value.Set("false")
+			f.Changed = false
+		}
+		if f := rootCmd.PersistentFlags().Lookup("quiet"); f != nil {
+			_ = f.Value.Set("false")
+			f.Changed = false
+		}
+		flagQuiet = false
+	}
+	resetInitFlags()
+	var buf bytes.Buffer
+	rootCmd.SetOut(&buf)
+	rootCmd.SetErr(&buf)
+	rootCmd.SetArgs(append([]string{"init"}, args...))
 	t.Cleanup(func() {
 		rootCmd.SetArgs(nil)
-		initCmd.SetArgs(nil)
+		rootCmd.SetOut(nil)
+		rootCmd.SetErr(nil)
+		resetInitFlags()
 	})
-	var buf bytes.Buffer
-	cmd, _, err := rootCmd.Find(append([]string{"init"}, args...))
-	if err != nil {
-		t.Fatalf("init command not registered: %v", err)
-	}
-	cmd.SetOut(&buf)
-	cmd.SetErr(&buf)
-	cmd.SetArgs(args)
-	if err := cmd.Execute(); err != nil {
+	if err := rootCmd.Execute(); err != nil {
 		t.Fatalf("init Execute: %v\noutput=%s", err, buf.String())
 	}
 	return buf.String()

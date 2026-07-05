@@ -5,8 +5,6 @@ import (
 	"io"
 	"os"
 	"path/filepath"
-	"reflect"
-	"strings"
 
 	"github.com/goccy/go-yaml"
 	rnix "github.com/rnixai/rnix"
@@ -19,7 +17,16 @@ import (
 //
 // Test-injection seam: redirect config.GlobalDir() to a tempdir.
 // ATDD swaps globalDirForInit just like check.go's mcpConfigPathForCheck.
+// This seam is path-only — it does NOT gate whether project initialization
+// runs (that is skipProjectInitForTest's sole job, kept orthogonal so the two
+// concerns never entangle again).
 var globalDirForInit string
+
+// skipProjectInitForTest, when true, makes runInit skip the project (.rnix)
+// initialization block. ATDD tests exercise the global/MCP path against a
+// tempdir and must not touch the real CWD's .rnix directory. Disjoint from
+// globalDirForInit so the path-injection seam carries no behavioral meaning.
+var skipProjectInitForTest bool
 
 // mcpExampleYAML is the byte-stable template emitted by
 // `rnix init --with-mcp-examples`. Must be ASCII-only and free of timestamps
@@ -105,8 +112,10 @@ func runInit(cmd *cobra.Command, args []string) error {
 		fmt.Fprintln(w, "global config already exists, skipping")
 	}
 
-	// Project initialization (skipped when globalDirForInit is set — test mode)
-	if globalDirForInit == "" {
+	// Project initialization (skipped in test mode via skipProjectInitForTest —
+	// tests exercise the global/MCP path against a tempdir and must not touch
+	// the real CWD's .rnix directory).
+	if !skipProjectInitForTest {
 		cwd, err := os.Getwd()
 		if err != nil {
 			return fmt.Errorf("get working directory: %w", err)
@@ -127,20 +136,8 @@ func runInit(cmd *cobra.Command, args []string) error {
 	}
 
 	// Story 48.4 — optional MCP example scaffold.
-	withMcp := resolveInitWithMcpFlag(cmd)
-	if withMcp {
-		// In test mode, --quiet may have been passed via initCmd.SetArgs but
-		// not propagated to rootCmd's PersistentFlag binding. Fall back to
-		// scanning the raw args slice so quiet behaviour stays consistent.
-		quiet := flagQuiet
-		if !quiet {
-			for _, a := range readCommandArgs(cmd) {
-				if a == "--quiet" || a == "-q" {
-					quiet = true
-					break
-				}
-			}
-		}
+	if withMcp, _ := cmd.Flags().GetBool("with-mcp-examples"); withMcp {
+		quiet, _ := cmd.Flags().GetBool("quiet")
 		mcpPath := filepath.Join(globalDir, "mcp.yaml")
 		wrote, err := writeMcpYamlExample(globalDir)
 		if err != nil {
@@ -367,71 +364,3 @@ func renderInitMcpGuidance(w io.Writer, mcpPath string, quiet bool) {
 // reserved-for-future ascii flag. Removed during 48-4 code review (YAGNI) —
 // re-introduce with a whitelist (1 / true / yes / on, case-insensitive) when
 // the first real glyph fallback site appears.
-
-// resolveInitWithMcpFlag returns true when --with-mcp-examples is in effect.
-//
-// We have to look in two places:
-//
-//  1. cmd.Flags().GetBool — the standard cobra path. Works when the user
-//     types `rnix init --with-mcp-examples` because rootCmd parsed args.
-//
-//  2. The raw c.args slice on initCmd — needed for tests that call
-//     `initCmd.SetArgs(args)` directly and then `initCmd.Execute()`. cobra
-//     v1.10.2 bubbles ExecuteC to root before parsing args, and root.args is
-//     never propagated from the child, so the standard GetBool returns false
-//     even though SetArgs set initCmd.args correctly. Reading the raw slice
-//     via reflect is the most surgical fix; the alternative (registering the
-//     flag on rootCmd.PersistentFlags) would pollute every other sub-command.
-func resolveInitWithMcpFlag(cmd *cobra.Command) bool {
-	if v, _ := cmd.Flags().GetBool("with-mcp-examples"); v {
-		return true
-	}
-	for _, a := range readCommandArgs(cmd) {
-		if a == "--with-mcp-examples" {
-			return true
-		}
-		if eq := strings.IndexByte(a, '='); eq > 0 && a[:eq] == "--with-mcp-examples" {
-			switch strings.ToLower(a[eq+1:]) {
-			case "1", "true", "yes", "on":
-				return true
-			}
-		}
-	}
-	return false
-}
-
-// readCommandArgs returns the args slice cobra stored via SetArgs. Uses
-// reflect because cobra (v1.10.2) does not expose a public getter; see
-// comment on resolveInitWithMcpFlag for why this is necessary.
-func readCommandArgs(cmd *cobra.Command) []string {
-	v := reflect.ValueOf(cmd).Elem()
-	if !v.IsValid() {
-		return nil
-	}
-	field := v.FieldByName("args")
-	if !field.IsValid() || field.Kind() != reflect.Slice {
-		return nil
-	}
-	if field.IsNil() {
-		return nil
-	}
-	out := make([]string, field.Len())
-	for i := 0; i < field.Len(); i++ {
-		out[i] = field.Index(i).String()
-	}
-	return out
-}
-
-// isTestBinary returns true when the current process is a `go test` binary.
-// Used to gate Story 48.4's cobra unknown-flag whitelist (kept off in
-// production so typos still fail loud).
-func isTestBinary() bool {
-	exe := os.Args[0]
-	if strings.HasSuffix(exe, ".test") {
-		return true
-	}
-	if strings.Contains(exe, "/go-build") {
-		return true
-	}
-	return false
-}

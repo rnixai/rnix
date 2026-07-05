@@ -300,14 +300,6 @@ func runVersion(cmd *cobra.Command, args []string) {
 
 func init() {
 	rootCmd.SilenceUsage = true
-	// Story 48.4 — under `go test` the cobra ExecuteC path receives the test
-	// binary's own flags (-test.v, -test.run, ...) when ATDD helpers call
-	// `subCmd.SetArgs(...)` (those args don't propagate to root in v1.10.2).
-	// Whitelist unknown flags only inside the test binary so production CLI
-	// still rejects typos.
-	if isTestBinary() {
-		rootCmd.FParseErrWhitelist = cobra.FParseErrWhitelist{UnknownFlags: true}
-	}
 	rootCmd.PersistentFlags().BoolVar(&flagJSON, "json", false, "Output in JSON format")
 	rootCmd.PersistentFlags().BoolVarP(&flagVerbose, "verbose", "v", false, "Verbose output")
 	rootCmd.PersistentFlags().BoolVarP(&flagQuiet, "quiet", "q", false, "Quiet output")
@@ -435,15 +427,6 @@ func rejectPositionalArgs(cmd *cobra.Command, args []string) error {
 		return nil
 	}
 
-	// Story 48.4 — when an ATDD init test set globalDirForInit, go-test args
-	// like `TestATDD_48_4_xxx` appear as positional args because cobra's
-	// FParseErrWhitelist only suppresses unknown flag errors. Skip strict
-	// rejection so the sub-command dispatch in runRoot can pick up the
-	// initCmd.SetArgs payload instead.
-	if isTestBinary() && globalDirForInit != "" {
-		return nil
-	}
-
 	display := strings.Join(args, " ")
 	suggestion := suggestCommand(cmd, args[0])
 
@@ -529,22 +512,6 @@ func isVarStartByte(c byte) bool {
 }
 
 func runRoot(cmd *cobra.Command, args []string) error {
-	// Story 48.4 — when running under `go test`, cobra v1.10.2 bubbles a
-	// sub-command's `cmd.Execute()` up to rootCmd before parsing args (see
-	// init.go::resolveInitWithMcpFlag comment). The ATDD helper calls
-	// `initCmd.SetArgs(["--with-mcp-examples"])` directly, so rootCmd ends up
-	// running with no intent and no recognised flag. Reroute that case to
-	// runInit only when an active init test has redirected globalDirForInit
-	// (otherwise other runRoot tests would see the leftover initCmd.args from
-	// a previous ATDD case and dispatch to init by mistake).
-	if isTestBinary() && globalDirForInit != "" {
-		for _, a := range readCommandArgs(initCmd) {
-			if a == "--with-mcp-examples" || a == "--with-mcp-examples=true" {
-				return runInit(initCmd, args)
-			}
-		}
-	}
-
 	if flagIntent == "" {
 		return cmd.Help()
 	}
