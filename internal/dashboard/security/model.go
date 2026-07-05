@@ -26,6 +26,10 @@ import (
 	"github.com/rnixai/rnix/internal/ui"
 )
 
+// ViewDefault mirrors cmd/rnix.viewDefault (iota 0) to avoid security → cmd/rnix
+// import（与 detail/model.go 的 const ViewDefault = 0 同模式）。
+const ViewDefault = 0
+
 // 编译期断言：SecurityModel 满足 model.PaneModel interface。
 var _ dashboardmodel.PaneModel = (*SecurityModel)(nil)
 
@@ -155,29 +159,37 @@ func (m *SecurityModel) OnSelectPID(_ types.PID) tea.Cmd {
 
 // OnTick 在 dashboardTick 周期内调用。
 //
-// Story 38-5 PR11 Step 4(b) Phase 3 真实化：
-//   - 仅在 ctx.Active（Security pane 是当前激活）+ ctx.Connected + ctx.SocketPath
-//     非空时考虑 fetch；
-//   - 节流条件：m.state.ImmuneStatus == nil 或 ctx.TickCount%5 == 0；
-//   - 全部满足时返回 FetchImmuneStatusCmd · 否则返回 nil cmd.
+// Deferred-work #69 修复（放宽 fetch 门控，2026-07-05）：
+//   - 在 ctx.Active（Security pane 激活）**或** ctx.ViewMode == ViewDefault（默认视图
+//     底部 alert strip 需要持续刷新）+ ctx.Connected + ctx.SocketPath 非空时考虑 fetch；
+//   - 节流条件：首次立即 fetch 仅限 Sec 面板激活（m.state.ImmuneStatus == nil &&
+//     ctx.Active）；其余（含默认视图后台刷新）始终遵守 ctx.TickCount%5 == 0 节流；
+//   - 满足时返回 FetchImmuneStatusCmd · 否则返回 nil cmd.
 //
-// 行为契约 1:1 等价（与 cmd/rnix dashboardTick line 887-892 完全等价）：
-//
-//	if m.activePane == paneSecurity && m.connected {
-//	    if m.security.ImmuneStatus == nil || m.heatmap.TickCount%5 == 0 {
-//	        cmds = append(cmds, fetchImmuneStatusCmd())
-//	    }
-//	}
+// 放宽原因：合成 immune 告警 IsSynthetic=true 绕过 alertstrip 的 30s TTL
+// （alertstrip/builder.go:60），其生命周期设计为「由上游 IPC 列表 m.security.Alerts
+// 驱动」。旧门控只在 Sec 面板激活时 fetch，离开面板后列表冻结、告警解除也不刷新，
+// 导致 strip 全面板永久残留。默认视图下持续低频刷新兑现该生命周期前提——告警解除后
+// 上游列表变空，strip 自然消退。放宽模式镜像 DetailModel.OnTick（detail/model.go:184）。
 //
 // nil 安全：receiver 为 nil 时返回 nil cmd。
 func (m *SecurityModel) OnTick(ctx dashboardmodel.OnTickContext) tea.Cmd {
 	if m == nil {
 		return nil
 	}
-	if !ctx.Active || !ctx.Connected || ctx.SocketPath == "" {
+	// Guard: fetch when Security pane active OR default view needs strip refresh
+	// （镜像 detail/model.go:184）。
+	if !ctx.Active && ctx.ViewMode != ViewDefault {
 		return nil
 	}
-	if m.state.ImmuneStatus != nil && ctx.TickCount%5 != 0 {
+	if !ctx.Connected || ctx.SocketPath == "" {
+		return nil
+	}
+	// 首次立即 fetch 仅限 Sec 面板激活（保留用户进入面板即见数据的交互即时性）；
+	// 默认视图后台刷新始终遵守 5-tick 节流——否则 immune 无数据时 ImmuneStatus 恒 nil，
+	// 会在常驻默认视图下每-tick fetch（Edge Case Hunter FINDING 1）。
+	firstLoad := m.state.ImmuneStatus == nil && ctx.Active
+	if !firstLoad && ctx.TickCount%5 != 0 {
 		return nil
 	}
 	return FetchImmuneStatusCmd(ctx.SocketPath)

@@ -211,24 +211,93 @@ func TestOnSelectPID_NilSafe(t *testing.T) {
 	}
 }
 
-// TestOnTick_NoFetch_WhenInactive — Story 38-5 PR11 Step 4(b) Phase 3:
-// 仅在 Active==true 时 fetch（与 cmd/rnix dashboardTick 原 m.activePane==paneSecurity
-// 守卫等价）。
-func TestOnTick_NoFetch_WhenInactive(t *testing.T) {
+// TestOnTick_NoFetch_WhenInactiveNonDefaultView — spec-69: 非激活且非默认视图
+// （如全屏 Timeline，ViewMode!=ViewDefault）时不 fetch。放宽后 inactive 仅在
+// ViewMode==ViewDefault 时才继续 fetch，故此用例显式设非默认 ViewMode。
+func TestOnTick_NoFetch_WhenInactiveNonDefaultView(t *testing.T) {
 	t.Parallel()
 	m := NewModel()
 	m.SetState(SecurityState{Cursor: 7})
 	cmd := m.OnTick(dashboardmodel.OnTickContext{
 		Now:        time.Now(),
 		Active:     false,
+		ViewMode:   ViewDefault + 1, // 非默认视图
 		Connected:  true,
 		SocketPath: "/tmp/rnix.sock",
 	})
 	if cmd != nil {
-		t.Errorf("OnTick(inactive) should return nil cmd, got %v", cmd)
+		t.Errorf("OnTick(inactive, non-default view) should return nil cmd, got %v", cmd)
 	}
 	if m.State().Cursor != 7 {
 		t.Errorf("OnTick should not modify state, got %d", m.State().Cursor)
+	}
+}
+
+// TestOnTick_Fetch_WhenInactiveDefaultView — spec-69 核心：离开 Sec 面板回到默认
+// 视图（Active==false, ViewMode==ViewDefault）时在 5-tick 节流点持续刷新上游
+// immune 列表，让 alert strip 在告警解除后自然消退（消除永久残留）。
+//
+// 注意：默认视图后台刷新遵守 5-tick 节流（TickCount%5==0），不走「ImmuneStatus==nil
+// 首次立即 fetch」快路径——那仅限 Sec 面板激活（Edge Case Hunter FINDING 1）。
+func TestOnTick_Fetch_WhenInactiveDefaultView(t *testing.T) {
+	t.Parallel()
+	m := NewModel()
+	cmd := m.OnTick(dashboardmodel.OnTickContext{
+		Now:        time.Now(),
+		Active:     false,
+		ViewMode:   ViewDefault,
+		Connected:  true,
+		SocketPath: "/tmp/rnix.sock",
+		TickCount:  5, // 节流点：默认视图后台刷新
+	})
+	if cmd == nil {
+		t.Errorf("OnTick(inactive, default view, tick%%5==0) should fetch to refresh upstream immune list")
+	}
+}
+
+// TestOnTick_Throttle_InactiveDefaultView — spec-69 + Edge Case Hunter FINDING 1：
+// 默认视图后台刷新在非节流点（TickCount%5!=0）返回 nil，即使 ImmuneStatus==nil。
+// 否则 immune 无数据部署下 ImmuneStatus 恒 nil，会在常驻默认视图下每-tick fetch。
+func TestOnTick_Throttle_InactiveDefaultView(t *testing.T) {
+	t.Parallel()
+	m := NewModel()
+	for _, tick := range []int{1, 2, 3, 4} {
+		cmd := m.OnTick(dashboardmodel.OnTickContext{
+			Now:        time.Now(),
+			Active:     false,
+			ViewMode:   ViewDefault,
+			Connected:  true,
+			SocketPath: "/tmp/rnix.sock",
+			TickCount:  tick, // ImmuneStatus==nil 但非激活 → 不走首次快路径，遵守节流
+		})
+		if cmd != nil {
+			t.Errorf("OnTick(inactive, default view, tick=%d) should throttle (no per-tick fetch), got %v", tick, cmd)
+		}
+	}
+}
+
+// TestOnTick_NoFetch_WhenDisconnected — I/O Matrix 场景 4/5：未连接或 socket 为空
+// 时返回 nil，即使 Active（首次快路径也被第二道 guard 拦截）。
+func TestOnTick_NoFetch_WhenDisconnected(t *testing.T) {
+	t.Parallel()
+	m := NewModel()
+	// Connected=false
+	if cmd := m.OnTick(dashboardmodel.OnTickContext{
+		Active:     true,
+		Connected:  false,
+		SocketPath: "/tmp/rnix.sock",
+		TickCount:  5,
+	}); cmd != nil {
+		t.Errorf("OnTick(disconnected) should return nil cmd, got %v", cmd)
+	}
+	// SocketPath=""
+	if cmd := m.OnTick(dashboardmodel.OnTickContext{
+		Active:     true,
+		Connected:  true,
+		SocketPath: "",
+		TickCount:  5,
+	}); cmd != nil {
+		t.Errorf("OnTick(empty socket) should return nil cmd, got %v", cmd)
 	}
 }
 
