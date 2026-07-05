@@ -22,7 +22,7 @@ const (
 	colWidthActive  = 10
 	colWidthElapsed = 8
 	colWidthPPID    = 5
-	colWidthUUID    = 11 // 8 hex chars + "..."
+	colWidthUUID    = 7 // "…" / "~" prefix + last 6 chars (ShortUUID form)
 	colWidthExit    = 20 // verbose-only EXIT reason column (display width)
 	colGap          = 3
 )
@@ -171,8 +171,13 @@ func RenderProcessTable(r *Renderer, procs []vfs.ProcInfo, verbose, showUUID boo
 		}
 		if showUUID {
 			row.WriteString(gap)
-			uuidDisplay := truncateUUID(proc.UUID, colWidthUUID)
-			fmt.Fprintf(&row, "%-*s", colWidthUUID, uuidDisplay)
+			uuidDisplay := truncateUUID(proc.UUID)
+			// %-*s pads by bytes, but the Unicode "…" prefix is 3 bytes / 1
+			// column — pad by rune count to keep column alignment.
+			row.WriteString(uuidDisplay)
+			if pad := colWidthUUID - runeLen(uuidDisplay); pad > 0 {
+				row.WriteString(strings.Repeat(" ", pad))
+			}
 		}
 		if verbose {
 			row.WriteString(gap)
@@ -336,15 +341,43 @@ func FormatTokens(n int) string {
 	return string(buf)
 }
 
-// truncateUUID truncates a UUID for display. Shows first 8 hex chars + "...".
-func truncateUUID(uuid string, maxWidth int) string {
+// truncateUUID renders a UUID for the ps table UUID column via ShortUUID
+// (suffix short form). An empty UUID renders as an em dash placeholder.
+func truncateUUID(uuid string) string {
 	if uuid == "" {
 		return "—"
 	}
-	if len(uuid) <= maxWidth {
+	return ShortUUID(uuid)
+}
+
+// ShortUUID returns the global short display identifier for a UUID: an
+// ellipsis prefix ("…", or "~" when RNIX_ASCII=1) followed by the LAST 6
+// runes.
+//
+// Suffix rather than prefix: process UUIDs are UUIDv7 (time-ordered), so
+// processes created in the same time window share nearly identical leading
+// characters (the timestamp half) and a prefix has no distinguishing power.
+// The random entropy concentrates in the tail, making the last 6 characters
+// highly distinctive.
+//
+// Inputs shorter than 6 runes (including "") are returned unchanged so
+// callers' existing empty/short-value handling stays in effect. Rune-based
+// slicing keeps the result valid UTF-8 even for dirty multi-byte data.
+//
+// Width invariant: the result always renders 7 columns for canonical UUIDs.
+// U+2026 "…" is East-Asian-Ambiguous — in CJK locales runewidth resolves it
+// to 2 columns, which would silently break every fixed-width table column
+// sized for 7 — so those environments fall back to the ASCII "~" marker.
+func ShortUUID(uuid string) string {
+	r := []rune(uuid)
+	if len(r) < 6 {
 		return uuid
 	}
-	return uuid[:8] + "..."
+	tail := string(r[len(r)-6:])
+	if IsASCIIMode() || runewidth.RuneWidth('…') != 1 {
+		return "~" + tail
+	}
+	return "…" + tail
 }
 
 // StripAnsi removes ANSI escape sequences from a string to calculate visible width.
@@ -367,38 +400,72 @@ func StripAnsi(s string) string {
 	return out.String()
 }
 
-// FormatRelativeTime formats a time as a relative duration string like "3s ago", "2m ago".
+// nowFunc returns the current time. Package-level indirection so tests can
+// inject a fixed "now" for the date-aware formatting helpers below.
+var nowFunc = time.Now
+
+// FormatRelativeTime formats a time as a relative duration string like
+// "3s ago", "2m ago", "5h ago", "2d ago".
 func FormatRelativeTime(t time.Time) string {
 	if t.IsZero() {
 		return "-"
 	}
-	d := time.Since(t)
+	d := nowFunc().Sub(t)
 	switch {
 	case d < time.Minute:
 		return fmt.Sprintf("%ds ago", max(int(d.Seconds()), 0))
 	case d < time.Hour:
 		return fmt.Sprintf("%dm ago", int(d.Minutes()))
-	default:
+	case d < 24*time.Hour:
 		return fmt.Sprintf("%dh ago", int(d.Hours()))
+	default:
+		return fmt.Sprintf("%dd ago", int(d.Hours()/24))
 	}
 }
 
-// FormatWallClock formats a time as HH:MM:SS for dashboard display.
-// Returns "—" for zero time.
+// formatWallClockIn renders t with the date-aware layout: same calendar day
+// as now → time only (zero noise on the high-frequency today view); same
+// year but a different day → "01-02 " date prefix; different year → full
+// "2006-01-02 " prefix.
+//
+// t is normalized to now's location BEFORE the calendar-day comparison and
+// the rendering — comparing t.Date() in t's own zone against now.Date() in
+// the local zone would misjudge "today" near midnight for non-local inputs
+// (e.g. a UTC-parsed timestamp on a UTC+8 host), and would print a clock
+// the user can't correlate with their wall time.
+func formatWallClockIn(t time.Time, timeLayout string) string {
+	now := nowFunc()
+	t = t.In(now.Location())
+	ty, tm, td := t.Date()
+	ny, nm, nd := now.Date()
+	switch {
+	case ty == ny && tm == nm && td == nd:
+		return t.Format(timeLayout)
+	case ty == ny:
+		return t.Format("01-02 " + timeLayout)
+	default:
+		return t.Format("2006-01-02 " + timeLayout)
+	}
+}
+
+// FormatWallClock formats a time for dashboard display: "15:04:05" for
+// today, "01-02 15:04:05" for another day this year, "2006-01-02 15:04:05"
+// across years. Returns "—" for zero time.
 func FormatWallClock(t time.Time) string {
 	if t.IsZero() {
 		return "—"
 	}
-	return t.Format("15:04:05")
+	return formatWallClockIn(t, "15:04:05")
 }
 
-// FormatWallClockShort formats a time as HH:MM for narrow dashboard display.
-// Returns "—" for zero time.
+// FormatWallClockShort formats a time for narrow dashboard display:
+// "15:04" for today, "01-02 15:04" for another day this year,
+// "2006-01-02 15:04" across years. Returns "—" for zero time.
 func FormatWallClockShort(t time.Time) string {
 	if t.IsZero() {
 		return "—"
 	}
-	return t.Format("15:04")
+	return formatWallClockIn(t, "15:04")
 }
 
 // FormatOffsetFromStart formats a duration offset from process start

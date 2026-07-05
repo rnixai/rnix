@@ -1214,11 +1214,7 @@ func (m dashboardModel) handlePIDChange() (dashboardModel, tea.Cmd) {
 	if m.selectedPID > 0 {
 		m.statusMsg = fmt.Sprintf("Switched to PID %d, fetching steps...", m.selectedPID)
 	} else {
-		uuidLabel := m.selectedUUID
-		if len(uuidLabel) > 8 {
-			uuidLabel = uuidLabel[:8]
-		}
-		m.statusMsg = fmt.Sprintf("Switched to %s, fetching steps...", uuidLabel)
+		m.statusMsg = fmt.Sprintf("Switched to %s, fetching steps...", ui.ShortUUID(m.selectedUUID))
 	}
 	m.statusMsgTTL = statusMsgDefaultTTL
 

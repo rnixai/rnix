@@ -18,6 +18,7 @@ import (
 	"time"
 
 	"github.com/rnixai/rnix/internal/types"
+	"github.com/rnixai/rnix/internal/ui"
 	"github.com/rnixai/rnix/vfs"
 )
 
@@ -365,16 +366,13 @@ func BuildProcessTree(procs []vfs.ProcInfo, sortMode int, asc bool) []*TreeNode 
 			roots = append(roots, children[0])
 			continue
 		}
-		uuidShort := parentUUID
-		if len(uuidShort) > 8 {
-			uuidShort = uuidShort[:8]
-		}
 		synthetic := &TreeNode{
 			Proc: vfs.ProcInfo{
 				PID:    children[0].Proc.PPID,
 				UUID:   parentUUID,
 				State:  types.StateDead,
-				Intent: fmt.Sprintf("[missing parent %s…]", uuidShort),
+				// ui.ShortUUID 自带 `…`/`~` 省略前缀，标签不再追加省略号。
+				Intent: fmt.Sprintf("[missing parent %s]", ui.ShortUUID(parentUUID)),
 			},
 			Children: children,
 		}

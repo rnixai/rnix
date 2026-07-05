@@ -649,14 +649,11 @@ func forkProcessHandler(_ tea.KeyPressMsg, ctx ui.KeyContext) (bool, ui.KeyConte
 	return true, m, forkProcessCmd(m.selectedUUID)
 }
 
-// shortUUIDForStatus returns the first 8 chars of a UUID for status display.
-// Story 42.3 stub helper — dashboard-wide CJK-safe truncation already in
-// detail.TruncateUUID; this thin wrapper keeps cmd/rnix package self-contained.
+// shortUUIDForStatus returns the short suffix form of a UUID ("…xxxxxx") for
+// status display. Thin wrapper over ui.ShortUUID keeping the cmd/rnix call
+// sites self-contained (Story 42.3 helper, migrated to suffix form).
 func shortUUIDForStatus(uuid string) string {
-	if len(uuid) > 8 {
-		return uuid[:8]
-	}
-	return uuid
+	return ui.ShortUUID(uuid)
 }
 
 // timelineFilterHandler — Timeline filter mode 入口（M2：viewDefault + viewExpanded 共享）

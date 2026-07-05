@@ -93,11 +93,7 @@ func (m dashboardModel) renderDashboardStatus() string {
 		if m.selectedPID > 0 {
 			hints += status.RenderDescStyle(fmt.Sprintf("  (PID %d)", m.selectedPID))
 		} else if m.selectedUUID != "" {
-			uuidLabel := m.selectedUUID
-			if len(uuidLabel) > 8 {
-				uuidLabel = uuidLabel[:8]
-			}
-			hints += status.RenderDescStyle(fmt.Sprintf("  (%s)", uuidLabel))
+			hints += status.RenderDescStyle(fmt.Sprintf("  (%s)", ui.ShortUUID(m.selectedUUID)))
 		}
 	}
 

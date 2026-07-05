@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/rnixai/rnix/internal/ui"
@@ -71,14 +72,18 @@ func runHeartbeatStatus(cmd *cobra.Command, args []string) error {
 		fmt.Fprintln(w, "\nCurrent Stalled Processes:")
 		fmt.Fprintf(w, "  %-6s %-14s %-8s %-12s %-12s %s\n", "PID", "UUID", "STALLS", "HB GAP", "DETECTED", "ACTION")
 		for _, sp := range status.CurrentStalled {
-			uuidShort := sp.UUID
-			if len(uuidShort) > 12 {
-				uuidShort = uuidShort[:12] + "..."
+			uuidShort := ui.ShortUUID(sp.UUID)
+			// %-14s pads by bytes, but the "…" prefix is 3 bytes / 1 display
+			// column — pad by display width (runewidth) to keep the column
+			// aligned with the %-14s header above.
+			uuidCol := uuidShort
+			if pad := 14 - ui.DisplayWidth(uuidShort); pad > 0 {
+				uuidCol += strings.Repeat(" ", pad)
 			}
 			gap := time.Duration(sp.HeartbeatGapMs) * time.Millisecond
 			detected := time.Duration(sp.StalledDurationMs) * time.Millisecond
-			fmt.Fprintf(w, "  %-6d %-14s %-8d %-12s %-12s %s\n",
-				sp.PID, uuidShort, sp.ConsecutiveStalls, gap.Round(time.Second), detected.Round(time.Second), sp.LastAction)
+			fmt.Fprintf(w, "  %-6d %s %-8d %-12s %-12s %s\n",
+				sp.PID, uuidCol, sp.ConsecutiveStalls, gap.Round(time.Second), detected.Round(time.Second), sp.LastAction)
 		}
 	}
 

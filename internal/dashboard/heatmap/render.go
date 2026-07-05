@@ -53,11 +53,7 @@ func Render(state HeatmapState, ctx RenderContext, innerW, innerH int) string {
 		if ctx.SelectedPID > 0 {
 			fmt.Fprintf(&b, " | PID %d", ctx.SelectedPID)
 		} else {
-			uuidLabel := ctx.SelectedUUID
-			if len(uuidLabel) > 8 {
-				uuidLabel = uuidLabel[:8]
-			}
-			fmt.Fprintf(&b, " | %s", uuidLabel)
+			fmt.Fprintf(&b, " | %s", ui.ShortUUID(ctx.SelectedUUID))
 		}
 		pct := 0
 		if state.Profile.ContextBudget > 0 {

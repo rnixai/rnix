@@ -6,6 +6,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/mattn/go-runewidth"
+
 	"github.com/rnixai/rnix/internal/types"
 	"github.com/rnixai/rnix/vfs"
 )
@@ -539,4 +541,161 @@ func TestRenderProcessTable_ExitColumn(t *testing.T) {
 			t.Errorf("default (non-verbose) table should not show exit reason:\n%s", out)
 		}
 	})
+}
+
+// --- ShortUUID (suffix short identifier) ---
+
+func TestShortUUID(t *testing.T) {
+	uuid := "019534a1-7c6b-7000-8abc-123456789012"
+	// The prefix depends on the runewidth environment: "…" (1-col) in
+	// non-EastAsian locales, "~" (1-col) in EastAsian locales where "…"
+	// renders as 2 columns. Tests must be portable across both.
+	pfx := "…"
+	if runewidth.RuneWidth('…') != 1 {
+		pfx = "~"
+	}
+
+	t.Run("normal UUID → prefix + last 6", func(t *testing.T) {
+		want := pfx + "789012"
+		if got := ShortUUID(uuid); got != want {
+			t.Errorf("ShortUUID(%q) = %q, want %q", uuid, got, want)
+		}
+	})
+
+	t.Run("empty string returned unchanged", func(t *testing.T) {
+		if got := ShortUUID(""); got != "" {
+			t.Errorf("ShortUUID(\"\") = %q, want \"\"", got)
+		}
+	})
+
+	t.Run("shorter than 6 runes returned unchanged", func(t *testing.T) {
+		if got := ShortUUID("u1"); got != "u1" {
+			t.Errorf("ShortUUID(\"u1\") = %q, want \"u1\"", got)
+		}
+	})
+
+	t.Run("exactly 6 runes gets prefix", func(t *testing.T) {
+		want := pfx + "abcdef"
+		if got := ShortUUID("abcdef"); got != want {
+			t.Errorf("ShortUUID(\"abcdef\") = %q, want %q", got, want)
+		}
+	})
+
+	t.Run("multi-byte input is rune-safe", func(t *testing.T) {
+		want := pfx + "字漢字漢字漢"
+		if got := ShortUUID("漢字漢字漢字漢"); got != want {
+			t.Errorf("ShortUUID CJK = %q, want %q", got, want)
+		}
+	})
+
+	t.Run("ASCII mode uses tilde prefix", func(t *testing.T) {
+		t.Setenv("RNIX_ASCII", "1")
+		if got := ShortUUID(uuid); got != "~789012" {
+			t.Errorf("ShortUUID ASCII = %q, want %q", got, "~789012")
+		}
+	})
+}
+
+// --- Date-aware wall-clock formatting (nowFunc injection) ---
+
+// withFixedNow installs a fixed "now" for the duration of the test.
+func withFixedNow(t *testing.T, now time.Time) {
+	t.Helper()
+	old := nowFunc
+	nowFunc = func() time.Time { return now }
+	t.Cleanup(func() { nowFunc = old })
+}
+
+func TestFormatWallClock_DateAware(t *testing.T) {
+	now := time.Date(2026, 7, 4, 12, 0, 0, 0, time.Local)
+	withFixedNow(t, now)
+
+	tests := []struct {
+		name string
+		t    time.Time
+		want string
+	}{
+		{"zero time", time.Time{}, "—"},
+		{"today → time only (byte-identical to before)",
+			time.Date(2026, 7, 4, 9, 5, 7, 0, time.Local), "09:05:07"},
+		{"cross-day same year → MM-DD prefix",
+			time.Date(2026, 7, 3, 15, 4, 5, 0, time.Local), "07-03 15:04:05"},
+		{"cross-year → full date prefix",
+			time.Date(2025, 12, 31, 15, 4, 5, 0, time.Local), "2025-12-31 15:04:05"},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := FormatWallClock(tc.t); got != tc.want {
+				t.Errorf("FormatWallClock(%v) = %q, want %q", tc.t, got, tc.want)
+			}
+		})
+	}
+}
+
+func TestFormatWallClockShort_DateAware(t *testing.T) {
+	now := time.Date(2026, 7, 4, 12, 0, 0, 0, time.Local)
+	withFixedNow(t, now)
+
+	tests := []struct {
+		name string
+		t    time.Time
+		want string
+	}{
+		{"zero time", time.Time{}, "—"},
+		{"today → time only (byte-identical to before)",
+			time.Date(2026, 7, 4, 9, 5, 7, 0, time.Local), "09:05"},
+		{"cross-day same year → MM-DD prefix",
+			time.Date(2026, 7, 3, 15, 4, 5, 0, time.Local), "07-03 15:04"},
+		{"cross-year → full date prefix",
+			time.Date(2025, 12, 31, 15, 4, 5, 0, time.Local), "2025-12-31 15:04"},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := FormatWallClockShort(tc.t); got != tc.want {
+				t.Errorf("FormatWallClockShort(%v) = %q, want %q", tc.t, got, tc.want)
+			}
+		})
+	}
+}
+
+func TestFormatWallClock_MidnightBoundary(t *testing.T) {
+	// 23:59 vs next-day 00:01 — natural-day comparison, not a 24h window.
+	now := time.Date(2026, 7, 4, 0, 1, 0, 0, time.Local)
+	withFixedNow(t, now)
+
+	created := time.Date(2026, 7, 3, 23, 59, 0, 0, time.Local)
+	if got := FormatWallClock(created); got != "07-03 23:59:00" {
+		t.Errorf("FormatWallClock 2min ago across midnight = %q, want %q", got, "07-03 23:59:00")
+	}
+	if got := FormatWallClockShort(created); got != "07-03 23:59" {
+		t.Errorf("FormatWallClockShort 2min ago across midnight = %q, want %q", got, "07-03 23:59")
+	}
+
+	// Same day, even at the day's edge → time only.
+	sameDay := time.Date(2026, 7, 4, 0, 0, 30, 0, time.Local)
+	if got := FormatWallClock(sameDay); got != "00:00:30" {
+		t.Errorf("FormatWallClock same-day edge = %q, want %q", got, "00:00:30")
+	}
+}
+
+func TestFormatRelativeTime_DayUnits(t *testing.T) {
+	now := time.Date(2026, 7, 4, 12, 0, 0, 0, time.Local)
+	withFixedNow(t, now)
+
+	tests := []struct {
+		name string
+		ago  time.Duration
+		want string
+	}{
+		{"23h stays hour unit", 23 * time.Hour, "23h ago"},
+		{"49h → 2d ago", 49 * time.Hour, "2d ago"},
+		{"25h → 1d ago", 25 * time.Hour, "1d ago"},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := FormatRelativeTime(now.Add(-tc.ago)); got != tc.want {
+				t.Errorf("FormatRelativeTime(-%v) = %q, want %q", tc.ago, got, tc.want)
+			}
+		})
+	}
 }

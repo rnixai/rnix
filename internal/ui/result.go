@@ -56,7 +56,13 @@ func RenderResult(r *Renderer, title string, content string) {
 	}
 }
 
-// runeLen returns the display width of a string, accounting for double-width CJK characters.
-func runeLen(s string) int {
+// DisplayWidth returns the terminal display width of a string, accounting
+// for double-width CJK characters via go-runewidth.
+func DisplayWidth(s string) int {
 	return runewidth.StringWidth(s)
+}
+
+// runeLen is a package-internal alias for DisplayWidth.
+func runeLen(s string) int {
+	return DisplayWidth(s)
 }

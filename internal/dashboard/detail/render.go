@@ -19,7 +19,6 @@ package detail
 
 import (
 	"fmt"
-	"os"
 	"strings"
 	"time"
 
@@ -72,11 +71,7 @@ func Render(state DetailState, ctx RenderContext, innerW int) string {
 	if ctx.SelectedPID > 0 {
 		fmt.Fprintf(&b, " | PID %d", ctx.SelectedPID)
 	} else if ctx.SelectedUUID != "" {
-		uuidLabel := ctx.SelectedUUID
-		if len(uuidLabel) > 8 {
-			uuidLabel = uuidLabel[:8]
-		}
-		fmt.Fprintf(&b, " | %s", uuidLabel)
+		fmt.Fprintf(&b, " | %s", ui.ShortUUID(ctx.SelectedUUID))
 	}
 	b.WriteString("\n")
 
@@ -226,18 +221,14 @@ func renderLineageSection(b *strings.Builder, uuid, originUUID string, resumedFr
 		}
 	}
 	if n := len(descendants); n > 0 {
-		// 渲染 "Forked: N descendants" 一行；后面再列出最多 3 个短哈希作为参考。
-		// 12 字符短哈希在 UUIDv7 同秒生成场景下比 8 字符识别度更高（前 8 hex 为时间戳上半段，
-		// 同一秒内的进程容易冲突；扩到 12 字符引入随机段，显著降低视觉混淆）。
+		// 渲染 "Forked: N descendants" 一行；后面再列出最多 3 个短标识作为参考。
+		// 短标识取 UUID **末 6 位**（ui.ShortUUID）：UUIDv7 前缀是时间戳，
+		// 同一时段生成的进程前缀几乎全相同，无区分度；随机熵集中在尾部。
 		fmt.Fprintf(b, "    Forked: %d descendants", n)
 		if n <= 3 {
 			hashes := make([]string, 0, n)
 			for _, dst := range descendants {
-				short := dst
-				if len(short) > 12 {
-					short = short[:12]
-				}
-				hashes = append(hashes, short)
+				hashes = append(hashes, ui.ShortUUID(dst))
 			}
 			fmt.Fprintf(b, " (%s)", strings.Join(hashes, ", "))
 		}
@@ -357,14 +348,14 @@ func renderStallSection(b *strings.Builder, selectedPID types.PID, selectedUUID 
 	filled = min(filled, barWidth)
 
 	filledChar, unfilledChar := "█", "░"
-	if asciiMode() {
+	if ui.IsASCIIMode() {
 		filledChar, unfilledChar = "#", "-"
 	}
 
 	filledStr := strings.Repeat(filledChar, filled)
 	unfilledStr := strings.Repeat(unfilledChar, barWidth-filled)
 
-	if !asciiMode() {
+	if !ui.IsASCIIMode() {
 		// Color gradient (Decision D3): reuse project palette ColorWarning
 		// (yellow) for warn / cancel_step levels, ColorError (red) for the
 		// "would suspend" terminal level. Bold acts as the visual transition
@@ -393,25 +384,22 @@ func renderStallSection(b *strings.Builder, selectedPID types.PID, selectedUUID 
 // to ASCII '----' marks; otherwise uses the Unicode box-drawing '────' used by
 // the rest of the Detail card.
 func divider(label string) string {
-	if asciiMode() {
+	if ui.IsASCIIMode() {
 		return "  ---- " + label + " ----"
 	}
 	return "  ──── " + label + " ────"
 }
 
-func asciiMode() bool {
-	return os.Getenv("RNIX_ASCII") == "1"
-}
-
-// TruncateUUID returns the first 8 characters of a UUID string for display.
+// TruncateUUID returns the short suffix display form of a UUID — "…xxxxxx"
+// (last 6 runes; "~xxxxxx" when RNIX_ASCII=1). Thin delegate to ui.ShortUUID;
+// strings shorter than 6 runes are returned unchanged.
 //
-// Migrated from cmd/rnix/dashboard_detail.go::truncateUUID (Story 38-5 PR11
-// Step 4(c)). Public so other dashboard sub-packages can reuse if needed.
+// Historically returned the first 8 characters; migrated to the suffix form
+// because UUIDv7 prefixes carry the timestamp and collide within the same
+// time window (see ui.ShortUUID godoc). Kept exported so other dashboard
+// sub-packages can reuse.
 func TruncateUUID(s string) string {
-	if len(s) > 8 {
-		return s[:8]
-	}
-	return s
+	return ui.ShortUUID(s)
 }
 
 // TruncateStr truncates a string to maxLen runes (UTF-8 safe), appending "..."

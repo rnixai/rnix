@@ -287,11 +287,7 @@ func RenderUnifiedStepHeader(ctx HeaderContext, maxW, totalSteps, filteredCount,
 	if ctx.SelectedPID > 0 {
 		fmt.Fprintf(&b, " │ PID %d", ctx.SelectedPID)
 	} else if ctx.SelectedUUID != "" {
-		uuidLabel := ctx.SelectedUUID
-		if len(uuidLabel) > 8 {
-			uuidLabel = uuidLabel[:8]
-		}
-		fmt.Fprintf(&b, " │ %s", uuidLabel)
+		fmt.Fprintf(&b, " │ %s", ui.ShortUUID(ctx.SelectedUUID))
 	}
 	// Wall-clock start time for selected process
 	for _, p := range ctx.Processes {

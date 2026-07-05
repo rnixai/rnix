@@ -117,10 +117,7 @@ type cliCallbacks struct {
 }
 
 func (c *cliCallbacks) OnSpawn(pid types.PID, intent, provider, model, procUUID string) {
-	uuidShort := procUUID
-	if len(uuidShort) > 12 {
-		uuidShort = uuidShort[:12] + "..."
-	}
+	uuidShort := ui.ShortUUID(procUUID)
 	if provider != "" && model != "" {
 		c.progress.KernelMessage("spawning PID %d (uuid: %s, %s/%s)...", pid, uuidShort, provider, model)
 	} else if provider != "" {
@@ -672,10 +669,7 @@ func runRoot(cmd *cobra.Command, args []string) error {
 			spawnProvider = pp.Provider
 			spawnModel = pp.Model
 			spawnEffort = pp.ReasoningEffort
-			uuidShort := pp.UUID
-			if len(uuidShort) > 12 {
-				uuidShort = uuidShort[:12] + "..."
-			}
+			uuidShort := ui.ShortUUID(pp.UUID)
 			effortSuffix := ""
 			if pp.ReasoningEffort != "" {
 				effortSuffix = ", effort: " + pp.ReasoningEffort

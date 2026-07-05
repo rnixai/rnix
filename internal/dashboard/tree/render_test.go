@@ -14,9 +14,20 @@ import (
 	"testing"
 	"time"
 
+	"github.com/mattn/go-runewidth"
+
 	"github.com/rnixai/rnix/internal/types"
 	"github.com/rnixai/rnix/vfs"
 )
+
+// uuidPrefix returns the short-UUID prefix that ShortUUIDSuffix (via
+// ui.ShortUUID) produces in the current runewidth environment.
+func uuidPrefix() string {
+	if runewidth.RuneWidth('…') != 1 {
+		return "~"
+	}
+	return "…"
+}
 
 func makeRenderCtx(now time.Time) RenderContext {
 	return RenderContext{
@@ -261,11 +272,12 @@ func renderSingleRow(t *testing.T, p vfs.ProcInfo, reused map[types.PID]int) str
 // 空/短 UUID 返回 ""（调用方回退纯 PID）。
 func TestShortUUIDSuffix_Cases(t *testing.T) {
 	t.Setenv("RNIX_ASCII", "0")
-	if got := ShortUUIDSuffix("019f2d24-1111-7000-8000-0000008f3a2c"); got != "…8f3a2c" {
-		t.Errorf("ShortUUIDSuffix(full uuid) = %q, want %q", got, "…8f3a2c")
+	pfx := uuidPrefix()
+	if got := ShortUUIDSuffix("019f2d24-1111-7000-8000-0000008f3a2c"); got != pfx+"8f3a2c" {
+		t.Errorf("ShortUUIDSuffix(full uuid) = %q, want %q", got, pfx+"8f3a2c")
 	}
-	if got := ShortUUIDSuffix("abcdef"); got != "…abcdef" {
-		t.Errorf("ShortUUIDSuffix(len==6) = %q, want %q", got, "…abcdef")
+	if got := ShortUUIDSuffix("abcdef"); got != pfx+"abcdef" {
+		t.Errorf("ShortUUIDSuffix(len==6) = %q, want %q", got, pfx+"abcdef")
 	}
 	if got := ShortUUIDSuffix(""); got != "" {
 		t.Errorf("ShortUUIDSuffix(empty) = %q, want \"\"", got)
@@ -283,41 +295,41 @@ func TestShortUUIDSuffix_Cases(t *testing.T) {
 // UUID 末 6 位短标识（…8f3a2c），且不再出现误导性的 "0(" 形态。
 func TestRender_HistoricalPIDZero_ShowsUUIDSuffix(t *testing.T) {
 	t.Setenv("RNIX_ASCII", "0")
+	pfx := uuidPrefix()
 	created := time.Date(2026, 7, 4, 9, 0, 0, 0, time.UTC)
 	p := vfs.ProcInfo{
 		PID: 0, UUID: "019f2d24-1111-7000-8000-0000008f3a2c",
 		State: types.StateDead, Intent: "historical", Result: "done",
 		CreatedAt: created, DeadAt: created.Add(3 * time.Second),
 	}
-	// 历史进程 PID=0 计数 ≥2 即命中 ReusedPIDs（helper 行为保留）——
-	// 渲染层必须优先走 PID=0 分支，不受复用分支影响。
 	line := renderSingleRow(t, p, map[types.PID]int{0: 2})
-	if !strings.Contains(line, "…8f3a2c") {
-		t.Errorf("historical row should contain UUID suffix …8f3a2c, got %q", line)
+	want := pfx + "8f3a2c"
+	if !strings.Contains(line, want) {
+		t.Errorf("historical row should contain UUID suffix %s, got %q", want, line)
 	}
 	if strings.Contains(line, "0(") {
 		t.Errorf("historical row must not contain misleading \"0(\" form, got %q", line)
 	}
 }
 
-// TestRender_ReusedPID_ShowsPIDWithUUIDSuffix 验证活跃进程 PID 被复用时显示
-// "42(…xxxxxx)" 消歧形态。
 func TestRender_ReusedPID_ShowsPIDWithUUIDSuffix(t *testing.T) {
 	t.Setenv("RNIX_ASCII", "0")
+	pfx := uuidPrefix()
 	created := time.Date(2026, 7, 4, 9, 0, 0, 0, time.UTC)
 	p := vfs.ProcInfo{
 		PID: 42, UUID: "019f2d24-2222-7000-8000-0000aa77cc99",
 		State: types.StateRunning, Intent: "active reused", CreatedAt: created,
 	}
 	line := renderSingleRow(t, p, map[types.PID]int{42: 2})
-	if !strings.Contains(line, "42(…77cc99)") {
-		t.Errorf("reused-PID row should contain \"42(…77cc99)\", got %q", line)
+	want := "42(" + pfx + "77cc99)"
+	if !strings.Contains(line, want) {
+		t.Errorf("reused-PID row should contain %q, got %q", want, line)
 	}
 }
 
-// TestRender_UniquePID_PlainDigits 验证活跃唯一 PID 仅显示纯数字（无短标识、无括号）。
 func TestRender_UniquePID_PlainDigits(t *testing.T) {
 	t.Setenv("RNIX_ASCII", "0")
+	pfx := uuidPrefix()
 	created := time.Date(2026, 7, 4, 9, 0, 0, 0, time.UTC)
 	p := vfs.ProcInfo{
 		PID: 17, UUID: "019f2d24-3333-7000-8000-0000deadbeef",
@@ -330,7 +342,7 @@ func TestRender_UniquePID_PlainDigits(t *testing.T) {
 	if strings.Contains(line, "(") {
 		t.Errorf("unique-PID row should not contain parenthesized suffix, got %q", line)
 	}
-	if strings.Contains(line, "…deadbe") || strings.Contains(line, "…adbeef") {
+	if strings.Contains(line, pfx+"deadbe") || strings.Contains(line, pfx+"adbeef") {
 		t.Errorf("unique-PID row should not contain UUID short suffix, got %q", line)
 	}
 }

@@ -53,22 +53,16 @@ var SortDirLabelsASCII = [3][2]string{
 // ShortUUIDSuffix 返回进程 UUID 的短标识：**末 6 位** + 省略前缀
 // （Unicode 模式 `…`，ASCII 模式 RNIX_ASCII=1 时 `~`）。
 //
-// 为何取后缀而非前缀：UUID 是 v7（时间有序），同一时段生成的进程前 6-8 位几乎
-// 全相同（如都以 `019f2e` 开头），前缀无区分度；随机熵集中在尾部，末 6 位即有
-// 高区分度。用于 Tree pane 标识列显示历史进程（PID=0）与 PID 复用消歧。
-//
-// UUID 为空或不足 6 个字符（按 rune 计——防御脏数据中的多字节字符，避免按
-// byte 切片截断出非法 UTF-8）时返回 ""，调用方回退为纯 PID 数字显示。
+// 薄委托 ui.ShortUUID（全局单一权威实现，为何取后缀而非前缀见其 godoc），
+// 仅额外保留本包契约：UUID 为空或不足 6 个字符（按 rune 计——防御脏数据中的
+// 多字节字符）时返回 ""，调用方（render pidPart）回退为纯 PID 数字显示。
+// 注意 ui.ShortUUID 对 <6 rune 输入是**原样返回**，与本契约不同，故守卫留在
+// 本层。
 func ShortUUIDSuffix(uuid string) string {
-	r := []rune(uuid)
-	if len(r) < 6 {
+	if len([]rune(uuid)) < 6 {
 		return ""
 	}
-	tail := string(r[len(r)-6:])
-	if ui.IsASCIIMode() {
-		return "~" + tail
-	}
-	return "…" + tail
+	return ui.ShortUUID(uuid)
 }
 
 // RenderContext 是 Render 调用时需要的运行时上下文。

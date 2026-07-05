@@ -109,10 +109,7 @@ func runApply(cmd *cobra.Command, args []string) error {
 			spawnModel = pp.Model
 			spawnEffort = pp.ReasoningEffort
 			spawnUUID = pp.UUID
-			uuidShort := pp.UUID
-			if len(uuidShort) > 12 {
-				uuidShort = uuidShort[:12] + "..."
-			}
+			uuidShort := ui.ShortUUID(pp.UUID)
 			effortSuffix := ""
 			if pp.ReasoningEffort != "" {
 				effortSuffix = ", effort: " + pp.ReasoningEffort

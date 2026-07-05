@@ -64,10 +64,10 @@ func TestATDD_28_1_AC4_ShowUUID_True_ContainsUUIDValues(t *testing.T) {
 	RenderProcessTable(r, atddSampleProcsWithUUID(), false, true)
 	out := buf.String()
 
-	// UUID may be truncated (first 8 chars + ...), or full — check for prefix
-	prefix1 := atddTestUUID1[:8]
-	if !strings.Contains(out, prefix1) {
-		t.Fatalf("AC-4: output should contain UUID prefix %q, got:\n%s", prefix1, out)
+	// UUID renders in short suffix form: "…" + last 6 chars — check the tail.
+	suffix1 := atddTestUUID1[len(atddTestUUID1)-6:]
+	if !strings.Contains(out, suffix1) {
+		t.Fatalf("AC-4: output should contain UUID suffix %q, got:\n%s", suffix1, out)
 	}
 }
 
@@ -94,8 +94,8 @@ func TestATDD_28_1_AC4_ShowUUID_False_NoUUIDValues(t *testing.T) {
 	RenderProcessTable(r, atddSampleProcsWithUUID(), false, false)
 	out := buf.String()
 
-	prefix1 := atddTestUUID1[:8]
-	if strings.Contains(out, prefix1) {
+	suffix1 := atddTestUUID1[len(atddTestUUID1)-6:]
+	if strings.Contains(out, suffix1) {
 		t.Fatalf("AC-4: output should NOT contain UUID values when showUUID=false, got:\n%s", out)
 	}
 }

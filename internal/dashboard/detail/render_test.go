@@ -12,6 +12,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/mattn/go-runewidth"
+
 	"github.com/rnixai/rnix/internal/types"
 	"github.com/rnixai/rnix/ipc"
 )
@@ -220,23 +222,34 @@ func TestRender_AllowedDevices(t *testing.T) {
 // --- TruncateUUID / TruncateStr helpers ---
 
 func TestTruncateUUID_LongString(t *testing.T) {
+	pfx := "…"
+	if runewidth.RuneWidth('…') != 1 {
+		pfx = "~"
+	}
 	got := TruncateUUID("0123456789abcdef")
-	if got != "01234567" {
-		t.Errorf("expected first 8 chars, got %q", got)
+	want := pfx + "abcdef"
+	if got != want {
+		t.Errorf("expected suffix short form %s, got %q", want, got)
 	}
 }
 
 func TestTruncateUUID_ShortString(t *testing.T) {
-	got := TruncateUUID("short")
-	if got != "short" {
+	// <6 runes: returned unchanged (ui.ShortUUID contract).
+	got := TruncateUUID("shor")
+	if got != "shor" {
 		t.Errorf("short string should be returned unchanged, got %q", got)
 	}
 }
 
 func TestTruncateUUID_Exactly8(t *testing.T) {
+	pfx := "…"
+	if runewidth.RuneWidth('…') != 1 {
+		pfx = "~"
+	}
 	got := TruncateUUID("12345678")
-	if got != "12345678" {
-		t.Errorf("8-char string should be returned unchanged, got %q", got)
+	want := pfx + "345678"
+	if got != want {
+		t.Errorf("8-char string should render as suffix short form, got %q", got)
 	}
 }
 
