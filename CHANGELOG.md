@@ -7,6 +7,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.11.0] - 2026-07-06
+
+Theme: **CLI Driver Reliability & Shell-Channel Orchestration (Epics 61–63)** — orchestration exit codes now reflect real failures instead of incidental tool errors, the Codex driver's sandbox can be configured explicitly, and processes spawned from outside the daemon can attach correctly to the process tree and be waited on synchronously.
+
+### Added
+
+- **`rnix wait <pid>`**: blocks until a process reaches a terminal state and propagates its exit code, with a `--timeout` flag (exits with code 124 on timeout) and `--json` output. Already-finished processes return immediately from history.
+- **`--parent <pid>` spawn option** (also settable via `RNIX_PARENT_PID`): lets a process spawned from outside a running Rnix process attach to the correct place in the process tree, so the Dashboard shows accurate parent/child relationships and spawn-depth limits still apply.
+- **Codex driver `sandbox_mode` setting**: provider configuration now accepts an explicit `read-only` / `workspace-write` / `danger-full-access` sandbox mode for the Codex CLI driver, replacing a previously hardcoded mode that could fail closed in some workspace layouts.
+- **Feature-profile mismatch warning**: the CLI now warns when `RNIX_FEATURE_PROFILE` is set in the environment but ignored by an already-running daemon, making a common misconfiguration visible instead of silent.
+
+### Changed
+
+- **Dashboard identity display**: UUIDs are now shown by their distinguishing trailing characters instead of a shared leading prefix; timestamps show time-only for today and a date prefix for older entries.
+- **Agent Tree ordering**: row order is now fully deterministic, so entries no longer reshuffle between refreshes.
+
+### Fixed
+
+- **Orchestration exit codes**: a process that completes successfully no longer reports a failed exit code merely because of a handled, non-fatal tool error; failure is now driven by genuine child-task failures or repeated tool errors.
+- **Codex stream reliability**: an idle or truncated Codex response stream no longer reports a false success with no output.
+- **Transport timeout retries**: connection and handshake timeouts against LLM endpoints are now retried instead of immediately failing the process.
+- **Dashboard Timeline navigation**: keyboard navigation and expand/collapse no longer freeze or jump unpredictably for long-running processes once step aggregation kicks in.
+
 ## [0.10.1] - 2026-06-25
 
 Theme: **Dashboard Monitoring at Scale** — the Dashboard handles large process histories smoothly and reports process health more accurately, building on the observability work in 0.10.0.
