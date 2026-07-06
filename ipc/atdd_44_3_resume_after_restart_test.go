@@ -198,9 +198,14 @@ func TestATDD_44_3_041_ResumeAfterRestart_TriggersSubtreeResume(t *testing.T) {
 	vfsInst := vfs.NewVFS(devReg)
 	ctxMgr := rnixctx.NewManager()
 	kern := kernel.NewKernel(vfsInst, ctxMgr, nil)
-	t.Cleanup(kern.Shutdown)
 
 	_, projBase := kernel.TestSetupDataDir(t, kern)
+	// Register Shutdown after TestSetupDataDir's t.TempDir() so t.Cleanup's
+	// LIFO order stops the kernel's background goroutines (reap + async
+	// proc-info.json persistence) *before* the temp dir is removed. Getting
+	// this backwards races the still-running writer against RemoveAll —
+	// "rename ...: no such file or directory" / "directory not empty".
+	t.Cleanup(kern.Shutdown)
 
 	parentUUID := uuidIPCForTest("par041")
 	childUUID := uuidIPCForTest("chl041")
