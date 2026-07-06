@@ -21,6 +21,7 @@ _bmad/
 
 # Output
 *.out
+/release-notes.md
 
 # Go workspace
 go.work
