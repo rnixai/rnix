@@ -91,15 +91,38 @@ release:
 	@echo "Done! Release v$(VERSION) tagged and built locally."
 	@echo "To publish (push tag → GoReleaser): make publish VERSION=$(VERSION)"
 
-# Push the tag — this is the ONLY publish action. Pushing a `v*` tag triggers
-# the Release workflow (.github/workflows/release.yml), which runs GoReleaser
-# to build cross-platform archives + checksums and create the GitHub release.
+# Push main, then gate on the Test Pipeline (test.yml: 3-shard matrix +
+# coverage gate) before pushing the release tag. release.yml's own
+# "Pre-release Tests" job only runs go test -race once, non-sharded, and by
+# design fires *after* the tag/changelog already exist — it must not be the
+# first time these commits ever see CI. Skipping the main push (as this
+# target used to do) meant Test Pipeline never ran on the released commits
+# at all until the tag push forced the issue at release time (see the
+# v0.11.0 incident: 36 commits sat local-only for 2+ weeks before a tag-only
+# push finally surfaced a pre-existing flaky test in release.yml).
 # Do NOT create the release or upload assets here; GoReleaser owns that.
 # Run after `make release VERSION=x.y.z`.
 publish:
 	@test -n "$(VERSION)" || (echo "ERROR: VERSION is required. Usage: make publish VERSION=0.2.0"; exit 1)
 	@git rev-parse "v$(VERSION)" >/dev/null 2>&1 || (echo "ERROR: tag v$(VERSION) not found. Run 'make release VERSION=$(VERSION)' first."; exit 1)
 	$(MAKE) changelog-check VERSION=$(VERSION)
+	@branch=$$(git rev-parse --abbrev-ref HEAD); \
+	test "$$branch" = "main" || (echo "ERROR: publish must run from main (current branch: $$branch)."; exit 1)
+	@echo "==> Pushing main (so Test Pipeline runs against the release commit)..."
+	git push origin main
+	@echo "==> Waiting for Test Pipeline to start for this commit..."
+	@sha=$$(git rev-parse HEAD); \
+	run_id=""; \
+	for i in $$(seq 1 30); do \
+		run_id=$$($(GH) run list --workflow=test.yml --json headSha,databaseId,event \
+			--jq '.[] | select(.event=="push") | "\(.headSha) \(.databaseId)"' \
+			| awk -v sha="$$sha" '$$1==sha{print $$2; exit}'); \
+		test -n "$$run_id" && break; \
+		sleep 2; \
+	done; \
+	test -n "$$run_id" || (echo "ERROR: no Test Pipeline run found for $$sha after 60s — check GitHub Actions manually before publishing."; exit 1); \
+	echo "==> Watching Test Pipeline run $$run_id (this can take several minutes)..."; \
+	$(GH) run watch "$$run_id" --exit-status || (echo "ERROR: Test Pipeline failed for $$sha — aborting publish. Fix the failure, then re-run 'make release VERSION=$(VERSION)' from scratch (delete the local tag first: git tag -d v$(VERSION))."; exit 1)
 	@echo "==> Pushing tag v$(VERSION) (triggers GoReleaser via GitHub Actions)..."
 	git push origin "v$(VERSION)"
 	@echo ""
