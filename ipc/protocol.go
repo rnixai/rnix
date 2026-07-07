@@ -8,19 +8,31 @@ import (
 	"time"
 
 	"github.com/rnixai/rnix/internal/types"
+	"github.com/rnixai/rnix/ipc/wire"
 	"github.com/rnixai/rnix/kernel"
 	"github.com/rnixai/rnix/vfs"
 )
 
-// Method represents an IPC request method.
-type Method string
+// ProtocolVersion re-exported from wire.
+const ProtocolVersion = wire.ProtocolVersion
 
+// Method is aliased from the pure wire package — single source of truth.
+type Method = wire.Method
+
+// Shared constants re-exported from wire (apex imports these via wire).
 const (
-	MethodPing                   Method = "ping"
-	MethodSpawn                  Method = "spawn"
+	MethodPing         = wire.MethodPing
+	MethodSpawn        = wire.MethodSpawn
+	MethodBudgetStatus = wire.MethodBudgetStatus
+	MethodDaemonStatus = wire.MethodDaemonStatus
+	MethodAttachDebug  = wire.MethodAttachDebug
+	MethodListEvents   = wire.MethodListEvents
+)
+
+// rnix-internal method constants (not in wire, not consumed by apex).
+const (
 	MethodListProcs              Method = "list_procs"
 	MethodKill                   Method = "kill"
-	MethodAttachDebug            Method = "attach_debug"
 	MethodAttachLog              Method = "attach_log"
 	MethodShutdown               Method = "shutdown"
 	MethodSpawnPipeline          Method = "spawn_pipeline"
@@ -42,30 +54,29 @@ const (
 	MethodIntentList             Method = "intent_list"
 	MethodLineage                Method = "lineage"
 	MethodProviderStatus         Method = "provider_status"
-	MethodBudgetStatus           Method = "budget_status"
-	MethodSLAStatus              Method = "sla_status"
-	MethodReputationStatus       Method = "reputation_status"
-	MethodSynergyList            Method = "synergy_list"
-	MethodImmuneStatus           Method = "immune_status"
-	MethodImmuneResume           Method = "immune_resume"
-	MethodSimilarityQuery        Method = "similarity_query"
-	MethodTopologyQuery          Method = "topology_query"
-	MethodGetStepDetail          Method = "get_step_detail"
-	MethodListSteps              Method = "list_steps"
-	MethodListEvents             Method = "list_events"
-	MethodGetRawCapture          Method = "get_raw_capture"
-	MethodGetProcDetail          Method = "get_proc_detail"
-	MethodTraceList              Method = "trace_list"
-	MethodTraceTree              Method = "trace_tree"
-	MethodListAllProcs           Method = "list_all_procs"
-	MethodSuspend                Method = "suspend"
-	MethodResume                 Method = "resume"
-	MethodHeartbeatStatus        Method = "heartbeat_status"
-	MethodCompact                Method = "compact"
-	MethodAnswerUser             Method = "answer_user"
-	MethodSignalTree             Method = "signal_tree"
-	MethodListResumable          Method = "list_resumable"
-	MethodGetResumeLineage       Method = "get_resume_lineage"
+	// MethodBudgetStatus — re-exported from wire above.
+	MethodSLAStatus        Method = "sla_status"
+	MethodReputationStatus Method = "reputation_status"
+	MethodSynergyList      Method = "synergy_list"
+	MethodImmuneStatus     Method = "immune_status"
+	MethodImmuneResume     Method = "immune_resume"
+	MethodSimilarityQuery  Method = "similarity_query"
+	MethodTopologyQuery    Method = "topology_query"
+	MethodGetStepDetail    Method = "get_step_detail"
+	MethodListSteps        Method = "list_steps"
+	MethodGetRawCapture    Method = "get_raw_capture"
+	MethodGetProcDetail    Method = "get_proc_detail"
+	MethodTraceList        Method = "trace_list"
+	MethodTraceTree        Method = "trace_tree"
+	MethodListAllProcs     Method = "list_all_procs"
+	MethodSuspend          Method = "suspend"
+	MethodResume           Method = "resume"
+	MethodHeartbeatStatus  Method = "heartbeat_status"
+	MethodCompact          Method = "compact"
+	MethodAnswerUser       Method = "answer_user"
+	MethodSignalTree       Method = "signal_tree"
+	MethodListResumable    Method = "list_resumable"
+	MethodGetResumeLineage Method = "get_resume_lineage"
 
 	// Story 44.4 — dedicated subtree pause/resume methods. dashboard p/r keys
 	// route through these instead of emitting raw SIGPAUSE/SIGRESUME via
@@ -96,11 +107,7 @@ const (
 	// is touched.
 	MethodMCPReload Method = "mcp_reload"
 
-	// Story 45.1 — daemon build provenance (commit + build_date + pid +
-	// started_at). Distinct from MethodPing (which only returns version) so
-	// downstream consumers can verify which rnix commit the running daemon
-	// was built from without a Ping wire change.
-	MethodDaemonStatus Method = "daemon_status"
+	// MethodDaemonStatus — re-exported from wire above (Story 45.1).
 
 	// Story 63.1 — MethodWait blocks until the target process reaches a
 	// terminal state (Zombie/Dead) and returns its exit code, or returns
@@ -158,24 +165,10 @@ type TraceMetaWire struct {
 	ErrorCount      int   `json:"error_count"`
 }
 
-// Request is the top-level IPC request envelope (NDJSON).
-type Request struct {
-	Method  Method          `json:"method"`
-	Payload json.RawMessage `json:"payload,omitempty"`
-}
-
-// Response is the top-level IPC response envelope (NDJSON).
-type Response struct {
-	OK      bool            `json:"ok"`                // Required. True if the request succeeded.
-	Payload json.RawMessage `json:"payload,omitempty"` // Optional. Contains the method-specific response struct (JSON).
-	Error   *ErrorPayload   `json:"error,omitempty"`   // Optional. Present only when OK is false.
-}
-
-// ErrorPayload carries structured error information across IPC.
-type ErrorPayload struct {
-	Code    string `json:"code"`    // Required. Machine-readable error code (e.g., "not_found", "already_recording").
-	Message string `json:"message"` // Required. Human-readable error description.
-}
+// Request, Response, ErrorPayload — aliased from wire (single source of truth).
+type Request = wire.Request
+type Response = wire.Response
+type ErrorPayload = wire.ErrorPayload
 
 // --- Spawn ---
 
@@ -690,22 +683,22 @@ func LogEntryToWire(e types.LogEntry) LogEntryWire {
 
 // --- Streaming ---
 
-// StreamEvent carries a single event on a streaming IPC connection.
-type StreamEvent struct {
-	Type    StreamEventType `json:"type"`
-	Payload json.RawMessage `json:"payload,omitempty"`
-}
+// StreamEvent, StreamEventType — aliased from wire (single source of truth).
+type StreamEvent = wire.StreamEvent
+type StreamEventType = wire.StreamEventType
 
-// StreamEventType enumerates streaming event types.
-type StreamEventType string
-
+// Core stream event types re-exported from wire.
 const (
-	StreamProgress     StreamEventType = "progress"
-	StreamComplete     StreamEventType = "complete"
-	StreamError        StreamEventType = "error"
-	StreamSyscallEvent StreamEventType = "syscall_event"
-	StreamLogEntry     StreamEventType = "log_entry"
-	StreamEOF          StreamEventType = "eof"
+	StreamProgress     = wire.StreamProgress
+	StreamComplete     = wire.StreamComplete
+	StreamError        = wire.StreamError
+	StreamSyscallEvent = wire.StreamSyscallEvent
+	StreamEOF          = wire.StreamEOF
+)
+
+// rnix-internal stream event types (not in wire, not consumed by apex).
+const (
+	StreamLogEntry StreamEventType = "log_entry"
 
 	// gdb-specific stream event types
 	StreamGdbSyscall     StreamEventType = "gdb_syscall"
@@ -812,28 +805,13 @@ func SyscallEventToWire(e types.SyscallEvent) SyscallEventWire {
 
 // --- Ping ---
 
-// PingResponse is the payload for MethodPing.
-type PingResponse struct {
-	Version string `json:"version"`
-}
+// PingResponse — aliased from wire.
+type PingResponse = wire.PingResponse
 
 // --- Daemon Status (Story 45.1) ---
 
-// DaemonStatusResponse is the payload for MethodDaemonStatus. Extends
-// MethodPing by surfacing build provenance so downstream consumers (e.g.
-// EchoMatrix) can verify which rnix commit the running daemon was built from
-// without reading rnix's git log.
-//
-// Wire field naming follows project convention: JSON snake_case + Go PascalCase.
-type DaemonStatusResponse struct {
-	Version         string          `json:"version"`                 // SemVer (e.g. "0.8.0")
-	DaemonCommit    string          `json:"daemon_commit"`           // short SHA (e.g. "abc1234" or "abc1234+dirty")
-	DaemonBuildDate string          `json:"daemon_build_date"`       // RFC3339 (e.g. "2026-05-23T10:00:00Z") or ""
-	DaemonPID       int             `json:"daemon_pid,omitempty"`    // daemon's OS PID (informational)
-	StartedAt       int64           `json:"started_at_ms,omitempty"` // daemon start time (UnixMilli)
-	FeatureProfile  string          `json:"feature_profile"`         // active feature profile name
-	FeatureFlags    map[string]bool `json:"feature_flags,omitempty"` // per-flag status map for CLI rendering
-}
+// DaemonStatusResponse — aliased from wire.
+type DaemonStatusResponse = wire.DaemonStatusResponse
 
 // --- Spawn Pipeline ---
 

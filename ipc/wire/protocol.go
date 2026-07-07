@@ -19,6 +19,8 @@ const (
 	MethodSpawn        Method = "spawn"
 	MethodBudgetStatus Method = "budget_status"
 	MethodDaemonStatus Method = "daemon_status"
+	MethodAttachDebug  Method = "attach_debug"
+	MethodListEvents   Method = "list_events"
 )
 
 type Request struct {
@@ -73,9 +75,11 @@ type StreamEvent struct {
 type StreamEventType string
 
 const (
-	StreamProgress StreamEventType = "progress"
-	StreamComplete StreamEventType = "complete"
-	StreamError    StreamEventType = "error"
+	StreamProgress     StreamEventType = "progress"
+	StreamComplete     StreamEventType = "complete"
+	StreamError        StreamEventType = "error"
+	StreamSyscallEvent StreamEventType = "syscall_event"
+	StreamEOF          StreamEventType = "eof"
 )
 
 type ProgressPayload struct {
@@ -136,6 +140,32 @@ type AgentQuotaWire struct {
 	Priority string `json:"priority"`
 	Quota    int    `json:"quota"`
 	Consumed int    `json:"consumed"`
+}
+
+type AttachDebugRequest struct {
+	PID  uint64 `json:"pid"`
+	UUID string `json:"uuid,omitempty"`
+}
+
+type ListEventsRequest struct {
+	PID  uint64 `json:"pid"`
+	UUID string `json:"uuid,omitempty"`
+}
+
+type ListEventsResponse struct {
+	Events []SyscallEventWire `json:"events"`
+}
+
+type SyscallEventWire struct {
+	TimestampMs int64          `json:"timestamp_ms"`
+	PID         uint64         `json:"pid"`
+	Syscall     string         `json:"syscall"`
+	Args        map[string]any `json:"args,omitempty"`
+	Result      any            `json:"result,omitempty"`
+	Error       string         `json:"error,omitempty"`
+	DurationMs  float64        `json:"duration_ms"`
+	TraceID     string         `json:"trace_id,omitempty"`
+	SpanID      string         `json:"span_id,omitempty"`
 }
 
 func SocketPath() string {
