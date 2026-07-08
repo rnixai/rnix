@@ -407,9 +407,17 @@ func (k *KernelImpl) MemoryStore() *memory.MemoryStore {
 	return k.memoryStore
 }
 
-// SetWritebackWorker injects the writeback worker for async knowledge extraction.
+// SetWritebackWorker injects the writeback worker for async knowledge
+// extraction and starts its consumer goroutine. Starting here (not in
+// startReaper) is load-bearing: NewKernel runs startReaper before any worker
+// is injected, so the startReaper path alone never fires — jobs would queue
+// unconsumed and drop once the channel fills (Story 35.3 wiring defect,
+// found in 35-8 code review).
 func (k *KernelImpl) SetWritebackWorker(w *memory.WritebackWorker) {
 	k.writebackWorker = w
+	if w != nil {
+		w.Start()
+	}
 }
 
 // WritebackWorker returns the kernel's writeback worker, or nil if writeback is disabled.

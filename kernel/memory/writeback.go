@@ -75,6 +75,7 @@ type WritebackWorker struct {
 	cfg             WritebackConfig
 	defaultProvider string
 	wg              sync.WaitGroup
+	startOnce       sync.Once
 	stopOnce        sync.Once
 	callerMu        sync.Mutex // protects caller replacement (for testing)
 	recallIndex     *RecallIndex // optional, for incremental index updates (Story 35.4)
@@ -108,18 +109,22 @@ func (w *WritebackWorker) SetSkillWriter(sw SkillWriter) {
 }
 
 // Start launches the background worker goroutine that consumes writeback jobs.
+// Idempotent: only the first call spawns the goroutine, so wiring paths that
+// cannot know whether the worker is already running may call it safely.
 func (w *WritebackWorker) Start() {
-	w.wg.Go(func() {
-		for job := range w.ch {
-			func() {
-				defer func() {
-					if r := recover(); r != nil {
-						log.Printf("[writeback] panic recovered for uuid=%s: %v", job.UUID, r)
-					}
+	w.startOnce.Do(func() {
+		w.wg.Go(func() {
+			for job := range w.ch {
+				func() {
+					defer func() {
+						if r := recover(); r != nil {
+							log.Printf("[writeback] panic recovered for uuid=%s: %v", job.UUID, r)
+						}
+					}()
+					w.processJob(job)
 				}()
-				w.processJob(job)
-			}()
-		}
+			}
+		})
 	})
 }
 
