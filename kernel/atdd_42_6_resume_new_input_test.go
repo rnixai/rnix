@@ -187,13 +187,17 @@ func TestATDD_42_6_UNIT_003_HistoryResume_NewInput_MissingResultStillAppendsUser
 	}
 }
 
-// --- 42.6-UNIT-004: checkpoint 路径 NewInput 注入（快照已含 final output，只追加 user turn） ---
+// --- 42.6-UNIT-004: checkpoint 快照尾已含 final output（与 result 一致）→ 只追加 user turn、不重复 ---
 
-func TestATDD_42_6_UNIT_004_CheckpointResume_NewInput_AppendsUserTurnOnly(t *testing.T) {
+func TestATDD_42_6_UNIT_004_CheckpointResume_SnapshotHasFinalOutput_AppendsUserTurnOnly(t *testing.T) {
 	kern, ctxMgr, projBase := setupResumeNewInputTest(t)
 	uuid := "newinput-ckpt-0000-0000-000000000001"
-	writeHistoryFixture(t, projBase, uuid, 3, "final assistant answer of last round")
-	writeCheckpointFixtureForNewInput(t, projBase, uuid)
+	// proc-info result == 快照尾 assistant content：防重放补全必须识别为「已在」并跳过。
+	writeHistoryFixture(t, projBase, uuid, 3, "checkpoint assistant snapshot")
+	writeCheckpointFixtureForNewInput(t, projBase, uuid, []map[string]any{
+		{"role": "user", "content": "user turn 1"},
+		{"role": "assistant", "content": "checkpoint assistant snapshot"},
+	})
 
 	result, err := kern.ResumeWithOpts(uuid, ResumeOpts{Fork: true, NewInput: "checkpoint next turn"})
 	if err != nil {
@@ -208,8 +212,6 @@ func TestATDD_42_6_UNIT_004_CheckpointResume_NewInput_AppendsUserTurnOnly(t *tes
 	if last.Role != rnixctx.RoleUser || last.Content != "checkpoint next turn" {
 		t.Fatalf("tail message = {%s %q}, want NewInput user turn on checkpoint path", last.Role, last.Content)
 	}
-	// checkpoint snapshot already carries the assistant turn — assert we did NOT
-	// duplicate it from proc-info.json result.
 	count := 0
 	for _, m := range msgs {
 		if m.Role == rnixctx.RoleAssistant && strings.Contains(m.Content, "checkpoint assistant snapshot") {
@@ -221,20 +223,50 @@ func TestATDD_42_6_UNIT_004_CheckpointResume_NewInput_AppendsUserTurnOnly(t *tes
 	}
 }
 
+// --- 42.6-UNIT-005: checkpoint 快照尾停在输入侧（真实 daemon 形态）→ 补 final output 防重放 ---
+//
+// 真实 checkpoint 写于 step 的输入侧（10-11 e2e 实测：R3 checkpoint last_step
+// 尾部是 user+tool，缺该轮最终 assistant 输出），resume 时 LLM 会认为上一轮没
+// 发生而重放/从零重来——checkpoint 路径必须与 history 路径一样补全。
+func TestATDD_42_6_UNIT_005_CheckpointResume_SnapshotEndsAtInputSide_RestoresFinalOutput(t *testing.T) {
+	kern, ctxMgr, projBase := setupResumeNewInputTest(t)
+	uuid := "newinput-ckpt-0000-0000-000000000002"
+	writeHistoryFixture(t, projBase, uuid, 3, "final assistant answer of last round")
+	writeCheckpointFixtureForNewInput(t, projBase, uuid, []map[string]any{
+		{"role": "user", "content": "user turn 1"},
+		{"role": "assistant", "content": "mid-step assistant tool call"},
+		{"role": "user", "content": "上一轮的输入（快照停在输入侧）"},
+	})
+
+	result, err := kern.ResumeWithOpts(uuid, ResumeOpts{Fork: true, NewInput: "checkpoint next turn"})
+	if err != nil {
+		t.Fatalf("ResumeWithOpts(checkpoint): %v", err)
+	}
+
+	msgs := ctxMessages(t, kern, ctxMgr, result.UUID)
+	if len(msgs) < 2 {
+		t.Fatalf("expected >= 2 messages, got %#v", msgs)
+	}
+	last := msgs[len(msgs)-1]
+	prev := msgs[len(msgs)-2]
+	if last.Role != rnixctx.RoleUser || last.Content != "checkpoint next turn" {
+		t.Fatalf("tail message = {%s %q}, want NewInput user turn", last.Role, last.Content)
+	}
+	if prev.Role != rnixctx.RoleAssistant || !strings.Contains(prev.Content, "final assistant answer of last round") {
+		t.Fatalf("second-to-last = {%s %q}, want final assistant output restored before NewInput (checkpoint anti-replay)", prev.Role, prev.Content)
+	}
+}
+
 // writeCheckpointFixtureForNewInput writes a minimal checkpoint.json whose
-// ContextSnapshot already contains the full conversation including the final
-// assistant output (checkpoint = complete ctx snapshot semantics).
-func writeCheckpointFixtureForNewInput(t *testing.T, projBase, uuid string) {
+// ContextSnapshot carries the given messages.
+func writeCheckpointFixtureForNewInput(t *testing.T, projBase, uuid string, messages []map[string]any) {
 	t.Helper()
 	stepsDir := filepath.Join(projBase, "steps", uuid)
 
 	ctxSnap, _ := json.Marshal(map[string]any{
 		"system_prompt": "test",
-		"messages": []map[string]any{
-			{"role": "user", "content": "user turn 1"},
-			{"role": "assistant", "content": "checkpoint assistant snapshot"},
-		},
-		"max_size": 256,
+		"messages":      messages,
+		"max_size":      256,
 	})
 	cp := map[string]any{
 		"version":   CheckpointVersion,

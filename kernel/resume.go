@@ -55,10 +55,43 @@ type ResumeOpts struct {
 	NewInput string
 }
 
+// readProcInfoResult best-effort reads the previous round's final assistant
+// output from proc-info.json's result field. Empty on any miss — the caller
+// simply skips the anti-replay restoration.
+func readProcInfoResult(stepsDir string) string {
+	data, err := os.ReadFile(filepath.Join(stepsDir, "proc-info.json"))
+	if err != nil {
+		return ""
+	}
+	var info struct {
+		Result string `json:"result"`
+	}
+	if json.Unmarshal(data, &info) != nil {
+		return ""
+	}
+	return info.Result
+}
+
+// snapshotEndsWithAssistant reports whether the checkpoint context snapshot's
+// last message is an assistant turn carrying finalOutput — i.e. the snapshot
+// already contains the previous round's final output and the anti-replay
+// restoration must not duplicate it.
+func snapshotEndsWithAssistant(contextSnapshot json.RawMessage, finalOutput string) bool {
+	var snap struct {
+		Messages []rnixctx.Message `json:"messages"`
+	}
+	if json.Unmarshal(contextSnapshot, &snap) != nil || len(snap.Messages) == 0 {
+		return false
+	}
+	last := snap.Messages[len(snap.Messages)-1]
+	return last.Role == rnixctx.RoleAssistant &&
+		strings.TrimSpace(last.Content) == strings.TrimSpace(finalOutput)
+}
+
 // injectResumeNewInput appends the caller's NewInput as the next user turn on a
 // freshly-restored resume context, optionally preceded by the previous round's
-// final assistant output (finalOutput; history path only — checkpoint snapshots
-// already contain it). Called before the process is registered / reasonStep
+// final assistant output (finalOutput; empty = skip — the restored context
+// already ends with it). Called before the process is registered / reasonStep
 // starts; on failure the caller frees the ctx and aborts the resume.
 func (k *KernelImpl) injectResumeNewInput(proc *Process, uuid, newInput, finalOutput, path string) error {
 	if res := strings.TrimSpace(finalOutput); res != "" {
@@ -589,11 +622,20 @@ func (k *KernelImpl) resumeFromCheckpoint(uuid string, opts ResumeOpts, start ti
 		return nil, NewSyscallError("Resume", proc.PID, "", fmt.Errorf("context deserialize: %w", err), types.ErrInternal)
 	}
 
-	// apex 10-11: checkpoint-path NewInput. The checkpoint restores the full ctx
-	// snapshot (final assistant output included), so only the new user turn needs
-	// appending here.
+	// apex 10-11: checkpoint-path NewInput. Checkpoints are written on the step's
+	// INPUT side (last_step anchors before that round's final assistant output),
+	// so the snapshot usually lacks the previous round's final output — same
+	// replay hazard as the history path (verified against a real daemon: R4 of
+	// the 10-11 e2e "restarted from zero" because R3's checkpoint tail ended at
+	// a user+tool turn). Restore it from proc-info.json's result unless the
+	// snapshot tail already carries it (guard against double-append for
+	// checkpoints that do include the final output).
 	if opts.NewInput != "" {
-		if injErr := k.injectResumeNewInput(proc, uuid, opts.NewInput, "", "checkpoint"); injErr != nil {
+		finalOutput := ""
+		if res := strings.TrimSpace(readProcInfoResult(stepsDir)); res != "" && !snapshotEndsWithAssistant(cpData.ContextSnapshot, res) {
+			finalOutput = res
+		}
+		if injErr := k.injectResumeNewInput(proc, uuid, opts.NewInput, finalOutput, "checkpoint"); injErr != nil {
 			_ = k.ctxMgr.CtxFree(cid)
 			return nil, NewSyscallError("Resume", proc.PID, "", injErr, types.ErrInternal)
 		}
