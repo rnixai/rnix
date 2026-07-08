@@ -46,8 +46,8 @@ func setupProjectProviderKernel(t *testing.T) (*KernelImpl, string) {
 	})
 	v := vfs.NewVFS(reg)
 	k := NewKernel(v, rnixctx.NewManager(), nil)
-	t.Cleanup(k.Shutdown)
-	_, projBaseDir := TestSetupDataDir(t, k)
+	_, projBaseDir := TestSetupDataDir(t, k) // 注册 TempDir 清理（最先注册 → 最后执行）
+	t.Cleanup(k.Shutdown)                    // 后注册 → 先执行：drain 进程 goroutine 后才删 TempDir
 	k.SetProviderResolver(
 		func() []string { return []string{"claude"} },
 		func(name string) bool { return name == "claude" },

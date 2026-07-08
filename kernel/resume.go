@@ -53,6 +53,17 @@ type ResumeOpts struct {
 	// last turn never happened and replays it). Empty = pure resume, zero
 	// behavior change.
 	NewInput string
+
+	// LaunchReady — apex 10-11 started-semantics fix: when non-nil, the resumed
+	// process's reasoning goroutine blocks on this channel before it starts, so
+	// the caller (the resume_watch IPC handler) can write its initial OK response
+	// FIRST — the client's "started" signal then reflects a launched process
+	// instead of racing the LLM round, and a pre-OK read failure can't leave a
+	// running fork behind (double-run). The handler closes it right after writing
+	// OK (and via a defer safety-net so the goroutine can never leak). nil (CLI /
+	// dashboard / auto-resume / one-shot handleResume) = launch immediately, zero
+	// behavior change.
+	LaunchReady <-chan struct{}
 }
 
 // readProcInfoResult best-effort reads the previous round's final assistant
@@ -630,7 +641,7 @@ func (k *KernelImpl) resumeFromCheckpoint(uuid string, opts ResumeOpts, start ti
 	// a user+tool turn). Restore it from proc-info.json's result unless the
 	// snapshot tail already carries it (guard against double-append for
 	// checkpoints that do include the final output).
-	if opts.NewInput != "" {
+	if strings.TrimSpace(opts.NewInput) != "" {
 		finalOutput := ""
 		if res := strings.TrimSpace(readProcInfoResult(stepsDir)); res != "" && !snapshotEndsWithAssistant(cpData.ContextSnapshot, res) {
 			finalOutput = res
@@ -697,6 +708,17 @@ func (k *KernelImpl) resumeFromCheckpoint(uuid string, opts ResumeOpts, start ti
 
 	proc.wg.Go(func() {
 		defer func() { _ = k.vfs.CloseAll(proc.PID) }()
+		// apex 10-11 started-semantics: when the caller supplied a LaunchReady
+		// gate (resume_watch IPC handler), hold the reasoning round until the
+		// handler has written its initial OK response, so the client learns the
+		// process launched before any LLM work happens. nil gate = launch now.
+		if opts.LaunchReady != nil {
+			select {
+			case <-opts.LaunchReady:
+			case <-gctx.Done():
+				return
+			}
+		}
 		_ = proc.Start()
 
 		if cp.SuspendReason == "context_full" {
@@ -940,7 +962,7 @@ func (k *KernelImpl) resumeFromHistory(uuid string, opts ResumeOpts, start time.
 	// restore it from proc-info.json's result before appending the new user turn,
 	// otherwise the resumed LLM replays its previous round (anti-replay,
 	// spike-verified). Injected before AddProcess so a failure aborts cleanly.
-	if opts.NewInput != "" {
+	if strings.TrimSpace(opts.NewInput) != "" {
 		if injErr := k.injectResumeNewInput(proc, uuid, opts.NewInput, diskInfo.Result, "history"); injErr != nil {
 			_ = k.ctxMgr.CtxFree(proc.CtxID)
 			proc.CtxID = 0
@@ -1030,6 +1052,17 @@ func (k *KernelImpl) resumeFromHistory(uuid string, opts ResumeOpts, start time.
 
 	proc.wg.Go(func() {
 		defer func() { _ = k.vfs.CloseAll(proc.PID) }()
+		// apex 10-11 started-semantics: when the caller supplied a LaunchReady
+		// gate (resume_watch IPC handler), hold the reasoning round until the
+		// handler has written its initial OK response, so the client learns the
+		// process launched before any LLM work happens. nil gate = launch now.
+		if opts.LaunchReady != nil {
+			select {
+			case <-opts.LaunchReady:
+			case <-gctx.Done():
+				return
+			}
+		}
 		_ = proc.Start()
 
 		if isContextFull {

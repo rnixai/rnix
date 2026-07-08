@@ -25,8 +25,8 @@ func newThrottleTestKernel(t *testing.T) *KernelImpl {
 	v := vfs.NewVFS(reg)
 	ctxMgr := rnixctx.NewManager()
 	k := NewKernel(v, ctxMgr, nil)
-	t.Cleanup(k.Shutdown)
-	TestSetupDataDir(t, k)
+	TestSetupDataDir(t, k)   // 注册 TempDir 清理（最先注册 → 最后执行）
+	t.Cleanup(k.Shutdown)    // 后注册 → 先执行：drain 进程 goroutine 后才删 TempDir
 	return k
 }
 

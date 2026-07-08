@@ -393,11 +393,27 @@ func (s *Server) handleResumeWatch(conn net.Conn, rawPayload json.RawMessage) {
 		projectCfg = cfg
 	}
 
+	// apex 10-11 started-semantics: gate the resumed process's LLM round until we
+	// have written the initial OK response, so apex's "started" reflects a real
+	// launch and a pre-OK read failure can't leave a running fork behind (double
+	// run). Closed right after writeResponse(OK) below; the defer is a safety net
+	// so the reasoning goroutine can never leak if we bail before that point.
+	launchReady := make(chan struct{})
+	launchClosed := false
+	closeLaunch := func() {
+		if !launchClosed {
+			launchClosed = true
+			close(launchReady)
+		}
+	}
+	defer closeLaunch()
+
 	result, err := s.kern.ResumeWithOpts(req.UUID, kernel.ResumeOpts{
 		Fork:          req.Fork,
 		FromStep:      req.FromStep,
 		ProjectConfig: projectCfg,
 		NewInput:      req.NewInput,
+		LaunchReady:   launchReady,
 	})
 	if err != nil {
 		code := "INTERNAL"
@@ -437,6 +453,10 @@ func (s *Server) handleResumeWatch(conn net.Conn, rawPayload json.RawMessage) {
 		ResumedFromStep: result.ResumedFromStep,
 	})
 	writeResponse(conn, Response{OK: true, Payload: respPayload})
+	// OK is on the wire — release the resumed process's reasoning round. From here
+	// apex's "started" reflects a launched process, so any later read failure
+	// surfaces as-is instead of triggering a double-run fallback spawn.
+	closeLaunch()
 
 	doneCh := make(chan struct{})
 	go func() {

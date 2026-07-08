@@ -48,8 +48,8 @@ func setupResumeNewInputTest(t *testing.T) (*KernelImpl, *rnixctx.Manager, strin
 	vfsInst := vfs.NewVFS(devReg)
 	ctxMgr := rnixctx.NewManager()
 	kern := NewKernel(vfsInst, ctxMgr, nil)
-	t.Cleanup(kern.Shutdown)
-	_, projBase := TestSetupDataDir(t, kern)
+	_, projBase := TestSetupDataDir(t, kern) // 注册 TempDir 清理（最先注册 → 最后执行）
+	t.Cleanup(kern.Shutdown)                 // 后注册 → 先执行：drain 进程 goroutine 后才删 TempDir
 	return kern, ctxMgr, projBase
 }
 
