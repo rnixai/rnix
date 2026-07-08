@@ -21,6 +21,7 @@ var resumeCmd = &cobra.Command{
 
 var resumeFork bool
 var resumeFromStep int
+var resumeNewInput string
 
 func init() {
 	resumeCmd.Flags().BoolVar(&resumeFork, "fork", false, "Fork: create new UUID process instead of inheriting original UUID")
@@ -28,6 +29,10 @@ func init() {
 	// once IPC handler propagates FromStep into ResumeOpts.
 	resumeCmd.Flags().IntVar(&resumeFromStep, "from-step", 0,
 		"Truncate history replay at this step before continuing (history path only; 0 = no truncation)")
+	// apex 10-11 B-route continuation: carry the user's newest input into the
+	// resumed conversation as the next user turn.
+	resumeCmd.Flags().StringVar(&resumeNewInput, "new-input", "",
+		"Append this user message after the historical context is restored, before reasoning continues")
 }
 
 func runResume(cmd *cobra.Command, args []string) error {
@@ -103,7 +108,14 @@ func runResume(cmd *cobra.Command, args []string) error {
 	projectDir, _ := config.ProjectDir(cwd)
 	rnixEnv := os.Getenv("RNIX_ENV")
 
-	resp, err := client.ResumeWithOptsV3(uuid, resumeFork, resumeFromStep, projectDir, rnixEnv)
+	resp, err := client.ResumeWithRequest(ipc.ResumeRequest{
+		UUID:       uuid,
+		Fork:       resumeFork,
+		FromStep:   resumeFromStep,
+		ProjectDir: projectDir,
+		RnixEnv:    rnixEnv,
+		NewInput:   resumeNewInput,
+	})
 	if err != nil {
 		ui.RenderError(renderer,
 			fmt.Sprintf("UUID %s", uuid),

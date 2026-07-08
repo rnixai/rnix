@@ -27,6 +27,8 @@ const (
 	MethodDaemonStatus = wire.MethodDaemonStatus
 	MethodAttachDebug  = wire.MethodAttachDebug
 	MethodListEvents   = wire.MethodListEvents
+	MethodResume       = wire.MethodResume
+	MethodResumeWatch  = wire.MethodResumeWatch
 )
 
 // rnix-internal method constants (not in wire, not consumed by apex).
@@ -70,7 +72,6 @@ const (
 	MethodTraceTree        Method = "trace_tree"
 	MethodListAllProcs     Method = "list_all_procs"
 	MethodSuspend          Method = "suspend"
-	MethodResume           Method = "resume"
 	MethodHeartbeatStatus  Method = "heartbeat_status"
 	MethodCompact          Method = "compact"
 	MethodAnswerUser       Method = "answer_user"
@@ -503,6 +504,14 @@ type ResumeRequest struct {
 	// Empty = pure global mode (back-compat with older clients).
 	ProjectDir string `json:"project_dir,omitempty"`
 	RnixEnv    string `json:"rnix_env,omitempty"`
+
+	// NewInput — apex 10-11 B-route continuation: appended as the next user
+	// turn after the historical context is restored, before reasoning continues
+	// (checkpoint + history paths; history path also restores the previous
+	// round's final assistant output first, anti-replay). Empty = pure resume,
+	// zero behavior change. Field set mirrors wire.ResumeRequest
+	// (wire_drift_test.go).
+	NewInput string `json:"new_input,omitempty"`
 }
 
 // ResumeResponse is the response for MethodResume.

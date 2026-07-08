@@ -21,6 +21,14 @@ const (
 	MethodDaemonStatus Method = "daemon_status"
 	MethodAttachDebug  Method = "attach_debug"
 	MethodListEvents   Method = "list_events"
+	// MethodResume is the one-shot resume (response only, no event stream).
+	MethodResume Method = "resume"
+	// MethodResumeWatch resumes a process and keeps the connection open,
+	// streaming the same StreamEvent shapes as MethodSpawn (initial Response
+	// with ResumeResponse payload, then progress events until complete/error).
+	// apex 10-11 B-route continuation consumes this for planning-session
+	// continuations (resume --fork + NewInput).
+	MethodResumeWatch Method = "resume_watch"
 )
 
 type Request struct {
@@ -65,6 +73,36 @@ type SpawnRequest struct {
 type SpawnResponse struct {
 	PID  uint64 `json:"pid"`
 	UUID string `json:"uuid,omitempty"`
+}
+
+// ResumeRequest is the payload for MethodResume / MethodResumeWatch.
+// Field set must stay in sync with ipc.ResumeRequest (wire_drift_test.go).
+type ResumeRequest struct {
+	UUID string `json:"uuid"`
+	Fork bool   `json:"fork,omitempty"`
+
+	// FromStep truncates history replay at this step before continuing.
+	// 0 = no truncation. History path only.
+	FromStep int `json:"from_step,omitempty"`
+
+	// ProjectDir is the project root for ProjectConfig resolution
+	// (.env / providers.yaml / agent dirs). Empty = global mode.
+	ProjectDir string `json:"project_dir,omitempty"`
+	RnixEnv    string `json:"rnix_env,omitempty"`
+
+	// NewInput — apex 10-11 B-route continuation: appended as the next user
+	// turn after the historical context is restored and before reasoning
+	// continues (both checkpoint and history paths; the history path also
+	// restores the previous round's final assistant output first, anti-replay).
+	// Empty = pure resume semantics, zero behavior change.
+	NewInput string `json:"new_input,omitempty"`
+}
+
+// ResumeResponse is the response payload for MethodResume / MethodResumeWatch.
+type ResumeResponse struct {
+	PID             uint64 `json:"pid"`
+	UUID            string `json:"uuid"`
+	ResumedFromStep int    `json:"resumed_from_step"`
 }
 
 type StreamEvent struct {

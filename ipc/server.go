@@ -397,6 +397,9 @@ func (s *Server) handleConn(conn net.Conn) {
 			s.handleSuspend(conn, req.Payload)
 		case MethodResume:
 			s.handleResume(conn, req.Payload)
+		case MethodResumeWatch:
+			s.handleResumeWatch(conn, req.Payload)
+			return // streaming method — handler manages connection lifetime
 		case MethodHeartbeatStatus:
 			s.handleHeartbeatStatus(conn)
 		case MethodCompact:

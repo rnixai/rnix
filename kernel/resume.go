@@ -42,6 +42,38 @@ type ResumeOpts struct {
 	// .env / providers.yaml / agent dirs. Required for full-state resume semantics
 	// per cc-src loadConversationForResume. nil = global mode (back-compat).
 	ProjectConfig *config.ProjectConfig
+
+	// NewInput — apex 10-11 B-route continuation: appended as the next user turn
+	// after the historical context is restored and before reasonStep starts, so a
+	// resume continues the conversation with the user's newest input. Covers both
+	// the checkpoint and the history path. On the history path a non-empty
+	// NewInput also restores the previous round's final assistant output from
+	// proc-info.json (anti-replay — parseStepsJSONL only carries the last step's
+	// INPUT messages, so without the restored output the resumed LLM believes its
+	// last turn never happened and replays it). Empty = pure resume, zero
+	// behavior change.
+	NewInput string
+}
+
+// injectResumeNewInput appends the caller's NewInput as the next user turn on a
+// freshly-restored resume context, optionally preceded by the previous round's
+// final assistant output (finalOutput; history path only — checkpoint snapshots
+// already contain it). Called before the process is registered / reasonStep
+// starts; on failure the caller frees the ctx and aborts the resume.
+func (k *KernelImpl) injectResumeNewInput(proc *Process, uuid, newInput, finalOutput, path string) error {
+	if res := strings.TrimSpace(finalOutput); res != "" {
+		if apErr := k.ctxMgr.AppendMessage(proc.CtxID, rnixctx.RoleAssistant, res); apErr != nil {
+			return fmt.Errorf("append final assistant output: %w", apErr)
+		}
+		log.Printf("[resume] uuid=%s: restored final assistant output (%d chars) before NewInput (%s path)",
+			uuid, len(res), path)
+	}
+	if apErr := k.ctxMgr.AppendMessage(proc.CtxID, rnixctx.RoleUser, newInput); apErr != nil {
+		return fmt.Errorf("append new input: %w", apErr)
+	}
+	log.Printf("[resume] uuid=%s: appended NewInput (%d chars) as next user turn (%s path)",
+		uuid, len(newInput), path)
+	return nil
 }
 
 // resolveResumeProjectConfig determines the effective ProjectConfig for a resume,
@@ -557,6 +589,16 @@ func (k *KernelImpl) resumeFromCheckpoint(uuid string, opts ResumeOpts, start ti
 		return nil, NewSyscallError("Resume", proc.PID, "", fmt.Errorf("context deserialize: %w", err), types.ErrInternal)
 	}
 
+	// apex 10-11: checkpoint-path NewInput. The checkpoint restores the full ctx
+	// snapshot (final assistant output included), so only the new user turn needs
+	// appending here.
+	if opts.NewInput != "" {
+		if injErr := k.injectResumeNewInput(proc, uuid, opts.NewInput, "", "checkpoint"); injErr != nil {
+			_ = k.ctxMgr.CtxFree(cid)
+			return nil, NewSyscallError("Resume", proc.PID, "", injErr, types.ErrInternal)
+		}
+	}
+
 	proc.mu.Lock()
 	proc.StepTimeout = 5 * time.Minute
 	proc.LastHeartbeat = time.Now()
@@ -602,12 +644,13 @@ func (k *KernelImpl) resumeFromCheckpoint(uuid string, opts ResumeOpts, start ti
 	spawnOpts := SpawnOpts{Model: cp.Model, StartStep: startStep}
 
 	k.emitEvent(proc, "Resume", map[string]any{
-		"uuid":       uuid,
-		"from_step":  startStep,
-		"provider":   cp.Provider,
-		"model":      cp.Model,
-		"checkpoint": cpData.LastStep,
-		"fork":       opts.Fork,
+		"uuid":          uuid,
+		"from_step":     startStep,
+		"provider":      cp.Provider,
+		"model":         cp.Model,
+		"checkpoint":    cpData.LastStep,
+		"fork":          opts.Fork,
+		"new_input_len": len(opts.NewInput),
 	}, proc.PID, nil, time.Since(start))
 
 	proc.wg.Go(func() {
@@ -850,6 +893,19 @@ func (k *KernelImpl) resumeFromHistory(uuid string, opts ResumeOpts, start time.
 	}
 	proc.ResumedFromStep = startStep
 
+	// apex 10-11: history-path NewInput. parseStepsJSONL restores the LAST step's
+	// INPUT messages, which never include that round's final assistant output —
+	// restore it from proc-info.json's result before appending the new user turn,
+	// otherwise the resumed LLM replays its previous round (anti-replay,
+	// spike-verified). Injected before AddProcess so a failure aborts cleanly.
+	if opts.NewInput != "" {
+		if injErr := k.injectResumeNewInput(proc, uuid, opts.NewInput, diskInfo.Result, "history"); injErr != nil {
+			_ = k.ctxMgr.CtxFree(proc.CtxID)
+			proc.CtxID = 0
+			return nil, NewSyscallError("Resume", proc.PID, "", injErr, types.ErrInternal)
+		}
+	}
+
 	proc.mu.Lock()
 	proc.StepTimeout = 5 * time.Minute
 	proc.LastHeartbeat = time.Now()
@@ -913,12 +969,13 @@ func (k *KernelImpl) resumeFromHistory(uuid string, opts ResumeOpts, start time.
 	spawnOpts := SpawnOpts{Model: diskInfo.Model, StartStep: startStep}
 
 	k.emitEvent(proc, "ResumeFromHistory", map[string]any{
-		"uuid":      uuid,
-		"from_step": startStep,
-		"provider":  provider,
-		"model":     diskInfo.Model,
-		"fork":      opts.Fork,
-		"last_step": lastStep,
+		"uuid":          uuid,
+		"from_step":     startStep,
+		"provider":      provider,
+		"model":         diskInfo.Model,
+		"fork":          opts.Fork,
+		"last_step":     lastStep,
+		"new_input_len": len(opts.NewInput),
 	}, proc.PID, nil, time.Since(start))
 
 	// Story 48.1 — Re-mount MCP transports from the disk snapshot. Sequenced

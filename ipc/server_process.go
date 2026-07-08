@@ -317,6 +317,7 @@ func (s *Server) handleResume(conn net.Conn, rawPayload json.RawMessage) {
 		Fork:          req.Fork,
 		FromStep:      req.FromStep,
 		ProjectConfig: projectCfg,
+		NewInput:      req.NewInput,
 	})
 	if err != nil {
 		code := "INTERNAL"
@@ -357,6 +358,142 @@ func (s *Server) handleResume(conn net.Conn, rawPayload json.RawMessage) {
 	}
 	payload, _ := json.Marshal(resp)
 	writeResponse(conn, Response{OK: true, Payload: payload})
+}
+
+// handleResumeWatch (apex 10-11 / spike 10-10 S-1 fix) resumes a process and
+// keeps the connection open, streaming the same event shapes as handleSpawn:
+// initial Response carries ResumeResponse, then StreamProgress events flow
+// until StreamComplete/StreamError. The kernel event surface already fires for
+// resumed processes (resume.go OnSpawn + reason.go shared loop OnStep /
+// OnThinking); the pre-existing one-shot handleResume simply never registered
+// a callbackMux handler, so every event was dropped at the IPC delivery layer.
+// This handler mirrors handleSpawn's "eventCh → callbackMux.register(pid) →
+// stream loop → reap" lifecycle; handleResume's one-shot semantics stay
+// untouched (zero behavior change for existing clients).
+func (s *Server) handleResumeWatch(conn net.Conn, rawPayload json.RawMessage) {
+	var req ResumeRequest
+	if err := json.Unmarshal(rawPayload, &req); err != nil {
+		writeResponse(conn, Response{OK: false, Error: &ErrorPayload{Code: "INVALID", Message: "invalid resume_watch request"}})
+		return
+	}
+	if req.UUID == "" {
+		writeResponse(conn, Response{OK: false, Error: &ErrorPayload{Code: "INVALID", Message: "uuid is required"}})
+		return
+	}
+
+	// Rebuild ProjectConfig exactly like handleResume (project .env / providers /
+	// LLMFileOpener); errors surface as CONFIG_ERROR, mirroring the one-shot path.
+	var projectCfg *config.ProjectConfig
+	if req.ProjectDir != "" {
+		cfg, _, cfgErr := s.resolveProjectContext(req.ProjectDir, req.RnixEnv)
+		if cfgErr != nil {
+			writeResponse(conn, Response{OK: false, Error: &ErrorPayload{Code: "CONFIG_ERROR", Message: cfgErr.Error()}})
+			return
+		}
+		projectCfg = cfg
+	}
+
+	result, err := s.kern.ResumeWithOpts(req.UUID, kernel.ResumeOpts{
+		Fork:          req.Fork,
+		FromStep:      req.FromStep,
+		ProjectConfig: projectCfg,
+		NewInput:      req.NewInput,
+	})
+	if err != nil {
+		code := "INTERNAL"
+		var sysErr *kernel.SyscallError
+		if errors.As(err, &sysErr) {
+			code = string(sysErr.Code)
+		}
+		writeResponse(conn, Response{OK: false, Error: &ErrorPayload{Code: code, Message: err.Error()}})
+		return
+	}
+
+	pid := result.PID
+	eventCh := make(chan StreamEvent, 64)
+	s.callbackMux.register(pid, eventCh)
+	defer s.callbackMux.unregister(pid)
+	defer s.kern.Reap(pid) // mirror handleSpawn: reap after stream ends (idempotent via reapOnce)
+
+	proc, ok := s.kern.GetProcess(pid)
+	if !ok {
+		writeStreamEvent(conn, StreamEvent{Type: StreamError, Payload: marshalJSON(ErrorPayload{Code: "INTERNAL", Message: "process vanished after resume"})})
+		return
+	}
+
+	// Compensate for the OnSpawn event lost during kern.ResumeWithOpts (fires
+	// before register). Shape matches handleSpawn's compensation event so apex
+	// consumes resume streams with the same decoding path as spawn streams.
+	spawnPP := ProgressPayload{Event: "spawn", PID: pid, Intent: proc.Intent, Provider: proc.Provider, Model: proc.Model, ReasoningEffort: proc.ReasoningEffort, UUID: proc.UUID}
+	spawnPayload, _ := json.Marshal(spawnPP)
+	select {
+	case eventCh <- StreamEvent{Type: StreamProgress, Payload: spawnPayload}:
+	default:
+	}
+
+	respPayload, _ := json.Marshal(ResumeResponse{
+		PID:             result.PID,
+		UUID:            result.UUID,
+		ResumedFromStep: result.ResumedFromStep,
+	})
+	writeResponse(conn, Response{OK: true, Payload: respPayload})
+
+	doneCh := make(chan struct{})
+	go func() {
+		defer close(doneCh)
+		exit := <-proc.Done
+		pp := ProgressPayload{
+			Event:      "complete",
+			PID:        pid,
+			ExitCode:   exit.Code,
+			ExitReason: exit.Reason,
+		}
+		if info, infoErr := s.kern.GetProcInfo(pid); infoErr == nil {
+			pp.Result = info.Result
+			pp.TokensUsed = info.TokensUsed
+		}
+		if exit.Err != nil {
+			pp.ErrorMessage = exit.Err.Error()
+		}
+		if spanID, spanOK := s.kern.GetSpanID(pid); spanOK {
+			pp.SpanID = string(spanID)
+		}
+		completePayload, _ := json.Marshal(pp)
+		select {
+		case eventCh <- StreamEvent{Type: StreamComplete, Payload: completePayload}:
+		default:
+		}
+	}()
+
+	enc := json.NewEncoder(conn)
+	for {
+		select {
+		case ev, evOK := <-eventCh:
+			if !evOK {
+				return
+			}
+			if err := enc.Encode(ev); err != nil {
+				return
+			}
+			if ev.Type == StreamComplete || ev.Type == StreamError {
+				return
+			}
+		case <-doneCh:
+			for {
+				select {
+				case ev := <-eventCh:
+					_ = enc.Encode(ev)
+					if ev.Type == StreamComplete || ev.Type == StreamError {
+						return
+					}
+				default:
+					return
+				}
+			}
+		case <-s.done:
+			return
+		}
+	}
 }
 
 // handleGetProcDetail returns full process detail including env, skills, FD table, context stats (Story 27.6).

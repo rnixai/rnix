@@ -273,13 +273,19 @@ func (c *Client) ResumeWithOptsV2(uuid string, fork bool, fromStep int) (*Resume
 // fall back to the global VFS driver and lose project-level API keys (401 root
 // cause for the Dashboard `r` key bug).
 func (c *Client) ResumeWithOptsV3(uuid string, fork bool, fromStep int, projectDir, rnixEnv string) (*ResumeResponse, error) {
-	resp, err := c.call(MethodResume, ResumeRequest{
+	return c.ResumeWithRequest(ResumeRequest{
 		UUID:       uuid,
 		Fork:       fork,
 		FromStep:   fromStep,
 		ProjectDir: projectDir,
 		RnixEnv:    rnixEnv,
 	})
+}
+
+// ResumeWithRequest issues a one-shot resume carrying the full ResumeRequest
+// (apex 10-11: adds NewInput without another positional-arg V4 wrapper).
+func (c *Client) ResumeWithRequest(req ResumeRequest) (*ResumeResponse, error) {
+	resp, err := c.call(MethodResume, req)
 	if err != nil {
 		return nil, err
 	}
@@ -288,6 +294,57 @@ func (c *Client) ResumeWithOptsV3(uuid string, fork bool, fromStep int, projectD
 		return nil, fmt.Errorf("ipc: unmarshal resume response: %w", err)
 	}
 	return &result, nil
+}
+
+// ResumeAndWatch resumes a process via MethodResumeWatch and streams events
+// until completion, mirroring SpawnAndWatch: the initial Response carries
+// ResumeResponse, then StreamProgress events flow until complete/error. The
+// onEvent callback receives every StreamEvent; the final complete/error
+// ProgressPayload is returned.
+func (c *Client) ResumeAndWatch(req ResumeRequest, onEvent func(StreamEvent)) (*ResumeResponse, *ProgressPayload, error) {
+	if err := c.sendRequest(MethodResumeWatch, req); err != nil {
+		return nil, nil, err
+	}
+
+	if !c.scanner.Scan() {
+		return nil, nil, fmt.Errorf("ipc: no initial resume_watch response")
+	}
+	var resp Response
+	if err := json.Unmarshal(c.scanner.Bytes(), &resp); err != nil {
+		return nil, nil, fmt.Errorf("ipc: unmarshal resume_watch response: %w", err)
+	}
+	if !resp.OK {
+		msg := "resume_watch failed"
+		if resp.Error != nil {
+			msg = resp.Error.Message
+		}
+		return nil, nil, fmt.Errorf("ipc: %s", msg)
+	}
+
+	var rr ResumeResponse
+	if err := json.Unmarshal(resp.Payload, &rr); err != nil {
+		return nil, nil, fmt.Errorf("ipc: unmarshal resume_watch payload: %w", err)
+	}
+
+	var finalPayload *ProgressPayload
+	for c.scanner.Scan() {
+		var ev StreamEvent
+		if err := json.Unmarshal(c.scanner.Bytes(), &ev); err != nil {
+			continue
+		}
+		if onEvent != nil {
+			onEvent(ev)
+		}
+		if ev.Type == StreamComplete || ev.Type == StreamError {
+			var pp ProgressPayload
+			if err := json.Unmarshal(ev.Payload, &pp); err == nil {
+				finalPayload = &pp
+			}
+			break
+		}
+	}
+
+	return &rr, finalPayload, nil
 }
 
 // GetResumeLineage returns the resume lineage (ancestors + descendants) for a
@@ -612,6 +669,15 @@ func (c *Client) ExecScriptAndWatch(req ExecScriptRequest, onEvent func(StreamEv
 // AttachDebug streams SyscallEvents from the specified process.
 // The onEvent callback is called for each SyscallEventWire. Blocks until the stream ends.
 func (c *Client) AttachDebug(pid types.PID, onEvent func(SyscallEventWire)) error {
+	return c.AttachDebugWithReady(pid, nil, onEvent)
+}
+
+// AttachDebugWithReady is AttachDebug plus an onReady hook invoked after the
+// initial OK response is received — i.e. once the debug tap is registered
+// server-side. Callers that release a gated process before attaching (10-10
+// S-1 probe race: syscalls can drain before the tap registers) synchronize on
+// onReady instead of racing the registration.
+func (c *Client) AttachDebugWithReady(pid types.PID, onReady func(), onEvent func(SyscallEventWire)) error {
 	if err := c.sendRequest(MethodAttachDebug, AttachDebugRequest{PID: pid}); err != nil {
 		return err
 	}
@@ -629,6 +695,9 @@ func (c *Client) AttachDebug(pid types.PID, onEvent func(SyscallEventWire)) erro
 			msg = resp.Error.Message
 		}
 		return fmt.Errorf("ipc: %s", msg)
+	}
+	if onReady != nil {
+		onReady()
 	}
 
 	for c.scanner.Scan() {

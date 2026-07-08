@@ -78,11 +78,23 @@ func TestBRouteResumeProgressProbe_SpawnVsResumeAndAttachDebug(t *testing.T) {
 
 			events := make(chan SyscallEventWire, 8)
 			errs := make(chan error, 1)
+			// 10-10 S-1 race fix: wait for the attach initial OK (tap registered
+			// server-side) BEFORE releasing the gated process — otherwise the
+			// resumed process's remaining syscalls can drain before the debug tap
+			// registers and the fork case misses live events (probe race, not a
+			// product gap).
+			attachReady := make(chan struct{})
 			go func() {
-				errs <- debugClient.AttachDebug(resp.PID, func(ev SyscallEventWire) {
+				errs <- debugClient.AttachDebugWithReady(resp.PID, func() { close(attachReady) }, func(ev SyscallEventWire) {
 					events <- ev
 				})
 			}()
+
+			select {
+			case <-attachReady:
+			case <-time.After(3 * time.Second):
+				t.Fatal("attach_debug initial response not received")
+			}
 
 			close(release)
 
