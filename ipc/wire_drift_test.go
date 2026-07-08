@@ -11,8 +11,8 @@ import (
 // jsonFieldSet extracts the set of json tag names from a struct type.
 func jsonFieldSet(t reflect.Type) []string {
 	var keys []string
-	for i := range t.NumField() {
-		tag := t.Field(i).Tag.Get("json")
+	for field := range t.Fields() {
+		tag := field.Tag.Get("json")
 		if tag == "" || tag == "-" {
 			continue
 		}
