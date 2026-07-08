@@ -1922,6 +1922,49 @@ func runDaemon(cmd *cobra.Command, args []string) error {
 	if err := k.LoadHistory(); err != nil {
 		fmt.Fprintf(os.Stderr, "[kernel] warn: load process history: %v\n", err)
 	}
+	// Recall cross-process search index (Story 35.4). Wired BEFORE
+	// LoadSuspendedFromDisk/AutoResumeDaemonShutdown so resumed processes
+	// can never commit memory ahead of memStore.SetRecallIndex (Story 35.8
+	// review: startup-window writes would silently skip indexing).
+	if memStore != nil && memoryCfg.Recall.Enabled {
+		recallIdx := kernelmemory.NewRecallIndex()
+		k.SetRecallIndex(recallIdx)
+
+		// Start background index build from all project step directories
+		for _, projBaseDir := range kernel.AllBaseDirs(dataDir) {
+			recallIdx.BuildFromDiskAsync(filepath.Join(projBaseDir, "steps"))
+		}
+
+		// Story 35.8 — index MEMORY.md § entries (global + per-project)
+		recallIdx.IndexMemoryFile(kernelmemory.MemorySourceKeyGlobal, filepath.Join(globalDir, "memory", "MEMORY.md"))
+		for _, projBaseDir := range kernel.AllBaseDirs(dataDir) {
+			recallIdx.IndexMemoryFile(kernelmemory.MemorySourceKeyForBaseDir(projBaseDir), filepath.Join(projBaseDir, "memory", "MEMORY.md"))
+		}
+		memStore.SetRecallIndex(recallIdx)
+
+		// Inject recall index into writeback worker for incremental updates
+		if k.WritebackWorker() != nil {
+			k.WritebackWorker().SetRecallIndex(recallIdx)
+		}
+
+		// Register /dev/memory/recall VFS device
+		var recallCaller kernelmemory.LLMCaller
+		if memoryCfg.Writeback.Enabled {
+			// Reuse the writeback LLM adapter for recall summarization
+			defaultProv := ""
+			if providersCfg != nil {
+				defaultProv = providersCfg.DefaultProvider
+			}
+			recallCaller = &writebackLLMAdapter{
+				driverReg:       driverReg,
+				model:           memoryCfg.Writeback.Model,
+				defaultProvider: defaultProv,
+			}
+		}
+		recallDriver := driversmemory.NewRecallDriver(recallIdx, recallCaller)
+		_ = devReg.RegisterWithDriver("/dev/memory/recall", driversmemory.RecallFileFactory(recallDriver), recallDriver)
+	}
+
 	// Story 44.3 — reload Suspended placeholders from disk so daemon restart
 	// preserves the user's pause state without auto-resuming. Failure here is
 	// non-fatal: dashboard / top will simply not show the placeholders.
@@ -1947,39 +1990,6 @@ func runDaemon(cmd *cobra.Command, args []string) error {
 	gcDaemonCtx, gcDaemonCancel := context.WithCancel(context.Background())
 	defer gcDaemonCancel()
 	go k.StartGcDaemon(gcDaemonCtx)
-
-	// Recall cross-process search index (Story 35.4)
-	if memStore != nil && memoryCfg.Recall.Enabled {
-		recallIdx := kernelmemory.NewRecallIndex()
-		k.SetRecallIndex(recallIdx)
-
-		// Start background index build from all project step directories
-		for _, projBaseDir := range kernel.AllBaseDirs(dataDir) {
-			recallIdx.BuildFromDiskAsync(filepath.Join(projBaseDir, "steps"))
-		}
-
-		// Inject recall index into writeback worker for incremental updates
-		if k.WritebackWorker() != nil {
-			k.WritebackWorker().SetRecallIndex(recallIdx)
-		}
-
-		// Register /dev/memory/recall VFS device
-		var recallCaller kernelmemory.LLMCaller
-		if memoryCfg.Writeback.Enabled {
-			// Reuse the writeback LLM adapter for recall summarization
-			defaultProv := ""
-			if providersCfg != nil {
-				defaultProv = providersCfg.DefaultProvider
-			}
-			recallCaller = &writebackLLMAdapter{
-				driverReg:       driverReg,
-				model:           memoryCfg.Writeback.Model,
-				defaultProvider: defaultProv,
-			}
-		}
-		recallDriver := driversmemory.NewRecallDriver(recallIdx, recallCaller)
-		_ = devReg.RegisterWithDriver("/dev/memory/recall", driversmemory.RecallFileFactory(recallDriver), recallDriver)
-	}
 
 	// Skill dynamic management (Story 35.5)
 	if memoryCfg.Skills.DynamicManage {

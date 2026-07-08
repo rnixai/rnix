@@ -232,6 +232,19 @@ func parseEntries(data string) []string {
 	return entries
 }
 
+// entriesSnapshot returns a deep copy of the entries for target.
+func (p *FileMemoryProvider) entriesSnapshot(target string) []string {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	src := p.entries[target]
+	if len(src) == 0 {
+		return nil
+	}
+	cp := make([]string, len(src))
+	copy(cp, src)
+	return cp
+}
+
 func truncateForError(s string) string {
 	runes := []rune(s)
 	if len(runes) > 40 {

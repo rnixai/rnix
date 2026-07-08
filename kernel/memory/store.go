@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"path/filepath"
 	"sync"
+	"time"
 
 	"github.com/rnixai/rnix/internal/config"
 )
@@ -26,6 +27,12 @@ type MemoryStore struct {
 
 	mu       sync.RWMutex
 	projects map[string]*FileMemoryProvider // keyed by resolved memory baseDir
+
+	// recallMu guards recallIndex and serializes the snapshot→index sequence
+	// in notifyRecallIndex so concurrent writes to the same target cannot
+	// commit a stale snapshot last (lost-update).
+	recallMu    sync.Mutex
+	recallIndex *RecallIndex // nil when recall is disabled
 }
 
 // NewMemoryStore creates a new MemoryStore. globalDir backs global memory;
@@ -107,7 +114,13 @@ func (s *MemoryStore) Add(target, content, projectDir string) error {
 		return fmt.Errorf("%s", result.Reason)
 	}
 	provider, provTarget := s.resolveProvider(target, projectDir)
-	return provider.Add(provTarget, content)
+	if err := provider.Add(provTarget, content); err != nil {
+		return err
+	}
+	if indexableTargets[target] {
+		s.notifyRecallIndex(target, projectDir)
+	}
+	return nil
 }
 
 // Replace swaps an existing entry after scanning the new content.
@@ -116,19 +129,81 @@ func (s *MemoryStore) Replace(target, old, new, projectDir string) error {
 		return fmt.Errorf("%s", result.Reason)
 	}
 	provider, provTarget := s.resolveProvider(target, projectDir)
-	return provider.Replace(provTarget, old, new)
+	if err := provider.Replace(provTarget, old, new); err != nil {
+		return err
+	}
+	if indexableTargets[target] {
+		s.notifyRecallIndex(target, projectDir)
+	}
+	return nil
 }
 
 // Remove deletes an existing entry (no scan needed for deletion).
 func (s *MemoryStore) Remove(target, old, projectDir string) error {
 	provider, provTarget := s.resolveProvider(target, projectDir)
-	return provider.Remove(provTarget, old)
+	if err := provider.Remove(provTarget, old); err != nil {
+		return err
+	}
+	if indexableTargets[target] {
+		s.notifyRecallIndex(target, projectDir)
+	}
+	return nil
 }
 
 // Snapshot returns the full content of a target as a single string.
 func (s *MemoryStore) Snapshot(target, projectDir string) string {
 	provider, provTarget := s.resolveProvider(target, projectDir)
 	return provider.Snapshot(provTarget)
+}
+
+// SetRecallIndex injects the recall index for live notification on writes.
+// Nil disables notifications (recall disabled path).
+func (s *MemoryStore) SetRecallIndex(ri *RecallIndex) {
+	s.recallMu.Lock()
+	defer s.recallMu.Unlock()
+	s.recallIndex = ri
+}
+
+// memoryTargets that should trigger recall index updates (fail-closed whitelist).
+var indexableTargets = map[string]bool{
+	"memory":        true,
+	"global_memory": true,
+}
+
+// notifyRecallIndex re-indexes the provider's entries into the recall index.
+// Called after successful Add/Replace/Remove on indexable targets. The whole
+// snapshot→index sequence runs under recallMu: snapshots always reflect the
+// provider state at notify time, so a delayed notifier cannot overwrite a
+// newer snapshot with a stale one (IndexMemorySource is whole-source replace).
+func (s *MemoryStore) notifyRecallIndex(target, projectDir string) {
+	s.recallMu.Lock()
+	defer s.recallMu.Unlock()
+	if s.recallIndex == nil {
+		return
+	}
+	provider, provTarget := s.resolveProvider(target, projectDir)
+	entries := provider.entriesSnapshot(provTarget)
+	key := s.recallSourceKey(target, projectDir)
+	s.recallIndex.IndexMemorySource(key, entries, time.Now())
+}
+
+// recallSourceKey derives the recall index key for a given target+projectDir
+// via the shared MemorySourceKey* helpers also used by the startup wiring
+// (cmd/rnix/main.go), keeping both derivation paths identical.
+func (s *MemoryStore) recallSourceKey(target, projectDir string) string {
+	if target == "global_memory" {
+		return MemorySourceKeyGlobal
+	}
+	var baseRoot string
+	if projectDir == "" {
+		baseRoot = config.GlobalDataDir(s.dataDir)
+	} else {
+		baseRoot = config.ProjectDataDir(s.dataDir, projectDir)
+	}
+	if baseRoot == "" {
+		return MemorySourceKeyGlobal
+	}
+	return MemorySourceKeyForBaseDir(baseRoot)
 }
 
 // Capacity returns used chars and limit for a target.

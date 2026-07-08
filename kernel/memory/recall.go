@@ -22,6 +22,7 @@ type RecallResult struct {
 	UUID      string    `json:"uuid"`
 	Summary   string    `json:"summary"`
 	Timestamp time.Time `json:"timestamp"`
+	Source    string    `json:"source,omitempty"`
 }
 
 // recallToolDefResult holds VFS device ToolDef metadata for /dev/memory/recall.
@@ -65,6 +66,31 @@ type persistedIndex struct {
 	Indexed map[string]bool       `json:"indexed"`
 }
 
+// MemorySourceKeyGlobal is the recall-index source key for the global
+// MEMORY.md backing the global_memory target ({globalDir}/memory/MEMORY.md).
+const MemorySourceKeyGlobal = "memory:global"
+
+// MemorySourceKeyForBaseDir derives the recall-index source key for a project
+// data directory's MEMORY.md ({baseDir}/memory/MEMORY.md). Startup wiring
+// (cmd/rnix/main.go) and runtime notification (MemoryStore.recallSourceKey)
+// must both derive keys through this function so the same file never appears
+// under two different sources.
+func MemorySourceKeyForBaseDir(baseDir string) string {
+	return "memory:project:" + baseDir
+}
+
+// memoryEntry holds a single § entry and its pre-computed token set.
+type memoryEntry struct {
+	text   string
+	tokens map[string]bool
+}
+
+// memorySource holds all entries from one MEMORY.md file.
+type memorySource struct {
+	entries []memoryEntry
+	ts      time.Time
+}
+
 // RecallIndex is an in-memory inverted index over process step records.
 // It supports keyword search across all indexed processes.
 //
@@ -77,15 +103,18 @@ type RecallIndex struct {
 	ready   atomic.Bool
 	readyCh   chan struct{} // closed when initial build completes
 	readyOnce sync.Once    // protects readyCh from double-close
+
+	memSources map[string]*memorySource // key → MEMORY.md source (parallel to session index)
 }
 
 // NewRecallIndex creates a new empty RecallIndex.
 func NewRecallIndex() *RecallIndex {
 	return &RecallIndex{
-		index:   make(map[string][]posting),
-		docs:    make(map[string][]docEntry),
-		indexed: make(map[string]bool),
-		readyCh: make(chan struct{}),
+		index:      make(map[string][]posting),
+		docs:       make(map[string][]docEntry),
+		indexed:    make(map[string]bool),
+		readyCh:    make(chan struct{}),
+		memSources: make(map[string]*memorySource),
 	}
 }
 
@@ -117,6 +146,49 @@ func (ri *RecallIndex) markReady() {
 	ri.readyOnce.Do(func() {
 		close(ri.readyCh)
 	})
+}
+
+// IndexMemorySource replaces all entries for a given source key with the
+// provided entries. This is whole-source replacement semantics: the previous
+// entries (if any) are discarded and rebuilt from the new slice.
+// MEMORY.md files are small (≤4096 chars) so rebuild cost is negligible.
+func (ri *RecallIndex) IndexMemorySource(key string, entries []string, ts time.Time) {
+	built := make([]memoryEntry, 0, len(entries))
+	for _, text := range entries {
+		tokens := tokenize(text)
+		tokSet := make(map[string]bool, len(tokens))
+		for _, tok := range tokens {
+			tokSet[tok] = true
+		}
+		built = append(built, memoryEntry{text: text, tokens: tokSet})
+	}
+
+	ri.mu.Lock()
+	defer ri.mu.Unlock()
+	ri.memSources[key] = &memorySource{entries: built, ts: ts}
+}
+
+// IndexMemoryFile reads a MEMORY.md file from disk and indexes its § entries.
+// A missing or empty file clears any previously indexed state for the key
+// (mirrors IndexMemorySource's clear-on-empty semantics); read errors are
+// logged and leave the existing indexed state untouched.
+func (ri *RecallIndex) IndexMemoryFile(key, path string) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		if os.IsNotExist(err) {
+			ri.IndexMemorySource(key, nil, time.Now())
+			return
+		}
+		log.Printf("[recall] warn: read memory file %s: %v", path, err)
+		return
+	}
+	entries := parseEntries(string(data))
+	info, statErr := os.Stat(path)
+	ts := time.Now()
+	if statErr == nil {
+		ts = info.ModTime()
+	}
+	ri.IndexMemorySource(key, entries, ts)
 }
 
 // BuildFromDiskAsync launches background index construction from disk.
@@ -332,13 +404,49 @@ func (ri *RecallIndex) Search(query string, maxResults int) []RecallResult {
 			UUID:      us.UUID,
 			Summary:   summary,
 			Timestamp: us.Timestamp,
+			Source:    "session",
 		})
+	}
+
+	// Collect memory source hits within the same RLock window. Iterate keys
+	// in sorted order so ties below resolve deterministically.
+	memKeys := make([]string, 0, len(ri.memSources))
+	for key := range ri.memSources {
+		memKeys = append(memKeys, key)
+	}
+	sort.Strings(memKeys)
+	for _, key := range memKeys {
+		for _, entry := range ri.memSources[key].entries {
+			hit := true
+			for _, tok := range queryTokens {
+				if !entry.tokens[tok] {
+					hit = false
+					break
+				}
+			}
+			if hit {
+				results = append(results, RecallResult{
+					UUID:      key,
+					Summary:   entry.text,
+					Timestamp: ri.memSources[key].ts,
+					Source:    "memory",
+				})
+			}
+		}
 	}
 	ri.mu.RUnlock()
 
-	// Sort by timestamp desc (newest first)
+	// Sort by timestamp desc (newest first). Entries of one memory source
+	// share a single ts, so break ties by UUID then Summary to keep result
+	// order — and the maxResults cut — deterministic across calls.
 	sort.Slice(results, func(i, j int) bool {
-		return results[i].Timestamp.After(results[j].Timestamp)
+		if !results[i].Timestamp.Equal(results[j].Timestamp) {
+			return results[i].Timestamp.After(results[j].Timestamp)
+		}
+		if results[i].UUID != results[j].UUID {
+			return results[i].UUID < results[j].UUID
+		}
+		return results[i].Summary < results[j].Summary
 	})
 
 	if len(results) > maxResults {
