@@ -439,7 +439,11 @@ func (k *KernelImpl) cleanupExpiredDead(ttl time.Duration) {
 	})
 	for _, pid := range toRemove {
 		if info, err := k.GetProcInfo(pid); err == nil {
-			k.procHistory.Add(*info)
+			// Story 64.2: Upsert (not Add) so a same-UUID entry loaded at startup
+			// (LoadHistory) is replaced in place rather than duplicated. info.State
+			// is Dead here (DeadAt已 stamp), so the terminal reap snapshot with real
+			// exit fields supersedes any stale loaded snapshot — 同 UUID 单快照。
+			k.procHistory.Upsert(*info)
 			// Best-effort persist (safety net if reapProcess didn't write it)
 			if proc, ok := k.GetProcess(pid); ok {
 				baseDir := k.ResolveStepBaseDir(proc)

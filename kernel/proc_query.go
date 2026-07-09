@@ -91,7 +91,7 @@ func (k *KernelImpl) LoadHistory() error {
 			// Story 64.1: normalize a non-terminal snapshot (created/running/
 			// zombie) left by a force-killed daemon to Dead, and write the cure
 			// back so it is permanent. best-effort — a writeback failure only
-			// warns and never blocks startup; merged.Add always receives the
+			// warns and never blocks startup; merged always receives the
 			// normalized (in-memory) info so the view is correct even if the
 			// disk write lost a race (裁决 5).
 			info, changed := k.reconcileStaleHistoryEntry(baseDir, info)
@@ -101,7 +101,11 @@ func (k *KernelImpl) LoadHistory() error {
 					log.Printf("[history] warn: reconcile writeback %s: %v", info.UUID, serr)
 				}
 			}
-			merged.Add(info)
+			// Story 64.2: Upsert (not Add) so a same UUID appearing across
+			// baseDirs (projects/* + global fallback, e.g. data-migration
+			// leftovers) collapses to a single snapshot; the later-scanned
+			// baseDir wins. Within one baseDir每 UUID 至多一目录，无重复。
+			merged.Upsert(info)
 		}
 		if removed, rerr := LoadGcRemovedUUIDs(baseDir); rerr == nil {
 			merged.SeedRemovedUUIDs(removed)
@@ -514,17 +518,26 @@ func (k *KernelImpl) ListProcs() []vfs.ProcInfo {
 // ListAllProcs returns the union of active processes and historical processes.
 //
 // Dedup rules (defense against pathological inputs):
-//   - 同一非空 UUID 在结果中至多出现一次（active 优先于 historical）。
-//   - active 内部理论上不会有同 UUID（procTable 按 PID 索引、UUID 唯一），但仍做
-//     去重防御以应对未来 resume / fork 路径的不变量退化。
-//   - historical 内部允许同 UUID 多条记录（reap / cleanupExpiredDead 多次 Add 同
-//     UUID 时），此处按"先到先留"原则保留一条。
+//   - 同一非空 UUID 在结果中至多出现一次。
+//   - active 无条件优先于 historical：active 占用的 UUID 不被任何 historical 条目
+//     替换（active 内部理论上不会有同 UUID，仍去重防御未来 resume/fork 不变量退化）。
+//   - historical 内部同 UUID 多条时（如 64-1 之前的 Add 泄漏路径）按比较式去重
+//     （Story 64.2 裁决 2）：① 新条目为终态(Dead)且旧条目非终态 → 替换（终态胜
+//     非终态，编码状态机不变量"Dead→任何状态非法"）；② 新旧同级（同终态或同非终态）
+//     → 替换（last-wins：FIFO 序靠后=写入更晚=较新，让 reap 侧新事实胜过装载侧旧
+//     字段）；③ 新条目非终态且旧条目终态 → 跳过。不依赖"写序=时序"假设（那靠裁决 1
+//     的 Upsert 才成立），纵深防御不依赖被防御对象。
 //   - 空 UUID 不进 seen 集合，按原条目逐一保留（向后兼容老进程）。
+//   - 替换/保留的 historical 条目 PID 一律清零（reap 后 PID 失效）。
 func (k *KernelImpl) ListAllProcs() []vfs.ProcInfo {
 	active := k.ListProcs()
 	historical := k.procHistory.List()
 
 	seen := make(map[string]bool, len(active)+len(historical))
+	// histIdx maps a historical UUID to its slot in result, so a later same-UUID
+	// entry can compare against and replace the earlier one in place (裁决 2).
+	// active-occupied UUIDs never enter histIdx — active wins unconditionally.
+	histIdx := make(map[string]int, len(historical))
 	result := make([]vfs.ProcInfo, 0, len(active)+len(historical))
 	for _, p := range active {
 		if p.UUID != "" {
@@ -536,13 +549,24 @@ func (k *KernelImpl) ListAllProcs() []vfs.ProcInfo {
 		result = append(result, p)
 	}
 	for _, p := range historical {
-		if p.UUID != "" {
-			if seen[p.UUID] {
-				continue
-			}
-			seen[p.UUID] = true
-		}
 		p.PID = 0 // historical process — PID no longer valid after reap
+		if p.UUID == "" {
+			// empty UUID: not deduped (backward compat with pre-UUID procs).
+			result = append(result, p)
+			continue
+		}
+		if seen[p.UUID] {
+			// active already occupies this UUID → active wins, drop historical.
+			continue
+		}
+		if idx, ok := histIdx[p.UUID]; ok {
+			// Same UUID earlier in historical — compare terminal-ness / recency.
+			if shouldReplaceHistoryEntry(result[idx], p) {
+				result[idx] = p
+			}
+			continue
+		}
+		histIdx[p.UUID] = len(result)
 		result = append(result, p)
 	}
 
@@ -566,6 +590,30 @@ func (k *KernelImpl) ListAllProcs() []vfs.ProcInfo {
 		return cmp.Compare(a.PID, b.PID)
 	})
 	return result
+}
+
+// isTerminalHistoryState reports whether a history snapshot's state is terminal.
+// Only Dead is terminal for history dedup purposes (Story 64.2 裁决 2). Zombie is
+// deliberately NOT treated as terminal: history entries are almost never Zombie
+// (reap落史时已 Dead、64-1 装载归一化为 dead)，即便出现也应让位于 dead 条目。
+// kernel-local helper — do NOT reference dashboard's StateRank (依赖方向反转).
+func isTerminalHistoryState(s types.ProcessState) bool {
+	return s == types.StateDead
+}
+
+// shouldReplaceHistoryEntry decides whether a later same-UUID historical entry
+// (cand) should replace an earlier one (cur) in ListAllProcs dedup (Story 64.2
+// 裁决 2):
+//   - cand terminal, cur non-terminal → replace (终态胜非终态).
+//   - cand non-terminal, cur terminal → keep cur (终态不被非终态取代).
+//   - same terminal-ness → replace (last-wins: FIFO-later = written later = newer).
+func shouldReplaceHistoryEntry(cur, cand vfs.ProcInfo) bool {
+	curTerminal := isTerminalHistoryState(cur.State)
+	candTerminal := isTerminalHistoryState(cand.State)
+	if candTerminal != curTerminal {
+		return candTerminal
+	}
+	return true
 }
 
 // checkBudgetWarning emits warning/critical log when per-step input tokens

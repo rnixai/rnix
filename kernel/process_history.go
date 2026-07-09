@@ -57,6 +57,12 @@ func (h *ProcessHistory) Add(info vfs.ProcInfo) {
 // this so the determinism/idempotency contract (same tool_use_id → one node)
 // holds and finalize (Running → Dead) updates the live snapshot rather than
 // adding a duplicate. Appending honors the same FIFO cap as Add.
+//
+// Story 64.2 extends this to the two real-process history sink/load paths:
+// reap.go cleanupExpiredDead and proc_query.go LoadHistory. Replacing in place
+// keeps a single snapshot per UUID (no startup-loaded + reap double entry) AND
+// preserves FIFO insertion position — the precondition ListAllProcs's stable
+// sort depends on ("procHistory.List() preserves FIFO insertion order").
 func (h *ProcessHistory) Upsert(info vfs.ProcInfo) {
 	if info.UUID == "" {
 		return
