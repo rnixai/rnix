@@ -63,6 +63,11 @@ func (h *ProcessHistory) Add(info vfs.ProcInfo) {
 // keeps a single snapshot per UUID (no startup-loaded + reap double entry) AND
 // preserves FIFO insertion position — the precondition ListAllProcs's stable
 // sort depends on ("procHistory.List() preserves FIFO insertion order").
+//
+// Terminal guard: a stored Dead snapshot is never replaced by a non-terminal
+// one — mirrors ListAllProcs's shouldReplaceHistoryEntry rule ③ at the storage
+// layer, so a stale non-terminal copy (e.g. a suspended snapshot in a
+// later-scanned baseDir during LoadHistory) cannot erase real exit facts.
 func (h *ProcessHistory) Upsert(info vfs.ProcInfo) {
 	if info.UUID == "" {
 		return
@@ -72,6 +77,9 @@ func (h *ProcessHistory) Upsert(info vfs.ProcInfo) {
 
 	for i := len(h.entries) - 1; i >= 0; i-- {
 		if h.entries[i].UUID == info.UUID {
+			if isTerminalHistoryState(h.entries[i].State) && !isTerminalHistoryState(info.State) {
+				return
+			}
 			h.entries[i] = info
 			return
 		}

@@ -343,3 +343,46 @@ func TestATDD_64_2_032_Upsert_EmptyUUID_NoOp(t *testing.T) {
 		t.Errorf("empty-UUID Upsert must be a no-op: Len %d → %d", before, got)
 	}
 }
+
+// TestATDD_64_2_033_Upsert_TerminalGuard verifies the storage-layer terminal
+// guard (code-review patch): a stored Dead snapshot is never replaced by a
+// non-terminal one. This closes the LoadHistory cross-baseDir exposure — a
+// stale suspended copy in a later-scanned baseDir (data-migration leftover)
+// must not erase real exit facts, mirroring shouldReplaceHistoryEntry rule ③
+// at the storage layer. The forward direction (non-terminal → Dead finalize,
+// e.g. CLI-subagent Running → Dead) must keep working.
+func TestATDD_64_2_033_Upsert_TerminalGuard(t *testing.T) {
+	h := NewProcessHistory(10)
+
+	// Dead 不被非终态取代（stale suspended 覆盖方向被拒）。
+	h.Upsert(vfs.ProcInfo{UUID: "A", State: types.StateDead, ExitReason: "completed"})
+	h.Upsert(vfs.ProcInfo{UUID: "A", State: types.StateSuspended, Intent: "stale-copy"})
+	if got := h.Len(); got != 1 {
+		t.Fatalf("Len = %d, want 1", got)
+	}
+	if e := h.List()[0]; e.State != types.StateDead || e.ExitReason != "completed" {
+		t.Errorf("Dead snapshot must survive non-terminal Upsert: got State=%v ExitReason=%q",
+			e.State, e.ExitReason)
+	}
+
+	// 正向 finalize（Running → Dead）不受守卫影响。
+	h.Upsert(vfs.ProcInfo{UUID: "B", State: types.StateRunning})
+	h.Upsert(vfs.ProcInfo{UUID: "B", State: types.StateDead, ExitReason: "completed"})
+	list := h.List()
+	if len(list) != 2 {
+		t.Fatalf("Len = %d, want 2", len(list))
+	}
+	if list[1].UUID != "B" || list[1].State != types.StateDead {
+		t.Errorf("Running → Dead finalize must replace: got UUID=%s State=%v",
+			list[1].UUID, list[1].State)
+	}
+
+	// 同级非终态 last-wins 不受守卫影响（suspended → running 仍替换）。
+	h.Upsert(vfs.ProcInfo{UUID: "C", State: types.StateSuspended})
+	h.Upsert(vfs.ProcInfo{UUID: "C", State: types.StateRunning, Intent: "newer"})
+	list = h.List()
+	if list[2].State != types.StateRunning || list[2].Intent != "newer" {
+		t.Errorf("same-level non-terminal Upsert must still replace: got State=%v Intent=%q",
+			list[2].State, list[2].Intent)
+	}
+}

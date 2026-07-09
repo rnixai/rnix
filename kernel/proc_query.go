@@ -104,7 +104,9 @@ func (k *KernelImpl) LoadHistory() error {
 			// Story 64.2: Upsert (not Add) so a same UUID appearing across
 			// baseDirs (projects/* + global fallback, e.g. data-migration
 			// leftovers) collapses to a single snapshot; the later-scanned
-			// baseDir wins. Within one baseDir每 UUID 至多一目录，无重复。
+			// baseDir wins, EXCEPT a dead snapshot is never replaced by a
+			// non-terminal one (Upsert terminal guard). Within one baseDir
+			// 每 UUID 至多一目录，无重复。
 			merged.Upsert(info)
 		}
 		if removed, rerr := LoadGcRemovedUUIDs(baseDir); rerr == nil {
@@ -524,9 +526,9 @@ func (k *KernelImpl) ListProcs() []vfs.ProcInfo {
 //   - historical 内部同 UUID 多条时（如 64-1 之前的 Add 泄漏路径）按比较式去重
 //     （Story 64.2 裁决 2）：① 新条目为终态(Dead)且旧条目非终态 → 替换（终态胜
 //     非终态，编码状态机不变量"Dead→任何状态非法"）；② 新旧同级（同终态或同非终态）
-//     → 替换（last-wins：FIFO 序靠后=写入更晚=较新，让 reap 侧新事实胜过装载侧旧
-//     字段）；③ 新条目非终态且旧条目终态 → 跳过。不依赖"写序=时序"假设（那靠裁决 1
-//     的 Upsert 才成立），纵深防御不依赖被防御对象。
+//     → 替换（last-wins：以 FIFO 写入序近似新旧——单一来源内成立；跨 baseDir 拼接
+//     时非全局时序，此时终态误判由规则①③兜底）；③ 新条目非终态且旧条目终态 →
+//     跳过。规则①③不依赖写入序，构成不依赖裁决 1 Upsert 的独立防线。
 //   - 空 UUID 不进 seen 集合，按原条目逐一保留（向后兼容老进程）。
 //   - 替换/保留的 historical 条目 PID 一律清零（reap 后 PID 失效）。
 func (k *KernelImpl) ListAllProcs() []vfs.ProcInfo {
