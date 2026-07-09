@@ -524,15 +524,36 @@ func SaveProcInfo(baseDir string, info vfs.ProcInfo) error {
 // ProcessHistory populated with the most recent maxSize entries (sorted by CreatedAt).
 // Missing or corrupt files are skipped with a warning log.
 func LoadProcHistory(baseDir string, maxSize int) (*ProcessHistory, error) {
+	infos, err := loadAllProcInfos(baseDir)
+	if err != nil {
+		return nil, err
+	}
+
+	if len(infos) > maxSize {
+		infos = infos[len(infos)-maxSize:]
+	}
+
+	return &ProcessHistory{
+		entries: infos,
+		maxSize: maxSize,
+	}, nil
+}
+
+// loadAllProcInfos scans <baseDir>/steps/*/proc-info.json and returns every
+// snapshot sorted by CreatedAt, with no size cap. LoadHistory reconciles over
+// this full set (Story 64.1 review D2): stale non-terminal entries beyond the
+// in-memory ring window must still be normalized on disk, because ListResumable
+// reads the disk directly and is not bounded by the window.
+func loadAllProcInfos(baseDir string) ([]vfs.ProcInfo, error) {
 	if baseDir == "" {
-		return NewProcessHistory(maxSize), nil
+		return nil, nil
 	}
 
 	stepsDir := filepath.Join(baseDir, "steps")
 	entries, err := os.ReadDir(stepsDir)
 	if err != nil {
 		if os.IsNotExist(err) {
-			return NewProcessHistory(maxSize), nil
+			return nil, nil
 		}
 		return nil, fmt.Errorf("readdir %s: %w", stepsDir, err)
 	}
@@ -562,14 +583,7 @@ func LoadProcHistory(baseDir string, maxSize int) (*ProcessHistory, error) {
 		return a.CreatedAt.Compare(b.CreatedAt)
 	})
 
-	if len(infos) > maxSize {
-		infos = infos[len(infos)-maxSize:]
-	}
-
-	return &ProcessHistory{
-		entries: infos,
-		maxSize: maxSize,
-	}, nil
+	return infos, nil
 }
 
 // ListResumable scans <baseDir>/data/steps/*/proc-info.json and returns snapshots

@@ -281,8 +281,12 @@ func TestATDD_63_1_INT_005_HistoryNoExitCode_DegradesToOne(t *testing.T) {
 	if resp.ExitCode != 1 {
 		t.Errorf("ExitCode = %d, want 1 (裁决 5: never propagate zero for unrecorded exit)", resp.ExitCode)
 	}
-	if !strings.Contains(resp.ExitReason, "unknown") {
-		t.Errorf("ExitReason = %q, want substring %q", resp.ExitReason, "unknown")
+	// Story 64.1 交互：LoadHistory 现在把 state=running 的 crash leftover 归一化为
+	// dead + exit_reason="interrupted"（裁决 2 / AC1）。ExitCodeSet 仍为 false，故
+	// 63.1 的降级不变（ExitCode==1），但 reason 从空 → "interrupted"，wait 因此
+	// 报告归一化后的 "interrupted" 而非旧的 "unknown (no exit code recorded)"。
+	if !strings.Contains(resp.ExitReason, "interrupted") {
+		t.Errorf("ExitReason = %q, want substring %q (Story 64.1 归一化后 running leftover → interrupted)", resp.ExitReason, "interrupted")
 	}
 }
 

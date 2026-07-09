@@ -76,18 +76,39 @@ func (k *KernelImpl) LoadHistory() error {
 		return nil
 	}
 	merged := NewProcessHistory(1000)
+	reconciled := 0
 	for _, baseDir := range AllBaseDirs(k.dataDir) {
-		h, err := LoadProcHistory(baseDir, 1000)
+		// Full disk scan, not the 1000-entry window (Story 64.1 review D2):
+		// ListResumable reads the disk directly, so stale entries beyond the
+		// window must also be normalized. merged (ring cap 1000, fed in
+		// CreatedAt order) still keeps only the most recent entries in memory.
+		infos, err := loadAllProcInfos(baseDir)
 		if err != nil {
 			log.Printf("[history] warn: load %s: %v", baseDir, err)
 			continue
 		}
-		for _, info := range h.List() {
+		for _, info := range infos {
+			// Story 64.1: normalize a non-terminal snapshot (created/running/
+			// zombie) left by a force-killed daemon to Dead, and write the cure
+			// back so it is permanent. best-effort — a writeback failure only
+			// warns and never blocks startup; merged.Add always receives the
+			// normalized (in-memory) info so the view is correct even if the
+			// disk write lost a race (裁决 5).
+			info, changed := k.reconcileStaleHistoryEntry(baseDir, info)
+			if changed {
+				reconciled++
+				if serr := SaveProcInfo(baseDir, info); serr != nil {
+					log.Printf("[history] warn: reconcile writeback %s: %v", info.UUID, serr)
+				}
+			}
 			merged.Add(info)
 		}
 		if removed, rerr := LoadGcRemovedUUIDs(baseDir); rerr == nil {
 			merged.SeedRemovedUUIDs(removed)
 		}
+	}
+	if reconciled > 0 {
+		log.Printf("[history] reconciled %d stale non-terminal entries to dead", reconciled)
 	}
 	k.procHistory = merged
 	return nil
