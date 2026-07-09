@@ -22,6 +22,7 @@ import (
 	"time"
 
 	"github.com/rnixai/rnix/internal/types"
+	"github.com/rnixai/rnix/internal/ui"
 	"github.com/rnixai/rnix/vfs"
 )
 
@@ -167,6 +168,35 @@ func TestATDD_64_3_UNIT_AvgExcludesInterruptedTokensStillSummed(t *testing.T) {
 	}
 	if !strings.Contains(out, "Total: 70 tok") {
 		t.Errorf("Interrupted 段 token 仍应全累计（20+50=70），got %q", out)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// 🟢 64-3-UNIT-011 (AC6 · D6 · review patch 2026-07-09): 正常 dead 与 interrupted 并存时，
+// avg/deadCount 只由正常 dead 贡献——Avg 精确等于正常 dead 的时长，不被 interrupted 条目
+// （DeadAt 非零、时长 2s）稀释或抬高；计数四段互不污染。
+// ---------------------------------------------------------------------------
+func TestATDD_64_3_UNIT_MixedDeadAndInterruptedAvgUnpolluted(t *testing.T) {
+	now := time.Now()
+	elapsed := 10 * time.Second
+	procs := []vfs.ProcInfo{
+		// 正常完成的 dead：时长精确 10s → 唯一 avg 贡献者
+		{State: types.StateDead, ExitReason: "completed", ExitCodeSet: true, ExitCode: 0,
+			DeadAt: now, CreatedAt: now.Add(-elapsed), TokensUsed: 30},
+		// interrupted：DeadAt 非零（时长 2s），若误计入 avg 会把均值拉到 6s
+		interruptedDead(50),
+	}
+	out := RenderHistoryStats(procs, 0)
+	want := "Avg: " + ui.FormatDuration(elapsed)
+	if !strings.Contains(out, want) {
+		t.Errorf("avg 应仅由正常 dead 贡献（%s），不被 interrupted 稀释，got %q", want, out)
+	}
+	if !strings.Contains(out, "Done: 1") || !strings.Contains(out, "Interrupted: 1") ||
+		!strings.Contains(out, "Failed: 0") {
+		t.Errorf("混合场景计数应为 Done:1 / Interrupted:1 / Failed:0，got %q", out)
+	}
+	if !strings.Contains(out, "Total: 80 tok") {
+		t.Errorf("token 仍应全段累计（30+50=80），got %q", out)
 	}
 }
 
