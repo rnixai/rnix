@@ -13,6 +13,7 @@ package inspector
 
 import (
 	"regexp"
+	"slices"
 
 	"github.com/charmbracelet/lipgloss"
 )
@@ -83,7 +84,7 @@ func ApplyWordLevelHighlight(content string, positions []SearchMatchPos, searchM
 		currentLine = searchMatches[matchIdx]
 	}
 	out := []byte(content)
-	for i := len(positions) - 1; i >= 0; i-- {
+	for i := range slices.Backward(positions) {
 		p := positions[i]
 		if p.ByteStart < 0 || p.ByteEnd > len(out) || p.ByteStart >= p.ByteEnd {
 			continue

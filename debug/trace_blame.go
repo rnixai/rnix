@@ -3,6 +3,7 @@ package debug
 import (
 	"encoding/json"
 	"fmt"
+	"slices"
 	"sort"
 	"strings"
 	"time"
@@ -337,7 +338,7 @@ func FormatBlameResult(result *BlameResult) string {
 		b.WriteString("\n── Error Chains ────────────────────────────────────────\n")
 		for i, chain := range result.ErrorChains {
 			fmt.Fprintf(&b, "Chain %d:\n", i+1)
-			for j := len(chain.Path) - 1; j >= 0; j-- {
+			for j := range slices.Backward(chain.Path) {
 				s := chain.Path[j]
 				isRoot := s == chain.RootCause
 				prefix := "↑"

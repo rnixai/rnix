@@ -10,6 +10,7 @@ import (
 	"maps"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 
@@ -230,7 +231,7 @@ func ReadRawForStepWithErrors(path string, step int) (*vfs.RawCapture, int, erro
 	if err != nil {
 		return nil, parseErrors, err
 	}
-	for i := len(all) - 1; i >= 0; i-- {
+	for i := range slices.Backward(all) {
 		if all[i].Step == step {
 			return &all[i], parseErrors, nil
 		}

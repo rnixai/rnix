@@ -2,6 +2,7 @@ package kernel
 
 import (
 	"fmt"
+	"slices"
 	"sync"
 	"time"
 
@@ -309,7 +310,7 @@ func (s *Supervisor) childUUID(pid types.PID) string {
 
 // shutdownAll stops all alive children in reverse startup order.
 func (s *Supervisor) shutdownAll() {
-	for i := len(s.children) - 1; i >= 0; i-- {
+	for i := range slices.Backward(s.children) {
 		s.stopChild(i)
 	}
 }
@@ -469,7 +470,7 @@ func (s *Supervisor) restartOneForAll(crashedIdx int) error {
 	}
 
 	// Stop all alive children in reverse order (crashed one is already dead)
-	for i := len(s.children) - 1; i >= 0; i-- {
+	for i := range slices.Backward(s.children) {
 		if i != crashedIdx {
 			s.stopChild(i)
 		}

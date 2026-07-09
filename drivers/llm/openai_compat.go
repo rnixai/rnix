@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"slices"
 	"sort"
 	"strings"
 	"time"
@@ -317,11 +318,11 @@ func (d *OpenAICompatDriver) buildMessages(req LLMRequest) ([]oaiMessage, error)
 // for any assistant is too loose (the bug fixed here: an intervening user
 // message between `assistant.tool_calls` and its `tool` result was missed).
 func prevMessageIsAssistantWithToolCalls(msgs []oaiMessage) bool {
-	for i := len(msgs) - 1; i >= 0; i-- {
-		if msgs[i].Role == "tool" {
+	for _, m := range slices.Backward(msgs) {
+		if m.Role == "tool" {
 			continue
 		}
-		return msgs[i].Role == "assistant" && len(msgs[i].ToolCalls) > 0
+		return m.Role == "assistant" && len(m.ToolCalls) > 0
 	}
 	return false
 }

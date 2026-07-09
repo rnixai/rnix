@@ -16,7 +16,6 @@ package kernel
 //     内容不变，聚合事件为纯增量。
 //
 // 红灯机制（[[atdd-code-story-red-mechanism-preference]]）:
-//   - 真 RED 用例: t.Skip("RED: 65.1: <原因>")，dev-story 移 skip 填逻辑验
 //     RED→GREEN。无需生产骨架——断言只引用既有符号（readEvents/GetLogHistory/
 //     driverEventToLog），提交期可编译、make all 全绿。
 //   - green-guard 用例（INT-002/011/013 与 UNIT-009 的 started 分支）: 不 skip，
@@ -125,7 +124,6 @@ func countLog651(entries []types.LogEntry, cat types.LogCategory) int {
 // RED: 当前 handler 无累积器，永远不产 aggregate 事件。
 // -----------------------------------------------------------------------------
 func TestATDD_65_1_INT_001_ThinkingBlockAggregateOnNonThinkingEvent(t *testing.T) {
-	t.Skip("RED: 65.1: handler 尚无 thinking 块累积器，不产 subtype=aggregate 聚合事件")
 
 	h := newStreamHarness(t)
 	h.feed(evt651ThinkStarted())
@@ -172,7 +170,6 @@ func TestATDD_65_1_INT_002_StartedOnlyBlockNoAggregate(t *testing.T) {
 // RED: 当前不产 aggregate 事件。
 // -----------------------------------------------------------------------------
 func TestATDD_65_1_INT_003_NewStartedSplitsBlocks(t *testing.T) {
-	t.Skip("RED: 65.1: 无累积器，started 断块后不产两条聚合事件")
 
 	h := newStreamHarness(t)
 	h.feed(evt651ThinkStarted())
@@ -200,7 +197,6 @@ func TestATDD_65_1_INT_003_NewStartedSplitsBlocks(t *testing.T) {
 // RED: 当前 done/error 分支无 thinking flush 兜底。
 // -----------------------------------------------------------------------------
 func TestATDD_65_1_INT_004_DoneAndErrorBackstopFlushThinking(t *testing.T) {
-	t.Skip("RED: 65.1: done/error 分支尚无 thinking 块 flush 兜底")
 
 	for _, terminal := range []string{"done", "error"} {
 		t.Run(terminal, func(t *testing.T) {
@@ -227,7 +223,6 @@ func TestATDD_65_1_INT_004_DoneAndErrorBackstopFlushThinking(t *testing.T) {
 // RED: flushTool 只写 steps.jsonl，不 emit 聚合事件。
 // -----------------------------------------------------------------------------
 func TestATDD_65_1_INT_005_ToolAggregateOnUserToolResultFlush(t *testing.T) {
-	t.Skip("RED: 65.1: flushTool 尚未 emit DriverToolCall subtype=aggregate 事件")
 
 	h := newStreamHarness(t)
 	h.feed(evtStarted("Read", "call_A"))
@@ -263,7 +258,6 @@ func TestATDD_65_1_INT_005_ToolAggregateOnUserToolResultFlush(t *testing.T) {
 // RED: 同 INT-005。
 // -----------------------------------------------------------------------------
 func TestATDD_65_1_INT_006_ToolAggregateOnDoneBackstop(t *testing.T) {
-	t.Skip("RED: 65.1: flushTool 尚未 emit 聚合事件（done backstop 路径）")
 
 	h := newStreamHarness(t)
 	h.feed(evtStarted("Bash", "call_A"))
@@ -285,7 +279,6 @@ func TestATDD_65_1_INT_006_ToolAggregateOnDoneBackstop(t *testing.T) {
 // RED: 同 INT-005。
 // -----------------------------------------------------------------------------
 func TestATDD_65_1_INT_007_ToolAggregateOnCompletedFlush(t *testing.T) {
-	t.Skip("RED: 65.1: flushTool 尚未 emit 聚合事件（completed 路径）")
 
 	h := newStreamHarness(t)
 	h.feed(evtStarted("shell", "call_C"))
@@ -309,7 +302,6 @@ func TestATDD_65_1_INT_007_ToolAggregateOnCompletedFlush(t *testing.T) {
 // 3 分片产 3 条而非 1 条。
 // -----------------------------------------------------------------------------
 func TestATDD_65_1_INT_008_LogThinkBlockLevel(t *testing.T) {
-	t.Skip("RED: 65.1: thinking 分片仍逐条产 LogThink，未块级化")
 
 	h := newStreamHarness(t)
 	longTail := strings.Repeat("x", 100) // 迫使 80 rune 截断路径被走到
@@ -343,7 +335,6 @@ func TestATDD_65_1_INT_008_LogThinkBlockLevel(t *testing.T) {
 // RED: 当前 input_delta 走 tool_call 分支返回 (LogTool, "input_delta", ..., true)。
 // -----------------------------------------------------------------------------
 func TestATDD_65_1_UNIT_009_InputDeltaNoLogTool(t *testing.T) {
-	t.Skip("RED: 65.1: driverEventToLog 对 input_delta 仍返回 LogTool 条目")
 
 	_, _, _, ok := driverEventToLog(evtInputDelta(`{"partial`))
 	if ok {
@@ -379,7 +370,6 @@ func TestATDD_65_1_UNIT_010_StartedLogToolUnchanged(t *testing.T) {
 // RED: 无累积器。
 // -----------------------------------------------------------------------------
 func TestATDD_65_1_INT_011_SourceMatrixAggregation(t *testing.T) {
-	t.Skip("RED: 65.1: 无累积器；且分片判定谓词须覆盖无 subtype 来源")
 
 	t.Run("cursor_subtype_passthrough", func(t *testing.T) {
 		h := newStreamHarness(t)

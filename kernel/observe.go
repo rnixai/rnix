@@ -435,6 +435,11 @@ func driverEventToLog(evt map[string]any) (types.LogCategory, string, string, bo
 
 	switch evtType {
 	case "tool_call":
+		// Story 65.1 (AC #4): input fragments are not log entries — the
+		// block-level aggregate carries the complete input instead.
+		if contentField == "input_delta" {
+			return "", "", "", false
+		}
 		tool, _ := evt["tool"].(string)
 		desc, _ := evt["description"].(string)
 		path, _ := evt["path"].(string)
@@ -593,6 +598,29 @@ func (k *KernelImpl) setupDriverStreamHandler(proc *Process, llmFD types.FD) {
 			k.writeDriverStepRecordFull(proc, p.step, p.tool,
 				summary, p.toolPath, toolInput, p.result, dur,
 				msgsRaw, msgCount)
+			// Story 65.1 (AC #2, 裁决 1/2/4): every tool call gets exactly one
+			// terminal aggregate event at flush time, carrying the complete
+			// (authoritative-first) input and result. Emitted for all drivers —
+			// codex/cursor downstream consumers see a redundant-but-uniform
+			// signal alongside the driver-native `completed` event. Content is
+			// bounded by the same 64KiB UTF-8-safe truncation as tool results;
+			// steps.jsonl remains the fidelity layer for the full input.
+			aggEvt := map[string]any{
+				"type":        "tool_call",
+				"subtype":     "aggregate",
+				"tool":        p.tool,
+				"input":       truncateDriverToolResult(toolInput),
+				"result":      truncateDriverToolResult(p.result),
+				"duration_ms": dur.Milliseconds(),
+				"step":        p.step,
+			}
+			if p.callID != "" {
+				aggEvt["call_id"] = p.callID
+			}
+			if path, ok := strings.CutPrefix(p.toolPath, p.tool+":"); ok {
+				aggEvt["path"] = path
+			}
+			k.emitEvent(proc, "DriverToolCall", aggEvt, nil, nil, 0)
 			// Remove from tracking so it cannot be flushed again. The
 			// authoritative input entry is deleted to bound memory and prevent
 			// crosstalk between calls reusing identifiers.
@@ -620,6 +648,39 @@ func (k *KernelImpl) setupDriverStreamHandler(proc *Process, llmFD types.FD) {
 				flushTool(pendingOrder[0])
 			}
 			current = nil
+		}
+
+		// Story 65.1 (AC #1, 裁决 2): thinking block accumulator. Fragments are
+		// concatenated verbatim (claude/cursor/API deltas are intra-word splits;
+		// a separator would corrupt the text). Block boundaries: any non-thinking
+		// event, a new `started` marker, or the done/error backstop.
+		var thinkingBuf strings.Builder
+		var thinkingStart time.Time
+		thinkingFragments := 0
+
+		// flushThinking emits one DriverThinking aggregate event (subtype=
+		// "aggregate", 裁决 1) carrying the full block text (64KiB UTF-8-safe
+		// truncation, 裁决 4) and produces the single block-level LogThink via
+		// the unchanged driverEventToLog pure function (裁决 3 — the 80-rune
+		// truncation precedent applies naturally). A block with zero valid
+		// fragments (e.g. started-only) emits nothing.
+		flushThinking := func() {
+			if thinkingFragments == 0 {
+				return
+			}
+			aggEvt := map[string]any{
+				"type":        "thinking",
+				"subtype":     "aggregate",
+				"content":     truncateDriverToolResult(thinkingBuf.String()),
+				"fragments":   thinkingFragments,
+				"duration_ms": time.Since(thinkingStart).Milliseconds(),
+			}
+			k.emitEvent(proc, "DriverThinking", aggEvt, nil, nil, 0)
+			if cat, content, toolPath, ok := driverEventToLog(aggEvt); ok {
+				k.emitLog(proc, 0, cat, content, toolPath)
+			}
+			thinkingBuf.Reset()
+			thinkingFragments = 0
 		}
 
 		// recordAuthInput marshals an assistant tool_use block's authoritative
@@ -688,6 +749,31 @@ func (k *KernelImpl) setupDriverStreamHandler(proc *Process, llmFD types.FD) {
 				return
 			}
 
+			// Story 65.1 (裁决 2): thinking block boundary detection + fragment
+			// accumulation. This sits BEFORE the content early-return below so a
+			// pure-text stream phase flushes the preceding thinking block
+			// immediately instead of leaving it suspended until `done`. Fragment
+			// predicate (content non-blank && content != subtype) matches the
+			// driverEventToLog thinking filter and covers all four sources:
+			// claude/qwen (subtype=delta), cursor (passthrough subtype), API
+			// drivers and codex (no subtype key). The `started` marker only
+			// delimits blocks and never enters the text (60.2 semantics).
+			if evtType == "thinking" {
+				sub, _ := evt["subtype"].(string)
+				if sub == "started" {
+					flushThinking()
+				}
+				if content, _ := evt["content"].(string); strings.TrimSpace(content) != "" && content != sub {
+					if thinkingFragments == 0 {
+						thinkingStart = time.Now()
+					}
+					thinkingBuf.WriteString(content)
+					thinkingFragments++
+				}
+			} else {
+				flushThinking()
+			}
+
 			// content 事件分流（调查 codex-cli-observability-parity R3）：
 			// API driver 的 token 级 content delta 高频到达，仅用于刷新
 			// heartbeat（上面的 TouchHeartbeat 已完成），直接返回避免
@@ -702,8 +788,13 @@ func (k *KernelImpl) setupDriverStreamHandler(proc *Process, llmFD types.FD) {
 			syscallName := driverEventToSyscall(evtType)
 			k.emitEvent(proc, syscallName, evt, nil, nil, 0)
 
-			if cat, content, toolPath, ok := driverEventToLog(evt); ok {
-				k.emitLog(proc, 0, cat, content, toolPath)
+			// Story 65.1 (AC #4, 裁决 3): thinking fragments no longer produce
+			// per-fragment LogThink entries — the accumulator emits one
+			// block-level entry at flush time via the same pure function.
+			if evtType != "thinking" {
+				if cat, content, toolPath, ok := driverEventToLog(evt); ok {
+					k.emitLog(proc, 0, cat, content, toolPath)
+				}
 			}
 
 			// Story 60.1 AC2: 思考事件(CLI driver 的 "thinking" + AC1 归一后的
@@ -1005,6 +1096,10 @@ func (k *KernelImpl) setupDriverStreamHandler(proc *Process, llmFD types.FD) {
 				// otherwise be dropped. flushAll drains both id-keyed and
 				// no-id pending tools.
 				flushAll()
+				// Story 65.1 backstop: flush a still-suspended thinking block at
+				// stream end (idempotent — the handler-top boundary check usually
+				// already flushed it).
+				flushThinking()
 				// Story 56.6 (AC4): finalize any subagent child still Running at
 				// stream end (no explicit Task tool_result) so synthetic nodes
 				// never leak in a perpetual Running state.
@@ -1016,6 +1111,9 @@ func (k *KernelImpl) setupDriverStreamHandler(proc *Process, llmFD types.FD) {
 			// Remaining tools are drained by each tool's completed event
 			// (codex/cursor) or by the stream-end `done` backstop.
 			case "error":
+				// Story 65.1 backstop: an error also terminates the stream —
+				// flush the suspended thinking block (idempotent).
+				flushThinking()
 				// Story 56.6 (AC4): a terminating error also ends the stream —
 				// finalize dangling subagent children so they do not leak.
 				cleanupStreamTrackers()

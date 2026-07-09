@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strings"
 	"time"
@@ -14,13 +15,13 @@ import (
 
 	"github.com/rnixai/rnix/debug"
 	"github.com/rnixai/rnix/internal/dashboard/alertstrip"
-	dashboardmodel "github.com/rnixai/rnix/internal/dashboard/model"
 	dashboarddebug "github.com/rnixai/rnix/internal/dashboard/debug"
-	"github.com/rnixai/rnix/internal/dashboard/heatmap"
 	"github.com/rnixai/rnix/internal/dashboard/detail"
 	"github.com/rnixai/rnix/internal/dashboard/eval"
+	"github.com/rnixai/rnix/internal/dashboard/heatmap"
 	"github.com/rnixai/rnix/internal/dashboard/inspector"
 	"github.com/rnixai/rnix/internal/dashboard/intent"
+	dashboardmodel "github.com/rnixai/rnix/internal/dashboard/model"
 	"github.com/rnixai/rnix/internal/dashboard/plugin"
 	"github.com/rnixai/rnix/internal/dashboard/security"
 	"github.com/rnixai/rnix/internal/dashboard/timeline"
@@ -62,12 +63,12 @@ type dashboardModel struct {
 	// Story 38-5 PR2 Step 1: TreeState 抽离（13 字段聚合到 internal/dashboard/tree.TreeState）
 	tree tree.TreeState
 
-	connected    bool
-	err          error
-	statusMsg    string
-	startTime    time.Time
-	confirmKill  bool
-	confirmPID   types.PID
+	connected   bool
+	err         error
+	statusMsg   string
+	startTime   time.Time
+	confirmKill bool
+	confirmPID  types.PID
 
 	// Story 38-5 PR4 Step 1: TimelineState 抽离（16 字段）— spec § AC4
 	// 抽出字段：AttachedPID/AttachedUUID + StepEntries/StepCursor/StepScrollTop/
@@ -140,8 +141,8 @@ type dashboardModel struct {
 	lastCompactEventMs int64
 	lastScriptEventMs  int64 // Story 43-3: watermark for Script* syscall dedup
 	fetchingCompact    bool
-	sysEventSeen        map[string]struct{}
-	historicalSeedDone  bool // seeded EXIT events for already-dead procs on startup
+	sysEventSeen       map[string]struct{}
+	historicalSeedDone bool // seeded EXIT events for already-dead procs on startup
 
 	// Health counters for title bar (Story 34.2)
 	errorCount int
@@ -192,18 +193,18 @@ func newDashboardModel(client *ipc.Client) dashboardModel {
 		uiState = &ui.UIState{}
 	}
 	return dashboardModel{
-		client:             client,
-		dispatcher:         newDispatcher(),
-		startTime:          time.Now(),
-		connected:          client != nil,
-		procPaging:         procPaging{PageSize: defaultProcPageSize, LoadedPages: 1}, // Story 34.8
-		rightPane:          paneTimeline,
-		recording:          make(map[string]string),
-		detail:             detail.DetailState{Cache: make(map[string]*ipc.GetProcDetailResponse)}, // Story 38-5 PR5 Step 1: DetailState init
-		prevProcessPIDs:    make(map[types.PID]vfs.ProcInfo),
-		budgetAlertSeen:    make(map[types.PID]int),
-		stallSeen:          make(map[types.PID]struct{}),
-		sysEventSeen:       make(map[string]struct{}),
+		client:          client,
+		dispatcher:      newDispatcher(),
+		startTime:       time.Now(),
+		connected:       client != nil,
+		procPaging:      procPaging{PageSize: defaultProcPageSize, LoadedPages: 1}, // Story 34.8
+		rightPane:       paneTimeline,
+		recording:       make(map[string]string),
+		detail:          detail.DetailState{Cache: make(map[string]*ipc.GetProcDetailResponse)}, // Story 38-5 PR5 Step 1: DetailState init
+		prevProcessPIDs: make(map[types.PID]vfs.ProcInfo),
+		budgetAlertSeen: make(map[types.PID]int),
+		stallSeen:       make(map[types.PID]struct{}),
+		sysEventSeen:    make(map[string]struct{}),
 		// Story 38-5 PR2 Step 1: TreeState 抽离（13 字段）
 		tree: tree.TreeState{
 			LastEventByPID:     make(map[types.PID]time.Time),
@@ -216,9 +217,9 @@ func newDashboardModel(client *ipc.Client) dashboardModel {
 			StepExpandedIdx:   -1,
 			StepFilters:       defaultStepFilters(),
 			ExpandedAggGroups: make(map[int]bool),
-			SortAsc:           true,                       // Story 36-4: 默认升序（最新在底）
+			SortAsc:           true,                         // Story 36-4: 默认升序（最新在底）
 			ExpandMode:        timeline.ExpandModeCollapsed, // Story 36-4
-			UIState:           uiState,                    // Story 36-4: 首次升级提示持久化状态
+			UIState:           uiState,                      // Story 36-4: 首次升级提示持久化状态
 		},
 		intent: intent.IntentState{
 			TreeCollapsed: make(map[string]bool), // Story 38-4 AC#3 / P1: keyed by RootIntent
@@ -285,15 +286,15 @@ func (m dashboardModel) TimelineState() timeline.TimelineState { return m.timeli
 
 // DetailState implements detail.StateProvider (Story 38-5 PR5 Step 1; retained
 // as a stable StateProvider — see TreeState).
-func (m dashboardModel) DetailState() detail.DetailState { return m.detail }
-func (m dashboardModel) SelectedPID() types.PID          { return m.selectedPID } // Story 38-5 PR5 Step 2 · detail.SelectedPIDProvider
-func (m dashboardModel) IntentState() intent.IntentState { return m.intent }      // Story 38-5 PR6 Step 1 · intent.StateProvider (retained as stable contract)
-func (m dashboardModel) SecurityState() security.SecurityState { return m.security } // Story 38-5 PR7 Step 1 · security.StateProvider (retained)
-func (m dashboardModel) TraceState() trace.TraceState          { return m.trace }    // Story 38-5 PR8 Step 1 · trace.StateProvider (retained)
-func (m dashboardModel) EvalState() eval.EvalState             { return m.eval }     // Story 38-5 PR9 Step 1 · eval.StateProvider (retained)
-func (m dashboardModel) InspectorState() inspector.InspectorState { return m.inspector } // Story 38-5 PR10 Step 1 · inspector.StateProvider (retained)
-func (m dashboardModel) DebugState() dashboarddebug.DebugState  { return m.debugState } // Story 38-5 PR11 Step 1 · dashboarddebug.StateProvider (retained)
-func (m dashboardModel) AlertStripState() alertstrip.AlertStripState { return m.alertStrip } // Story 38-5 PR12 Step 1 · alertstrip.StateProvider (retained)
+func (m dashboardModel) DetailState() detail.DetailState             { return m.detail }
+func (m dashboardModel) SelectedPID() types.PID                      { return m.selectedPID } // Story 38-5 PR5 Step 2 · detail.SelectedPIDProvider
+func (m dashboardModel) IntentState() intent.IntentState             { return m.intent }      // Story 38-5 PR6 Step 1 · intent.StateProvider (retained as stable contract)
+func (m dashboardModel) SecurityState() security.SecurityState       { return m.security }    // Story 38-5 PR7 Step 1 · security.StateProvider (retained)
+func (m dashboardModel) TraceState() trace.TraceState                { return m.trace }       // Story 38-5 PR8 Step 1 · trace.StateProvider (retained)
+func (m dashboardModel) EvalState() eval.EvalState                   { return m.eval }        // Story 38-5 PR9 Step 1 · eval.StateProvider (retained)
+func (m dashboardModel) InspectorState() inspector.InspectorState    { return m.inspector }   // Story 38-5 PR10 Step 1 · inspector.StateProvider (retained)
+func (m dashboardModel) DebugState() dashboarddebug.DebugState       { return m.debugState }  // Story 38-5 PR11 Step 1 · dashboarddebug.StateProvider (retained)
+func (m dashboardModel) AlertStripState() alertstrip.AlertStripState { return m.alertStrip }  // Story 38-5 PR12 Step 1 · alertstrip.StateProvider (retained)
 
 func (m dashboardModel) Init() tea.Cmd {
 	return tickCmd()
@@ -1237,25 +1238,25 @@ func (m dashboardModel) handlePIDChange() (dashboardModel, tea.Cmd) {
 
 func newReplayDashboardModel(reader *debug.RecordReader) dashboardModel {
 	return dashboardModel{
-		startTime:         time.Now(),
-		connected:         false,
-		recording:         make(map[string]string),
+		startTime: time.Now(),
+		connected: false,
+		recording: make(map[string]string),
 		// Story 38-5 PR4 Step 1: TimelineState 抽离（16 字段）
 		timeline: timeline.TimelineState{
 			StepExpandedIdx:   -1,
 			StepFilters:       defaultStepFilters(),
 			ExpandedAggGroups: make(map[int]bool),
 		},
-		prevProcessPIDs:   make(map[types.PID]vfs.ProcInfo),
-		budgetAlertSeen:   make(map[types.PID]int),
-		stallSeen:         make(map[types.PID]struct{}),
-		sysEventSeen:      make(map[string]struct{}),
-		replayMode:        true,
-		replayReader:      reader,
-		replayCursor:      -1,
-		replayPlaying:     false,
-		replaySpeed:       1.0,
-		prevReplayCursor:  -2,
+		prevProcessPIDs:  make(map[types.PID]vfs.ProcInfo),
+		budgetAlertSeen:  make(map[types.PID]int),
+		stallSeen:        make(map[types.PID]struct{}),
+		sysEventSeen:     make(map[string]struct{}),
+		replayMode:       true,
+		replayReader:     reader,
+		replayCursor:     -1,
+		replayPlaying:    false,
+		replaySpeed:      1.0,
+		prevReplayCursor: -2,
 		// Story 38-5 PR11 Step 4(b) Phase 1: 11 个子 Model hook 入口（spec § AC11）
 		treeM:       tree.NewModel(),
 		timelineM:   timeline.NewModel(),
@@ -1308,7 +1309,7 @@ func buildReplayProcessTree(reader *debug.RecordReader, cursor int) []vfs.ProcIn
 func buildReplayHeatmap(reader *debug.RecordReader, cursor int) *debug.CtxProfileResult {
 	events := reader.Events()
 	var snap *debug.ContextSnapshotData
-	for i := len(events) - 1; i >= 0; i-- {
+	for i := range slices.Backward(events) {
 		ev := events[i]
 		if int(ev.SeqNum) > cursor {
 			continue

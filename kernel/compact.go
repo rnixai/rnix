@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log"
 	"maps"
+	"slices"
 	"strings"
 	"time"
 
@@ -258,7 +259,7 @@ func (k *KernelImpl) extractActivePlan(cid types.CtxID) string {
 	}
 
 	// Scan messages in reverse to find the most recent plan
-	for i := len(prompt.Messages) - 1; i >= 0; i-- {
+	for i := range slices.Backward(prompt.Messages) {
 		msg := prompt.Messages[i]
 		if msg.Role == rnixctx.RoleAssistant && strings.HasPrefix(msg.Content, "[Plan]") {
 			return msg.Content

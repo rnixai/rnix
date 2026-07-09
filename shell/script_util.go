@@ -2,6 +2,7 @@ package shell
 
 import (
 	"fmt"
+	"slices"
 	"strings"
 )
 
@@ -203,8 +204,8 @@ func sortStrings(s []string) {
 // Used by --result-last-line to extract a keyword from verbose LLM output.
 func extractLastLine(s string) string {
 	lines := strings.Split(s, "\n")
-	for i := len(lines) - 1; i >= 0; i-- {
-		line := strings.TrimSpace(lines[i])
+	for _, l := range slices.Backward(lines) {
+		line := strings.TrimSpace(l)
 		if line != "" {
 			return line
 		}

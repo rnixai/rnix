@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"slices"
 	"strings"
 	"time"
 
@@ -353,7 +354,7 @@ func applyCacheControlToMessageHistory(msgs []anthropic.MessageParam) {
 		return
 	}
 	target := &msgs[len(msgs)-2]
-	for i := len(target.Content) - 1; i >= 0; i-- {
+	for i := range slices.Backward(target.Content) {
 		cc := target.Content[i].GetCacheControl()
 		if cc != nil {
 			*cc = anthropic.NewCacheControlEphemeralParam()

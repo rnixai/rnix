@@ -1,6 +1,9 @@
 package timeline
 
-import "sort"
+import (
+	"slices"
+	"sort"
+)
 
 // FoldGroup represents a collapsible range in the filtered events list.
 // Key is the ExpandedAggGroups map key (first step number of the group).
@@ -78,9 +81,9 @@ func FindGroupBoundary(current int, groups []FoldGroup, direction int) int {
 			}
 		}
 	} else {
-		for i := len(groups) - 1; i >= 0; i-- {
-			if groups[i].StartIdx < current {
-				return groups[i].StartIdx
+		for _, g := range slices.Backward(groups) {
+			if g.StartIdx < current {
+				return g.StartIdx
 			}
 		}
 	}

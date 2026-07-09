@@ -75,7 +75,7 @@ func (h *ProcessHistory) Upsert(info vfs.ProcInfo) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 
-	for i := len(h.entries) - 1; i >= 0; i-- {
+	for i := range slices.Backward(h.entries) {
 		if h.entries[i].UUID == info.UUID {
 			if isTerminalHistoryState(h.entries[i].State) && !isTerminalHistoryState(info.State) {
 				return
@@ -106,7 +106,7 @@ func (h *ProcessHistory) FindByPID(pid types.PID) *vfs.ProcInfo {
 	defer h.mu.RUnlock()
 
 	// Search backwards for the most recent entry with this PID.
-	for i := len(h.entries) - 1; i >= 0; i-- {
+	for i := range slices.Backward(h.entries) {
 		if h.entries[i].PID == pid {
 			info := h.entries[i]
 			return &info
@@ -123,7 +123,7 @@ func (h *ProcessHistory) FindByUUID(uuid string) *vfs.ProcInfo {
 	h.mu.RLock()
 	defer h.mu.RUnlock()
 
-	for i := len(h.entries) - 1; i >= 0; i-- {
+	for i := range slices.Backward(h.entries) {
 		if h.entries[i].UUID == uuid {
 			info := h.entries[i]
 			return &info

@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -204,9 +205,9 @@ func parseQwenJsonResult(data []byte) (*qwenResultMessage, error) {
 	var messages []json.RawMessage
 	if err := json.Unmarshal(data, &messages); err == nil {
 		// Scan from the end for the result message.
-		for i := len(messages) - 1; i >= 0; i-- {
+		for _, raw := range slices.Backward(messages) {
 			var msg qwenResultMessage
-			if json.Unmarshal(messages[i], &msg) == nil && msg.Type == "result" {
+			if json.Unmarshal(raw, &msg) == nil && msg.Type == "result" {
 				return &msg, nil
 			}
 		}

@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 
 	"github.com/goccy/go-yaml"
@@ -62,7 +63,7 @@ func (l *AgentLoader) Load(agentName string) (*AgentInfo, error) {
 	// layer that does have it.
 	mergedManifest := map[string]any{}
 	foundManifest := false
-	for i := len(agentDirs) - 1; i >= 0; i-- {
+	for i := range slices.Backward(agentDirs) {
 		manifestData, err := os.ReadFile(filepath.Join(agentDirs[i], "agent.yaml"))
 		if err != nil {
 			if os.IsNotExist(err) {
