@@ -26,7 +26,7 @@ import (
 func (m dashboardModel) renderDashboardTreePane(width, height int) string {
 	// ATDD 29.5 契约保留点（关键字必须在 renderDashboardTreePane 函数体内可被 grep）：
 	//   - "Result"           : tree.Render 在 expanded 模式渲染 row.Proc.Result（REASON 列）
-	//   - "renderHistoryStats" : 此 wrapper 调用 m.renderHistoryStats(allProcs) 注入 ctx.HistoryStatsLine
+	//   - "renderHistoryStats" : 此 wrapper 调用 m.renderHistoryStats(m.processes) 注入 ctx.HistoryStatsLine
 	//   - "Agent Tree"       : tree.Render 输出的 title bar 字面量
 	//   - "/ to search"      : tree.Render 输出的 expanded 模式搜索 hint
 	//   - "tree.SearchQuery" : tree.Render 渲染 search filter 状态
@@ -53,11 +53,12 @@ func (m dashboardModel) renderDashboardTreePane(width, height int) string {
 		CollapsedIntents: tree.BuildCollapsedIntents(m.tree),
 	}
 	if isExpanded {
-		allProcs := make([]vfs.ProcInfo, len(m.tree.Rows))
-		for i, r := range m.tree.Rows {
-			allProcs[i] = r.Proc
-		}
-		ctx.HistoryStatsLine = m.renderHistoryStats(allProcs)
+		// Story 64.3 D3: 统计输入源从 m.tree.Rows（展平树行）切到 m.processes
+		// （fetchPagedProcs cumulative set）。行为变更：前者随 dead 子树折叠被
+		// FlattenTreeWithCollapse 排除子行 → 统计随折叠缩水，且含 builder 造的
+		// missing-parent 占位 synthetic 节点（伪造 ProcInfo 进统计）。切到 m.processes
+		// 后统计只反映真实进程数据（折叠时数字不再缩水——更正确），且省一次切片拷贝。
+		ctx.HistoryStatsLine = m.renderHistoryStats(m.processes)
 	}
 
 	content := tree.Render(m.tree, ctx, innerW, innerH)

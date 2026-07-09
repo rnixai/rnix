@@ -375,3 +375,21 @@ func TruncateToWordBoundary(s string) string {
 func truncateToWordBoundary(s string) string {
 	return TruncateToWordBoundary(s)
 }
+
+// effectiveResult 返回 render 层失败判定应使用的 result 文本（Story 64.3 D5）。
+//
+// Story 64.1 归一化把 daemon-restart 杀死的非终态快照转为 dead + ExitReason=="interrupted" +
+// Result=""；空 Result 会驱动 ui.isFailedResult("")→true（render.go 行标红 / badge 走失败分支），
+// 与统计条 Interrupted 段（黄）矛盾。代入 "interrupted" 字面量让 ui.isFailedResult 既有
+// interrupted 豁免（internal/ui/symbols.go）生效 → 行改 dim（非红）· badge 走 success 分支。
+//
+// 锚点：kernel/history_reconcile.go exitReasonInterrupted（唯一写入源）。
+// 边界：ui.IsProcessFailed 权威路径（ExitCodeSet=true）优先于 result 文本——本 fallback 仅对
+// ExitCodeSet=false 条目有影响，恰是 interrupted 归一化条目形态（created/running 起源，未退出即落盘）；
+// zombie 起源保留真实 ExitReason + ExitCodeSet=true，不匹配本 helper 也不受影响（按真实 exit code 归桶）。
+func effectiveResult(p vfs.ProcInfo) string {
+	if p.Result == "" && p.ExitReason == exitReasonInterrupted {
+		return exitReasonInterrupted
+	}
+	return p.Result
+}

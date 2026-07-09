@@ -187,7 +187,10 @@ func Render(state TreeState, ctx RenderContext, innerW, innerH int) string {
 			cursor = "▸ "
 		}
 
-		stateMark := ui.StateBadge(row.Proc.State, row.Proc.Result)
+		// Story 64.3 D5: interrupted 归一化条目（Result="" + ExitReason=interrupted）经
+		// effectiveResult 代入 "interrupted" → StateBadge 走 success 分支（不标红），与统计条
+		// Interrupted 段一致；其余条目原样返回 Result 保持现状。
+		stateMark := ui.StateBadge(row.Proc.State, effectiveResult(row.Proc))
 
 		if row.Proc.IsPaused && (row.Proc.State == types.StateRunning || row.Proc.State == types.StateCreated) {
 			if ui.IsASCIIMode() {
@@ -252,7 +255,8 @@ func Render(state TreeState, ctx RenderContext, innerW, innerH int) string {
 		}
 
 		isDead := row.Proc.State == types.StateDead || row.Proc.State == types.StateZombie
-		failed := isDead && ui.IsProcessFailed(row.Proc.ExitCode, row.Proc.ExitCodeSet, row.Proc.Result)
+		// Story 64.3 D5: interrupted 归一化条目经 effectiveResult fallback → 行不再标红。
+		failed := isDead && ui.IsProcessFailed(row.Proc.ExitCode, row.Proc.ExitCodeSet, effectiveResult(row.Proc))
 		isDeadOk := isDead && !failed
 		isDeadFail := failed
 		var tokens string

@@ -21,7 +21,7 @@ import (
 )
 
 func TestRenderHistoryStats_Empty(t *testing.T) {
-	out := RenderHistoryStats(nil)
+	out := RenderHistoryStats(nil, 0)
 	if !strings.Contains(out, "Running: 0") {
 		t.Errorf("empty procs should report Running: 0, got %q", out)
 	}
@@ -50,11 +50,14 @@ func TestRenderHistoryStats_StateRouting(t *testing.T) {
 		{State: types.StateDead, Result: "ok", DeadAt: now, CreatedAt: now.Add(-2 * time.Second)},                  // done
 		{State: types.StateDead, Result: "error: timeout", DeadAt: now, CreatedAt: now.Add(-1 * time.Second)},      // failed
 	}
-	out := RenderHistoryStats(procs)
+	out := RenderHistoryStats(procs, 0)
 
-	// Running/Created/Zombie 三者计入 running = 3
-	if !strings.Contains(out, "Running: 3") {
-		t.Errorf("expected Running: 3 (Running+Created+Zombie), got %q", out)
+	// Story 64.3: Running/Created 计入 running = 2；Zombie 归 Interrupted 段（不再计 Running）
+	if !strings.Contains(out, "Running: 2") {
+		t.Errorf("expected Running: 2 (Running+Created), got %q", out)
+	}
+	if !strings.Contains(out, "Interrupted: 1") {
+		t.Errorf("expected Interrupted: 1 (Zombie), got %q", out)
 	}
 	// Dead "ok" → done (1)
 	if !strings.Contains(out, "Done: 1") {
@@ -72,7 +75,7 @@ func TestRenderHistoryStats_TokensSum(t *testing.T) {
 		{State: types.StateRunning, TokensUsed: 250},
 		{State: types.StateDead, TokensUsed: 50},
 	}
-	out := RenderHistoryStats(procs)
+	out := RenderHistoryStats(procs, 0)
 	if !strings.Contains(out, "Total: 400 tok") {
 		t.Errorf("tokens should sum to 400, got %q", out)
 	}
@@ -85,7 +88,7 @@ func TestRenderHistoryStats_AverageElapsed(t *testing.T) {
 		{State: types.StateDead, Result: "ok", DeadAt: now, CreatedAt: now.Add(-4 * time.Second)},
 		// avg = (2s + 4s) / 2 = 3s
 	}
-	out := RenderHistoryStats(procs)
+	out := RenderHistoryStats(procs, 0)
 	// Avg should not be "—" when deadCount > 0
 	if strings.Contains(out, "Avg: —") {
 		t.Errorf("avg should be computed when deadCount>0, got %q", out)
@@ -101,7 +104,7 @@ func TestRenderHistoryStats_ZeroDeadAtSkipped(t *testing.T) {
 	procs := []vfs.ProcInfo{
 		{State: types.StateDead, Result: "ok"}, // DeadAt 零值
 	}
-	out := RenderHistoryStats(procs)
+	out := RenderHistoryStats(procs, 0)
 	if !strings.Contains(out, "Avg: —") {
 		t.Errorf("zero DeadAt should not contribute to avg (Avg: —), got %q", out)
 	}
@@ -111,7 +114,7 @@ func TestRenderHistoryStats_ZeroDeadAtSkipped(t *testing.T) {
 }
 
 func TestRenderHistoryStats_OutputFormat(t *testing.T) {
-	out := RenderHistoryStats(nil)
+	out := RenderHistoryStats(nil, 0)
 
 	// 前导换行 + 空格
 	if !strings.HasPrefix(out, "\n ") {
@@ -134,7 +137,7 @@ func TestRenderHistoryStats_GlyphCharsPresent(t *testing.T) {
 		{State: types.StateDead, Result: "ok", DeadAt: time.Now(), CreatedAt: time.Now().Add(-1 * time.Second)},
 		{State: types.StateDead, Result: "error: timeout", DeadAt: time.Now(), CreatedAt: time.Now().Add(-1 * time.Second)},
 	}
-	out := RenderHistoryStats(procs)
+	out := RenderHistoryStats(procs, 0)
 	if !strings.Contains(out, "●") {
 		t.Errorf("Running glyph ● missing in %q", out)
 	}
@@ -154,10 +157,13 @@ func TestRenderHistoryStats_MixedScenario(t *testing.T) {
 		{State: types.StateDead, Result: "fail: panic", TokensUsed: 50, DeadAt: now, CreatedAt: now.Add(-3 * time.Second)},
 		{State: types.StateZombie, TokensUsed: 20},
 	}
-	out := RenderHistoryStats(procs)
+	out := RenderHistoryStats(procs, 0)
 
-	if !strings.Contains(out, "Running: 2") { // Running + Zombie
+	if !strings.Contains(out, "Running: 1") { // Story 64.3: Running only（Zombie 归 Interrupted）
 		t.Errorf("running count: %q", out)
+	}
+	if !strings.Contains(out, "Interrupted: 1") { // Zombie 归 Interrupted 段
+		t.Errorf("interrupted count: %q", out)
 	}
 	if !strings.Contains(out, "Done: 1") {
 		t.Errorf("done count: %q", out)
