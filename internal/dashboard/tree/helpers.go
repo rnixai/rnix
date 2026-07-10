@@ -383,7 +383,8 @@ func truncateToWordBoundary(s string) string {
 // 与统计条 Interrupted 段（黄）矛盾。代入 "interrupted" 字面量让 ui.isFailedResult 既有
 // interrupted 豁免（internal/ui/symbols.go）生效 → 行改 dim（非红）· badge 走 success 分支。
 //
-// 锚点：kernel/history_reconcile.go exitReasonInterrupted（唯一写入源）。
+// 锚点：kernel/history_reconcile.go exitReasonInterrupted（写入源①64.1 归一化；
+// ②kernel/cli_subagent.go synthetic 子代理 stream-end 兜底 finalize）。
 // 边界：ui.IsProcessFailed 权威路径（ExitCodeSet=true）优先于 result 文本——本 fallback 仅对
 // ExitCodeSet=false 条目有影响，恰是 interrupted 归一化条目形态（created/running 起源，未退出即落盘）；
 // zombie 起源保留真实 ExitReason + ExitCodeSet=true，不匹配本 helper 也不受影响（按真实 exit code 归桶）。

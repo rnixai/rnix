@@ -877,7 +877,7 @@ func (k *KernelImpl) setupDriverStreamHandler(proc *Process, llmFD types.FD) {
 				case "user":
 					for _, r := range extractToolResultBlocks(evt) {
 						if r.toolUseID != "" {
-							subagentTracker.finalizeByToolResult(r.toolUseID, r.content)
+							subagentTracker.finalizeByToolResult(r.toolUseID, r.content, r.isError)
 						}
 					}
 				}

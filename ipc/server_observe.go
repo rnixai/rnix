@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log"
 	"net"
 	"os"
 	"path/filepath"
@@ -268,13 +269,19 @@ func (s *Server) handleGetStepDetail(conn net.Conn, rawPayload json.RawMessage) 
 			return
 		}
 		metaPath := filepath.Join(filepath.Dir(stepsPath), "process-meta.json")
-		meta, err := readProcessMeta(metaPath)
-		if err != nil {
-			writeResponse(conn, Response{OK: false, Error: &ErrorPayload{Code: "NOT_FOUND", Message: "process not found"}})
-			return
+		if meta, err := readProcessMeta(metaPath); err == nil {
+			systemPrompt = meta.SystemPrompt
+			toolDefs = meta.ToolDefs
+		} else if !os.IsNotExist(err) {
+			// Absence is expected (Story 56.6 synthetic subagent dirs never
+			// have a process-meta.json); anything else is a real host
+			// process whose meta got corrupted — leave a breadcrumb.
+			log.Printf("get_step_detail: process-meta.json unreadable, degrading to empty prompt (uuid=%s): %v", uuid, err)
 		}
-		systemPrompt = meta.SystemPrompt
-		toolDefs = meta.ToolDefs
+		// Either way degrade to an empty systemPrompt / nil toolDefs instead
+		// of NOT_FOUND — the step data in steps.jsonl is still fully served,
+		// and toolDefs falls back to the StepRecord below (only when the
+		// step carries a non-empty Action).
 	}
 
 	if stepsPath == "" {

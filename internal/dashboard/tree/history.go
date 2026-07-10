@@ -53,11 +53,13 @@ import (
 	"github.com/rnixai/rnix/vfs"
 )
 
-// exitReasonInterrupted mirrors kernel/history_reconcile.go exitReasonInterrupted —
-// the SOLE writer of ExitReason=="interrupted"（Story 64.1 daemon-restart 归一化把
-// created/running/zombie 非终态快照转为 dead + exit_reason=interrupted）。tree 包不
-// import kernel，展示层自持副本；zombie 起源条目保留真实 ExitReason（killed/completed/
-// context_full）+ ExitCodeSet=true，不匹配此字面量 → 天然按 exit code 归 done/failed（D1 不扩面）。
+// exitReasonInterrupted mirrors kernel/history_reconcile.go exitReasonInterrupted.
+// Writers of ExitReason=="interrupted": ①Story 64.1 daemon-restart 归一化把
+// created/running/zombie 非终态快照转为 dead + exit_reason=interrupted；②synthetic
+// CLI 子代理的 stream-end 兜底 finalize（kernel/cli_subagent.go，未收到 Task
+// tool_result 即中断，结局未知）。tree 包不 import kernel，展示层自持副本；zombie
+// 起源条目保留真实 ExitReason（killed/completed/context_full）+ ExitCodeSet=true，
+// 不匹配此字面量 → 天然按 exit code 归 done/failed（D1 不扩面）。
 const exitReasonInterrupted = "interrupted"
 
 // historyRingCap mirrors kernel.NewProcessHistory(1000) —— ProcessHistory ring buffer

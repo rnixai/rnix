@@ -66,6 +66,7 @@ type toolUseBlock struct {
 type toolResultBlock struct {
 	toolUseID string
 	content   string
+	isError   bool
 }
 
 // normalizeContentBlocks flattens an event's `content` (which the driver may
@@ -112,9 +113,13 @@ func extractToolResultBlocks(evt map[string]any) []toolResultBlock {
 		if bt, _ := block["type"].(string); bt != "tool_result" {
 			continue
 		}
+		// claude stream-json only carries `is_error` on failing tool_results;
+		// the failed type assertion on a missing key defaults to false.
+		isError, _ := block["is_error"].(bool)
 		out = append(out, toolResultBlock{
 			toolUseID: stringOf(block["tool_use_id"]),
 			content:   extractContentText(block["content"]),
+			isError:   isError,
 		})
 	}
 	return out
@@ -476,20 +481,34 @@ func (t *cliSubagentTracker) route(evt map[string]any) bool {
 }
 
 // finalizeByToolResult finalizes the child whose Task tool_use id matches a
-// host-side tool_result (the subagent reported back). Returns true when a child
-// was finalized.
-func (t *cliSubagentTracker) finalizeByToolResult(toolUseID, report string) bool {
+// host-side tool_result (the subagent reported back). isError is the
+// tool_result block's `is_error` flag and becomes the authoritative exit code
+// (true→1, false/absent→0) so IsProcessFailed never falls back to the
+// result-text heuristic — a successful report containing "fail"/"error" no
+// longer renders red. Returns true when a child was finalized.
+func (t *cliSubagentTracker) finalizeByToolResult(toolUseID, report string, isError bool) bool {
 	c, ok := t.children[toolUseID]
 	if !ok {
 		return false
 	}
-	t.finalize(c, report)
+	exitCode := 0
+	if isError {
+		exitCode = 1
+	}
+	t.finalize(c, report, exitCode, true)
 	return true
 }
 
 // finalize transitions a child to Dead with the given report text, flushes any
 // dangling internal steps, closes its step writer, and persists the snapshot.
-func (t *cliSubagentTracker) finalize(c *syntheticChild, report string) {
+//
+// exitCodeSet=true is the tool_result path: exitCode is authoritative and
+// persisted (ExitCodeSet round-trips via proc-info.json). exitCodeSet=false is
+// the stream-end backstop: the subagent never reported back, so its outcome is
+// unknown — Result is set to "interrupted" (the existing non-failure exception
+// in internal/ui/symbols.go) and ExitReason to "interrupted" (the history
+// stats Interrupted bucket key) instead of fabricating an exit code.
+func (t *cliSubagentTracker) finalize(c *syntheticChild, report string, exitCode int, exitCodeSet bool) {
 	if c.finalized {
 		return
 	}
@@ -505,19 +524,37 @@ func (t *cliSubagentTracker) finalize(c *syntheticChild, report string) {
 	}
 	c.info.State = types.StateDead
 	c.info.DeadAt = time.Now()
-	if report != "" {
+	switch {
+	case report != "":
 		c.info.Result = truncateUTF8Bytes(report, maxSubagentResultBytes)
+	case exitCodeSet && exitCode == 0:
+		// Empty report on a successful tool_result: leave a non-failure
+		// sentinel — text-heuristic consumers (ui.StateBadge via
+		// isFailedResult) treat an empty Result as failure, which would
+		// contradict the authoritative exit code on the same row.
+		c.info.Result = "done"
+	case !exitCodeSet:
+		// Stream-end backstop: Result carries the "interrupted" non-failure
+		// exception for row/badge rendering, and ExitReason routes the entry
+		// into the history stats Interrupted bucket
+		// (internal/dashboard/tree/history.go keys on ExitReason, not Result).
+		c.info.Result = "interrupted"
+		c.info.ExitReason = exitReasonInterrupted
+	}
+	if exitCodeSet {
+		c.info.ExitCode = exitCode
+		c.info.ExitCodeSet = true
 	}
 	t.k.procHistory.Upsert(c.info)
 	_ = SaveProcInfo(t.baseDir, c.info)
 }
 
 // finalizeAll finalizes every still-running child (stream end / error backstop,
-// AC4 防泄漏).
+// AC4 防泄漏). No exit code is recorded — the outcome is unknown.
 func (t *cliSubagentTracker) finalizeAll() {
 	for _, c := range t.children {
 		if !c.finalized {
-			t.finalize(c, "")
+			t.finalize(c, "", 0, false)
 		}
 	}
 }
