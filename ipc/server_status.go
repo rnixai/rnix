@@ -257,9 +257,11 @@ func (s *Server) handleImmuneResume(conn net.Conn, rawPayload json.RawMessage) {
 		return
 	}
 
-	// Send SIGRESUME to the process
+	// Send SIGRESUME to the process (Story 66.3: attribute the resume so
+	// "who un-paused this" is auditable even though it is non-terminating).
 	if s.kern != nil {
-		if err := s.kern.Kill(pid, types.SIGRESUME); err != nil {
+		attr := kernel.KillAttribution{Origin: types.KillOriginResume, Requester: "immune-resume"}
+		if err := s.kern.KillWithOrigin(pid, types.SIGRESUME, attr); err != nil {
 			writeResponse(conn, Response{OK: false, Error: &ErrorPayload{Code: "NOT_FOUND", Message: fmt.Sprintf("failed to resume PID %d: %v", pid, err)}})
 			return
 		}

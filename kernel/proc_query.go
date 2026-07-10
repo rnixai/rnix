@@ -206,8 +206,80 @@ func (k *KernelImpl) GetLineage(pid types.PID) ([]LineageEvent, error) {
 	return lineage.Events(), nil
 }
 
-// Kill sends a signal to the target process.
+// KillAttribution answers "who killed this process" for every Kill event
+// emitted along a termination path (Story 66.3).
+//
+// It travels as an explicit parameter down Kill → deliverSignal →
+// defaultSignalAction → twoPhaseShutdown rather than living on Process:
+// concurrent kills would otherwise race for a single field and the audit
+// record would depend on which caller won the shutdownStarted CAS.
+type KillAttribution struct {
+	// Origin is who asked. Empty is normalized to KillOriginUnknown.
+	Origin types.KillOrigin
+	// Requester identifies the concrete asker — `rnix[41234]` for CLI clients,
+	// a subsystem name (`immune`, `intent-reconciler`) for in-daemon callers.
+	Requester string
+	// RootPID / RootOrigin are set only on cascade descendants, recording the
+	// process whose termination triggered this one and that request's origin.
+	RootPID    types.PID
+	RootOrigin types.KillOrigin
+	// Escalation records that this kill is a system-internal upgrade of an
+	// earlier request (currently only "grace_timeout"). Origin still names the
+	// original requester — an escalation is a means, not a second killer.
+	Escalation string
+}
+
+// withEscalation returns a copy of attr tagged as a system-internal upgrade.
+func (a KillAttribution) withEscalation(reason string) KillAttribution {
+	a.Escalation = reason
+	return a
+}
+
+// killAttrArgs renders the attribution into event args. origin and requester
+// are always present (AC5: legacy paths land "unknown", never a missing field);
+// the cascade and escalation fields appear only when set.
+func killAttrArgs(attr KillAttribution) map[string]any {
+	origin := attr.Origin
+	if origin == "" {
+		origin = types.KillOriginUnknown
+	}
+	args := map[string]any{
+		"origin":    origin.String(),
+		"requester": attr.Requester,
+	}
+	if attr.RootPID != 0 {
+		args["root_pid"] = attr.RootPID
+	}
+	if attr.RootOrigin != "" {
+		args["root_origin"] = attr.RootOrigin.String()
+	}
+	if attr.Escalation != "" {
+		args["escalation"] = attr.Escalation
+	}
+	return args
+}
+
+// killEventArgs builds the common Kill event args (attribution + pid + signal).
+// Each emit point gets a fresh map — emitEvent hands the map off to consumers.
+func killEventArgs(pid types.PID, signal types.Signal, attr KillAttribution) map[string]any {
+	args := killAttrArgs(attr)
+	args["pid"] = pid
+	args["signal"] = signal.String()
+	return args
+}
+
+// Kill sends a signal to the target process, without attribution.
+// Callers that know who requested the termination should use KillWithOrigin;
+// this delegate keeps the ProcessManager interface and every legacy call site
+// compiling, at the cost of an "unknown" origin in the audit trail.
 func (k *KernelImpl) Kill(pid types.PID, signal types.Signal) error {
+	return k.KillWithOrigin(pid, signal, KillAttribution{Origin: types.KillOriginUnknown})
+}
+
+// KillWithOrigin sends a signal to the target process and records who asked.
+// Every Kill event on the path (entry / noop / noop_suspended / final action /
+// killed_suspended) carries the attribution.
+func (k *KernelImpl) KillWithOrigin(pid types.PID, signal types.Signal, attr KillAttribution) error {
 	start := time.Now()
 
 	if !signal.Valid() {
@@ -219,42 +291,33 @@ func (k *KernelImpl) Kill(pid types.PID, signal types.Signal) error {
 		return NewSyscallError("Kill", pid, "", fmt.Errorf("process not found"), types.ErrNotFound)
 	}
 
-	k.emitEvent(proc, "Kill", map[string]any{
-		"pid":    pid,
-		"signal": signal.String(),
-	}, nil, nil, 0)
+	k.emitEvent(proc, "Kill", killEventArgs(pid, signal, attr), nil, nil, 0)
 
 	state := proc.GetState()
 	if state == types.StateZombie || state == types.StateDead {
-		k.emitEvent(proc, "Kill", map[string]any{
-			"pid":    pid,
-			"signal": signal.String(),
-			"action": "noop",
-		}, nil, nil, time.Since(start))
+		// "Who is killing an already-dead process" is audit information too.
+		args := killEventArgs(pid, signal, attr)
+		args["action"] = "noop"
+		k.emitEvent(proc, "Kill", args, nil, nil, time.Since(start))
 		return nil
 	}
 
 	// Suspended process: no running goroutine, handle signal directly
 	if state == types.StateSuspended {
 		if signal.IsTermination() {
-			return k.killSuspendedProcess(proc, signal, "Kill", start)
+			return k.killSuspendedProcess(proc, signal, "Kill", start, attr)
 		}
 		// Non-termination signals on suspended process: noop
-		k.emitEvent(proc, "Kill", map[string]any{
-			"pid":    pid,
-			"signal": signal.String(),
-			"action": "noop_suspended",
-		}, nil, nil, time.Since(start))
+		args := killEventArgs(pid, signal, attr)
+		args["action"] = "noop_suspended"
+		k.emitEvent(proc, "Kill", args, nil, nil, time.Since(start))
 		return nil
 	}
 
-	action, extraArgs, deliverErr := k.deliverSignal(proc, signal)
+	action, extraArgs, deliverErr := k.deliverSignal(proc, signal, attr)
 
-	args := map[string]any{
-		"pid":    pid,
-		"signal": signal.String(),
-		"action": action,
-	}
+	args := killEventArgs(pid, signal, attr)
+	args["action"] = action
 	maps.Copy(args, extraArgs)
 	k.emitEvent(proc, "Kill", args, nil, deliverErr, time.Since(start))
 

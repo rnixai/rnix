@@ -237,7 +237,7 @@ func readProcInfoDisk(t *testing.T, projBase, uuid string) map[string]any {
 // consumes its connection).
 func killAndWait(t *testing.T, sockPath string, pid types.PID) *WaitResponse {
 	t.Helper()
-	if err := dialClient(t, sockPath).Kill(pid, types.SIGTERM); err != nil {
+	if err := dialClient(t, sockPath).Kill(pid, types.SIGTERM, types.KillOriginCLI); err != nil {
 		t.Fatalf("client.Kill(pid=%d, SIGTERM): %v", pid, err)
 	}
 	resp, err := dialClient(t, sockPath).Wait(pid, 5000)

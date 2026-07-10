@@ -608,7 +608,7 @@ func runRoot(cmd *cobra.Command, args []string) error {
 		<-sigCh
 		progress.KernelMessage("interrupted (SIGINT)")
 		if pid := types.PID(spawnedPID.Load()); pid > 0 && cancelClient != nil {
-			_ = cancelClient.Kill(pid, types.SIGTERM)
+			_ = cancelClient.Kill(pid, types.SIGTERM, types.KillOriginOSSignal)
 		}
 		select {
 		case <-sigCh:
@@ -1281,7 +1281,7 @@ func runKill(cmd *cobra.Command, args []string) error {
 	}
 	defer client.Close()
 
-	if err := client.Kill(pid, types.SIGTERM); err != nil {
+	if err := client.Kill(pid, types.SIGTERM, types.KillOriginCLI); err != nil {
 		reason := "process not found"
 		impact := fmt.Sprintf("PID %d: no active process", pid)
 		if !strings.Contains(err.Error(), "NOT_FOUND") {
@@ -2077,8 +2077,10 @@ func runDaemon(cmd *cobra.Command, args []string) error {
 		k.SetImmuneDaemon(immuneDaemon)
 
 		// Story 22.2: set suspendFn after kernel is available (to call Kill with SIGPAUSE)
+		// Story 66.3: attribute the enforcement suspend to the immune watchdog.
 		immuneDaemon.SetSuspendFunc(func(pid types.PID) error {
-			return k.Kill(pid, types.SIGPAUSE)
+			return k.KillWithOrigin(pid, types.SIGPAUSE,
+				kernel.KillAttribution{Origin: types.KillOriginWatchdog, Requester: "immune"})
 		})
 
 		// Story 51.3 (EM-2): wire reputation store + migration function so
@@ -2184,7 +2186,8 @@ func runDaemon(cmd *cobra.Command, args []string) error {
 			return intent.ExitStatus{Code: es.Code, Reason: es.Reason, Result: es.Result, Err: es.Err}, nil
 		},
 		KillFunc: func(pid types.PID) error {
-			return k.Kill(pid, types.SIGKILL)
+			return k.KillWithOrigin(pid, types.SIGKILL,
+				kernel.KillAttribution{Origin: types.KillOriginWatchdog, Requester: "intent-reconciler"})
 		},
 	}
 	intentMgr := intent.NewManager(intentDecomposer, intentSpawner, intent.DefaultReconcilerConfig())

@@ -435,17 +435,24 @@ func WireToProcInfo(w ProcInfoWire) vfs.ProcInfo {
 // --- Kill ---
 
 // KillRequest is the payload for MethodKill.
+//
+// Origin / Requester are additive (Story 66.3): a pre-66.3 client omits them
+// and the server records origin=unknown, so old clients keep working.
 type KillRequest struct {
-	PID    types.PID    `json:"pid"`
-	UUID   string       `json:"uuid,omitempty"`
-	Signal types.Signal `json:"signal"`
+	PID       types.PID    `json:"pid"`
+	UUID      string       `json:"uuid,omitempty"`
+	Signal    types.Signal `json:"signal"`
+	Origin    string       `json:"origin,omitempty"`
+	Requester string       `json:"requester,omitempty"`
 }
 
 // SignalTreeRequest is the payload for MethodSignalTree.
 type SignalTreeRequest struct {
-	PID    types.PID    `json:"pid"`
-	UUID   string       `json:"uuid,omitempty"`
-	Signal types.Signal `json:"signal"`
+	PID       types.PID    `json:"pid"`
+	UUID      string       `json:"uuid,omitempty"`
+	Signal    types.Signal `json:"signal"`
+	Origin    string       `json:"origin,omitempty"`
+	Requester string       `json:"requester,omitempty"`
 }
 
 // SignalTreeResponse is the response for MethodSignalTree.

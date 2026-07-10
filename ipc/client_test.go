@@ -70,7 +70,7 @@ func TestClient_ListProcs_Empty(t *testing.T) {
 func TestClient_Kill_NotFound(t *testing.T) {
 	client, _, _ := setupClientTest(t)
 
-	err := client.Kill(999, types.SIGTERM)
+	err := client.Kill(999, types.SIGTERM, types.KillOriginCLI)
 	if err == nil {
 		t.Fatal("Kill should fail for nonexistent PID")
 	}

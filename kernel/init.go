@@ -259,8 +259,9 @@ func checkSupervisorStartup(k *KernelImpl, pid types.PID) (bool, string) {
 
 // rollbackSupervisors kills and reaps all previously started supervisors.
 func rollbackSupervisors(k *KernelImpl, pids []types.PID) {
+	attr := KillAttribution{Origin: types.KillOriginInit, Requester: "bootstrap-rollback"}
 	for i := range slices.Backward(pids) {
-		if err := k.Kill(pids[i], types.SIGKILL); err != nil {
+		if err := k.KillWithOrigin(pids[i], types.SIGKILL, attr); err != nil {
 			fmt.Fprintf(os.Stderr, "[init] rollback: kill PID %d failed: %v\n", pids[i], err)
 		}
 		proc, ok := k.GetProcess(pids[i])

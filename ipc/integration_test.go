@@ -97,7 +97,7 @@ func TestIntegration_PingListKill(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Dial 4: %v", err)
 	}
-	err = c4.Kill(proc.PID, types.SIGTERM)
+	err = c4.Kill(proc.PID, types.SIGTERM, types.KillOriginCLI)
 	c4.Close()
 	if err != nil {
 		t.Fatalf("Kill: %v", err)
@@ -113,7 +113,7 @@ func TestIntegration_KillNotFound(t *testing.T) {
 	}
 	defer client.Close()
 
-	err = client.Kill(999, types.SIGTERM)
+	err = client.Kill(999, types.SIGTERM, types.KillOriginCLI)
 	if err == nil {
 		t.Fatal("Kill should fail for nonexistent PID")
 	}

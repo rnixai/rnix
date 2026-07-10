@@ -240,7 +240,7 @@ func (m *topModel) killSelected(pid types.PID) {
 	if m.client == nil || pid == 0 {
 		return
 	}
-	if err := m.client.Kill(pid, types.SIGTERM); err != nil {
+	if err := m.client.Kill(pid, types.SIGTERM, types.KillOriginTop); err != nil {
 		m.statusMsg = fmt.Sprintf("✗ kill PID %d: %v", pid, err)
 	} else {
 		m.statusMsg = fmt.Sprintf("✓ signal sent to PID %d (SIGTERM)", pid)

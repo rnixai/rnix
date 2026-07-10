@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"net"
+	"os"
+	"path/filepath"
 	"time"
 
 	"github.com/rnixai/rnix/debug"
@@ -179,15 +181,29 @@ func (c *Client) CtxGrowth(pid types.PID) (*debug.GrowthPrediction, error) {
 	return &result, nil
 }
 
-// Kill sends a kill signal to the specified process.
-func (c *Client) Kill(pid types.PID, signal types.Signal) error {
-	_, err := c.call(MethodKill, KillRequest{PID: pid, Signal: signal})
+// Kill sends a kill signal to the specified process, attributed to origin
+// (Story 66.3). The signature carries origin deliberately — the compiler then
+// forces every call site to name a source, which is exactly the gap this story
+// closes. requester is auto-filled as argv0[pid].
+func (c *Client) Kill(pid types.PID, signal types.Signal, origin types.KillOrigin) error {
+	_, err := c.call(MethodKill, KillRequest{
+		PID:       pid,
+		Signal:    signal,
+		Origin:    origin.String(),
+		Requester: clientRequester(),
+	})
 	return err
 }
 
-// SignalTree sends a signal to the target process and all its living descendants.
-func (c *Client) SignalTree(pid types.PID, signal types.Signal) (*SignalTreeResponse, error) {
-	resp, err := c.call(MethodSignalTree, SignalTreeRequest{PID: pid, Signal: signal})
+// SignalTree sends a signal to the target process and all its living
+// descendants, attributed to origin (Story 66.3).
+func (c *Client) SignalTree(pid types.PID, signal types.Signal, origin types.KillOrigin) (*SignalTreeResponse, error) {
+	resp, err := c.call(MethodSignalTree, SignalTreeRequest{
+		PID:       pid,
+		Signal:    signal,
+		Origin:    origin.String(),
+		Requester: clientRequester(),
+	})
 	if err != nil {
 		return nil, err
 	}
@@ -196,6 +212,12 @@ func (c *Client) SignalTree(pid types.PID, signal types.Signal) (*SignalTreeResp
 		return nil, fmt.Errorf("ipc: unmarshal signal_tree response: %w", err)
 	}
 	return &result, nil
+}
+
+// clientRequester identifies the calling process to the daemon audit log as
+// `<argv0>[<pid>]`, e.g. `rnix[41234]`.
+func clientRequester() string {
+	return fmt.Sprintf("%s[%d]", filepath.Base(os.Args[0]), os.Getpid())
 }
 
 // PauseSubtree suspends the target process and all its living descendants

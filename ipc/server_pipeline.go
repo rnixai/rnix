@@ -224,7 +224,8 @@ func (s *ipcKernelSpawner) SpawnAndWait(ctx context.Context, req shell.SpawnRequ
 				(info.IsPaused || info.State == types.StateSuspended) {
 				return "", 1, 0, ctx.Err()
 			}
-			_ = s.kernel.Kill(pid, types.SIGTERM)
+			_ = s.kernel.KillWithOrigin(pid, types.SIGTERM,
+				kernel.KillAttribution{Origin: types.KillOriginParentCascade, Requester: "pipeline-teardown"})
 			s.kernel.Reap(pid)
 			return "", 1, 0, ctx.Err()
 		}

@@ -462,7 +462,7 @@ func runComposeDown(cmd *cobra.Command, args []string) error {
 	var killed []ui.ComposeDownEntry
 	var killErrors []string
 	for _, p := range running {
-		killErr := client.Kill(p.PID, types.SIGTERM)
+		killErr := client.Kill(p.PID, types.SIGTERM, types.KillOriginCompose)
 		if killErr != nil {
 			killErrors = append(killErrors, fmt.Sprintf("PID %d: %v", p.PID, killErr))
 		} else {

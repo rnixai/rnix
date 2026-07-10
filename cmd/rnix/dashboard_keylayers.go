@@ -323,7 +323,7 @@ func registerLayer0(d *ui.Dispatcher) {
 			return false, m, nil
 		}
 		if m.client != nil && m.confirmPID > 0 {
-			if err := m.client.Kill(m.confirmPID, types.SIGTERM); err != nil {
+			if err := m.client.Kill(m.confirmPID, types.SIGTERM, types.KillOriginDashboard); err != nil {
 				m.statusMsg = fmt.Sprintf("✗ kill PID %d: %v", m.confirmPID, err)
 			} else {
 				m.statusMsg = fmt.Sprintf("Killed PID %d", m.confirmPID)

@@ -142,13 +142,21 @@ func (s *Server) handleKill(conn net.Conn, rawPayload json.RawMessage) {
 		req.Signal = types.SIGTERM
 	}
 
+	// Story 66.3: log every well-formed kill request, before resolvePID —
+	// "who tried to kill a nonexistent PID" is audit information too. Origin
+	// falls back to unknown for pre-66.3 clients that omit it.
+	origin := killOriginFromWire(req.Origin)
+	log.Printf("[ipc] kill request: pid=%d uuid=%s signal=%s origin=%s requester=%s",
+		req.PID, req.UUID, req.Signal, origin, req.Requester)
+
 	pid, pidOK := s.resolvePID(req.PID, req.UUID)
 	if !pidOK {
 		writeResponse(conn, Response{OK: false, Error: &ErrorPayload{Code: "NOT_FOUND", Message: "process not found"}})
 		return
 	}
 
-	if err := s.kern.Kill(pid, req.Signal); err != nil {
+	attr := kernel.KillAttribution{Origin: origin, Requester: req.Requester}
+	if err := s.kern.KillWithOrigin(pid, req.Signal, attr); err != nil {
 		code := "INTERNAL"
 		var sysErr *kernel.SyscallError
 		if errors.As(err, &sysErr) {
@@ -158,6 +166,16 @@ func (s *Server) handleKill(conn net.Conn, rawPayload json.RawMessage) {
 		return
 	}
 	writeResponse(conn, Response{OK: true})
+}
+
+// killOriginFromWire maps an optional wire origin string to a KillOrigin,
+// defaulting to unknown for empty (legacy client / omitted field). The value
+// is passed through verbatim — no whitelist (Story 66.3 open-string design).
+func killOriginFromWire(s string) types.KillOrigin {
+	if s == "" {
+		return types.KillOriginUnknown
+	}
+	return types.KillOrigin(s)
 }
 
 func (s *Server) handleSignalTree(conn net.Conn, rawPayload json.RawMessage) {
@@ -170,13 +188,18 @@ func (s *Server) handleSignalTree(conn net.Conn, rawPayload json.RawMessage) {
 		req.Signal = types.SIGPAUSE
 	}
 
+	origin := killOriginFromWire(req.Origin)
+	log.Printf("[ipc] signal_tree request: pid=%d uuid=%s signal=%s origin=%s requester=%s",
+		req.PID, req.UUID, req.Signal, origin, req.Requester)
+
 	pid, pidOK := s.resolvePID(req.PID, req.UUID)
 	if !pidOK {
 		writeResponse(conn, Response{OK: false, Error: &ErrorPayload{Code: "NOT_FOUND", Message: "process not found"}})
 		return
 	}
 
-	affected, err := s.kern.SignalTree(pid, req.Signal)
+	attr := kernel.KillAttribution{Origin: origin, Requester: req.Requester}
+	affected, err := s.kern.SignalTreeWithOrigin(pid, req.Signal, attr)
 	if err != nil {
 		code := "INTERNAL"
 		var sysErr *kernel.SyscallError

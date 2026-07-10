@@ -45,7 +45,7 @@ func (k *KernelImpl) Signal(pid types.PID, sig types.Signal) error {
 	// Suspended process: no running goroutine to deliver signals through context
 	if state == types.StateSuspended {
 		if sig.IsTermination() {
-			return k.killSuspendedProcess(proc, sig, "Signal", start)
+			return k.killSuspendedProcess(proc, sig, "Signal", start, unknownAttribution())
 		}
 		// Story 44.1 — Suspended-state SIGPAUSE/SIGRESUME branch:
 		//   SIGPAUSE: true no-op (already suspended). Event renamed from
@@ -93,7 +93,7 @@ func (k *KernelImpl) Signal(pid types.PID, sig types.Signal) error {
 		return nil
 	}
 
-	action, extraArgs, deliverErr := k.deliverSignal(proc, sig)
+	action, extraArgs, deliverErr := k.deliverSignal(proc, sig, unknownAttribution())
 
 	args := map[string]any{
 		"pid":    pid,
@@ -109,6 +109,15 @@ func (k *KernelImpl) Signal(pid types.PID, sig types.Signal) error {
 	return nil
 }
 
+// unknownAttribution is the attribution for callers that do not name an origin.
+// Signal() shares deliverSignal with Kill() but Signal events themselves stay
+// origin-free (Story 66.3 scope: Kill events carry the audit trail); the
+// attribution still matters here because a SIGTERM through Signal() spawns a
+// twoPhaseShutdown goroutine whose SIGKILL escalation emits Kill events.
+func unknownAttribution() KillAttribution {
+	return KillAttribution{Origin: types.KillOriginUnknown}
+}
+
 // deliverSignal performs the actual signal dispatch logic.
 // Uses resolveSignalDisposition for atomic check of blocked/handler/default
 // under a single lock hold, preventing TOCTOU races.
@@ -116,7 +125,7 @@ func (k *KernelImpl) Signal(pid types.PID, sig types.Signal) error {
 // Returns the action label, any structured args to merge into the Signal
 // event, and an error (non-nil only for kernel-level failures — e.g.
 // SuspendSubtree / ResumeSubtree returning an error).
-func (k *KernelImpl) deliverSignal(proc *Process, sig types.Signal) (string, map[string]any, error) {
+func (k *KernelImpl) deliverSignal(proc *Process, sig types.Signal, attr KillAttribution) (string, map[string]any, error) {
 	disp, handler := proc.resolveSignalDisposition(sig)
 	switch disp {
 	case dispBlocked:
@@ -125,7 +134,7 @@ func (k *KernelImpl) deliverSignal(proc *Process, sig types.Signal) (string, map
 		handler(sig)
 		return "handler", nil, nil
 	default:
-		return k.defaultSignalAction(proc, sig)
+		return k.defaultSignalAction(proc, sig, attr)
 	}
 }
 
@@ -134,7 +143,7 @@ func (k *KernelImpl) deliverSignal(proc *Process, sig types.Signal) (string, map
 // when a downstream kernel call fails (currently SuspendSubtree /
 // ResumeSubtree); in that case Signal() bubbles it up to the caller instead
 // of silently swallowing it as in pre-44.1 (Story 44.1 code review F6).
-func (k *KernelImpl) defaultSignalAction(proc *Process, sig types.Signal) (string, map[string]any, error) {
+func (k *KernelImpl) defaultSignalAction(proc *Process, sig types.Signal, attr KillAttribution) (string, map[string]any, error) {
 	switch {
 	case sig == types.SIGTERM:
 		// Two-phase shutdown: SIGTERM triggers graceful shutdown with grace period.
@@ -144,8 +153,10 @@ func (k *KernelImpl) defaultSignalAction(proc *Process, sig types.Signal) (strin
 		}
 		// Phase 1: cancel context synchronously so callers see immediate effect
 		proc.Cancel()
-		// Phase 2: goroutine waits for exit or escalates to force-kill on timeout
-		go k.twoPhaseShutdown(proc, proc.effectiveGracePeriod())
+		// Phase 2: goroutine waits for exit or escalates to force-kill on timeout.
+		// attr rides along so the SIGKILL escalation is attributed to whoever
+		// sent the original SIGTERM (Story 66.3 AC4).
+		go k.twoPhaseShutdown(proc, proc.effectiveGracePeriod(), attr)
 		return "shutdown_initiated", nil, nil
 	case sig == types.SIGKILL:
 		// SIGKILL: immediate termination, no grace period
@@ -200,11 +211,21 @@ func (k *KernelImpl) defaultSignalAction(proc *Process, sig types.Signal) (strin
 // affected+skipped as the legacy count, with the structured per-node detail
 // available in the emitted SignalTree event (Story 44.1 code review F7).
 func (k *KernelImpl) SignalTree(pid types.PID, sig types.Signal) (int, error) {
+	return k.SignalTreeWithOrigin(pid, sig, unknownAttribution())
+}
+
+// SignalTreeWithOrigin is SignalTree with kill attribution. The root keeps the
+// caller's origin; every descendant is attributed to `parent-cascade` and
+// carries root_pid / root_origin so the audit trail names both the immediate
+// cause and the original requester (Story 66.3 AC3).
+func (k *KernelImpl) SignalTreeWithOrigin(pid types.PID, sig types.Signal, attr KillAttribution) (int, error) {
 	if !sig.Valid() {
 		return 0, NewSyscallError("SignalTree", pid, "",
 			fmt.Errorf("invalid signal: %d", sig), types.ErrInvalid)
 	}
 
+	// SIGPAUSE / SIGRESUME short-circuit to the subtree APIs — they never reach
+	// Kill, so there is no Kill event to attribute.
 	if sig == types.SIGPAUSE {
 		affected, err := k.SuspendSubtree(pid)
 		k.emitSignalTreeEventByPID(pid, sig, affected, 0, err)
@@ -224,7 +245,7 @@ func (k *KernelImpl) SignalTree(pid types.PID, sig types.Signal) (int, error) {
 	}
 
 	affected := 0
-	k.signalTreeRecursive(proc, sig, &affected)
+	k.signalTreeRecursive(proc, sig, attr, &affected)
 	return affected, nil
 }
 
@@ -250,25 +271,56 @@ func (k *KernelImpl) emitSignalTreeEventByPID(pid types.PID, sig types.Signal, a
 }
 
 // signalTreeRecursive sends the signal to proc and recurses into its children.
-func (k *KernelImpl) signalTreeRecursive(proc *Process, sig types.Signal, affected *int) {
+// attr applies to proc itself; descendants get a derived parent-cascade
+// attribution pinned to the tree root.
+func (k *KernelImpl) signalTreeRecursive(proc *Process, sig types.Signal, attr KillAttribution, affected *int) {
 	state := proc.GetState()
 	if state == types.StateZombie || state == types.StateDead {
 		return
 	}
 
 	// Signal this process (reuse Kill which handles all dispatch logic)
-	if err := k.Kill(proc.PID, sig); err == nil {
+	if err := k.KillWithOrigin(proc.PID, sig, attr); err == nil {
 		*affected++
 	}
 
-	// Recurse into children
 	children := proc.GetChildren()
+	if len(children) == 0 {
+		return
+	}
+
+	// Derive the descendant attribution once. RootPID==0 means proc is the tree
+	// root, so it becomes the root; deeper levels inherit the same root values.
+	childAttr := descendantAttribution(proc.PID, attr)
+
 	for _, childPID := range children {
 		childProc, ok := k.GetProcess(childPID)
 		if !ok {
 			continue
 		}
-		k.signalTreeRecursive(childProc, sig, affected)
+		k.signalTreeRecursive(childProc, sig, childAttr, affected)
+	}
+}
+
+// descendantAttribution builds the parent-cascade attribution for the children
+// of proc. The root pin is set on the first hop and carried unchanged deeper.
+func descendantAttribution(procPID types.PID, attr KillAttribution) KillAttribution {
+	rootPID := attr.RootPID
+	if rootPID == 0 {
+		rootPID = procPID
+	}
+	rootOrigin := attr.RootOrigin
+	if rootOrigin == "" {
+		rootOrigin = attr.Origin
+		if rootOrigin == "" {
+			rootOrigin = types.KillOriginUnknown
+		}
+	}
+	return KillAttribution{
+		Origin:     types.KillOriginParentCascade,
+		Requester:  attr.Requester,
+		RootPID:    rootPID,
+		RootOrigin: rootOrigin,
 	}
 }
 

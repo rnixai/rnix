@@ -244,7 +244,8 @@ func (k *KernelImpl) reapSuspendedProcess(proc *Process) {
 
 // killSuspendedProcess transitions a Suspended process to Dead, notifies waiters,
 // and reaps resources. Shared by Kill() and Signal() for suspended process handling.
-func (k *KernelImpl) killSuspendedProcess(proc *Process, sig types.Signal, syscall string, start time.Time) error {
+// attr attributes the killed_suspended event (Signal() passes unknown).
+func (k *KernelImpl) killSuspendedProcess(proc *Process, sig types.Signal, syscall string, start time.Time, attr KillAttribution) error {
 	if err := proc.Transition(types.StateDead); err != nil {
 		return NewSyscallError(syscall, proc.PID, "", err, types.ErrInternal)
 	}
@@ -260,11 +261,9 @@ func (k *KernelImpl) killSuspendedProcess(proc *Process, sig types.Signal, sysca
 	oldClose := proc.resumedClose
 	proc.mu.Unlock()
 	oldClose.Do(func() { close(oldCh) })
-	k.emitEvent(proc, syscall, map[string]any{
-		"pid":    proc.PID,
-		"signal": sig.String(),
-		"action": "killed_suspended",
-	}, nil, nil, time.Since(start))
+	killedArgs := killEventArgs(proc.PID, sig, attr)
+	killedArgs["action"] = "killed_suspended"
+	k.emitEvent(proc, syscall, killedArgs, nil, nil, time.Since(start))
 	// Notify waiters so Wait() does not hang
 	select {
 	case proc.Done <- exit:

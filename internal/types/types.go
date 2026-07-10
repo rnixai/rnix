@@ -109,6 +109,33 @@ func (s Signal) Blockable() bool {
 	return s != SIGKILL
 }
 
+// KillOrigin identifies who requested a process termination (Story 66.3).
+//
+// It is an OPEN string, deliberately without a Valid()/whitelist gate — the
+// same pass-through philosophy as ProviderConfig.reasoning_effort (Epic 55).
+// An unrecognized origin still lands verbatim in events.jsonl and remains
+// auditable; a hardcoded enum switch would only silently drop the one value an
+// operator most needs to see. New kill paths (e.g. Story 66.5's OS process
+// group reaper) append a constant here without touching any validation code.
+type KillOrigin string
+
+const (
+	KillOriginCLI           KillOrigin = "cli"            // `rnix kill <pid>`
+	KillOriginDashboard     KillOrigin = "dashboard"      // dashboard confirm-kill / signal-tree
+	KillOriginTop           KillOrigin = "top"            // `rnix top` kill-selected
+	KillOriginCompose       KillOrigin = "compose"        // `rnix compose down`
+	KillOriginParentCascade KillOrigin = "parent-cascade" // descendant killed because an ancestor was
+	KillOriginSupervisor    KillOrigin = "supervisor"     // supervisor restart policy
+	KillOriginWatchdog      KillOrigin = "watchdog"       // immune / intent reconciler enforcement
+	KillOriginOSSignal      KillOrigin = "os-signal"      // CLI foreground SIGINT forwarded as a kill
+	KillOriginInit          KillOrigin = "init"           // bootstrap rollback
+	KillOriginResume        KillOrigin = "resume"         // `rnix immune resume` (SIGRESUME, non-terminating)
+	KillOriginUnknown       KillOrigin = "unknown"        // legacy / unattributed caller
+)
+
+// String returns the origin as a plain string.
+func (o KillOrigin) String() string { return string(o) }
+
 // ProcessState represents the lifecycle state of a process.
 type ProcessState int
 

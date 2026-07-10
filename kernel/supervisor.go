@@ -257,10 +257,12 @@ func (s *Supervisor) stopChild(idx int) {
 		return
 	}
 
+	attr := KillAttribution{Origin: types.KillOriginSupervisor, Requester: "supervisor:" + child.spec.Name}
+
 	state := childProc.GetState()
 	if state != types.StateZombie && state != types.StateDead {
 		// Phase 1: Send SIGTERM for graceful shutdown
-		_ = s.kernel.Kill(child.pid, types.SIGTERM)
+		_ = s.kernel.KillWithOrigin(child.pid, types.SIGTERM, attr)
 	}
 
 	// Wait for the process goroutine to finish (with grace period + buffer).
@@ -278,7 +280,7 @@ func (s *Supervisor) stopChild(idx int) {
 	case <-done:
 	case <-timer.C:
 		// Grace period expired, force kill
-		_ = s.kernel.Kill(child.pid, types.SIGKILL)
+		_ = s.kernel.KillWithOrigin(child.pid, types.SIGKILL, attr)
 		// Brief wait for force kill to complete
 		forceTimer := time.NewTimer(2 * time.Second)
 		defer forceTimer.Stop()
