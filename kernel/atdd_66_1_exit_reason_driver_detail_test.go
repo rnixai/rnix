@@ -12,6 +12,7 @@ import (
 	"testing"
 	"unicode/utf8"
 
+	"github.com/rnixai/rnix/drivers/llm"
 	"github.com/rnixai/rnix/internal/types"
 )
 
@@ -97,6 +98,41 @@ func TestATDD_66_1_AC1_FallbackAlsoFails_AllProvidersExhaustedDetail(t *testing.
 	}
 }
 
+// --- D1（code review）：真实生产错误链 VFSError{*llm.LLMError}，非 DriverError mock ---
+// 生产所有 LLM driver 恒返回 *llm.LLMError（drivers/llm 无 NewDriverError），经
+// vfs.Write 包成 VFSError{Err:*LLMError}。此用例锚定真实链，防 DriverError mock 假绿：
+// exit_reason 须剥掉 "llm [provider] (status N)" 装饰、只留 LLMError.Err 真因首行。
+
+func TestATDD_66_1_D1_LLMErrorChain_StripsProviderDecoration(t *testing.T) {
+	llmErr := llm.NewLLMError("claude", 429,
+		fmt.Errorf("API Error: Server is temporarily limiting requests · carpool 5h quota exhausted: %w", llm.ErrRateLimit))
+	llmFile := &flakyRawLLMFile{failures: 999, writeErr: llmErr}
+	k, baseDir := newFailureRawKernel(t, llmFile, nil, "claude", "")
+
+	pid, err := k.Spawn("66.1 D1 real LLMError chain", nil, failureRawSpawnOpts(baseDir))
+	if err != nil {
+		t.Fatalf("Spawn: %v", err)
+	}
+	proc, _ := k.GetProcess(pid)
+	exit := waitDone(t, proc)
+
+	if !strings.HasPrefix(exit.Reason, "llm write failed: ") {
+		t.Fatalf("exit.Reason = %q, want prefix %q", exit.Reason, "llm write failed: ")
+	}
+	// 真因保留
+	if !strings.Contains(exit.Reason, "quota exhausted") {
+		t.Errorf("exit.Reason = %q, want root cause %q", exit.Reason, "quota exhausted")
+	}
+	// LLMError 的 "llm [provider] (status N)" 装饰须被剥掉
+	if strings.Contains(exit.Reason, "llm [claude]") || strings.Contains(exit.Reason, "(status 429)") {
+		t.Errorf("exit.Reason = %q, want LLMError provider/status decoration stripped", exit.Reason)
+	}
+	// proc-info.json 同形态
+	if got := readProcInfoExitReason(t, k.ResolveStepBaseDir(proc), proc.UUID); got != exit.Reason {
+		t.Errorf("proc-info exit_reason = %q, want %q", got, exit.Reason)
+	}
+}
+
 // --- AC2: daemon 日志可 grep（pid= + 真因） ---
 
 func TestATDD_66_1_AC2_DaemonLogContainsPIDAndDetail(t *testing.T) {
@@ -139,8 +175,8 @@ func TestATDD_66_1_AC4_CompletedPathUnchanged(t *testing.T) {
 	if exit.Code != 0 {
 		t.Fatalf("expected clean exit, got %+v", exit)
 	}
-	if strings.Contains(exit.Reason, "llm write failed") || strings.Contains(exit.Reason, ": ") {
-		t.Errorf("exit.Reason = %q, want unchanged base literal on success path", exit.Reason)
+	if exit.Reason != "completed" {
+		t.Errorf("exit.Reason = %q, want %q on success path", exit.Reason, "completed")
 	}
 }
 

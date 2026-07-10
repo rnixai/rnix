@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
+	"unicode"
 
 	rnixctx "github.com/rnixai/rnix/context"
 	"github.com/rnixai/rnix/debug"
@@ -306,28 +307,50 @@ func isTransientLLMError(err error) bool {
 const maxExitReasonDetailBytes = 200
 
 // driverErrorDetail extracts the root cause of an LLM write/read failure for
-// inclusion in the process exit reason (Story 66.1 / P1b). It unwraps deep to
-// *types.DriverError to skip the PID/device decoration (already present in
-// proc-info context), falls back to err.Error(), keeps only the first line,
-// and truncates to maxExitReasonDetailBytes on a UTF-8 boundary.
+// inclusion in the process exit reason (Story 66.1 / P1b). It unwraps to the
+// device error's undecorated cause — *types.DriverError.Err for non-LLM
+// devices, *llm.LLMError.Err for LLM drivers (whose Error() prepends a
+// redundant "llm [provider] (status N)" that duplicates proc-info's Provider
+// field), or *vfs.VFSError.Err as a fallback — then keeps only the first line,
+// flattens residual control characters, and truncates to
+// maxExitReasonDetailBytes on a UTF-8 boundary.
 func driverErrorDetail(err error) string {
 	if err == nil {
 		return ""
 	}
 	msg := err.Error()
 	var de *types.DriverError
+	var le *llm.LLMError
 	var ve *vfs.VFSError
-	if errors.As(err, &de) && de.Err != nil {
+	switch {
+	case errors.As(err, &de) && de.Err != nil:
 		msg = de.Err.Error()
-	} else if errors.As(err, &ve) && ve.Err != nil {
-		// VFS wraps device errors that are not DriverError-typed (e.g. a raw
-		// error surfaced by a mock or a non-driver device); its .Err is the
-		// undecorated cause.
+	case errors.As(err, &le) && le.Err != nil:
+		// Production LLM failures are *llm.LLMError (no LLM driver emits
+		// *types.DriverError); its Error() prepends "llm [provider] (status
+		// N)" decoration, so take the underlying cause (Story 66.1 D1). Must
+		// precede the VFSError case: errors.As(&ve) matches the outer VFSError
+		// wrapper and would re-surface the decorated LLMError.Error().
+		msg = le.Err.Error()
+	case errors.As(err, &ve) && ve.Err != nil:
+		// VFS wraps device errors that are neither DriverError nor LLMError
+		// (e.g. a raw error surfaced by a mock or a non-driver device); its
+		// .Err is the undecorated cause.
 		msg = ve.Err.Error()
 	}
-	if i := strings.IndexByte(msg, '\n'); i >= 0 {
+	// First line only: a \n or a bare \r both terminate it.
+	if i := strings.IndexAny(msg, "\n\r"); i >= 0 {
 		msg = msg[:i]
 	}
+	// Flatten residual control chars (tabs, ANSI escapes, ...) so the detail
+	// cannot corrupt single-line proc-info.json / daemon-log output — mirrors
+	// internal/ui.aggregatePreview (commit a8d42c6).
+	msg = strings.Map(func(r rune) rune {
+		if unicode.IsControl(r) {
+			return ' '
+		}
+		return r
+	}, msg)
 	return truncateUTF8Bytes(strings.TrimSpace(msg), maxExitReasonDetailBytes)
 }
 
@@ -713,7 +736,14 @@ func (k *KernelImpl) reasonStep(proc *Process, llmFD types.FD, opts SpawnOpts) {
 				if detail := driverErrorDetail(fbErr); detail != "" {
 					exitReason = reason + ": " + detail
 				}
-				log.Printf("[kernel] pid=%d %s (device=%s): %v", proc.PID, reason, proc.PrimaryDevice, fbErr)
+				logDevice := proc.PrimaryDevice
+				if proc.FallbackDevice != "" {
+					// "all providers exhausted" spans primary+fallback; label
+					// both so the daemon log is not misattributed to primary
+					// alone (Story 66.1 P1).
+					logDevice += "+" + proc.FallbackDevice
+				}
+				log.Printf("[kernel] pid=%d %s (device=%s): %v", proc.PID, reason, logDevice, fbErr)
 				// Record the failed step with prompt data so it's visible in LLM viewer
 				k.writeStepRecord(proc, step, promptResult, "",
 					nil, "error", fmt.Sprintf("%s: %v", reason, fbErr), "", "", "", "", 0, nil)
