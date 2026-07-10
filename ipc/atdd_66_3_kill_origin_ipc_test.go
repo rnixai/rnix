@@ -13,6 +13,9 @@ import (
 	"testing"
 	"time"
 
+	gocontext "context"
+
+	"github.com/rnixai/rnix/drivers/llm"
 	"github.com/rnixai/rnix/internal/types"
 	"github.com/rnixai/rnix/kernel"
 )
@@ -343,4 +346,218 @@ func TestATDD_66_3_IPC_ImmuneResume_ResumesProcess(t *testing.T) {
 
 	// Cleanup: the resumed process parks in Write again.
 	_ = kern.Kill(pid, types.SIGKILL)
+}
+
+// =============================================================================
+// QA E2E 补充（Story 66.3, bmad-qa-generate-e2e-tests）
+//
+// 现有 66.3 覆盖里，级联归因（AC3）由 kernel/atdd_66_3 的
+// TestATDD_66_3_AC3_SignalTree_ParentCascade 验证，但它**直调
+// k.SignalTreeWithOrigin，绕过真实 wire**；本文件的 E2E-5
+// (TestATDD_66_3_IPC_SignalTreeOrigin_AcrossWire) 虽经 wire，却只有单进程
+// （affected=1），不触发任何后代归因。下面两个用例焊死此前无端到端覆盖的两条
+// SignalTree wire 链路：①级联的后代 origin 经真 socket 落 events.jsonl；
+// ②SignalTree 的 legacy-client（无 origin）additive 兜底。这正是 dashboard /
+// 编排器经 IPC 真实观测的路径。
+// =============================================================================
+
+// -----------------------------------------------------------------------------
+// E2E-6 (AC1×AC3) — SignalTree 级联经真 wire: 后代 events.jsonl 带
+//                   origin=parent-cascade + root_pid/root_origin 锚定根请求。
+// -----------------------------------------------------------------------------
+
+func TestATDD_66_3_IPC_SignalTreeCascade_DescendantOrigin_AcrossWire(t *testing.T) {
+	driver := newCascadeDriver(2) // 放行前等父+子都停在 ctx.Done() 上
+	sockPath, kern, _, projBase := setupInterruptE2E(t, driver)
+
+	parentPID, err := kern.Spawn("66.3 cascade parent", nil,
+		kernel.SpawnOpts{ProjectConfig: kernel.TestProjectConfig()})
+	if err != nil {
+		t.Fatalf("Spawn parent: %v", err)
+	}
+	// child 显式传 ProjectConfig：spawn.go 用各进程自带的 config 落盘（不从
+	// parent 继承覆盖），同一 testProjectDir 保证父子落到同一 projBase。
+	childPID, err := kern.Spawn("66.3 cascade child", nil,
+		kernel.SpawnOpts{ParentPID: parentPID, ProjectConfig: kernel.TestProjectConfig()})
+	if err != nil {
+		t.Fatalf("Spawn child: %v", err)
+	}
+
+	select {
+	case <-driver.gate:
+	case <-time.After(5 * time.Second):
+		t.Fatal("timed out waiting for parent+child to park on ctx.Done()")
+	}
+
+	parent, ok := kern.GetProcess(parentPID)
+	if !ok {
+		t.Fatalf("parent %d not found", parentPID)
+	}
+	child, ok := kern.GetProcess(childPID)
+	if !ok {
+		t.Fatalf("child %d not found", childPID)
+	}
+	parentUUID, childUUID := parent.UUID, child.UUID
+
+	// SignalTree over the real Unix socket, attributed to the dashboard.
+	resp, err := dialClient(t, sockPath).SignalTree(parentPID, types.SIGTERM, types.KillOriginDashboard)
+	if err != nil {
+		t.Fatalf("client.SignalTree: %v", err)
+	}
+	if resp.Affected != 2 {
+		t.Errorf("affected = %d, want 2 (parent + child)", resp.Affected)
+	}
+	if _, err := dialClient(t, sockPath).Wait(parentPID, 5000); err != nil {
+		t.Fatalf("Wait parent: %v", err)
+	}
+	if _, err := dialClient(t, sockPath).Wait(childPID, 5000); err != nil {
+		t.Fatalf("Wait child: %v", err)
+	}
+
+	// Tree root: keeps the original origin, gains no cascade args.
+	rootArgs := killEventArgsFromDisk(t, projBase, parentUUID)
+	if len(rootArgs) == 0 {
+		t.Fatal("no Kill events for the tree root")
+	}
+	for i, args := range rootArgs {
+		if args["origin"] != string(types.KillOriginDashboard) {
+			t.Errorf("root Kill #%d: origin = %v, want %q", i, args["origin"], types.KillOriginDashboard)
+		}
+		if _, ok := args["root_pid"]; ok {
+			t.Errorf("root Kill #%d: tree root must not carry root_pid", i)
+		}
+		if _, ok := args["root_origin"]; ok {
+			t.Errorf("root Kill #%d: tree root must not carry root_origin", i)
+		}
+	}
+
+	// Descendant: attributed to the cascade, pinned to the root request. The
+	// requester is the client's argv0[pid] (auto-filled on the wire) and is
+	// inherited by every descendant of the cascade.
+	childArgs := killEventArgsFromDisk(t, projBase, childUUID)
+	if len(childArgs) == 0 {
+		t.Fatal("no Kill events for the descendant")
+	}
+	wantRequesterPrefix := filepath.Base(os.Args[0]) + "["
+	for i, args := range childArgs {
+		if args["origin"] != string(types.KillOriginParentCascade) {
+			t.Errorf("child Kill #%d: origin = %v, want %q", i, args["origin"], types.KillOriginParentCascade)
+		}
+		if args["root_origin"] != string(types.KillOriginDashboard) {
+			t.Errorf("child Kill #%d: root_origin = %v, want %q", i, args["root_origin"], types.KillOriginDashboard)
+		}
+		// JSON numbers decode to float64.
+		if got, want := args["root_pid"], float64(parentPID); got != want {
+			t.Errorf("child Kill #%d: root_pid = %v, want %v", i, got, want)
+		}
+		requester, _ := args["requester"].(string)
+		if !strings.HasPrefix(requester, wantRequesterPrefix) {
+			t.Errorf("child Kill #%d: requester = %q, want inherited wire prefix %q",
+				i, requester, wantRequesterPrefix)
+		}
+	}
+}
+
+// -----------------------------------------------------------------------------
+// E2E-7 (AC5) — SignalTree 老 client 不传 origin → unknown。对称补 E2E-4(Kill)：
+//               handleSignalTree 与 handleKill 共用 killOriginFromWire，此用例
+//               焊死 SignalTree wire 的 additive 兜底路径。
+// -----------------------------------------------------------------------------
+
+func TestATDD_66_3_IPC_SignalTree_LegacyClient_NoOrigin_Unknown(t *testing.T) {
+	driver := newKillableDriver(false)
+	sockPath, kern, _, projBase := setupInterruptE2E(t, driver)
+	pid := spawnAndAwaitStream(t, kern, driver, "66.3 signal_tree legacy wire")
+
+	proc, _ := kern.GetProcess(pid)
+	uuid := proc.UUID
+
+	// A pre-66.3 client sends {"pid":N,"signal":1} with no origin/requester.
+	conn := dial(t, sockPath)
+	payload, _ := json.Marshal(map[string]any{"pid": pid, "signal": types.SIGTERM})
+	req, _ := json.Marshal(Request{Method: MethodSignalTree, Payload: payload})
+	if _, err := conn.Write(append(req, '\n')); err != nil {
+		t.Fatalf("write legacy signal_tree request: %v", err)
+	}
+	reader := bufio.NewReader(conn)
+	respLine, err := reader.ReadBytes('\n')
+	if err != nil {
+		t.Fatalf("read signal_tree response: %v", err)
+	}
+	var resp Response
+	if err := json.Unmarshal(respLine, &resp); err != nil {
+		t.Fatalf("unmarshal signal_tree response: %v", err)
+	}
+	if !resp.OK {
+		t.Fatalf("legacy signal_tree request rejected: %+v", resp.Error)
+	}
+
+	if _, err := dialClient(t, sockPath).Wait(pid, 5000); err != nil {
+		t.Fatalf("client.Wait: %v", err)
+	}
+
+	killArgs := killEventArgsFromDisk(t, projBase, uuid)
+	if len(killArgs) == 0 {
+		t.Fatal("no Kill events in events.jsonl")
+	}
+	for i, args := range killArgs {
+		if args["origin"] != string(types.KillOriginUnknown) {
+			t.Errorf("Kill #%d: origin = %v, want %q for a legacy SignalTree client",
+				i, args["origin"], types.KillOriginUnknown)
+		}
+	}
+}
+
+// -----------------------------------------------------------------------------
+// cascadeStreamDriver — multi-process variant of e2eStreamDriver.
+//
+// The LLM device is a VFS singleton, so a parent and its child share one driver
+// instance; e2eStreamDriver's readyOnce fires only for the first stream to park,
+// leaving the second's readiness unobservable. cascadeStreamDriver instead
+// counts arrivals and closes gate once `want` streams have pushed their content
+// and parked on ctx.Done() — the handshake a SignalTree cascade needs (both
+// processes Running with an in-flight Write before the tree signal lands).
+// -----------------------------------------------------------------------------
+
+type cascadeStreamDriver struct {
+	contentChunks []string
+
+	mu      sync.Mutex
+	entered int
+	want    int
+	gate    chan struct{} // closed once `want` streams have parked
+}
+
+func newCascadeDriver(want int) *cascadeStreamDriver {
+	return &cascadeStreamDriver{contentChunks: partialChunks, want: want, gate: make(chan struct{})}
+}
+
+func (d *cascadeStreamDriver) Call(_ gocontext.Context, _ llm.LLMRequest) (*llm.LLMResponse, error) {
+	return nil, fmt.Errorf("cascadeStreamDriver: Call not used (stream mode)")
+}
+
+func (d *cascadeStreamDriver) Info() llm.DriverInfo {
+	return llm.DriverInfo{Name: "e2e-cascade", Provider: "test", DefaultModel: "mock-model", DriverType: "mock"}
+}
+
+func (d *cascadeStreamDriver) Stream(ctx gocontext.Context, _ llm.LLMRequest) (<-chan llm.StreamEvent, error) {
+	ch := make(chan llm.StreamEvent, len(d.contentChunks)+2)
+	go func() {
+		defer close(ch)
+		for _, c := range d.contentChunks {
+			select {
+			case ch <- llm.StreamEvent{Type: "content", Content: c}:
+			case <-ctx.Done():
+				return
+			}
+		}
+		d.mu.Lock()
+		d.entered++
+		if d.entered == d.want {
+			close(d.gate)
+		}
+		d.mu.Unlock()
+		<-ctx.Done()
+	}()
+	return ch, nil
 }
