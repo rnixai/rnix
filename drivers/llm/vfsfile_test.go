@@ -296,8 +296,18 @@ func TestLLMFile_Write_ContextCancelled(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected error for cancelled context, got nil")
 	}
-	if !errors.Is(err, context.Canceled) {
-		t.Errorf("expected context.Canceled error, got: %v", err)
+	// Story 66.2 (code-review P1): contextDriver surfaces the cancel as a
+	// StreamEvent{Type:"error", Err: context.Canceled} — the driver-emits-
+	// error-on-cancel case (unlike gated/silent-close mocks). writeStream must
+	// still return *StreamInterruptedError (a cancel dominates the cancellation
+	// streamErr) so the kernel routes to interrupted and can recover any
+	// partial. This is the regression guard for the streamErr-precedence fix.
+	var sie *StreamInterruptedError
+	if !errors.As(err, &sie) {
+		t.Fatalf("expected *StreamInterruptedError on cancel, got: %v (%T)", err, err)
+	}
+	if sie.Partial != "" {
+		t.Errorf("expected empty Partial (no content streamed before cancel), got %q", sie.Partial)
 	}
 }
 

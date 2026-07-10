@@ -327,12 +327,24 @@ func (f *LLMFile) writeStream(ctx context.Context, req LLMRequest) error {
 		f.lastRawCapture = collected
 	}
 
-	if streamErr != nil {
-		return streamErr
+	// Story 66.2 (code-review P1): a process/step-level cancel dominates any
+	// streamErr that is merely the cancellation surfacing as a driver "error"
+	// event. On a kill, drivers race `ch <- StreamEvent{Type:"error"}` against
+	// `<-ctx.Done()` (claude_cli.go / anthropic.go), so streamErr may or may
+	// not be set — without this precedence the partial content would be
+	// discarded ~half the time. Return the accumulated partial (text, or
+	// reasoning when no visible text arrived) so the kernel can tag [partial].
+	// Must precede the streamErr return.
+	if ctx.Err() != nil && !receivedDone {
+		partial := content.String()
+		if partial == "" {
+			partial = reasoning.String()
+		}
+		return &StreamInterruptedError{Partial: partial}
 	}
 
-	if ctx.Err() != nil && !receivedDone {
-		return &StreamInterruptedError{Partial: content.String()}
+	if streamErr != nil {
+		return streamErr
 	}
 
 	finalContent := content.String()

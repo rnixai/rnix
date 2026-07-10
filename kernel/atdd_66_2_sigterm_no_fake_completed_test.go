@@ -31,9 +31,15 @@ type interruptLLMFile struct {
 	reached   chan struct{}
 	readData  []byte
 	completed bool // if true, Write returns nil (normal completion)
+	// Story 66.2 P2 (deterministic text-branch backstop test):
+	writeGate    chan struct{} // if non-nil, Write blocks until it is closed
+	cancelOnRead func()        // if non-nil, invoked at the start of Read
 }
 
 func (f *interruptLLMFile) Write(ctx gocontext.Context, _ []byte) error {
+	if f.writeGate != nil {
+		<-f.writeGate
+	}
 	if f.completed {
 		return nil
 	}
@@ -49,6 +55,9 @@ func (f *interruptLLMFile) Write(ctx gocontext.Context, _ []byte) error {
 }
 
 func (f *interruptLLMFile) Read(_ int) ([]byte, error) {
+	if f.cancelOnRead != nil {
+		f.cancelOnRead()
+	}
 	if f.readData != nil {
 		return f.readData, nil
 	}
@@ -477,5 +486,51 @@ func TestATDD_66_2_DaemonLog_PID_And_Partial(t *testing.T) {
 	}
 	if !strings.Contains(logs, "partial=true") {
 		t.Errorf("daemon log missing partial=true:\n%s", logs)
+	}
+}
+
+// --- 用例 8（P2 code-review 补丁）：text 分支兜底守卫确定性验证 ---
+// 用例7 端到端时序非确定（白名单含 "completed"，删守卫仍绿）。本用例用 cancelOnRead
+// 在 Read 内、循环顶 ctx 检查之后、text 分支裁决之前 cancel proc.ctx，确定性命中
+// completionVerdict 的 text 分支兜底（reason.go）。writeGate 提供 happens-before：
+// 在 close 之前设好 cancelOnRead，Write 放行后 Read 才读该字段，无 data race。
+func TestATDD_66_2_AC1_TextBranch_Deterministic_Interrupted(t *testing.T) {
+	llmFile := &interruptLLMFile{
+		completed: true,
+		readData:  makeLLMResponse("full response text", 10),
+		writeGate: make(chan struct{}),
+	}
+	k, baseDir := newInterruptKernel(t, llmFile)
+
+	pid, err := k.Spawn("66.2 text-branch deterministic", nil, interruptSpawnOpts(baseDir))
+	if err != nil {
+		t.Fatalf("Spawn: %v", err)
+	}
+	proc, _ := k.GetProcess(pid)
+
+	// Cancel proc.ctx from inside Read — after the loop-top ctx check and the
+	// successful Write, before the text-branch verdict. Set before releasing the
+	// write gate so the reasonStep goroutine observes it with a happens-before edge.
+	llmFile.cancelOnRead = func() { proc.Cancel() }
+	close(llmFile.writeGate)
+
+	exit := waitDone(t, proc)
+
+	if exit.Reason != "interrupted" {
+		t.Fatalf("exit.Reason = %q, want exact %q (text-branch backstop)", exit.Reason, "interrupted")
+	}
+	if exit.Code != 1 {
+		t.Errorf("exit.Code = %d, want 1", exit.Code)
+	}
+	// Full text was received (receivedDone) → complete Result, no [partial] prefix.
+	proc.mu.Lock()
+	result := proc.Result
+	resultPartial := proc.ResultPartial
+	proc.mu.Unlock()
+	if strings.HasPrefix(result, partialResultPrefix) {
+		t.Errorf("Result = %q, text-branch backstop must NOT add [partial] prefix", result)
+	}
+	if resultPartial {
+		t.Error("ResultPartial should be false on text-branch backstop (content intact)")
 	}
 }

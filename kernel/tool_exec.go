@@ -764,6 +764,11 @@ func (k *KernelImpl) executeMetaAction(proc *Process, tc llmToolCall, mapping to
 			exitCode = 1
 			reason = fmt.Sprintf("completed_with_%d_failed_children", failedChildren)
 		}
+		// Story 66.2 (code-review D1): a signal-kill landing in the post-Read
+		// dispatch window (unmarshal → budget → executeMetaAction, incl. the
+		// writeStepRecord disk I/O above) must not fake-complete. Same backstop
+		// as the final-text branch (reason.go), shared via completionVerdict.
+		reason, exitCode = k.completionVerdict(proc, reason, exitCode)
 		k.finishProcess(proc, ExitStatus{Code: exitCode, Reason: reason})
 		return false
 
@@ -1233,7 +1238,10 @@ func (k *KernelImpl) executeMetaAction(proc *Process, tc llmToolCall, mapping to
 			if k.callbacks != nil {
 				k.callbacks.OnStepComplete(proc.PID, step, "text", briefTextSummary(content), false, float64(stepDur.Microseconds())/1000.0)
 			}
-			k.finishProcess(proc, ExitStatus{Code: 0, Reason: "completed"})
+			// Story 66.2 (code-review D1): planning-disabled plan-as-text is a
+			// completion path too — a signal-kill here must not fake-complete.
+			reason, exitCode := k.completionVerdict(proc, "completed", 0)
+			k.finishProcess(proc, ExitStatus{Code: exitCode, Reason: reason})
 			return false
 		}
 

@@ -1050,18 +1050,17 @@ func (k *KernelImpl) reasonStep(proc *Process, llmFD types.FD, opts SpawnOpts) {
 		// mask failed children with exit 0 — adding it closes that fake-success hole.
 		exitCode := 0
 		reason := "completed"
-		// Story 66.2 text-branch backstop: response was fully received
-		// (receivedDone=true in writeStream) but the process was cancelled
-		// between Write-return and here. Result keeps the complete text
-		// (no [partial] prefix) — the content is intact, only the process
-		// is dying.
-		if proc.ctx.Err() != nil && !proc.IsSuspendRequested() {
-			reason = "interrupted"
-			exitCode = 1
-		} else if failedChildren > 0 {
+		if failedChildren > 0 {
 			exitCode = 1
 			reason = fmt.Sprintf("completed_with_%d_failed_children", failedChildren)
 		}
+		// Story 66.2 backstop (shared with ActionComplete / plan-as-text via
+		// completionVerdict): the response was fully received (receivedDone=true
+		// in writeStream) but the process was cancelled between Write-return and
+		// here → interrupted. Result keeps the complete text (no [partial]
+		// prefix) — the content is intact, only the process is dying. A
+		// signal-kill dominates a completed_with_N_failed_children verdict.
+		reason, exitCode = k.completionVerdict(proc, reason, exitCode)
 		k.finishProcess(proc, ExitStatus{Code: exitCode, Reason: reason})
 		return
 	}
@@ -1100,6 +1099,23 @@ func (k *KernelImpl) handleInterruptedWrite(proc *Process, step int, promptResul
 	}, nil, nil, time.Since(stepStart))
 	log.Printf("[kernel] pid=%d interrupted (signal) during llm write, partial=%v", proc.PID, partial != "")
 	k.finishProcess(proc, ExitStatus{Code: 1, Reason: "interrupted", Err: err})
+}
+
+// completionVerdict overrides a would-be "completed" verdict to "interrupted"
+// when the process context was cancelled by a signal (SIGTERM/SIGKILL/
+// SignalTree) while NOT suspended. Story 66.2 (code-review D1): shared by every
+// completion site — the final-text branch, ActionComplete, and the
+// planning-disabled plan-as-text branch — so a signal-killed process never
+// reports `completed` regardless of which completion path it exits through. The
+// window guarded is "full response received (receivedDone=true), then cancelled
+// before the verdict is committed"; the in-flight-write case is handled earlier
+// by handleInterruptedWrite. A cancel dominates any base reason (incl.
+// completed_with_N_failed_children).
+func (k *KernelImpl) completionVerdict(proc *Process, base string, code int) (string, int) {
+	if proc.ctx.Err() != nil && !proc.IsSuspendRequested() {
+		return "interrupted", 1
+	}
+	return base, code
 }
 
 // asyncWriteCheckpoint serializes context synchronously, then dispatches
