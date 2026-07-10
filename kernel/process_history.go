@@ -242,6 +242,7 @@ type procInfoDisk struct {
 	IsPaused        bool     `json:"is_paused,omitempty"`
 	CtxID           uint64   `json:"ctx_id"`
 	Result          string   `json:"result,omitempty"`
+	ResultPartial   bool     `json:"result_partial,omitempty"`
 	AllowedDevices  []string `json:"allowed_devices,omitempty"`
 	DeniedDevices   []string `json:"denied_devices,omitempty"`
 	AllowedTools    []string `json:"allowed_tools,omitempty"` // Story 54.1: authoritative tool whitelist; omitempty keeps legacy proc-info.json clean
@@ -319,6 +320,7 @@ func procInfoToDisk(info vfs.ProcInfo) procInfoDisk {
 		CreatedAt:       info.CreatedAt.Format(time.RFC3339Nano),
 		CtxID:           uint64(info.CtxID),
 		Result:          info.Result,
+		ResultPartial:   info.ResultPartial,
 		AllowedDevices:  info.AllowedDevices,
 		DeniedDevices:   info.DeniedDevices,
 		AllowedTools:    info.AllowedTools,
@@ -382,6 +384,7 @@ func procInfoFromDisk(d procInfoDisk) vfs.ProcInfo {
 		MaxSteps:        d.MaxSteps,
 		CtxID:           types.CtxID(d.CtxID),
 		Result:          d.Result,
+		ResultPartial:   d.ResultPartial,
 		AllowedDevices:  d.AllowedDevices,
 		DeniedDevices:   d.DeniedDevices,
 		AllowedTools:    d.AllowedTools,

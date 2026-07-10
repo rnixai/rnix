@@ -419,6 +419,125 @@ func TestIsTransient_StreamIncomplete(t *testing.T) {
 	}
 }
 
+// gatedStreamDriver sends content events, signals readyForCancel when
+// all content is sent, then blocks on ctx.Done() before closing the channel.
+type gatedStreamDriver struct {
+	contentBeforeCancel []string
+	sendDone            bool
+	readyForCancel      chan struct{}
+}
+
+func (d *gatedStreamDriver) Call(_ context.Context, _ LLMRequest) (*LLMResponse, error) {
+	return nil, fmt.Errorf("not implemented")
+}
+
+func (d *gatedStreamDriver) Stream(ctx context.Context, _ LLMRequest) (<-chan StreamEvent, error) {
+	ch := make(chan StreamEvent, len(d.contentBeforeCancel)+2)
+	go func() {
+		defer close(ch)
+		for _, c := range d.contentBeforeCancel {
+			ch <- StreamEvent{Type: "content", Content: c}
+		}
+		if d.sendDone {
+			ch <- StreamEvent{Type: "done", Content: strings.Join(d.contentBeforeCancel, "")}
+			return
+		}
+		if d.readyForCancel != nil {
+			close(d.readyForCancel)
+		}
+		<-ctx.Done()
+	}()
+	return ch, nil
+}
+
+func (d *gatedStreamDriver) Info() DriverInfo {
+	return DriverInfo{Name: "gated-stream", Provider: "test"}
+}
+
+func TestWriteStream_CancelWithPartialContent(t *testing.T) {
+	ready := make(chan struct{})
+	driver := &gatedStreamDriver{
+		contentBeforeCancel: []string{"收到编排任务", "正在分析"},
+		readyForCancel:      ready,
+	}
+	f := &LLMFile{driver: driver, devicePath: "/dev/llm/test"}
+
+	ctx, cancel := context.WithCancelCause(context.Background())
+	defer cancel(nil)
+	go func() {
+		<-ready
+		cancel(nil)
+	}()
+
+	reqJSON, _ := json.Marshal(LLMRequest{Intent: "test"})
+	err := f.Write(ctx, reqJSON)
+
+	var sie *StreamInterruptedError
+	if !errors.As(err, &sie) {
+		t.Fatalf("expected *StreamInterruptedError, got: %v", err)
+	}
+	if sie.Partial == "" {
+		t.Error("expected non-empty Partial with accumulated content")
+	}
+	if !strings.Contains(sie.Partial, "收到编排任务") {
+		t.Errorf("Partial should contain content sent before cancel, got %q", sie.Partial)
+	}
+}
+
+func TestWriteStream_CancelAfterDone(t *testing.T) {
+	driver := &gatedStreamDriver{
+		contentBeforeCancel: []string{"complete response"},
+		sendDone:            true,
+	}
+	f := &LLMFile{driver: driver, devicePath: "/dev/llm/test"}
+
+	reqJSON, _ := json.Marshal(LLMRequest{Intent: "test"})
+	err := f.Write(t.Context(), reqJSON)
+	if err != nil {
+		t.Fatalf("expected nil error when done received before cancel, got: %v", err)
+	}
+
+	data, _ := f.Read(0)
+	var resp LLMResponse
+	_ = json.Unmarshal(data, &resp)
+	if resp.Content != "complete response" {
+		t.Errorf("expected full content, got %q", resp.Content)
+	}
+}
+
+func TestWriteStream_CancelNoContent(t *testing.T) {
+	ready := make(chan struct{})
+	driver := &gatedStreamDriver{
+		readyForCancel: ready,
+	}
+	f := &LLMFile{driver: driver, devicePath: "/dev/llm/test"}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	go func() {
+		<-ready
+		cancel()
+	}()
+
+	reqJSON, _ := json.Marshal(LLMRequest{Intent: "test"})
+	err := f.Write(ctx, reqJSON)
+
+	var sie *StreamInterruptedError
+	if !errors.As(err, &sie) {
+		t.Fatalf("expected *StreamInterruptedError, got: %v", err)
+	}
+	if sie.Partial != "" {
+		t.Errorf("expected empty Partial, got %q", sie.Partial)
+	}
+}
+
+func TestStreamInterruptedError_NotTransient(t *testing.T) {
+	sie := &StreamInterruptedError{Partial: "some content"}
+	if IsTransient(sie) {
+		t.Error("StreamInterruptedError must NOT be transient")
+	}
+}
+
 // mockBundleDriver is a mockDriver that also implements SkillsBundleCapable.
 type mockBundleDriver struct{ mockDriver }
 

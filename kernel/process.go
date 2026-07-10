@@ -83,6 +83,7 @@ type Process struct {
 	Exit            *ExitStatus   // non-nil in Zombie/Dead
 	CtxID           types.CtxID   // context allocated by Spawn
 	Result          string        // final output from reasoning
+	ResultPartial   bool          // true when Result contains incomplete stream content (signal kill)
 	TokensUsed      int           // cumulative token consumption
 	LastInputTokens int           // most recent LLM call's prompt input tokens (for context_budget check)
 	ContextBudget   int           // 0 = no limit; >0 = suspend when single-step InputTokens >= ContextBudget

@@ -65,6 +65,7 @@ type ProcInfo struct {
 	DeadAt          time.Time
 	CtxID           types.CtxID
 	Result          string
+	ResultPartial   bool `json:"result_partial,omitempty"`
 	AllowedDevices  []string
 	// DeniedDevices is the process device blocklist, checked before AllowedDevices
 	// in kernel tool dispatch. Persisted alongside AllowedDevices (Story 37.6) so

@@ -708,6 +708,15 @@ func (k *KernelImpl) reasonStep(proc *Process, llmFD types.FD, opts SpawnOpts) {
 			// are captured (AC1/AC3).
 			k.captureRawLLMCall(proc, llmFD, step, err)
 
+			// Story 66.2: process-level cancel (SIGTERM/SIGKILL/SignalTree)
+			// during LLM write → interrupted, not fake completed or pointless
+			// transient retry. Placed after suspend early-return (suspend wins)
+			// and captureRaw, before transient retry (killed → no retry).
+			if proc.ctx.Err() != nil {
+				k.handleInterruptedWrite(proc, step, promptResult, err, stepStart)
+				return
+			}
+
 			// Transient error retry (socket disconnect, overloaded, etc.)
 			if isTransientLLMError(err) && consecutiveTransientRetries < 2 {
 				consecutiveTransientRetries++
@@ -782,6 +791,11 @@ func (k *KernelImpl) reasonStep(proc *Process, llmFD types.FD, opts SpawnOpts) {
 				// error; return so the defer at reason.go:237 hands off to
 				// suspendProcess instead of finishProcess.
 				if proc.IsSuspendRequested() && errors.Is(proc.ctx.Err(), gocontext.Canceled) {
+					return
+				}
+				// Story 66.2: same interrupted guard as the write-err path.
+				if proc.ctx.Err() != nil {
+					k.handleInterruptedWrite(proc, step, promptResult, readErr, stepStart)
 					return
 				}
 				// Story 66.1 (P1b): same driver-detail merge as the write-failed
@@ -1036,7 +1050,15 @@ func (k *KernelImpl) reasonStep(proc *Process, llmFD types.FD, opts SpawnOpts) {
 		// mask failed children with exit 0 — adding it closes that fake-success hole.
 		exitCode := 0
 		reason := "completed"
-		if failedChildren > 0 {
+		// Story 66.2 text-branch backstop: response was fully received
+		// (receivedDone=true in writeStream) but the process was cancelled
+		// between Write-return and here. Result keeps the complete text
+		// (no [partial] prefix) — the content is intact, only the process
+		// is dying.
+		if proc.ctx.Err() != nil && !proc.IsSuspendRequested() {
+			reason = "interrupted"
+			exitCode = 1
+		} else if failedChildren > 0 {
 			exitCode = 1
 			reason = fmt.Sprintf("completed_with_%d_failed_children", failedChildren)
 		}
@@ -1045,6 +1067,39 @@ func (k *KernelImpl) reasonStep(proc *Process, llmFD types.FD, opts SpawnOpts) {
 	}
 
 	k.finishProcess(proc, ExitStatus{Code: 1, Reason: "max steps exceeded"})
+}
+
+const partialResultPrefix = "[partial] "
+
+// handleInterruptedWrite handles the case where a process-level cancel
+// (SIGTERM/SIGKILL/SignalTree) occurred during an LLM write or read.
+// If the driver returned a StreamInterruptedError with partial content,
+// that content is preserved in steps.jsonl and proc.Result is tagged
+// with the [partial] prefix. Otherwise Result is left empty for
+// finishProcess to backfill as "interrupted".
+func (k *KernelImpl) handleInterruptedWrite(proc *Process, step int, promptResult *rnixctx.PromptResult, err error, stepStart time.Time) {
+	var partial string
+	var sie *llm.StreamInterruptedError
+	if errors.As(err, &sie) {
+		partial = sie.Partial
+	}
+
+	if partial != "" {
+		k.writeStepRecord(proc, step, promptResult, "",
+			nil, "text", briefTextSummary(partial), "", "", "", "", 0, nil)
+		proc.mu.Lock()
+		proc.Result = partialResultPrefix + partial
+		proc.ResultPartial = true
+		proc.mu.Unlock()
+	}
+
+	k.emitEvent(proc, "ReasonStep", map[string]any{
+		"step":    step,
+		"action":  "interrupted",
+		"partial": partial != "",
+	}, nil, nil, time.Since(stepStart))
+	log.Printf("[kernel] pid=%d interrupted (signal) during llm write, partial=%v", proc.PID, partial != "")
+	k.finishProcess(proc, ExitStatus{Code: 1, Reason: "interrupted", Err: err})
 }
 
 // asyncWriteCheckpoint serializes context synchronously, then dispatches

@@ -331,6 +331,10 @@ func (f *LLMFile) writeStream(ctx context.Context, req LLMRequest) error {
 		return streamErr
 	}
 
+	if ctx.Err() != nil && !receivedDone {
+		return &StreamInterruptedError{Partial: content.String()}
+	}
+
 	finalContent := content.String()
 	if finalContent == "" && reasoning.Len() > 0 {
 		finalContent = reasoning.String()

@@ -43,6 +43,19 @@ func classifyTransportError(provider string, err error) error {
 	return fmt.Errorf("http request failed: %w", err)
 }
 
+// StreamInterruptedError indicates the LLM stream was interrupted by context
+// cancellation before a "done" event was received. Partial carries any text
+// content accumulated before the interruption. This error is NOT transient
+// (retry is pointless when the process is being killed).
+type StreamInterruptedError struct {
+	Partial string
+}
+
+func (e *StreamInterruptedError) Error() string {
+	n := len(e.Partial)
+	return fmt.Sprintf("llm: stream interrupted by cancellation (%d bytes partial content)", n)
+}
+
 // LLMError represents a typed error from an LLM driver.
 type LLMError struct {
 	Provider   string            // "claude", "openai", "gemini", "ollama"
