@@ -292,6 +292,49 @@ func TestATDD_66_4_ResolveFailedVisibleInEvents(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
+// AC1 (entry-point equivalence): the CLI `--fallback-provider` entry
+// (SpawnOpts.FallbackProvider, wired from `rnix spawn --fallback-provider`) must
+// resolve a project-only provider identically to the agent-manifest entry
+// (agents.AgentModels.FallbackProvider). The manifest entry is already covered by
+// TestATDD_66_4_ProjectOnlyProviderFallback; this locks the OTHER half of AC1's
+// "两入口等效" so a future regression in the spawn.go:424-426 CLI-override branch
+// (e.g. bypassing resolveFallbackDevice) is caught. Here the agent carries NO
+// manifest fallback at all — resolution is driven purely by the CLI opts.
+// ---------------------------------------------------------------------------
+
+func TestATDD_66_4_CLIEntryProjectOnlyFallback(t *testing.T) {
+	k := newProjectFallbackKernel(t, []string{"claude"}, "", []string{"claude"}, nil)
+
+	projConfig := projectConfigWithProviders("", []string{"claude", "projonly"}, nil)
+	// agent: primary claude, NO manifest fallback (empty fallback model/provider).
+	agent := fallbackAgentInfo("claude", "sonnet", "", "")
+
+	// CLI entry: --fallback-model + --fallback-provider projonly (project-only).
+	pid, err := k.Spawn("cli-entry project-only fallback resolve", agent, SpawnOpts{
+		SkipReasonLoop:   true,
+		ProjectConfig:    projConfig,
+		FallbackModel:    "fb-model",
+		FallbackProvider: "projonly",
+	})
+	if err != nil {
+		t.Fatalf("Spawn failed: %v", err)
+	}
+	proc, ok := k.GetProcess(pid)
+	if !ok {
+		t.Fatalf("process %d missing after spawn", pid)
+	}
+	if proc.FallbackProvider != "projonly" {
+		t.Errorf("FallbackProvider = %q, want projonly (CLI --fallback-provider entry)", proc.FallbackProvider)
+	}
+	if proc.FallbackDevice != "/dev/llm/projonly" {
+		t.Errorf("FallbackDevice = %q, want /dev/llm/projonly (CLI entry resolves project-only, equivalent to manifest entry)", proc.FallbackDevice)
+	}
+	if proc.FallbackResolveError != "" {
+		t.Errorf("FallbackResolveError = %q, want empty (resolve succeeded via CLI entry)", proc.FallbackResolveError)
+	}
+}
+
+// ---------------------------------------------------------------------------
 // AC6 (ordering guard): project name-list MISS still falls through to the global
 // resolver. "deepseek" is registered globally but absent from the project view;
 // resolution must succeed via the global path. This proves the project list only
