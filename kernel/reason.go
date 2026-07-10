@@ -301,6 +301,36 @@ func isTransientLLMError(err error) bool {
 }
 
 // attemptFallback tries the fallback provider when primary LLM call fails.
+// maxExitReasonDetailBytes caps the driver-error detail merged into an exit
+// reason (Story 66.1), mirroring the 200-byte precedent in cli_subagent.go.
+const maxExitReasonDetailBytes = 200
+
+// driverErrorDetail extracts the root cause of an LLM write/read failure for
+// inclusion in the process exit reason (Story 66.1 / P1b). It unwraps deep to
+// *types.DriverError to skip the PID/device decoration (already present in
+// proc-info context), falls back to err.Error(), keeps only the first line,
+// and truncates to maxExitReasonDetailBytes on a UTF-8 boundary.
+func driverErrorDetail(err error) string {
+	if err == nil {
+		return ""
+	}
+	msg := err.Error()
+	var de *types.DriverError
+	var ve *vfs.VFSError
+	if errors.As(err, &de) && de.Err != nil {
+		msg = de.Err.Error()
+	} else if errors.As(err, &ve) && ve.Err != nil {
+		// VFS wraps device errors that are not DriverError-typed (e.g. a raw
+		// error surfaced by a mock or a non-driver device); its .Err is the
+		// undecorated cause.
+		msg = ve.Err.Error()
+	}
+	if i := strings.IndexByte(msg, '\n'); i >= 0 {
+		msg = msg[:i]
+	}
+	return truncateUTF8Bytes(strings.TrimSpace(msg), maxExitReasonDetailBytes)
+}
+
 func (k *KernelImpl) attemptFallback(proc *Process, req llmRequest, primaryDevice string, primaryErr error, step int) ([]byte, error) {
 	if proc.FallbackDevice == "" {
 		return nil, primaryErr
@@ -374,7 +404,7 @@ func (k *KernelImpl) attemptFallback(proc *Process, req llmRequest, primaryDevic
 		// `defer Close(fbFD)` above runs at function return, so the FD is
 		// still valid at capture time.
 		k.captureRawLLMCall(proc, fbFD, step, err)
-		return nil, fmt.Errorf("primary %s: %v; fallback %s: %v", primaryDevice, primaryErr, proc.FallbackDevice, err)
+		return nil, fmt.Errorf("primary %s: %v; fallback %s: %w", primaryDevice, primaryErr, proc.FallbackDevice, err)
 	}
 
 	respData, err := k.vfs.Read(proc.PID, fbFD, 1<<20)
@@ -388,7 +418,7 @@ func (k *KernelImpl) attemptFallback(proc *Process, req llmRequest, primaryDevic
 			"fallback_error":  err.Error(),
 		}, nil, err, time.Since(fallbackStart))
 		k.captureRawLLMCall(proc, fbFD, step, err)
-		return nil, fmt.Errorf("primary %s: %v; fallback %s: %v", primaryDevice, primaryErr, proc.FallbackDevice, err)
+		return nil, fmt.Errorf("primary %s: %v; fallback %s: %w", primaryDevice, primaryErr, proc.FallbackDevice, err)
 	}
 
 	k.emitEvent(proc, "ReasonStep", map[string]any{
@@ -674,11 +704,21 @@ func (k *KernelImpl) reasonStep(proc *Process, llmFD types.FD, opts SpawnOpts) {
 				if proc.FallbackDevice != "" {
 					reason = "all providers exhausted"
 				}
+				// Story 66.1 (P1b): surface the driver's first error line in the
+				// exit reason so quota/auth/link failures are distinguishable in
+				// proc-info.json without digging through events.jsonl. The step
+				// record below keeps the base reason — it already carries the
+				// full error text.
+				exitReason := reason
+				if detail := driverErrorDetail(fbErr); detail != "" {
+					exitReason = reason + ": " + detail
+				}
+				log.Printf("[kernel] pid=%d %s (device=%s): %v", proc.PID, reason, proc.PrimaryDevice, fbErr)
 				// Record the failed step with prompt data so it's visible in LLM viewer
 				k.writeStepRecord(proc, step, promptResult, "",
 					nil, "error", fmt.Sprintf("%s: %v", reason, fbErr), "", "", "", "", 0, nil)
 				k.emitEvent(proc, "ReasonStep", map[string]any{"step": step, "action": "error"}, nil, fbErr, time.Since(stepStart))
-				k.finishProcess(proc, ExitStatus{Code: 1, Reason: reason, Err: fbErr})
+				k.finishProcess(proc, ExitStatus{Code: 1, Reason: exitReason, Err: fbErr})
 				return
 			}
 			respData = fbData
@@ -714,11 +754,18 @@ func (k *KernelImpl) reasonStep(proc *Process, llmFD types.FD, opts SpawnOpts) {
 				if proc.IsSuspendRequested() && errors.Is(proc.ctx.Err(), gocontext.Canceled) {
 					return
 				}
+				// Story 66.1 (P1b): same driver-detail merge as the write-failed
+				// branch above.
+				exitReason := "llm read failed"
+				if detail := driverErrorDetail(readErr); detail != "" {
+					exitReason = "llm read failed: " + detail
+				}
+				log.Printf("[kernel] pid=%d llm read failed (device=%s): %v", proc.PID, proc.PrimaryDevice, readErr)
 				// Record the failed step with prompt data so it's visible in LLM viewer
 				k.writeStepRecord(proc, step, promptResult, string(respData),
 					nil, "error", fmt.Sprintf("llm read failed: %v", readErr), "", "", "", "", 0, nil)
 				k.emitEvent(proc, "ReasonStep", map[string]any{"step": step, "action": "error"}, nil, readErr, time.Since(stepStart))
-				k.finishProcess(proc, ExitStatus{Code: 1, Reason: "llm read failed", Err: readErr})
+				k.finishProcess(proc, ExitStatus{Code: 1, Reason: exitReason, Err: readErr})
 				return
 			}
 		}
