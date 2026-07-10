@@ -579,14 +579,71 @@ type ToolInputAggGroup struct {
 //     ToolName（started 本身透传不入组 · 游标是「最近 started」而非「紧邻前一事件」）；
 //   - Args 类型断言失败安全降级（不 panic · 视为无 tool/partial_json · 仿 thinkingArgs(:450)）。
 //
-// **ATDD 骨架**：当前返回 nil（未实现）→ 断言「应成 1+ 组」的测试在 RED 期 t.Skip。
-// dev-story 期新增私有辅助 toolCallArgs(抽 tool/content/partial_json)/isToolInputDeltaEvent
-// 并复用 BuildThinkingAggGroups(:395) 连续段扫描骨骼。
 func BuildToolInputAggGroups(events []UnifiedEvent) []ToolInputAggGroup {
-	// TODO(dev-story 65.3): 连续 run 判据 = DriverToolCall && content==input_delta ·
-	//   started 游标回溯 · TotalBytes 累计 partial_json 字节 · 开组快照 lastToolName。
-	//   当前骨架返回 nil。
-	return nil
+	var groups []ToolInputAggGroup
+	n := len(events)
+	lastToolName := "" // 「最近一次 content==started 的 args.tool」游标（裁决 1）
+	i := 0
+	for i < n {
+		if !isToolInputDeltaEvent(events[i]) {
+			if tool, content, _ := toolCallArgs(events[i]); content == "started" && events[i].RawEvent != nil && events[i].RawEvent.Syscall == "DriverToolCall" {
+				lastToolName = tool
+			}
+			i++
+			continue
+		}
+		runStart := i
+		firstTs := events[i].RawEvent.TimestampMs
+		lastTs := firstTs
+		deltaCount := 0
+		totalBytes := 0
+		j := i
+		for j < n && isToolInputDeltaEvent(events[j]) {
+			_, _, partial := toolCallArgs(events[j])
+			deltaCount++
+			totalBytes += len(partial)
+			lastTs = events[j].RawEvent.TimestampMs
+			j++
+		}
+		groups = append(groups, ToolInputAggGroup{
+			StartIdx:   runStart,
+			EndIdx:     j,
+			ToolName:   lastToolName,
+			DeltaCount: deltaCount,
+			TotalBytes: totalBytes,
+			DurationMs: float64(lastTs - firstTs),
+		})
+		i = j
+	}
+	return groups
+}
+
+// isToolInputDeltaEvent reports whether ev is a DriverToolCall input_delta 分片
+// （判 content 不判 subtype——分片事件无 subtype 键 · aggregate 无 content 键取零值透传）。
+func isToolInputDeltaEvent(ev UnifiedEvent) bool {
+	if ev.RawEvent == nil || ev.RawEvent.Syscall != "DriverToolCall" {
+		return false
+	}
+	_, content, _ := toolCallArgs(ev)
+	return content == "input_delta"
+}
+
+// toolCallArgs 从 DriverToolCall 事件的 args 安全抽取 tool / content / partial_json
+// （类型断言失败降级为空串 · 不 panic · 仿 thinkingArgs(:450)）。
+func toolCallArgs(ev UnifiedEvent) (tool, content, partialJSON string) {
+	if ev.RawEvent == nil || ev.RawEvent.Args == nil {
+		return "", "", ""
+	}
+	if s, ok := ev.RawEvent.Args["tool"].(string); ok {
+		tool = s
+	}
+	if s, ok := ev.RawEvent.Args["content"].(string); ok {
+		content = s
+	}
+	if s, ok := ev.RawEvent.Args["partial_json"].(string); ok {
+		partialJSON = s
+	}
+	return tool, content, partialJSON
 }
 
 // ReconstructToolInput 按 group 内 events 顺序拼接各分片的 args.partial_json，
@@ -596,12 +653,23 @@ func BuildToolInputAggGroups(events []UnifiedEvent) []ToolInputAggGroup {
 //   - 仅拼接 input_delta 分片的 partial_json；
 //   - 空组（无分片）→ 返回 ""；
 //   - StartIdx/EndIdx 越界安全 clamp（对齐 ReconstructThinkingText(:475)）。
-//
-// **ATDD 骨架**：当前返回 ""（未实现）→ 拼接断言在 RED 期 t.Skip。
 func ReconstructToolInput(events []UnifiedEvent, g ToolInputAggGroup) string {
-	// TODO(dev-story 65.3): clamp lo/hi 后遍历拼接各分片 partial_json（对齐
-	//   ReconstructThinkingText(:475)）。当前骨架返回 ""。
-	return ""
+	lo := g.StartIdx
+	hi := g.EndIdx
+	if lo < 0 {
+		lo = 0
+	}
+	if hi > len(events) {
+		hi = len(events)
+	}
+	var b strings.Builder
+	for i := lo; i < hi; i++ {
+		if isToolInputDeltaEvent(events[i]) {
+			_, _, partial := toolCallArgs(events[i])
+			b.WriteString(partial)
+		}
+	}
+	return b.String()
 }
 
 // FormatToolInputSummary 生成折叠工具输入块的单行摘要文本（Story 65.3 AC#1/裁决 5）。
@@ -613,11 +681,18 @@ func ReconstructToolInput(events []UnifiedEvent, g ToolInputAggGroup) string {
 // ToolName=="" 时降级省略工具名：`🔧 tool input (…)` / `[tool] tool input (…)`。
 // icon/分隔符模式照抄 FormatThinkingSummary(:501)（💭→🔧 · [think]→[tool]）；
 // bytes/duration 直接复用包内 formatThinkingBytes/formatThinkingDuration（含负 duration 钳零）。
-//
-// **ATDD 骨架**：当前返回 ""（未实现）→ 图标/工具名/计数断言在 RED 期 t.Skip。
 func FormatToolInputSummary(g ToolInputAggGroup, ascii bool) string {
-	// TODO(dev-story 65.3): 照 FormatThinkingSummary(:501) 组装——icon(🔧/[tool]) +
-	//   工具名（ToolName=="" 降级为 "tool"）+ "input" + (N delta · bytes · duration)。
-	//   复用 formatThinkingBytes/formatThinkingDuration。当前骨架返回 ""。
-	return ""
+	icon := "🔧"
+	sep := " · "
+	if ascii {
+		icon = "[tool]"
+		sep = " "
+	}
+	name := g.ToolName
+	if name == "" {
+		name = "tool" // 组前无 started → 工具名降级占位（裁决 5）
+	}
+	inner := fmt.Sprintf("%d delta%s%s%s%s",
+		g.DeltaCount, sep, formatThinkingBytes(g.TotalBytes), sep, formatThinkingDuration(g.DurationMs))
+	return fmt.Sprintf("%s %s input (%s)", icon, name, inner)
 }

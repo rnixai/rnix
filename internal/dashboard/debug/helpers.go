@@ -320,7 +320,7 @@ func CollapseThinkingGroups(raw []event.UnifiedEvent, expanded map[int64]bool, a
 				IsSynthetic: true,
 			})
 			if isOpen {
-				out = append(out, thinkingExpandRows(fullText, ascii)...)
+				out = append(out, expandRows(fullText, ascii, event.EventThinking, "(no thinking text)")...)
 			}
 			i = g.EndIdx
 			continue
@@ -331,15 +331,18 @@ func CollapseThinkingGroups(raw []event.UnifiedEvent, expanded map[int64]bool, a
 	return out
 }
 
-// thinkingExpandRows 把思考全文拆成有界的缩进正文行（每行一个合成 EventThinking
-// 显示行 · RawEvent==nil 以区别于摘要行）。超过 MaxThinkingExpandLines 时截断并附尾标。
-func thinkingExpandRows(text string, ascii bool) []event.UnifiedEvent {
+// expandRows 把折叠块全文拆成有界的缩进正文行（每行一个 rowType 合成显示行 ·
+// RawEvent==nil 以区别于摘要行）。超过 MaxThinkingExpandLines 时截断并附尾标。
+// rowType/emptyPlaceholder 参数化（Story 65.3 裁决 5 ⚠️）：thinking 调用点传
+// EventThinking + "(no thinking text)"，tool input 调用点传 EventToolInput + "(no input)"
+// ——正文行 Type 必须与摘要行一致，否则 renderDebugTimelineContent 分支用错样式。
+func expandRows(text string, ascii bool, rowType string, emptyPlaceholder string) []event.UnifiedEvent {
 	const indent = "    "
 	mkRow := func(s string) event.UnifiedEvent {
-		return event.UnifiedEvent{Type: event.EventThinking, Severity: event.SevInfo, Summary: indent + s, IsSynthetic: true}
+		return event.UnifiedEvent{Type: rowType, Severity: event.SevInfo, Summary: indent + s, IsSynthetic: true}
 	}
 	if text == "" {
-		return []event.UnifiedEvent{mkRow("(no thinking text)")}
+		return []event.UnifiedEvent{mkRow(emptyPlaceholder)}
 	}
 	lines := wrapThinkingText(text, thinkingExpandWrapWidth)
 	truncated := false
@@ -412,15 +415,51 @@ func wrapThinkingText(text string, width int) []string {
 //     （复用 expandRows · CJK 感知 80 宽 · MaxThinkingExpandLines=12 截断 + 尾标 ·
 //     空文本占位 "(no input)"）。
 //
-// **ATDD 骨架**：当前原样返回 raw（未折叠）→ 断言折叠/展开的测试在 RED 期 t.Skip；
-// 透传 DeepEqual guard（非分片事件不变）骨架天然满足 → GREEN-GUARD 不 skip。
-// dev-story 期：①移除本骨架照 CollapseThinkingGroups(:283) 实现；②把 thinkingExpandRows
-// (:336) 的行 Type 与空占位参数化为 expandRows(text, ascii, rowType, emptyPlaceholder)，
-// thinking 调用点同步传 EventThinking + "(no thinking text)"（行为零变化），新调用点传
-// EventToolInput + "(no input)"（裁决 5 ⚠️）。
 func CollapseToolInputGroups(raw []event.UnifiedEvent, expanded map[int64]bool, ascii bool) []event.UnifiedEvent {
-	// TODO(dev-story 65.3): 照 CollapseThinkingGroups(:283) 实现——
-	//   BuildToolInputAggGroups(raw) → 零组零拷贝返 raw · 摘要行合成 EventToolInput ·
-	//   lazy Detail(ReconstructToolInput) · 展开正文行(expandRows)。当前骨架原样返回 raw。
-	return raw
+	groups := event.BuildToolInputAggGroups(raw)
+	if len(groups) == 0 {
+		return raw
+	}
+	foldMark, openMark := "▶", "▼"
+	if ascii {
+		foldMark, openMark = ">", "v"
+	}
+	out := make([]event.UnifiedEvent, 0, len(raw))
+	gi := 0
+	for i := 0; i < len(raw); {
+		if gi < len(groups) && groups[gi].StartIdx == i {
+			g := groups[gi]
+			gi++
+			var key int64
+			if raw[g.StartIdx].RawEvent != nil {
+				key = raw[g.StartIdx].RawEvent.TimestampMs
+			}
+			isOpen := expanded[key]
+			mark := foldMark
+			if isOpen {
+				mark = openMark
+			}
+			// 仅展开时还原输入全文——折叠态不重建（60.2 Patch P1 同款 · 分片可达数千条）。
+			var fullText string
+			if isOpen {
+				fullText = event.ReconstructToolInput(raw, g)
+			}
+			out = append(out, event.UnifiedEvent{
+				Type:        event.EventToolInput,
+				Severity:    event.SevInfo,
+				Summary:     mark + " " + event.FormatToolInputSummary(g, ascii),
+				Detail:      fullText,
+				RawEvent:    &ipc.SyscallEventWire{Syscall: "DriverToolCall", TimestampMs: key},
+				IsSynthetic: true,
+			})
+			if isOpen {
+				out = append(out, expandRows(fullText, ascii, event.EventToolInput, "(no input)")...)
+			}
+			i = g.EndIdx
+			continue
+		}
+		out = append(out, raw[i])
+		i++
+	}
+	return out
 }

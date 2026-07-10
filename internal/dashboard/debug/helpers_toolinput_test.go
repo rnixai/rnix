@@ -102,7 +102,6 @@ func nonToolEv(syscall string) event.UnifiedEvent {
 
 // AC#1：started 透传 + N delta 折叠成单个 EventToolInput 摘要行（防刷屏核心）。
 func TestCollapseToolInputGroups_FoldsRunToOneRow(t *testing.T) {
-	t.Skip("RED: CollapseToolInputGroups 未实现（骨架原样返回 raw）· dev-story 移除 skip 验 GREEN")
 	raw := []event.UnifiedEvent{
 		toolStartedEv("fs_write", "call-1", 1000),
 		inputDeltaEv(`{"path":`, 1010),
@@ -137,7 +136,6 @@ func TestCollapseToolInputGroups_FoldsRunToOneRow(t *testing.T) {
 
 // AC#1 防刷屏：上万分片仍折叠为 1 行摘要（绝不逐分片占行）。
 func TestCollapseToolInputGroups_HugeRunFoldsToOne(t *testing.T) {
-	t.Skip("RED: CollapseToolInputGroups 未实现（骨架原样返回 raw）· dev-story 移除 skip 验 GREEN")
 	const n = 10000
 	raw := make([]event.UnifiedEvent, 0, n)
 	for i := range n {
@@ -151,7 +149,6 @@ func TestCollapseToolInputGroups_HugeRunFoldsToOne(t *testing.T) {
 
 // AC#1 交错切段（裁决 1 容忍语义）：started→delta×2→break→delta×2 → 2 组各折 1 行。
 func TestCollapseToolInputGroups_InterleavedFoldsToTwoRows(t *testing.T) {
-	t.Skip("RED: CollapseToolInputGroups 未实现（骨架原样返回 raw）· dev-story 移除 skip 验 GREEN")
 	raw := []event.UnifiedEvent{
 		toolStartedEv("fs_write", "call-1", 1000), // 透传
 		inputDeltaEv(`{"a":`, 1010),               // 组1
@@ -237,7 +234,6 @@ func TestCollapseToolInputGroups_PreservesNonDeltaEventsExactly(t *testing.T) {
 // AC#2：展开组在摘要行后投影出正文行（▼ marker + 缩进拼接输入 + 正文行 RawEvent==nil +
 // Type=EventToolInput）· 展开态摘要行 Detail 携全文（折叠态留空 · Patch P1）。
 func TestCollapseToolInputGroups_ExpandedEmitsTextRows(t *testing.T) {
-	t.Skip("RED: CollapseToolInputGroups 未实现（骨架原样返回 raw）· dev-story 移除 skip 验 GREEN")
 	raw := []event.UnifiedEvent{
 		inputDeltaEv(`{"path":`, 1000),
 		inputDeltaEv(`"/tmp/a"}`, 1010),
@@ -267,7 +263,6 @@ func TestCollapseToolInputGroups_ExpandedEmitsTextRows(t *testing.T) {
 
 // AC#2「可截断/限高」：超 MaxThinkingExpandLines 的展开正文被截断 + 尾标。
 func TestCollapseToolInputGroups_ExpandedTruncatesLongText(t *testing.T) {
-	t.Skip("RED: CollapseToolInputGroups 未实现（骨架原样返回 raw）· dev-story 移除 skip 验 GREEN")
 	var big strings.Builder
 	for range MaxThinkingExpandLines + 10 {
 		big.WriteString(strings.Repeat("a", thinkingExpandWrapWidth))
@@ -288,7 +283,6 @@ func TestCollapseToolInputGroups_ExpandedTruncatesLongText(t *testing.T) {
 // AC#2 空输入占位（裁决 5）：展开一个 partial_json 全空的组 → 正文行占位 "(no input)"
 // （非 60.2 的 "(no thinking text)" · expandRows 参数化后的新占位文案）。
 func TestCollapseToolInputGroups_ExpandedEmptyInputPlaceholder(t *testing.T) {
-	t.Skip("RED: CollapseToolInputGroups 未实现（骨架原样返回 raw）· dev-story 移除 skip 验 GREEN")
 	raw := []event.UnifiedEvent{inputDeltaEv("", 1000)} // partial_json 空 → 拼接结果 ""
 	out := CollapseToolInputGroups(raw, map[int64]bool{1000: true}, false)
 	if len(out) < 2 {
@@ -313,7 +307,6 @@ func TestCollapseToolInputGroups_ExpandedEmptyInputPlaceholder(t *testing.T) {
 // =============================================================================
 
 func TestCollapseToolInputGroups_ASCIIMarkers(t *testing.T) {
-	t.Skip("RED: CollapseToolInputGroups 未实现（骨架原样返回 raw）· dev-story 移除 skip 验 GREEN")
 	raw := []event.UnifiedEvent{inputDeltaEv(`{"a":1}`, 1000)}
 	collapsed := CollapseToolInputGroups(raw, nil, true)
 	if !strings.Contains(collapsed[0].Summary, ">") || !strings.Contains(collapsed[0].Summary, "[tool]") {
@@ -335,7 +328,6 @@ func TestCollapseToolInputGroups_ASCIIMarkers(t *testing.T) {
 // AC#5 复合场景：thinking 块、input_delta 组、透传事件交错的序列 · 先 CollapseThinkingGroups
 // 再 CollapseToolInputGroups（裁决 4 固定后置）· 投影行数与顺序正确 · 两折叠互不干扰。
 func TestCollapseToolInputGroups_ComposesWithThinkingCollapse(t *testing.T) {
-	t.Skip("RED: CollapseToolInputGroups 未实现（骨架原样返回 raw）· dev-story 移除 skip 验 GREEN")
 	raw := []event.UnifiedEvent{
 		thinkEv("started", "thinking...", 1000), // thinking 块
 		thinkEv("delta", "reasoning", 1010),

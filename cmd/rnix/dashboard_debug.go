@@ -339,7 +339,10 @@ func extractDeviceName(sew ipc.SyscallEventWire) string {
 // （AC#4）。cursor/scroll/clamp 三处共用本投影结果 · 数学自动一致。
 func (m dashboardModel) filteredDebugEvents() []UnifiedEvent {
 	filtered := dashboarddebug.FilterDebugEvents(m.debugState, m.timeline.StepFilters)
-	return dashboarddebug.CollapseThinkingGroups(filtered, m.debugState.ExpandedThinking, ui.IsASCIIMode())
+	collapsed := dashboarddebug.CollapseThinkingGroups(filtered, m.debugState.ExpandedThinking, ui.IsASCIIMode())
+	// Story 65.3（裁决 4 固定后置）：thinking 先折 · 合成 EventThinking 行对 input_delta
+	// 组扫描是非分片事件（自然断块）· 再折 DriverToolCall input_delta 组。
+	return dashboarddebug.CollapseToolInputGroups(collapsed, m.debugState.ExpandedToolInput, ui.IsASCIIMode())
 }
 
 // clampDebugCursor ensures the cursor stays within the filtered event range.
@@ -526,6 +529,8 @@ func (m dashboardModel) renderDebugTimelineContent(width, height int) string {
 		var line string
 		if ev.Type == EventThinking {
 			line = m.renderThinkingLine(ev, cursorMark, truncW)
+		} else if ev.Type == EventToolInput {
+			line = m.renderToolInputLine(ev, cursorMark, truncW)
 		} else if ev.Type == EventSyscall {
 			line = m.renderSyscallLine(ev, cursorMark, truncW)
 		} else if ev.StepEntry != nil {
@@ -567,6 +572,21 @@ func (m dashboardModel) renderThinkingLine(ev UnifiedEvent, cursorMark string, _
 	var style lipgloss.Style
 	if ev.RawEvent != nil {
 		style = lipgloss.NewStyle().Foreground(lipgloss.Color("#C586C0")).Bold(true)
+	} else {
+		style = lipgloss.NewStyle().Foreground(lipgloss.Color(ui.ColorMuted))
+	}
+	return fmt.Sprintf("%s%s", cursorMark, style.Render(ev.Summary))
+}
+
+// renderToolInputLine 渲染 Story 65.3 折叠 DriverToolCall input_delta 组的显示行。
+//
+//   - 摘要行（RawEvent != nil）：🔧/[tool] 图标 + 区别于 thinking 紫的青色（#4EC9B0）
+//     Bold · 含 fold marker（已在 Summary 内预置 ▶/▼ · ASCII 降级 >/v）；
+//   - 正文行（RawEvent == nil · 仅展开时）：缩进输入全文分行 · 用 muted 灰区分。
+func (m dashboardModel) renderToolInputLine(ev UnifiedEvent, cursorMark string, _ int) string {
+	var style lipgloss.Style
+	if ev.RawEvent != nil {
+		style = lipgloss.NewStyle().Foreground(lipgloss.Color("#4EC9B0")).Bold(true)
 	} else {
 		style = lipgloss.NewStyle().Foreground(lipgloss.Color(ui.ColorMuted))
 	}
@@ -806,6 +826,21 @@ func (m dashboardModel) handleDebugKey(key string) (dashboardModel, tea.Cmd, boo
 					delete(m.debugState.ExpandedThinking, key)
 				} else {
 					m.debugState.ExpandedThinking[key] = true
+				}
+				m.clampDebugCursor()
+				return m, nil, true
+			}
+			// Story 65.3: tool input 折叠摘要行（RawEvent != nil）→ 切换展开状态。
+			// 展开键 = 组首分片 ts · 独立 ExpandedToolInput map 防与 thinking 块 ts 键碰撞。
+			if ev.Type == EventToolInput && ev.RawEvent != nil {
+				if m.debugState.ExpandedToolInput == nil {
+					m.debugState.ExpandedToolInput = make(map[int64]bool)
+				}
+				key := ev.RawEvent.TimestampMs
+				if m.debugState.ExpandedToolInput[key] {
+					delete(m.debugState.ExpandedToolInput, key)
+				} else {
+					m.debugState.ExpandedToolInput[key] = true
 				}
 				m.clampDebugCursor()
 				return m, nil, true

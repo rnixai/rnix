@@ -35,17 +35,18 @@ const (
 // alias re-export pattern (same as Severity above).
 
 const (
-	EventStep    = event.EventStep
-	EventCompact = event.EventCompact
-	EventBudget  = event.EventBudget
-	EventSpawn   = event.EventSpawn
-	EventExit    = event.EventExit
-	EventStall   = event.EventStall
-	EventImmune  = event.EventImmune
-	EventError   = event.EventError
-	EventSyscall  = event.EventSyscall
-	EventScript   = event.EventScript   // Story 43-3: script trace events from ScriptExecutor
-	EventThinking = event.EventThinking // Story 60.2: folded DriverThinking aggregation rows
+	EventStep      = event.EventStep
+	EventCompact   = event.EventCompact
+	EventBudget    = event.EventBudget
+	EventSpawn     = event.EventSpawn
+	EventExit      = event.EventExit
+	EventStall     = event.EventStall
+	EventImmune    = event.EventImmune
+	EventError     = event.EventError
+	EventSyscall   = event.EventSyscall
+	EventScript    = event.EventScript    // Story 43-3: script trace events from ScriptExecutor
+	EventThinking  = event.EventThinking  // Story 60.2: folded DriverThinking aggregation rows
+	EventToolInput = event.EventToolInput // Story 65.3: folded DriverToolCall input_delta aggregation rows
 )
 
 // UnifiedEvent merges reasoning steps and system events into a single type

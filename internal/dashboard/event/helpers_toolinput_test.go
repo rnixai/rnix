@@ -164,7 +164,6 @@ func TestToolInputAggGroup_ZeroValueIsSafe(t *testing.T) {
 // TestBuildToolInputAggGroups_StartedPlusDeltas — AC#1：started 透传不入组 · 后随 3 条
 // input_delta 分片聚合成单组 [1,4)，DeltaCount=3，ToolName 回溯 started 的 "fs_write"。
 func TestBuildToolInputAggGroups_StartedPlusDeltas(t *testing.T) {
-	t.Skip("RED: BuildToolInputAggGroups 未实现（骨架返回 nil）· dev-story 移除 skip 验 GREEN")
 	events := []UnifiedEvent{
 		mkToolStartedEv(t, "fs_write", "call-1", 1000),
 		mkInputDeltaEv(t, `{"path":`, 1010),
@@ -191,7 +190,6 @@ func TestBuildToolInputAggGroups_StartedPlusDeltas(t *testing.T) {
 // TestBuildToolInputAggGroups_StartedNotAbsorbed — AC#1（裁决 1 关键）：started 事件
 // **不吸进组** · 组范围绝不覆盖 started 下标（与 60.2 把 started 吸进组不同）。
 func TestBuildToolInputAggGroups_StartedNotAbsorbed(t *testing.T) {
-	t.Skip("RED: BuildToolInputAggGroups 未实现（骨架返回 nil）· dev-story 移除 skip 验 GREEN")
 	events := []UnifiedEvent{
 		mkToolStartedEv(t, "fs_write", "call-1", 1000), // idx 0 · 透传
 		mkInputDeltaEv(t, `{"a":1}`, 1010),             // idx 1 · 组首
@@ -208,7 +206,6 @@ func TestBuildToolInputAggGroups_StartedNotAbsorbed(t *testing.T) {
 // TestBuildToolInputAggGroups_SingleDeltaFolds — AC#1（裁决 2）：任意 ≥1 条分片即成组
 // （不用 AggThreshold=3）· 单分片工具输入也折叠为一组。
 func TestBuildToolInputAggGroups_SingleDeltaFolds(t *testing.T) {
-	t.Skip("RED: BuildToolInputAggGroups 未实现（骨架返回 nil）· dev-story 移除 skip 验 GREEN")
 	events := []UnifiedEvent{mkInputDeltaEv(t, `{"x":1}`, 1000)}
 	got := BuildToolInputAggGroups(events)
 	if len(got) != 1 {
@@ -222,7 +219,6 @@ func TestBuildToolInputAggGroups_SingleDeltaFolds(t *testing.T) {
 // TestBuildToolInputAggGroups_NonDeltaBreaksGroup — AC#1：遇到非 input_delta 事件
 // （started）当前组结束 → 两段 input_delta run 独立成组，中间 started 不在任何组内。
 func TestBuildToolInputAggGroups_NonDeltaBreaksGroup(t *testing.T) {
-	t.Skip("RED: BuildToolInputAggGroups 未实现（骨架返回 nil）· dev-story 移除 skip 验 GREEN")
 	events := []UnifiedEvent{
 		mkInputDeltaEv(t, `{"a":`, 1000),               // idx 0 · 组1
 		mkInputDeltaEv(t, `1}`, 1010),                  // idx 1 · 组1
@@ -246,7 +242,6 @@ func TestBuildToolInputAggGroups_NonDeltaBreaksGroup(t *testing.T) {
 // 一个工具的分片切成两组（各自折叠成两行摘要 · 可接受 · 勿新增缝合状态机）。
 // 序列 started→delta×2→user→delta×2 → 2 组。
 func TestBuildToolInputAggGroups_InterleavedSplitsToTwo(t *testing.T) {
-	t.Skip("RED: BuildToolInputAggGroups 未实现（骨架返回 nil）· dev-story 移除 skip 验 GREEN")
 	events := []UnifiedEvent{
 		mkToolStartedEv(t, "fs_write", "call-1", 1000), // idx 0 · 透传
 		mkInputDeltaEv(t, `{"path":`, 1010),            // idx 1 · 组1
@@ -267,7 +262,6 @@ func TestBuildToolInputAggGroups_InterleavedSplitsToTwo(t *testing.T) {
 // TestBuildToolInputAggGroups_ToolNameBacktrackAcrossGap — AC#1（裁决 1 · 工具名游标）：
 // started 与分片间隔着非分片事件（交错）· 游标是「最近 started」而非「紧邻前一事件」。
 func TestBuildToolInputAggGroups_ToolNameBacktrackAcrossGap(t *testing.T) {
-	t.Skip("RED: BuildToolInputAggGroups 未实现（骨架返回 nil）· dev-story 移除 skip 验 GREEN")
 	events := []UnifiedEvent{
 		mkToolStartedEv(t, "shell_exec", "call-9", 1000), // idx 0 · 记住 tool
 		mkNonToolCallEv("DriverInit"),                    // idx 1 · 间隔事件
@@ -285,7 +279,6 @@ func TestBuildToolInputAggGroups_ToolNameBacktrackAcrossGap(t *testing.T) {
 // TestBuildToolInputAggGroups_NoStartedDegradesToolName — AC#1（裁决 1/5 · 降级）：
 // 组前无 started（边界/流截断）→ ToolName="" · 摘要降级省略工具名。
 func TestBuildToolInputAggGroups_NoStartedDegradesToolName(t *testing.T) {
-	t.Skip("RED: BuildToolInputAggGroups 未实现（骨架返回 nil）· dev-story 移除 skip 验 GREEN")
 	events := []UnifiedEvent{
 		mkInputDeltaEv(t, `{"orphan":true}`, 1000), // 无前置 started
 	}
@@ -301,7 +294,6 @@ func TestBuildToolInputAggGroups_NoStartedDegradesToolName(t *testing.T) {
 // TestBuildToolInputAggGroups_HugeDeltaCountFoldsToOne — AC#1 防刷屏核心：
 // 10000 条分片 → 仍折叠为单个组，绝不逐分片占行。DeltaCount=10000。
 func TestBuildToolInputAggGroups_HugeDeltaCountFoldsToOne(t *testing.T) {
-	t.Skip("RED: BuildToolInputAggGroups 未实现（骨架返回 nil）· dev-story 移除 skip 验 GREEN")
 	const n = 10000
 	events := make([]UnifiedEvent, 0, n+1)
 	events = append(events, mkToolStartedEv(t, "fs_write", "call-1", 1000))
@@ -320,7 +312,6 @@ func TestBuildToolInputAggGroups_HugeDeltaCountFoldsToOne(t *testing.T) {
 // TestBuildToolInputAggGroups_TotalBytes — AC#1：TotalBytes 累计各分片 partial_json
 // 字节数。`{"a":`(5)+`1}`(2)=7。
 func TestBuildToolInputAggGroups_TotalBytes(t *testing.T) {
-	t.Skip("RED: BuildToolInputAggGroups 未实现（骨架返回 nil）· dev-story 移除 skip 验 GREEN")
 	events := []UnifiedEvent{
 		mkInputDeltaEv(t, `{"a":`, 1000),
 		mkInputDeltaEv(t, `1}`, 1010),
@@ -337,7 +328,6 @@ func TestBuildToolInputAggGroups_TotalBytes(t *testing.T) {
 // TestBuildToolInputAggGroups_DurationFromTimestamps — AC#1：DurationMs = 组内首末
 // 分片 ts_ms 之差（1000→2200 = 1200ms）。
 func TestBuildToolInputAggGroups_DurationFromTimestamps(t *testing.T) {
-	t.Skip("RED: BuildToolInputAggGroups 未实现（骨架返回 nil）· dev-story 移除 skip 验 GREEN")
 	events := []UnifiedEvent{
 		mkInputDeltaEv(t, "a", 1000),
 		mkInputDeltaEv(t, "b", 1500),
@@ -356,7 +346,6 @@ func TestBuildToolInputAggGroups_DurationFromTimestamps(t *testing.T) {
 // thinkingArgs 先例）：partial_json 非 string / content 缺失 / Args 为 nil 时安全降级
 // （不 panic）。构造混合：合法分片 + partial_json 为 int 的畸形分片。
 func TestBuildToolInputAggGroups_ArgsTypeDefense(t *testing.T) {
-	t.Skip("RED: BuildToolInputAggGroups 未实现（骨架返回 nil）· dev-story 移除 skip 验 GREEN")
 	events := []UnifiedEvent{
 		// 合法 input_delta 分片
 		mkInputDeltaEv(t, `{"ok":1}`, 1000),
@@ -394,7 +383,6 @@ func TestReconstructToolInput_EmptyGroup(t *testing.T) {
 // TestReconstructToolInput_ConcatenatesPartialsInOrder — AC#2：按顺序拼接各分片的
 // partial_json 还原完整输入 JSON 文本（不做 pretty-print · 裁决 5）。
 func TestReconstructToolInput_ConcatenatesPartialsInOrder(t *testing.T) {
-	t.Skip("RED: ReconstructToolInput 未实现（骨架返回 \"\"）· dev-story 移除 skip 验 GREEN")
 	events := []UnifiedEvent{
 		mkInputDeltaEv(t, `{"path":`, 1000),
 		mkInputDeltaEv(t, `"/tmp/a",`, 1010),
@@ -410,7 +398,6 @@ func TestReconstructToolInput_ConcatenatesPartialsInOrder(t *testing.T) {
 // TestReconstructToolInput_ClampsOutOfRange — AC#2（renderer 边界防御）：
 // StartIdx/EndIdx 越界安全 clamp（对齐 ReconstructThinkingText），不 panic。
 func TestReconstructToolInput_ClampsOutOfRange(t *testing.T) {
-	t.Skip("RED: ReconstructToolInput 未实现（骨架返回 \"\"）· dev-story 移除 skip 验 GREEN")
 	events := []UnifiedEvent{
 		mkInputDeltaEv(t, `{"a":1}`, 1000),
 	}
@@ -429,7 +416,6 @@ func TestReconstructToolInput_ClampsOutOfRange(t *testing.T) {
 // TestFormatToolInputSummary_Unicode — AC#4：默认（非 ASCII）摘要用 🔧 图标 + 工具名 +
 // "input" + delta 计数。形如 `🔧 fs_write input (14 delta · 2.3KB · 1.2s)`。
 func TestFormatToolInputSummary_Unicode(t *testing.T) {
-	t.Skip("RED: FormatToolInputSummary 未实现（骨架返回 \"\"）· dev-story 移除 skip 验 GREEN")
 	g := ToolInputAggGroup{ToolName: "fs_write", DeltaCount: 14, TotalBytes: 2355, DurationMs: 1200}
 	got := FormatToolInputSummary(g, false)
 	if !strings.Contains(got, "🔧") {
@@ -449,7 +435,6 @@ func TestFormatToolInputSummary_Unicode(t *testing.T) {
 // TestFormatToolInputSummary_ASCII — AC#4：ASCII 模式（RNIX_ASCII=1 · 调用方传 ascii=true）
 // 用 `[tool]` 降级标记 · 不含 Unicode glyph 🔧 · 无中点分隔符。
 func TestFormatToolInputSummary_ASCII(t *testing.T) {
-	t.Skip("RED: FormatToolInputSummary 未实现（骨架返回 \"\"）· dev-story 移除 skip 验 GREEN")
 	g := ToolInputAggGroup{ToolName: "fs_write", DeltaCount: 14, TotalBytes: 2355, DurationMs: 1200}
 	got := FormatToolInputSummary(g, true)
 	if !strings.Contains(got, "[tool]") {
@@ -469,7 +454,6 @@ func TestFormatToolInputSummary_ASCII(t *testing.T) {
 // TestFormatToolInputSummary_ToolNameDegraded — AC#4（裁决 5 降级）：ToolName=="" 时
 // 摘要省略工具名 · 降级为 `🔧 tool input (…)`（工具名位置用 "tool" 占位）。
 func TestFormatToolInputSummary_ToolNameDegraded(t *testing.T) {
-	t.Skip("RED: FormatToolInputSummary 未实现（骨架返回 \"\"）· dev-story 移除 skip 验 GREEN")
 	g := ToolInputAggGroup{ToolName: "", DeltaCount: 3, TotalBytes: 40, DurationMs: 100}
 	got := FormatToolInputSummary(g, false)
 	if !strings.Contains(got, "tool input") {
