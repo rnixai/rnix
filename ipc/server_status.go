@@ -257,11 +257,15 @@ func (s *Server) handleImmuneResume(conn net.Conn, rawPayload json.RawMessage) {
 		return
 	}
 
-	// Send SIGRESUME to the process (Story 66.3: attribute the resume so
-	// "who un-paused this" is auditable even though it is non-terminating).
+	// Send SIGRESUME to the process. Story 66.3 review (decision A): route
+	// through Signal(), NOT KillWithOrigin. The Kill path only acts on
+	// IsTermination signals for a Suspended target — SIGRESUME there falls to
+	// noop_suspended and never resumes. Signal()'s Suspended branch delegates to
+	// ResumeSubtree and truly resumes. Tradeoff: Signal events are origin-free
+	// (Kill events carry the audit trail), so "who un-paused this" is not
+	// attributed here — correctness over the audit stamp.
 	if s.kern != nil {
-		attr := kernel.KillAttribution{Origin: types.KillOriginResume, Requester: "immune-resume"}
-		if err := s.kern.KillWithOrigin(pid, types.SIGRESUME, attr); err != nil {
+		if err := s.kern.Signal(pid, types.SIGRESUME); err != nil {
 			writeResponse(conn, Response{OK: false, Error: &ErrorPayload{Code: "NOT_FOUND", Message: fmt.Sprintf("failed to resume PID %d: %v", pid, err)}})
 			return
 		}

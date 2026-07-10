@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -55,12 +56,33 @@ func killEventArgsFromDisk(t *testing.T, projBase, uuid string) []map[string]any
 
 // captureDaemonLog redirects the standard logger into a buffer for the duration
 // of the test. Not parallel-safe — callers must not t.Parallel().
-func captureDaemonLog(t *testing.T) *bytes.Buffer {
+// syncBuffer is a mutex-guarded bytes.Buffer. The daemon's background
+// goroutines write through the global logger while the test reads String();
+// without the lock that races the buffer's backing slice under -race
+// (Story 66.3 review F8).
+type syncBuffer struct {
+	mu  sync.Mutex
+	buf bytes.Buffer
+}
+
+func (b *syncBuffer) Write(p []byte) (int, error) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.buf.Write(p)
+}
+
+func (b *syncBuffer) String() string {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.buf.String()
+}
+
+func captureDaemonLog(t *testing.T) *syncBuffer {
 	t.Helper()
-	var buf bytes.Buffer
-	log.SetOutput(&buf)
+	buf := &syncBuffer{}
+	log.SetOutput(buf)
 	t.Cleanup(func() { log.SetOutput(os.Stderr) })
-	return &buf
+	return buf
 }
 
 // -----------------------------------------------------------------------------
@@ -140,12 +162,14 @@ func TestATDD_66_3_IPC_DaemonKillRequestLog(t *testing.T) {
 	if line == "" {
 		t.Fatalf("daemon log missing '[ipc] kill request:' line:\n%s", logs)
 	}
+	// Wire-controlled fields are logged via %q (Story 66.3 F2a), so the
+	// values appear quoted: origin="dashboard", requester="<argv0>[pid]".
 	for _, want := range []string{
 		fmt.Sprintf("pid=%d", pid),
 		"uuid=",
 		"signal=SIGTERM",
-		"origin=dashboard",
-		"requester=" + filepath.Base(os.Args[0]),
+		`origin="dashboard"`,
+		`requester="` + filepath.Base(os.Args[0]),
 	} {
 		if !strings.Contains(line, want) {
 			t.Errorf("kill request log line missing %q\nline: %s", want, line)
@@ -182,7 +206,7 @@ func TestATDD_66_3_IPC_KillMissingPID_StillLogged(t *testing.T) {
 	if line == "" {
 		t.Fatalf("a kill request for a nonexistent PID must still leave a daemon log trace:\n%s", buf.String())
 	}
-	for _, want := range []string{"pid=999999", "signal=SIGKILL", "origin=cli"} {
+	for _, want := range []string{"pid=999999", "signal=SIGKILL", `origin="cli"`} {
 		if !strings.Contains(line, want) {
 			t.Errorf("kill request log line missing %q\nline: %s", want, line)
 		}
@@ -275,15 +299,22 @@ func TestATDD_66_3_IPC_SignalTreeOrigin_AcrossWire(t *testing.T) {
 // UNIT (AC1) — immune resume 走 KillOriginResume（非终止信号也标来源）
 // -----------------------------------------------------------------------------
 
-func TestATDD_66_3_IPC_ImmuneResume_OriginResume(t *testing.T) {
+// Story 66.3 review (decision A): immune resume must ACTUALLY resume a
+// Suspended process. The dev-story path (KillWithOrigin(SIGRESUME)) noop'd a
+// Suspended target — SIGRESUME is non-terminating, so the Kill path fell to
+// noop_suspended and never called ResumeSubtree, leaving the process stuck
+// while stamping a misleading origin=resume audit event. handleImmuneResume now
+// routes through Signal(), whose Suspended branch delegates to ResumeSubtree.
+// Signal events are origin-free, so the contract asserted here is functional
+// (the process returns to Running), not attribution.
+func TestATDD_66_3_IPC_ImmuneResume_ResumesProcess(t *testing.T) {
 	driver := newKillableDriver(false)
-	sockPath, kern, _, projBase := setupInterruptE2E(t, driver)
+	sockPath, kern, _, _ := setupInterruptE2E(t, driver)
 	pid := spawnAndAwaitStream(t, kern, driver, "66.3 immune resume")
 
 	proc, _ := kern.GetProcess(pid)
-	uuid := proc.UUID
 
-	// Suspend first so SIGRESUME has something to act on; then resume via IPC.
+	// Suspend first so SIGRESUME has something to act on.
 	if err := kern.KillWithOrigin(pid, types.SIGPAUSE,
 		kernel.KillAttribution{Origin: types.KillOriginWatchdog, Requester: "immune"}); err != nil {
 		t.Fatalf("SIGPAUSE: %v", err)
@@ -300,23 +331,16 @@ func TestATDD_66_3_IPC_ImmuneResume_OriginResume(t *testing.T) {
 		t.Fatalf("client.ImmuneResume: %v", err)
 	}
 
-	var sawResume bool
-	for _, args := range killEventArgsFromDisk(t, projBase, uuid) {
-		if args["signal"] != types.SIGRESUME.String() {
-			continue
-		}
-		sawResume = true
-		if args["origin"] != string(types.KillOriginResume) {
-			t.Errorf("SIGRESUME Kill event: origin = %v, want %q", args["origin"], types.KillOriginResume)
-		}
-		if args["requester"] != "immune-resume" {
-			t.Errorf("SIGRESUME Kill event: requester = %v, want %q", args["requester"], "immune-resume")
-		}
+	// The process must leave Suspended and be Running again — the whole point of
+	// resume. A stuck-Suspended process (the pre-fix bug) fails here.
+	deadline = time.Now().Add(3 * time.Second)
+	for proc.GetState() == types.StateSuspended && time.Now().Before(deadline) {
+		time.Sleep(10 * time.Millisecond)
 	}
-	if !sawResume {
-		t.Error("no SIGRESUME Kill event in events.jsonl")
+	if state := proc.GetState(); state != types.StateRunning {
+		t.Fatalf("after immune resume: state = %v, want Running (process must actually resume)", state)
 	}
 
-	// Cleanup: the resumed process would otherwise park in Write again.
+	// Cleanup: the resumed process parks in Write again.
 	_ = kern.Kill(pid, types.SIGKILL)
 }

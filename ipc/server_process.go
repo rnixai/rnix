@@ -146,8 +146,11 @@ func (s *Server) handleKill(conn net.Conn, rawPayload json.RawMessage) {
 	// "who tried to kill a nonexistent PID" is audit information too. Origin
 	// falls back to unknown for pre-66.3 clients that omit it.
 	origin := killOriginFromWire(req.Origin)
-	log.Printf("[ipc] kill request: pid=%d uuid=%s signal=%s origin=%s requester=%s",
-		req.PID, req.UUID, req.Signal, origin, req.Requester)
+	// %q on the wire-controlled string fields (uuid/origin/requester): quote and
+	// escape so a crafted client cannot inject a forged "[ipc] kill request:"
+	// line via an embedded newline (Story 66.3 review F2a).
+	log.Printf("[ipc] kill request: pid=%d uuid=%q signal=%s origin=%q requester=%q",
+		req.PID, req.UUID, req.Signal, origin.String(), req.Requester)
 
 	pid, pidOK := s.resolvePID(req.PID, req.UUID)
 	if !pidOK {
@@ -189,8 +192,9 @@ func (s *Server) handleSignalTree(conn net.Conn, rawPayload json.RawMessage) {
 	}
 
 	origin := killOriginFromWire(req.Origin)
-	log.Printf("[ipc] signal_tree request: pid=%d uuid=%s signal=%s origin=%s requester=%s",
-		req.PID, req.UUID, req.Signal, origin, req.Requester)
+	// %q on wire-controlled fields to prevent forged log lines (Story 66.3 F2a).
+	log.Printf("[ipc] signal_tree request: pid=%d uuid=%q signal=%s origin=%q requester=%q",
+		req.PID, req.UUID, req.Signal, origin.String(), req.Requester)
 
 	pid, pidOK := s.resolvePID(req.PID, req.UUID)
 	if !pidOK {
