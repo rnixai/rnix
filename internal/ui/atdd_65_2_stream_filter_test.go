@@ -225,3 +225,32 @@ func TestATDD_65_2_UNIT006_Aggregate_NoColorBranch(t *testing.T) {
 	// 恢复 NoColor styles，避免污染同包其它测试
 	InitStyles(TerminalProfile{ColorLevel: 0})
 }
+
+// UNIT-007 (P1, AC6, code-review F1) — tool 聚合行 input/result 压平全部控制
+// 字符（不仅 \n）：裸 \r 会覆盖终端当前行，裸 ESC 会注入转义序列，均破坏
+// 「多行压单行」的追加式单行流不变量。default 与 verbose 两路径都须 sanitize
+//（verbose 只关闭截断，不关闭清洗）。
+func TestATDD_65_2_UNIT007_ToolAggregate_ControlCharsFlattened(t *testing.T) {
+	r := atdd652Renderer(0)
+	dirty := "line1\r\x1b[31mline2\tend"
+	ev := driverEvent("DriverToolCall", map[string]any{
+		"type": "tool_call", "subtype": "aggregate",
+		"tool": "shell", "input": dirty, "result": dirty,
+		"duration_ms": float64(10), "step": float64(1),
+	})
+
+	for _, verbose := range []bool{false, true} {
+		got := FormatTraceLine(r, ev, verbose)
+		if strings.Count(got, "\n") != 0 {
+			t.Errorf("verbose=%v: aggregate 行必须单行, got %q", verbose, got)
+		}
+		if strings.ContainsAny(got, "\r\t") || strings.Contains(got, "\x1b") {
+			t.Errorf("verbose=%v: 控制字符未被压平, got %q", verbose, got)
+		}
+		for _, want := range []string{"line1", "line2", "end"} {
+			if !strings.Contains(got, want) {
+				t.Errorf("verbose=%v: 可见文本应保留 %q, got %q", verbose, want, got)
+			}
+		}
+	}
+}

@@ -5,6 +5,7 @@ import (
 	"sort"
 	"strings"
 	"time"
+	"unicode"
 
 	"github.com/rnixai/rnix/internal/types"
 )
@@ -197,11 +198,20 @@ func formatAggregateTrace(r *Renderer, event types.SyscallEvent, verbose bool) s
 	return fmt.Sprintf("%s %s(%s) → %s    %s", styledTS, styledName, meta, body, dur)
 }
 
-// aggregatePreview flattens newlines to spaces, then truncates to max runes
-// with a "..." marker (flatten before truncate so the marker never dangles
-// after a line break). verbose disables truncation.
+// aggregatePreview flattens control characters (newlines, tabs, carriage
+// returns, ANSI escapes, ...) to spaces, then truncates to max runes with a
+// "..." marker (flatten before truncate so the marker never dangles after a
+// line break). Tool input/result can carry arbitrary shell/file output —
+// left unflattened, a bare \r or ESC would corrupt the single-line
+// append-only trace stream. verbose disables truncation but not
+// sanitization.
 func aggregatePreview(s string, max int, verbose bool) string {
-	s = strings.ReplaceAll(s, "\n", " ")
+	s = strings.Map(func(r rune) rune {
+		if unicode.IsControl(r) {
+			return ' '
+		}
+		return r
+	}, s)
 	if verbose {
 		return s
 	}
