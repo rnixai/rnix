@@ -98,6 +98,9 @@ func runGdb(cmd *cobra.Command, args []string) error {
 					event := wireToSyscallEvent(sew)
 					if flagVerbose {
 						fmt.Fprintln(w, debug.FormatEvent(event, debug.Options{Verbose: true}))
+					} else if shouldSkipStreamEvent(event, flagJSON, flagVerbose) {
+						// Story 65.2: default mode hides streaming fragments;
+						// their block aggregate row compensates.
 					} else if renderer != nil {
 						fmt.Fprintln(w, ui.FormatTraceLine(renderer, event, false))
 					} else {

@@ -17,6 +17,14 @@ func FormatTraceLine(r *Renderer, event types.SyscallEvent, verbose bool) string
 		return formatConfigResolveTrace(r, event)
 	}
 
+	// Story 65.1 aggregate events use a specialized block-summary format:
+	// the generic traceArgs 50-char truncation is too narrow for a whole
+	// thinking block / tool call, and event.Duration is always 0 (the real
+	// duration lives in args duration_ms).
+	if isAggregateEvent(event) {
+		return formatAggregateTrace(r, event, verbose)
+	}
+
 	ts := traceTimestamp(event.Timestamp)
 	args := traceArgs(event.Args, verbose)
 	result := traceResult(event.Result, event.Err)
@@ -122,6 +130,111 @@ func formatConfigResolveTrace(r *Renderer, event types.SyscallEvent) string {
 	}
 
 	return fmt.Sprintf("%s %s(%s)    %s", styledTS, styledName, argsStr, dur)
+}
+
+// Aggregate summary rows are previews, not the fidelity layer (full text
+// lives in events.jsonl / steps.jsonl): thinking content and tool input are
+// capped at maxAggregatePreviewRunes, tool result at maxAggregateResultRunes.
+const (
+	maxAggregatePreviewRunes = 160
+	maxAggregateResultRunes  = 80
+)
+
+// isAggregateEvent reports whether the event is a Story 65.1 block-level
+// aggregate (DriverThinking/DriverToolCall with subtype="aggregate").
+func isAggregateEvent(event types.SyscallEvent) bool {
+	if event.Syscall != "DriverThinking" && event.Syscall != "DriverToolCall" {
+		return false
+	}
+	subtype, _ := event.Args["subtype"].(string)
+	return subtype == "aggregate"
+}
+
+// formatAggregateTrace renders a Story 65.1 aggregate event as a single
+// block-summary line (mirrors the formatConfigResolveTrace NoColor split):
+//
+//	[  1.234s] DriverThinking(fragments=14) → "<content preview>"    3.20s
+//	[  1.234s] DriverToolCall(tool=fs_read, path=/x, step=3) → input=<preview> result=<preview>    1.20s
+//
+// verbose=true disables preview truncation. Duration comes from args
+// duration_ms (event.Duration is always 0 for aggregates); numeric args
+// tolerate both float64 (post-IPC) and int (in-process/test) shapes.
+func formatAggregateTrace(r *Renderer, event types.SyscallEvent, verbose bool) string {
+	ts := traceTimestamp(event.Timestamp)
+	dur := traceDuration(aggregateDurationMs(event.Args))
+
+	var meta, body string
+	if event.Syscall == "DriverThinking" {
+		meta = "fragments=" + aggregateIntArg(event.Args, "fragments")
+		content, _ := event.Args["content"].(string)
+		body = fmt.Sprintf("%q", aggregatePreview(content, maxAggregatePreviewRunes, verbose))
+	} else {
+		tool, _ := event.Args["tool"].(string)
+		parts := []string{"tool=" + tool}
+		if path, _ := event.Args["path"].(string); path != "" {
+			parts = append(parts, "path="+path)
+		}
+		if _, ok := event.Args["step"]; ok {
+			parts = append(parts, "step="+aggregateIntArg(event.Args, "step"))
+		}
+		meta = strings.Join(parts, ", ")
+		input, _ := event.Args["input"].(string)
+		result, _ := event.Args["result"].(string)
+		body = fmt.Sprintf("input=%s result=%s",
+			aggregatePreview(input, maxAggregatePreviewRunes, verbose),
+			aggregatePreview(result, maxAggregateResultRunes, verbose))
+	}
+
+	var styledTS, styledName string
+	if r.Profile.ColorLevel == 0 {
+		styledTS = ts
+		styledName = event.Syscall
+	} else {
+		styledTS = MutedStyle.Render(ts)
+		styledName = AgentBoldStyle.Render(event.Syscall)
+	}
+
+	return fmt.Sprintf("%s %s(%s) → %s    %s", styledTS, styledName, meta, body, dur)
+}
+
+// aggregatePreview flattens newlines to spaces, then truncates to max runes
+// with a "..." marker (flatten before truncate so the marker never dangles
+// after a line break). verbose disables truncation.
+func aggregatePreview(s string, max int, verbose bool) string {
+	s = strings.ReplaceAll(s, "\n", " ")
+	if verbose {
+		return s
+	}
+	runes := []rune(s)
+	if len(runes) <= max {
+		return s
+	}
+	return string(runes[:max]) + "..."
+}
+
+// aggregateIntArg renders a numeric arg as an integer string, tolerating the
+// float64 shape that JSON IPC decoding produces alongside in-process ints.
+func aggregateIntArg(args map[string]any, key string) string {
+	switch v := args[key].(type) {
+	case float64:
+		return fmt.Sprintf("%d", int64(v))
+	default:
+		return fmt.Sprintf("%v", v)
+	}
+}
+
+// aggregateDurationMs reads args duration_ms as a time.Duration.
+func aggregateDurationMs(args map[string]any) time.Duration {
+	switch v := args["duration_ms"].(type) {
+	case float64:
+		return time.Duration(v * float64(time.Millisecond))
+	case int64:
+		return time.Duration(v) * time.Millisecond
+	case int:
+		return time.Duration(v) * time.Millisecond
+	default:
+		return 0
+	}
 }
 
 // traceTimestamp formats a duration as a fixed-width timestamp: [  0.012s]

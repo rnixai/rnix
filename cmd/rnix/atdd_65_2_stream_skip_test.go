@@ -29,8 +29,6 @@ func atdd652Event(syscall string, args map[string]any) types.SyscallEvent {
 // UNIT-008 (P0, AC1/AC2/AC7③) — 默认模式：分片跳过、聚合/started 保留。
 // RED：ui.IsStreamFragment 骨架恒 false → 分片不被跳过 → FAIL。
 func TestATDD_65_2_UNIT008_ShouldSkip_DefaultModeFiltersFragments(t *testing.T) {
-	t.Skip("RED: 65.2: ui.IsStreamFragment 为骨架恒 false，dev-story 实现裁决 1 后移除本行")
-
 	fragments := []types.SyscallEvent{
 		atdd652Event("DriverThinking", map[string]any{"type": "thinking", "content": "分片…", "subtype": "delta"}),
 		atdd652Event("DriverThinking", map[string]any{"type": "thinking", "content": "frag"}), // API/codex 无 subtype

@@ -38,8 +38,6 @@ func driverEvent(syscall string, args map[string]any) types.SyscallEvent {
 
 // UNIT-001 (P0, AC1/AC2/AC7①) — IsStreamFragment 谓词表驱动：镜像 kernel 吸收谓词（裁决 1）。
 func TestATDD_65_2_UNIT001_IsStreamFragment_Predicate(t *testing.T) {
-	t.Skip("RED: 65.2: IsStreamFragment 为骨架恒 false，dev-story 实现裁决 1 后移除本行")
-
 	cases := []struct {
 		name string
 		ev   types.SyscallEvent
@@ -72,8 +70,6 @@ func TestATDD_65_2_UNIT001_IsStreamFragment_Predicate(t *testing.T) {
 
 // UNIT-002 (P0, AC6/AC7②) — thinking 聚合行：content 预览 + fragments + duration 取 args duration_ms。
 func TestATDD_65_2_UNIT002_FormatTraceLine_ThinkingAggregate(t *testing.T) {
-	t.Skip("RED: 65.2: formatAggregateTrace 特判未实现，dev-story 实现裁决 3 后移除本行")
-
 	r := atdd652Renderer(0)
 	ev := driverEvent("DriverThinking", map[string]any{
 		"type": "thinking", "subtype": "aggregate",
@@ -102,8 +98,6 @@ func TestATDD_65_2_UNIT002_FormatTraceLine_ThinkingAggregate(t *testing.T) {
 
 // UNIT-003 (P0, AC6/AC7②) — tool 聚合行：tool/path/step + input 160 / result 80 双上限。
 func TestATDD_65_2_UNIT003_FormatTraceLine_ToolAggregate(t *testing.T) {
-	t.Skip("RED: 65.2: formatAggregateTrace 特判未实现，dev-story 实现裁决 3 后移除本行")
-
 	r := atdd652Renderer(0)
 	longInput := strings.Repeat("甲", 170) + "末"   // 171 runes，超 160 上限
 	longResult := strings.Repeat("乙", 90) + "尾"   // 91 runes，超 80 上限
@@ -142,8 +136,6 @@ func TestATDD_65_2_UNIT003_FormatTraceLine_ToolAggregate(t *testing.T) {
 
 // UNIT-004 (P0, AC6/AC7②) — 截断边界 159/160/161 runes（rune 计数非 byte，CJK 安全）+ 多行压单行。
 func TestATDD_65_2_UNIT004_AggregatePreview_TruncationBoundary(t *testing.T) {
-	t.Skip("RED: 65.2: formatAggregateTrace 特判未实现，dev-story 实现裁决 3 后移除本行")
-
 	r := atdd652Renderer(0)
 	mk := func(content string) string {
 		return FormatTraceLine(r, driverEvent("DriverThinking", map[string]any{
@@ -183,8 +175,6 @@ func TestATDD_65_2_UNIT004_AggregatePreview_TruncationBoundary(t *testing.T) {
 
 // UNIT-005 (P1, AC6) — verbose=true 聚合行全文不截断。
 func TestATDD_65_2_UNIT005_AggregateVerbose_NoTruncation(t *testing.T) {
-	t.Skip("RED: 65.2: formatAggregateTrace 特判未实现，dev-story 实现裁决 3 后移除本行")
-
 	r := atdd652Renderer(0)
 	content := strings.Repeat("思", 200) + "终"
 	ev := driverEvent("DriverThinking", map[string]any{
@@ -207,7 +197,6 @@ func TestATDD_65_2_UNIT005_AggregateVerbose_NoTruncation(t *testing.T) {
 
 // UNIT-006 (P1, AC6) — NoColor（ColorLevel==0）路径无 ANSI；彩色路径不 panic。
 func TestATDD_65_2_UNIT006_Aggregate_NoColorBranch(t *testing.T) {
-	t.Skip("RED: 65.2: formatAggregateTrace 特判未实现，dev-story 实现裁决 3 后移除本行")
 
 	ev := driverEvent("DriverThinking", map[string]any{
 		"type": "thinking", "subtype": "aggregate",

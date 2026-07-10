@@ -1370,6 +1370,9 @@ func runStrace(cmd *cobra.Command, args []string) error {
 			if flagJSON {
 				data, _ := json.Marshal(sew)
 				fmt.Fprintln(w, string(data))
+			} else if shouldSkipStreamEvent(event, flagJSON, flagVerbose) {
+				// Story 65.2: human-readable default mode hides streaming
+				// fragments; their block aggregate row compensates.
 			} else if opts.Formatter != nil {
 				fmt.Fprintln(w, opts.Formatter(event))
 			} else {
