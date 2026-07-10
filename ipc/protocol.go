@@ -295,6 +295,14 @@ type ProcInfoWire struct {
 	ExitCode    int  `json:"exit_code,omitempty"`
 	ExitCodeSet bool `json:"exit_code_set,omitempty"`
 
+	// ResultPartial mirrors vfs.ProcInfo.ResultPartial (Story 66.2): the process
+	// was killed mid-stream and Result holds only the text received before the
+	// signal, carrying a "[partial] " prefix. Orchestrators must route on this
+	// bool rather than sniffing that prefix out of Result. Without the field on
+	// the wire the flag silently reads back false — ProcInfo goes in and comes
+	// out as ProcInfo, so nothing else marks the loss.
+	ResultPartial bool `json:"result_partial,omitempty"`
+
 	DriverMeta     map[string]string `json:"driver_meta,omitempty"`
 	FeatureProfile string            `json:"feature_profile,omitempty"`
 
@@ -333,6 +341,7 @@ func ProcInfoToWire(p vfs.ProcInfo) ProcInfoWire {
 		CreatedAt:       p.CreatedAt.UnixMilli(),
 		CtxID:           p.CtxID,
 		Result:          p.Result,
+		ResultPartial:   p.ResultPartial,
 		ContextBudget:   p.ContextBudget,
 		MaxTokens:       p.MaxTokens,
 		MaxCost:         p.MaxCost,
@@ -387,6 +396,7 @@ func WireToProcInfo(w ProcInfoWire) vfs.ProcInfo {
 		CreatedAt:       unixMilliToTime(w.CreatedAt),
 		CtxID:           w.CtxID,
 		Result:          w.Result,
+		ResultPartial:   w.ResultPartial,
 		ContextBudget:   w.ContextBudget,
 		MaxTokens:       w.MaxTokens,
 		MaxCost:         w.MaxCost,
