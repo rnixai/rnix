@@ -1999,6 +1999,14 @@ func runDaemon(cmd *cobra.Command, args []string) error {
 	defer gcDaemonCancel()
 	go k.StartGcDaemon(gcDaemonCtx)
 
+	// Story 66.5 — OS process-group reconcile loop. Periodically reaps CLI-agent
+	// subprocesses (self-tagged with RNIX_PROC_UUID) that outlived their rnix
+	// owner (daemon crash / cross-restart residue). Linux-only; no-op elsewhere.
+	// Lives for the daemon lifetime; cancelled at shutdown.
+	reconcileCtx, reconcileCancel := context.WithCancel(context.Background())
+	defer reconcileCancel()
+	go k.StartOSReconcileDaemon(reconcileCtx)
+
 	// Skill dynamic management (Story 35.5)
 	if memoryCfg.Skills.DynamicManage {
 		projectSkillDir := filepath.Join(cwd, ".rnix", "skills")

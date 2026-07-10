@@ -39,6 +39,11 @@ type llmRequest struct {
 	ProjectDir      string            `json:"project_dir,omitempty"`
 	CallerPID       uint64            `json:"caller_pid,omitempty"`
 	CallerDepth     int               `json:"caller_depth,omitempty"`
+	// CallerUUID mirrors drivers/llm.LLMRequest.CallerUUID — the spawning
+	// process's UUIDv7, injected into the CLI child env as RNIX_PROC_UUID for
+	// os-reconcile attribution (Story 66.5). JSON tag MUST match (caller_uuid)
+	// or the field is silently dropped across the VFS boundary.
+	CallerUUID string `json:"caller_uuid,omitempty"`
 }
 
 // llmToolCall represents a tool invocation in an LLM response.

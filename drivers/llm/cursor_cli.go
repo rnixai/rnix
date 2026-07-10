@@ -134,6 +134,9 @@ func (d *CursorCliDriver) Call(ctx context.Context, req LLMRequest) (*LLMRespons
 		fillCLIResponse(rawCap, stdout.String(), stderr.String(), processExitCode(cmd))
 		sink.set(rawCap)
 	}
+	// Story 66.5: group SIGKILL backstop — establish "Run returned ⇒ group
+	// empty". Idempotent no-op on the normal path (group already empty ⇒ ESRCH).
+	reapCommandGroup(cmd)
 	if ctx.Err() == context.DeadlineExceeded {
 		return nil, NewLLMError("cursor", 0, ErrTimeout)
 	}
@@ -244,6 +247,10 @@ func (d *CursorCliDriver) Stream(ctx context.Context, req LLMRequest) (<-chan St
 
 	go func() {
 		defer close(ch)
+		// Story 66.5: group SIGKILL backstop. Registered BEFORE the cmd.Wait
+		// defer below so LIFO runs it AFTER that Wait (and after cancel's group
+		// SIGTERM) — reap must observe a fully-waited leader before group kill.
+		defer reapCommandGroup(cmd)
 		// Safety-net reap on ALL goroutine exit paths (story 56.3 review fix):
 		// the ctx.Done() early-returns inside the scanner loop skip the explicit
 		// cmd.Wait below, so without this defer the child process + stdout pipe

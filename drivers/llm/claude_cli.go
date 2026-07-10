@@ -322,6 +322,9 @@ func (d *ClaudeCliDriver) Call(ctx context.Context, req LLMRequest) (*LLMRespons
 		fillCLIResponse(rawCap, stdout.String(), stderr.String(), processExitCode(cmd))
 		sink.set(rawCap)
 	}
+	// Story 66.5: group SIGKILL backstop — establish "Run returned ⇒ group
+	// empty". Idempotent no-op on the normal path (group already empty ⇒ ESRCH).
+	reapCommandGroup(cmd)
 	if ctx.Err() == context.DeadlineExceeded {
 		return nil, NewLLMError("claude", 0, ErrTimeout)
 	}
@@ -518,6 +521,11 @@ func (d *ClaudeCliDriver) Stream(ctx context.Context, req LLMRequest) (<-chan St
 
 	go func() {
 		defer close(ch)
+		// Story 66.5: group SIGKILL backstop on every goroutine exit path.
+		// Registered right after close(ch) so LIFO runs it AFTER cancel() (group
+		// SIGTERM) and after any inline cmd.Wait — clears subagent残留 that
+		// ignored the grace window.
+		defer reapCommandGroup(cmd)
 		defer cancel()
 		if sysPromptFile != "" {
 			defer func() { _ = os.Remove(sysPromptFile) }()

@@ -656,6 +656,7 @@ func (k *KernelImpl) reasonStep(proc *Process, llmFD types.FD, opts SpawnOpts) {
 			ProjectDir:      projectDir,
 			CallerPID:       uint64(proc.PID),
 			CallerDepth:     proc.Depth,
+			CallerUUID:      proc.UUID,
 		}
 		req.Tools = proc.nativeToolDefs
 		reqJSON, err := json.Marshal(req)

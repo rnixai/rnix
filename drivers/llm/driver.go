@@ -9,7 +9,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"syscall"
 	"time"
 )
 
@@ -37,26 +36,33 @@ func newStreamScanner(r io.Reader) *bufio.Scanner {
 	return s
 }
 
-// configureCommandGrace installs a SIGTERM→grace→SIGKILL shutdown policy on
-// an exec.Cmd. When the associated context is cancelled (e.g. caller timeout
-// or explicit Kill), the process first receives SIGTERM. If it does not exit
-// within graceSec seconds, Go's exec machinery force-kills it. Passing
-// graceSec<=0 uses DefaultGracePeriod.
+// configureCommandGrace installs a process-group SIGTERM→grace→SIGKILL shutdown
+// policy on an exec.Cmd. The child is started in its own process group
+// (setProcGroupAttr) so the whole CLI-agent subtree — the leader plus any
+// subagents it forks (e.g. claude's sa-step-runner) — can be signalled as a
+// group. When the associated context is cancelled (caller timeout / explicit
+// Kill / step retry / suspend), the entire group first receives SIGTERM; if it
+// does not exit within graceSec seconds, Go's exec machinery force-kills the
+// leader (WaitDelay), and the caller's post-Wait reapCommandGroup delivers a
+// group SIGKILL backstop for any surviving subagents. Passing graceSec<=0 uses
+// DefaultGracePeriod.
+//
+// Story 66.5: this upgrades the shutdown scope from leader-only to group-wide.
+// The signal TYPE is unchanged (still SIGTERM then SIGKILL) — only the delivery
+// range widens — so existing SIGTERM-graceful CLI behavior is preserved.
 //
 // Must be called BEFORE cmd.Start().
 func configureCommandGrace(cmd *exec.Cmd, graceSec int) {
 	if cmd == nil {
 		return
 	}
+	setProcGroupAttr(cmd)
 	grace := time.Duration(graceSec) * time.Second
 	if grace <= 0 {
 		grace = DefaultGracePeriod
 	}
 	cmd.Cancel = func() error {
-		if cmd.Process == nil {
-			return nil
-		}
-		return cmd.Process.Signal(syscall.SIGTERM)
+		return groupCancelSIGTERM(cmd)
 	}
 	cmd.WaitDelay = grace
 }
@@ -83,9 +89,11 @@ func configureCommandDir(cmd *exec.Cmd, projectDir string) {
 }
 
 // configureCommandRnixParentEnv lets CLI-agent-native shell tools preserve the
-// rnix process tree when they invoke `rnix -i ...` themselves.
+// rnix process tree when they invoke `rnix -i ...` themselves, and marks the
+// child (and any subagents that inherit its env) with RNIX_PROC_UUID so the
+// daemon os-reconcile loop can attribute orphaned OS processes (Story 66.5).
 func configureCommandRnixParentEnv(cmd *exec.Cmd, req LLMRequest) {
-	if cmd == nil || (req.CallerPID == 0 && req.CallerDepth == 0) {
+	if cmd == nil || (req.CallerPID == 0 && req.CallerDepth == 0 && req.CallerUUID == "") {
 		return
 	}
 	if cmd.Env == nil {
@@ -96,6 +104,9 @@ func configureCommandRnixParentEnv(cmd *exec.Cmd, req LLMRequest) {
 	}
 	if req.CallerDepth > 0 {
 		cmd.Env = append(cmd.Env, fmt.Sprintf("RNIX_SPAWN_DEPTH=%d", req.CallerDepth))
+	}
+	if req.CallerUUID != "" {
+		cmd.Env = append(cmd.Env, "RNIX_PROC_UUID="+req.CallerUUID)
 	}
 }
 
@@ -160,6 +171,13 @@ type LLMRequest struct {
 	ProjectDir      string    `json:"project_dir,omitempty"` // R5: project root for bundle placement
 	CallerPID       uint64    `json:"caller_pid,omitempty"`  // rnix parent PID for CLI-native shell tools
 	CallerDepth     int       `json:"caller_depth,omitempty"`
+	// CallerUUID is the spawning rnix process's UUIDv7 — globally unique across
+	// daemon restarts (unlike PID, which is renumbered). Injected into the CLI
+	// child's env as RNIX_PROC_UUID so the daemon os-reconcile loop (Story 66.5)
+	// can attribute orphaned OS processes back to their rnix process. JSON tag
+	// MUST match kernel/action.go llmRequest (caller_uuid) or the field is
+	// silently dropped across the VFS boundary.
+	CallerUUID string `json:"caller_uuid,omitempty"`
 }
 
 // LLMResponse represents a response from an LLM driver.
