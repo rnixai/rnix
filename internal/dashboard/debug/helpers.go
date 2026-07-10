@@ -406,7 +406,7 @@ func wrapThinkingText(text string, width int) []string {
 // 事件集不相交（DriverThinking vs DriverToolCall input_delta），thinking 合成行对
 // input_delta 组扫描是非分片事件 → 自然断块，无相互作用。
 //
-// 行为契约（dev-story 实现）：
+// 行为契约：
 //   - 无 input_delta 分片（groups 空）→ 直接返回 raw（零拷贝 · 等价无折叠）；
 //   - 摘要行：Type=EventToolInput · RawEvent!=nil（携带组首分片 ts 作展开键）·
 //     Summary="<fold mark> <FormatToolInputSummary>" · 折叠态 Detail 留空 lazy 不重建

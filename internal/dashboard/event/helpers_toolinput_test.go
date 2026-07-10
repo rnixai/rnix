@@ -1,6 +1,6 @@
-// ATDD Story 65.3 — dashboard debug pane input_delta 分片聚合（DriverToolCall 输入折叠）
+// Story 65.3 — dashboard debug pane input_delta 分片聚合（DriverToolCall 输入折叠）
 //
-// Red-phase tests for `BuildToolInputAggGroups` + `ToolInputAggGroup` type +
+// Tests for `BuildToolInputAggGroups` + `ToolInputAggGroup` type +
 // `ReconstructToolInput` + `FormatToolInputSummary` helpers in
 // internal/dashboard/event/helpers.go (Story 65.3 additions).
 //
@@ -12,19 +12,9 @@
 //   - AC#4: 专门视觉标识（🔧 / ASCII `[tool]` 降级 · 摘要文本格式 · 工具名降级）。
 //   - AC#7①: 表驱动单测覆盖（Args 类型防御、空 events）。
 //
-// **RED 机制 = 骨架 + t.Skip**（Decker 既往偏好 · [[atdd-code-story-red-mechanism-preference]]
-// · 37-5/37-6/44-5/54-5/60.2）：
-//   - helpers.go 已就位最小骨架（ToolInputAggGroup struct + 3 个返回零值的函数）→ 本文件可编译；
-//   - 断言「真实行为」的测试在实现前用 `t.Skip` 标注（dev-story 移除 skip + 填逻辑验
-//     RED→GREEN）；
-//   - GREEN-GUARD 测试（断言骨架已满足且实现后仍成立的不变量 · 如空输入→0 组、
-//     零值安全）**不 skip** · 提交期即跑 · 实时拦回归红线。
-//   - ATDD 提交期 `make all` 全绿（skip 在位）；这是本机制的核心收益。
-//
-// RED 信号（dev-story 实施前 · 移除对应 t.Skip 后应 FAIL）：
-//   - BuildToolInputAggGroups 返回 nil → 所有「应成 1+ 组」断言 FAIL
-//   - ReconstructToolInput 返回 "" → partial_json 拼接断言 FAIL
-//   - FormatToolInputSummary 返回 "" → 图标/工具名/计数断言 FAIL
+// ATDD 期以骨架+t.Skip 机制提交（[[atdd-code-story-red-mechanism-preference]]），
+// dev-story 已填实实现并移除全部 RED skip（验 RED→GREEN）；GREEN-GUARD 测试
+// （空输入→0 组、零值安全等不变量）全程未 skip 保持绿。
 //
 // 设计参考同包 helpers_thinking_test.go（Story 60.2 · BuildThinkingAggGroups 先例）。
 // ⚠️ 分片事件构造只含 type/content/partial_json 三键——**无 subtype 键**（真实
@@ -246,7 +236,7 @@ func TestBuildToolInputAggGroups_InterleavedSplitsToTwo(t *testing.T) {
 		mkToolStartedEv(t, "fs_write", "call-1", 1000), // idx 0 · 透传
 		mkInputDeltaEv(t, `{"path":`, 1010),            // idx 1 · 组1
 		mkInputDeltaEv(t, `"/a"`, 1020),                // idx 2 · 组1
-		mkNonToolCallEv("DriverToolCall"),              // idx 3 · user(tool_result) 交错断块——用普通 syscall 近似
+		mkNonToolCallEv("DriverToolCall"),              // idx 3 · user(tool_result) 交错断块——用 Args=nil 的 DriverToolCall 近似（content 取零值 ≠ input_delta → 断块）
 		mkInputDeltaEv(t, `,"data":`, 1040),            // idx 4 · 组2
 		mkInputDeltaEv(t, `"x"}`, 1050),                // idx 5 · 组2
 	}

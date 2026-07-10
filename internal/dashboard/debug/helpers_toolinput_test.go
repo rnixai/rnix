@@ -8,11 +8,9 @@
 // 纯函数聚合/还原/摘要的单测在 internal/dashboard/event/helpers_toolinput_test.go；
 // 本文件只覆盖 debug 包新增的投影 + 展开/截断逻辑。
 //
-// **RED 机制 = 骨架 + t.Skip**（[[atdd-code-story-red-mechanism-preference]]）：
-//   - helpers.go 骨架 CollapseToolInputGroups 当前**原样返回 raw**（未折叠）；
-//   - 断言折叠/展开行为的测试 RED 期 t.Skip（dev-story 移除 skip 验 RED→GREEN）；
-//   - 透传 DeepEqual guard（非分片事件不变）+ 无分片返 raw + 60.2 串联零回归 =
-//     GREEN-GUARD **不 skip**（骨架原样返回天然满足 · 实现后仍须成立）。
+// ATDD 期以骨架+t.Skip 机制提交（[[atdd-code-story-red-mechanism-preference]]），
+// dev-story 已填实 CollapseToolInputGroups 并移除全部 RED skip（验 RED→GREEN）；
+// GREEN-GUARD（透传 DeepEqual guard + 无分片返 raw + 60.2 串联零回归）全程未 skip 保持绿。
 //
 // ⚠️ 分片事件构造只含 type/content/partial_json 三键——**无 subtype 键**（story
 // 「测试构造注意」· 别顺手加 subtype）；started 才带 tool/call_id/subtype；aggregate
@@ -195,26 +193,30 @@ func TestCollapseToolInputGroups_NoDeltaReturnsRaw(t *testing.T) {
 // 透传（reflect.DeepEqual · 同 60.2 PreservesNonThinkingEventsExactly 断言模式）。
 // 骨架原样返回 raw 天然满足；实现后（这些事件均非 input_delta）仍须成立。**不 skip**。
 func TestCollapseToolInputGroups_PreservesNonDeltaEventsExactly(t *testing.T) {
-	started := toolStartedEv("fs_write", "call-1", 1000)
-	started.Detail = "started detail"
-	started.RawEvent.Result = "pending"
-	started.RawEvent.TraceID = "trace-s"
+	// mkEvents 每次调用独立构造（含独立 RawEvent 指针）——raw 与 want 不共享任何指针，
+	// 函数若 mutate RawEvent 指向的字段 DeepEqual 也能捕获（真深拷贝语义）。
+	mkEvents := func() []event.UnifiedEvent {
+		started := toolStartedEv("fs_write", "call-1", 1000)
+		started.Detail = "started detail"
+		started.RawEvent.Result = "pending"
+		started.RawEvent.TraceID = "trace-s"
 
-	aggregate := toolAggregateEv("fs_write", 1100)
-	aggregate.Severity = event.SevWarn
-	aggregate.RawEvent.DurationMs = 120
-	aggregate.RawEvent.TraceID = "trace-a"
+		aggregate := toolAggregateEv("fs_write", 1100)
+		aggregate.Severity = event.SevWarn
+		aggregate.RawEvent.DurationMs = 120
+		aggregate.RawEvent.TraceID = "trace-a"
 
-	completed := completedEv(1200)
-	completed.RawEvent.SpanID = "span-c"
+		completed := completedEv(1200)
+		completed.RawEvent.SpanID = "span-c"
 
-	other := nonToolEv("DriverInit")
-	other.Severity = event.SevError
-	other.RawEvent.Args = map[string]any{"provider": "claude"}
+		other := nonToolEv("DriverInit")
+		other.Severity = event.SevError
+		other.RawEvent.Args = map[string]any{"provider": "claude"}
 
-	raw := []event.UnifiedEvent{started, aggregate, completed, other}
-	// 深拷贝期望值（DeepEqual 逐字段）。
-	want := []event.UnifiedEvent{started, aggregate, completed, other}
+		return []event.UnifiedEvent{started, aggregate, completed, other}
+	}
+	raw := mkEvents()
+	want := mkEvents()
 
 	out := CollapseToolInputGroups(raw, nil, false)
 	if len(out) != len(want) {

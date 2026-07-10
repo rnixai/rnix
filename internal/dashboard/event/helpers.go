@@ -532,11 +532,7 @@ func formatThinkingDuration(ms float64) string {
 // =============================================================================
 // Story 65.3 — DriverToolCall input_delta 分片聚合（debug pane 防刷屏）
 //
-// 以下为 ATDD 红灯期骨架（Story 65.3 · 骨架+t.Skip 机制 · 同 60.2 先例）：
-//   - 类型/签名就位让 helpers_toolinput_test.go 可编译；
-//   - 函数体仅返回零值（未实现）→ 断言真实行为的测试在 RED 期 t.Skip；
-//   - dev-story 移除 skip + 填实逻辑（复用 60.2 BuildThinkingAggGroups 骨骼），验
-//     RED→GREEN。
+// 复用 60.2 BuildThinkingAggGroups 骨骼；单测见 helpers_toolinput_test.go。
 //
 // 与 60.2 thinking 聚合的结构差异（story 分片事件形态表 + 裁决）：
 //   - 分片判据 = RawEvent.Syscall=="DriverToolCall" && args.content=="input_delta"
@@ -571,7 +567,7 @@ type ToolInputAggGroup struct {
 // BuildToolInputAggGroups 扫描 unified events 识别连续的 DriverToolCall input_delta
 // 分片段（Story 65.3 AC#1 · 裁决 1/2）。
 //
-// 行为契约（dev-story 实现）：
+// 行为契约：
 //   - 只看分片事件（RawEvent.Syscall==DriverToolCall && args.content==input_delta）；
 //   - 遇到任何非 input_delta 事件（started/aggregate/completed/其它 syscall/step）断块；
 //   - 任意 ≥1 条分片即成组（裁决 2 · 不用 AggThreshold=3）；
@@ -649,7 +645,7 @@ func toolCallArgs(ev UnifiedEvent) (tool, content, partialJSON string) {
 // ReconstructToolInput 按 group 内 events 顺序拼接各分片的 args.partial_json，
 // 还原该工具调用的完整输入 JSON 文本（Story 65.3 AC#2 · 裁决 5 · 不做 pretty-print）。
 //
-// 行为契约（dev-story 实现）：
+// 行为契约：
 //   - 仅拼接 input_delta 分片的 partial_json；
 //   - 空组（无分片）→ 返回 ""；
 //   - StartIdx/EndIdx 越界安全 clamp（对齐 ReconstructThinkingText(:475)）。
