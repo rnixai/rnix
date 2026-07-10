@@ -105,4 +105,9 @@ type DebugState struct {
 	// 首事件的 TimestampMs（int64 · 跨 re-render 稳定 · live append 不漂移）。
 	// CollapseThinkingGroups 据此决定折叠块投影为 1 行摘要还是「摘要 + 有界正文行」。
 	ExpandedThinking map[int64]bool
+	// ExpandedToolInput — Story 65.3: 已展开的 DriverToolCall input_delta 聚合块集合，
+	// 键为该组首分片的 TimestampMs（int64 · 语义对齐 ExpandedThinking · 独立 map 防与
+	// thinking 块 ts 键碰撞）。CollapseToolInputGroups 据此决定折叠组投影为 1 行摘要
+	// 还是「摘要 + 有界正文行」。
+	ExpandedToolInput map[int64]bool
 }

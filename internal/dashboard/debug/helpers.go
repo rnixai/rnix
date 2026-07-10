@@ -392,3 +392,35 @@ func wrapThinkingText(text string, width int) []string {
 	}
 	return out
 }
+
+// CollapseToolInputGroups 把 raw（已过滤）debug 事件投影为「显示行」切片：每段连续
+// DriverToolCall input_delta 分片折叠成**单个** EventToolInput 摘要行（防刷屏 · Story
+// 65.3 AC#1 · 语义/签名对齐 CollapseThinkingGroups(:283)）；已展开的组（key 命中
+// expanded）额外投影出有界的输入正文行。非分片事件原样透传（AC#3 · 逐字段不变 ·
+// started/aggregate/completed 三形态 DriverToolCall 均无 content==input_delta → 天然透传）。
+//
+// 串联位置（裁决 4）：filteredDebugEvents() 中固定后置于 CollapseThinkingGroups——两折叠
+// 事件集不相交（DriverThinking vs DriverToolCall input_delta），thinking 合成行对
+// input_delta 组扫描是非分片事件 → 自然断块，无相互作用。
+//
+// 行为契约（dev-story 实现）：
+//   - 无 input_delta 分片（groups 空）→ 直接返回 raw（零拷贝 · 等价无折叠）；
+//   - 摘要行：Type=EventToolInput · RawEvent!=nil（携带组首分片 ts 作展开键）·
+//     Summary="<fold mark> <FormatToolInputSummary>" · 折叠态 Detail 留空 lazy 不重建
+//     （60.2 Patch P1 同款 · 分片可达数千条）· 展开态 Detail 携全文；
+//   - 正文行（仅展开时）：Type=EventToolInput · RawEvent==nil · Summary=缩进后分行文本
+//     （复用 expandRows · CJK 感知 80 宽 · MaxThinkingExpandLines=12 截断 + 尾标 ·
+//     空文本占位 "(no input)"）。
+//
+// **ATDD 骨架**：当前原样返回 raw（未折叠）→ 断言折叠/展开的测试在 RED 期 t.Skip；
+// 透传 DeepEqual guard（非分片事件不变）骨架天然满足 → GREEN-GUARD 不 skip。
+// dev-story 期：①移除本骨架照 CollapseThinkingGroups(:283) 实现；②把 thinkingExpandRows
+// (:336) 的行 Type 与空占位参数化为 expandRows(text, ascii, rowType, emptyPlaceholder)，
+// thinking 调用点同步传 EventThinking + "(no thinking text)"（行为零变化），新调用点传
+// EventToolInput + "(no input)"（裁决 5 ⚠️）。
+func CollapseToolInputGroups(raw []event.UnifiedEvent, expanded map[int64]bool, ascii bool) []event.UnifiedEvent {
+	// TODO(dev-story 65.3): 照 CollapseThinkingGroups(:283) 实现——
+	//   BuildToolInputAggGroups(raw) → 零组零拷贝返 raw · 摘要行合成 EventToolInput ·
+	//   lazy Detail(ReconstructToolInput) · 展开正文行(expandRows)。当前骨架原样返回 raw。
+	return raw
+}

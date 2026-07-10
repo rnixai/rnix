@@ -100,6 +100,18 @@ const (
 	// EventThinking「正文文本行」（RawEvent == nil · Summary 为缩进后的思考全文分行）。
 	// 防刷屏：API driver 单会话 DriverThinking 可达 14841 条 · 折叠后仅占 1 行。
 	EventThinking = "thinking"
+	// EventToolInput — Story 65.3: dashboard debug pane 端 DriverToolCall input_delta
+	// 分片聚合块的合成行类型（非来自 driver/kernel · 由 debug.CollapseToolInputGroups
+	// 投影产生 · 与 EventThinking 同为投影期合成类型）。一段连续 DriverToolCall
+	// content=="input_delta" 分片折叠成单个 EventToolInput「折叠摘要行」（RawEvent != nil ·
+	// 携带 group 首分片 ts 作展开键）；展开时额外投影出若干 EventToolInput「正文文本行」
+	// （RawEvent == nil · Summary 为缩进后的拼接输入全文分行）。
+	//
+	// **新增 EventType 协调点核查（裁决 3）**：EventToolInput 与 EventThinking 同为
+	// SevInfo 投影期合成类型 · 不进原始事件流 · 不进 mergeUnifiedEvents 输入 → 上方
+	// 「Adding new event types」列出的 4 处协调点（synthSecurityAlerts / mergeUnifiedEvents /
+	// dashboard_title tally / a-key handler）**全部零改动**（同 EventThinking 落地先例）。
+	EventToolInput = "tool_input"
 )
 
 // UnifiedEvent merges reasoning steps and system events into a single type

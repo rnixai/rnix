@@ -528,3 +528,96 @@ func formatThinkingDuration(ms float64) string {
 	}
 	return fmt.Sprintf("%.1fs", ms/1000)
 }
+
+// =============================================================================
+// Story 65.3 — DriverToolCall input_delta 分片聚合（debug pane 防刷屏）
+//
+// 以下为 ATDD 红灯期骨架（Story 65.3 · 骨架+t.Skip 机制 · 同 60.2 先例）：
+//   - 类型/签名就位让 helpers_toolinput_test.go 可编译；
+//   - 函数体仅返回零值（未实现）→ 断言真实行为的测试在 RED 期 t.Skip；
+//   - dev-story 移除 skip + 填实逻辑（复用 60.2 BuildThinkingAggGroups 骨骼），验
+//     RED→GREEN。
+//
+// 与 60.2 thinking 聚合的结构差异（story 分片事件形态表 + 裁决）：
+//   - 分片判据 = RawEvent.Syscall=="DriverToolCall" && args.content=="input_delta"
+//     （判 content 不判 subtype——input_delta 分片事件无 subtype 键）；
+//   - started 行**不吸进组、原样透传**（裁决 1 · 与 60.2 把 started 吸进组不同）；
+//     组 = 连续 input_delta run，遇任何非 input_delta 事件断块；
+//   - 工具名不在分片上——扫描时维护「最近一次 content=="started" 的 args.tool」游标，
+//     开组时快照进 ToolInputAggGroup.ToolName（裁决 1）；组前无 started → ToolName=""
+//     摘要降级（裁决 5）；
+//   - TotalBytes = 各分片 len(partial_json) 累计；DurationMs = 组内首末事件 ts 差。
+// =============================================================================
+
+// ToolInputAggGroup 表示一段连续的 DriverToolCall input_delta 分片聚合块
+// （一次工具输入 = N 条 content==input_delta 分片 · Story 65.3 AC#1）。
+//
+// 字段语义（参考 ThinkingAggGroup(:373)）：
+//   - StartIdx   : events 切片中的起始下标（inclusive · 组首分片）
+//   - EndIdx     : 结束下标（exclusive · 与 ThinkingAggGroup 同模式）
+//   - ToolName   : 组前最近一次 started 事件的 args.tool（回溯快照 · 无则 ""）
+//   - DeltaCount : 段内 input_delta 分片条数（用于摘要 "14 delta"）
+//   - TotalBytes : 段内所有分片 partial_json 的累计字节数（用于摘要 "2.3KB"）
+//   - DurationMs : 首末分片 ts 之差（毫秒 · 用于摘要 "1.2s" · 不可得时为 0）
+type ToolInputAggGroup struct {
+	StartIdx   int
+	EndIdx     int
+	ToolName   string
+	DeltaCount int
+	TotalBytes int
+	DurationMs float64
+}
+
+// BuildToolInputAggGroups 扫描 unified events 识别连续的 DriverToolCall input_delta
+// 分片段（Story 65.3 AC#1 · 裁决 1/2）。
+//
+// 行为契约（dev-story 实现）：
+//   - 只看分片事件（RawEvent.Syscall==DriverToolCall && args.content==input_delta）；
+//   - 遇到任何非 input_delta 事件（started/aggregate/completed/其它 syscall/step）断块；
+//   - 任意 ≥1 条分片即成组（裁决 2 · 不用 AggThreshold=3）；
+//   - 维护「最近一次 DriverToolCall content==started 的 args.tool」游标 · 开组时快照进
+//     ToolName（started 本身透传不入组 · 游标是「最近 started」而非「紧邻前一事件」）；
+//   - Args 类型断言失败安全降级（不 panic · 视为无 tool/partial_json · 仿 thinkingArgs(:450)）。
+//
+// **ATDD 骨架**：当前返回 nil（未实现）→ 断言「应成 1+ 组」的测试在 RED 期 t.Skip。
+// dev-story 期新增私有辅助 toolCallArgs(抽 tool/content/partial_json)/isToolInputDeltaEvent
+// 并复用 BuildThinkingAggGroups(:395) 连续段扫描骨骼。
+func BuildToolInputAggGroups(events []UnifiedEvent) []ToolInputAggGroup {
+	// TODO(dev-story 65.3): 连续 run 判据 = DriverToolCall && content==input_delta ·
+	//   started 游标回溯 · TotalBytes 累计 partial_json 字节 · 开组快照 lastToolName。
+	//   当前骨架返回 nil。
+	return nil
+}
+
+// ReconstructToolInput 按 group 内 events 顺序拼接各分片的 args.partial_json，
+// 还原该工具调用的完整输入 JSON 文本（Story 65.3 AC#2 · 裁决 5 · 不做 pretty-print）。
+//
+// 行为契约（dev-story 实现）：
+//   - 仅拼接 input_delta 分片的 partial_json；
+//   - 空组（无分片）→ 返回 ""；
+//   - StartIdx/EndIdx 越界安全 clamp（对齐 ReconstructThinkingText(:475)）。
+//
+// **ATDD 骨架**：当前返回 ""（未实现）→ 拼接断言在 RED 期 t.Skip。
+func ReconstructToolInput(events []UnifiedEvent, g ToolInputAggGroup) string {
+	// TODO(dev-story 65.3): clamp lo/hi 后遍历拼接各分片 partial_json（对齐
+	//   ReconstructThinkingText(:475)）。当前骨架返回 ""。
+	return ""
+}
+
+// FormatToolInputSummary 生成折叠工具输入块的单行摘要文本（Story 65.3 AC#1/裁决 5）。
+//
+// 形如：`🔧 fs_write input (14 delta · 2.3KB · 1.2s)`（Unicode）
+//
+//	`[tool] fs_write input (14 delta 2.3KB 1.2s)`（ascii==true · RNIX_ASCII=1）
+//
+// ToolName=="" 时降级省略工具名：`🔧 tool input (…)` / `[tool] tool input (…)`。
+// icon/分隔符模式照抄 FormatThinkingSummary(:501)（💭→🔧 · [think]→[tool]）；
+// bytes/duration 直接复用包内 formatThinkingBytes/formatThinkingDuration（含负 duration 钳零）。
+//
+// **ATDD 骨架**：当前返回 ""（未实现）→ 图标/工具名/计数断言在 RED 期 t.Skip。
+func FormatToolInputSummary(g ToolInputAggGroup, ascii bool) string {
+	// TODO(dev-story 65.3): 照 FormatThinkingSummary(:501) 组装——icon(🔧/[tool]) +
+	//   工具名（ToolName=="" 降级为 "tool"）+ "input" + (N delta · bytes · duration)。
+	//   复用 formatThinkingBytes/formatThinkingDuration。当前骨架返回 ""。
+	return ""
+}
