@@ -655,7 +655,7 @@ func (k *KernelImpl) setupDriverStreamHandler(proc *Process, llmFD types.FD) {
 		// a separator would corrupt the text). Block boundaries: any non-thinking
 		// event, a new `started` marker, or the done/error backstop.
 		var thinkingBuf strings.Builder
-		var thinkingStart time.Time
+		var thinkingStart, thinkingLast time.Time
 		thinkingFragments := 0
 
 		// flushThinking emits one DriverThinking aggregate event (subtype=
@@ -673,7 +673,7 @@ func (k *KernelImpl) setupDriverStreamHandler(proc *Process, llmFD types.FD) {
 				"subtype":     "aggregate",
 				"content":     truncateDriverToolResult(thinkingBuf.String()),
 				"fragments":   thinkingFragments,
-				"duration_ms": time.Since(thinkingStart).Milliseconds(),
+				"duration_ms": thinkingLast.Sub(thinkingStart).Milliseconds(),
 			}
 			k.emitEvent(proc, "DriverThinking", aggEvt, nil, nil, 0)
 			if cat, content, toolPath, ok := driverEventToLog(aggEvt); ok {
@@ -763,12 +763,19 @@ func (k *KernelImpl) setupDriverStreamHandler(proc *Process, llmFD types.FD) {
 				if sub == "started" {
 					flushThinking()
 				}
-				if content, _ := evt["content"].(string); strings.TrimSpace(content) != "" && content != sub {
-					if thinkingFragments == 0 {
-						thinkingStart = time.Now()
+				// A block opens only on a non-blank fragment, but once open,
+				// whitespace-only fragments (paragraph separators like "\n\n")
+				// are appended too — verbatim concatenation must match the
+				// per-delta reconstruction (60.2) or paragraphs would fuse.
+				if content, _ := evt["content"].(string); content != "" && content != sub {
+					if strings.TrimSpace(content) != "" || thinkingFragments > 0 {
+						if thinkingFragments == 0 {
+							thinkingStart = time.Now()
+						}
+						thinkingBuf.WriteString(content)
+						thinkingFragments++
+						thinkingLast = time.Now()
 					}
-					thinkingBuf.WriteString(content)
-					thinkingFragments++
 				}
 			} else {
 				flushThinking()
@@ -1111,8 +1118,11 @@ func (k *KernelImpl) setupDriverStreamHandler(proc *Process, llmFD types.FD) {
 			// Remaining tools are drained by each tool's completed event
 			// (codex/cursor) or by the stream-end `done` backstop.
 			case "error":
-				// Story 65.1 backstop: an error also terminates the stream —
-				// flush the suspended thinking block (idempotent).
+				// Stream-error backstop (65.1 review): an error terminates the
+				// stream just like `done` — drain pending tools so every tool
+				// call still gets its steps.jsonl record and aggregate event,
+				// then flush the suspended thinking block (both idempotent).
+				flushAll()
 				flushThinking()
 				// Story 56.6 (AC4): a terminating error also ends the stream —
 				// finalize dangling subagent children so they do not leak.

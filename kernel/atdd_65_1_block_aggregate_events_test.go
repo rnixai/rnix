@@ -121,7 +121,7 @@ func countLog651(entries []types.LogEntry, cat types.LogCategory) int {
 // 符），fragments==3，duration_ms 键存在。
 // 用 content 分片作触发事件是刻意的：裁决 2 要求块结束检测放在 handler 696-700
 // 的 content 早退**之前**，否则纯文本流阶段块悬置到 done 才 flush。
-// RED: 当前 handler 无累积器，永远不产 aggregate 事件。
+// RED(已转绿): 曾无累积器不产 aggregate 事件；现由 flushThinking 覆盖。
 // -----------------------------------------------------------------------------
 func TestATDD_65_1_INT_001_ThinkingBlockAggregateOnNonThinkingEvent(t *testing.T) {
 
@@ -167,7 +167,7 @@ func TestATDD_65_1_INT_002_StartedOnlyBlockNoAggregate(t *testing.T) {
 // -----------------------------------------------------------------------------
 // 65.1-INT-003 (P0, AC #1): 新块 started 断块——两个相邻 thinking 块各自产一条
 // 聚合事件，正文互不混入（对齐 60.2 断块规则）。
-// RED: 当前不产 aggregate 事件。
+// RED(已转绿): 曾不产 aggregate 事件；现 started 断块生效。
 // -----------------------------------------------------------------------------
 func TestATDD_65_1_INT_003_NewStartedSplitsBlocks(t *testing.T) {
 
@@ -194,7 +194,7 @@ func TestATDD_65_1_INT_003_NewStartedSplitsBlocks(t *testing.T) {
 // -----------------------------------------------------------------------------
 // 65.1-INT-004 (P0, AC #1): done / error backstop——流终止事件 flush 悬置的
 // thinking 块。
-// RED: 当前 done/error 分支无 thinking flush 兜底。
+// RED(已转绿): done/error 分支已挂 flushThinking 兜底。
 // -----------------------------------------------------------------------------
 func TestATDD_65_1_INT_004_DoneAndErrorBackstopFlushThinking(t *testing.T) {
 
@@ -220,7 +220,7 @@ func TestATDD_65_1_INT_004_DoneAndErrorBackstopFlushThinking(t *testing.T) {
 // 65.1-INT-005 (P0, AC #2): 工具 user(tool_result) flush 路径（claude/qwen）——
 // flushTool 时机 emit 一条 DriverToolCall 聚合事件，携权威 input（authInputs
 // 优先于截断的 inputBuf）、result、call_id、tool。
-// RED: flushTool 只写 steps.jsonl，不 emit 聚合事件。
+// RED(已转绿): flushTool 现于写 steps.jsonl 后 emit 聚合事件。
 // -----------------------------------------------------------------------------
 func TestATDD_65_1_INT_005_ToolAggregateOnUserToolResultFlush(t *testing.T) {
 
@@ -255,7 +255,7 @@ func TestATDD_65_1_INT_005_ToolAggregateOnUserToolResultFlush(t *testing.T) {
 // -----------------------------------------------------------------------------
 // 65.1-INT-006 (P0, AC #2): done backstop flush 路径——尾部工具（无 tool_result、
 // 无 completed）由 done 兜底 flush，同样产聚合事件（result 允许为空）。
-// RED: 同 INT-005。
+// RED(已转绿): 同 INT-005。
 // -----------------------------------------------------------------------------
 func TestATDD_65_1_INT_006_ToolAggregateOnDoneBackstop(t *testing.T) {
 
@@ -276,7 +276,7 @@ func TestATDD_65_1_INT_006_ToolAggregateOnDoneBackstop(t *testing.T) {
 // -----------------------------------------------------------------------------
 // 65.1-INT-007 (P1, AC #2): driver 原生 completed flush 路径（codex/cursor）——
 // 统一契约：completed 事件触发 flushTool 后同样产聚合事件（对下游冗余但一致）。
-// RED: 同 INT-005。
+// RED(已转绿): 同 INT-005。
 // -----------------------------------------------------------------------------
 func TestATDD_65_1_INT_007_ToolAggregateOnCompletedFlush(t *testing.T) {
 
@@ -298,8 +298,7 @@ func TestATDD_65_1_INT_007_ToolAggregateOnCompletedFlush(t *testing.T) {
 // 65.1-INT-008 (P0, AC #4): LogChan 块级化——thinking 分片不再逐条产 LogThink；
 // 每个块恰好一条块级 LogThink（80 rune 截断先例，经 driverEventToLog 聚合 evt
 // 路径）。
-// RED: 当前每 delta 分片一条 LogThink（started 因 content==subtype 被滤）——
-// 3 分片产 3 条而非 1 条。
+// RED(已转绿): 曾每 delta 分片一条 LogThink（3 分片 3 条）；现块级化为 1 条。
 // -----------------------------------------------------------------------------
 func TestATDD_65_1_INT_008_LogThinkBlockLevel(t *testing.T) {
 
@@ -332,7 +331,7 @@ func TestATDD_65_1_INT_008_LogThinkBlockLevel(t *testing.T) {
 // 65.1-UNIT-009 (P1, AC #4): driverEventToLog 纯函数修正——tool_call 分支对
 // content=="input_delta" 返回 false（输入分片不是日志条目）；started 的 LogTool
 // 行为不变（guard 子测试不受 skip 影响单独存在于 INT-010）。
-// RED: 当前 input_delta 走 tool_call 分支返回 (LogTool, "input_delta", ..., true)。
+// RED(已转绿): input_delta 现于 driverEventToLog tool_call 分支返回 false。
 // -----------------------------------------------------------------------------
 func TestATDD_65_1_UNIT_009_InputDeltaNoLogTool(t *testing.T) {
 
@@ -367,7 +366,7 @@ func TestATDD_65_1_UNIT_010_StartedLogToolUnchanged(t *testing.T) {
 // driver（无 subtype、60.1 归一）、codex（消息级全文、无 subtype、多 item 归一
 // 块）三形态各自正确聚合。判定谓词必须是 content != subtype（而非
 // subtype=="delta"），否则无 subtype 来源全部漏聚合。
-// RED: 无累积器。
+// RED(已转绿): 累积器谓词已覆盖四类来源。
 // -----------------------------------------------------------------------------
 func TestATDD_65_1_INT_011_SourceMatrixAggregation(t *testing.T) {
 
