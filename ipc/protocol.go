@@ -761,6 +761,11 @@ type ProgressPayload struct {
 	Model           string `json:"model,omitempty"`
 	ReasoningEffort string `json:"reasoning_effort,omitempty"`
 	UUID            string `json:"uuid,omitempty"`
+	// Warning carries a non-fatal spawn-time warning (Story 66.4: fallback
+	// provider resolve failure). Additive + omitempty — old clients ignore the
+	// unknown field, new clients get "" from an old daemon. Generic name so
+	// future spawn-time warnings can reuse it.
+	Warning string `json:"warning,omitempty"`
 
 	// OnStep / OnStepComplete
 	Step  int `json:"step,omitempty"`

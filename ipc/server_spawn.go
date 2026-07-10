@@ -114,7 +114,12 @@ func (s *Server) handleSpawn(conn net.Conn, rawPayload json.RawMessage) {
 		writeStreamEvent(conn, StreamEvent{Type: StreamError, Payload: marshalJSON(ErrorPayload{Code: "INTERNAL", Message: "process vanished after spawn"})})
 		return
 	}
-	spawnPP := ProgressPayload{Event: "spawn", PID: pid, Intent: req.Intent, Provider: proc.Provider, Model: proc.Model, ReasoningEffort: proc.ReasoningEffort, UUID: proc.UUID}
+	// Story 66.4: proc.FallbackResolveError is the only reliable CLI-visible
+	// channel for a spawn-time fallback resolve failure — any event the kernel
+	// emits during kern.Spawn is lost (callbackMux registers only after Spawn
+	// returns, see the compensation comment above). Backfill it onto the spawn
+	// payload so the CLI can render a warning line.
+	spawnPP := ProgressPayload{Event: "spawn", PID: pid, Intent: req.Intent, Provider: proc.Provider, Model: proc.Model, ReasoningEffort: proc.ReasoningEffort, UUID: proc.UUID, Warning: proc.FallbackResolveError}
 	spawnPayload, _ := json.Marshal(spawnPP)
 	select {
 	case eventCh <- StreamEvent{Type: StreamProgress, Payload: spawnPayload}:

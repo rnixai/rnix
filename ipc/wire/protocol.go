@@ -128,6 +128,7 @@ type ProgressPayload struct {
 	Model           string   `json:"model,omitempty"`
 	ReasoningEffort string   `json:"reasoning_effort,omitempty"`
 	UUID            string   `json:"uuid,omitempty"`
+	Warning         string   `json:"warning,omitempty"` // Story 66.4: spawn-time fallback resolve failure (additive)
 	Step            int      `json:"step,omitempty"`
 	Total           int      `json:"total,omitempty"`
 	ThinkingText    string   `json:"thinking_text,omitempty"`

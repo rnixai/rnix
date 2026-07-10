@@ -180,6 +180,11 @@ type Process struct {
 	FallbackModel       string            // fallback model name
 	FallbackProvider    string            // fallback provider name; "" = same as primary
 	FallbackDevice      string            // resolved fallback VFS device path; "" = no fallback
+	// FallbackResolveError carries the reason fallback device resolution failed
+	// at spawn (Story 66.4). NOT persisted — a pure spawn-time carrier consumed
+	// by the IPC spawn payload (→ ProgressPayload.Warning) and a delayed
+	// events.jsonl event. Empty when resolution succeeded or no fallback config.
+	FallbackResolveError string           // spawn-time fallback resolve failure reason; "" = ok
 	PrimaryDevice       string            // primary VFS device path (e.g. "/dev/llm/claude")
 	Provider            string            // resolved provider name (immutable after spawn)
 	Model               string            // resolved model name (immutable after spawn)

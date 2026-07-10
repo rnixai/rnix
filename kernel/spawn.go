@@ -14,6 +14,8 @@ import (
 	"github.com/rnixai/rnix/agents"
 	rnixctx "github.com/rnixai/rnix/context"
 	"github.com/rnixai/rnix/debug"
+	"github.com/rnixai/rnix/drivers/llm"
+	"github.com/rnixai/rnix/internal/config"
 	"github.com/rnixai/rnix/internal/types"
 	"github.com/rnixai/rnix/skills"
 	"github.com/rnixai/rnix/vfs"
@@ -57,6 +59,60 @@ func (k *KernelImpl) resolveLLMDevice(agent *agents.AgentInfo, providerOverride 
 	}
 
 	return "/dev/llm/" + provider, source, nil
+}
+
+// resolveFallbackDevice resolves the VFS device path for a fallback provider,
+// honoring project-level providers the same way the primary path does (Story 66.4).
+//
+// When the process carries a project config with an LLMFileOpener AND the
+// fallback provider appears in the merged providers view (global + project
+// .rnix/providers.yaml, already assembled by ipc/server_spawn.go's
+// resolveProjectContext and attached to ProjectConfig), the device path is
+// built directly — bypassing the daemon-global DriverRegistry validation that
+// resolveLLMDevice applies. This is the fallback analogue of the primary
+// LLMFileOpener bypass in Spawn (see the `LLMFileOpener != nil` branch).
+//
+// Otherwise it delegates to resolveLLMDevice(nil, fbProvider), preserving the
+// original global-validation semantics: a globally-registered provider still
+// resolves, and a genuinely-unknown provider still returns the original
+// "unsupported LLM provider" error. The project name list only ADDS a path; it
+// never narrows the global one.
+//
+// Unlike resolveResumeLLMDevice's unconditional bypass of the primary device,
+// this validates against the merged name list rather than admitting any
+// provider: fallback resolution failure is silently non-blocking (fallback
+// disabled), so a typo'd fallback provider admitted to runtime would re-create
+// the very "fallback silently does nothing" bug this story fixes. The kernel
+// MUST NOT re-read providers.yaml — it only consumes the ProjectConfig material
+// assembled by the IPC layer (epic red line: no double-read drift).
+func (k *KernelImpl) resolveFallbackDevice(pc *config.ProjectConfig, fbProvider string) (string, error) {
+	if pc != nil && pc.LLMFileOpener != nil && projectHasProvider(pc, fbProvider) {
+		return "/dev/llm/" + fbProvider, nil
+	}
+	device, _, err := k.resolveLLMDevice(nil, fbProvider)
+	return device, err
+}
+
+// projectHasProvider reports whether name appears in the project's merged
+// providers view. ProjectConfig.Providers is typed `any` to avoid a
+// config→drivers/llm import cycle; the kernel legitimately imports drivers/llm
+// (action.go), so the type-assert is safe here (assert precedent:
+// ipc/provider_lookup.go). A failed assert or nil Providers is treated as a
+// list miss (→ global fallthrough), never a panic.
+func projectHasProvider(pc *config.ProjectConfig, name string) bool {
+	if pc == nil || name == "" {
+		return false
+	}
+	pcfg, ok := pc.Providers.(*llm.ProvidersConfig)
+	if !ok || pcfg == nil {
+		return false
+	}
+	for i := range pcfg.Providers {
+		if pcfg.Providers[i].Name == name {
+			return true
+		}
+	}
+	return false
 }
 
 // Spawn creates a new agent process that automatically executes the reasonStep loop.
@@ -390,24 +446,42 @@ func (k *KernelImpl) Spawn(intent string, agent *agents.AgentInfo, opts SpawnOpt
 		if fbModel != "" {
 			proc.FallbackModel = fbModel
 			if fbProvider == "" {
-				// Same-provider fallback: resolve using main provider
+				// Same-provider fallback: resolve the implicit provider using the
+				// SAME chain as the primary LLMFileOpener branch (the
+				// `LLMFileOpener != nil` primary block below) so that when primary
+				// is a project-level default_provider (case-file `reclaude`),
+				// same-provider fallback resolves to it too instead of wrongly
+				// defaulting to "claude" (Story 66.4 Task 2).
 				p := opts.Provider
-				if p == "" {
+				if p == "" && agent.Manifest.Models.Provider != "" {
 					p = agent.Manifest.Models.Provider
 				}
 				if p == "" {
-					p = "claude"
+					if opts.ProjectConfig != nil && opts.ProjectConfig.DefaultProvider != "" {
+						p = opts.ProjectConfig.DefaultProvider
+					} else if k.defaultProvider != "" {
+						p = k.defaultProvider
+					} else {
+						p = "claude"
+					}
 				}
 				fbProvider = p
 			}
 			proc.FallbackProvider = fbProvider
-			fbDevice, _, fbErr := k.resolveLLMDevice(nil, fbProvider)
+			// Story 66.4 Task 1: resolve through resolveFallbackDevice so a
+			// project-level fallback provider (present only in the merged
+			// providers view, not the daemon-global DriverRegistry) is honored,
+			// matching the primary path. Falls through to global validation when
+			// there is no project-list hit.
+			fbDevice, fbErr := k.resolveFallbackDevice(opts.ProjectConfig, fbProvider)
 			if fbErr == nil {
 				proc.FallbackDevice = fbDevice
 			} else {
 				// fallback resolution failure is non-blocking; means fallback
-				// unavailable. Log a warn so operators can see why fallback
-				// silently does nothing on the next reasonStep.
+				// unavailable. Store the reason (Story 66.4 Task 3) so it surfaces
+				// via the spawn ProgressPayload warning + a delayed events.jsonl
+				// event, and keep the existing warn log for operators.
+				proc.FallbackResolveError = fbErr.Error()
 				log.Printf("[kernel] spawn: fallback provider %q resolve failed: %v (fallback disabled for this process)", fbProvider, fbErr)
 			}
 		}
@@ -836,6 +910,24 @@ func (k *KernelImpl) Spawn(intent string, agent *agents.AgentInfo, opts SpawnOpt
 			configArgs["project_default"] = projectDefault
 		}
 		k.emitEvent(proc, "ConfigResolve", configArgs, nil, nil, time.Since(resolveStart))
+
+		// Story 66.4 Task 3: fallback resolution failure visibility. The fallback
+		// resolve block above runs BEFORE the EventWriter attaches (a few lines
+		// up), so emitting there would only reach DebugChan and never land in
+		// events.jsonl (observe.go's `ew != nil` gate). Deferred to here — right
+		// after ConfigResolve, past the attach — so the event is durably
+		// persisted. proc.FallbackResolveError is also set unconditionally above
+		// for the IPC warning backfill, which does not depend on this event; the
+		// SkipReasonLoop path never reaches this block (no reasonStep consumes
+		// fallback) but still carries the field for that backfill.
+		if proc.FallbackResolveError != "" {
+			k.emitEvent(proc, "ReasonStep", map[string]any{
+				"step":              0,
+				"action":            "fallback_resolve_failed",
+				"fallback_provider": proc.FallbackProvider,
+				"reason":            proc.FallbackResolveError,
+			}, nil, nil, 0)
+		}
 
 		if providerSource == "agent" && opts.ProjectConfig != nil &&
 			opts.ProjectConfig.DefaultProvider != "" &&

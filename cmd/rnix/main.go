@@ -652,6 +652,11 @@ func runRoot(cmd *cobra.Command, args []string) error {
 			} else {
 				progress.KernelMessage("spawning PID %d (uuid: %s)...", pp.PID, uuidShort)
 			}
+			// Story 66.4: surface a spawn-time fallback resolve failure to the
+			// user (previously it only ever reached daemon stderr).
+			if pp.Warning != "" {
+				progress.KernelMessage("warning: %s", pp.Warning)
+			}
 		case "step":
 			progress.AgentStep(pp.PID, pp.Step, pp.Total)
 		case "thinking":
