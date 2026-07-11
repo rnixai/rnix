@@ -32,12 +32,19 @@ var deadKernelQuotaSymbols = []string{
 	"slaResults",
 	// ProcGroup 管理（组杀已由 66-5 OS pgid 承担）
 	"ProcGroupManager",
+	"ProcGroup", // struct 本体
 	"procGroups",
 	"JoinGroup",
+	"LeaveGroup",
+	"GetProcGroup",
 	"SignalGroup",
 	"removeFromAllGroups",
 	"newProcGroup",
 	"findGroupEventSource",
+	// Process.groups 字段的三方法（process.go 删除面）
+	"AddGroup",
+	"RemoveGroup",
+	"GetGroups",
 }
 
 // TestATDD_67_1_DeadKernelQuotaSymbolsRemoved scans kernel package production

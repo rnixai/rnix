@@ -136,7 +136,7 @@ func (k *KernelImpl) reapProcess(proc *Process) {
 			}
 		}
 
-		// 7. ClearSignalState — clean up signal handlers/blocked/pending/resume (Story 6.4)
+		// 6. ClearSignalState — clean up signal handlers/blocked/pending/resume (Story 6.4)
 		proc.ClearSignalState()
 
 		// 7. ClearThreads — cancel all threads and wait for completion (Story 6.5)
