@@ -9,5 +9,5 @@ assert:
   output:
     contains: ["multi-tool-chain ran two steps"]
   syscalls:
-    includes: ["ReasonStep", "Spawn"]
+    includes: ["ReasonStep", "Spawn", "Open", "Close"]
     excludes: ["Kill"]

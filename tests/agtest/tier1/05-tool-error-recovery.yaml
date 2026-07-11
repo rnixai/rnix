@@ -9,5 +9,5 @@ assert:
   output:
     contains: ["tool-error-recovery completed after a failing command"]
   syscalls:
-    includes: ["ReasonStep", "Spawn"]
+    includes: ["ReasonStep", "Spawn", "Open", "Close"]
     excludes: ["Kill"]

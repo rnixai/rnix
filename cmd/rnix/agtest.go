@@ -259,6 +259,13 @@ func (e *ipcExecutor) Execute(ctx context.Context, tc *agtest.TestCaseSpec) (*ag
 			if ev.Type != ipc.StreamProgress {
 				return
 			}
+			// First-wins: capture the FIRST "spawn" progress UUID (the top-level
+			// process). A later spawn-action child would emit its own "spawn"
+			// progress; a last-wins overwrite would then point ListEvents at the
+			// child's events.jsonl instead of the process under test.
+			if uuid != "" {
+				return
+			}
 			var pp ipc.ProgressPayload
 			if err := json.Unmarshal(ev.Payload, &pp); err == nil && pp.Event == "spawn" && pp.UUID != "" {
 				uuid = pp.UUID
@@ -300,7 +307,21 @@ func (e *ipcExecutor) Execute(ctx context.Context, tc *agtest.TestCaseSpec) (*ag
 	// early ConfigResolve/Mount/Spawn events an attach would miss. Failure is
 	// fail-loud (result.Error): a silent empty syscall list would make an
 	// `excludes` assertion pass vacuously.
-	if hasSyscallAssert && sr.uuid != "" {
+	if hasSyscallAssert {
+		// Fail-loud: every real process emits at least ConfigResolve/Spawn/
+		// ReasonStep, so a missing UUID or an empty event set is ALWAYS a
+		// collection failure, never a legitimate state. Surfacing it as
+		// result.Error (StatusError) is the 裁决 4 / 关键防错 #2 red line — a
+		// silent empty syscall list would let an `excludes` assertion pass
+		// vacuously. The server swallows read failures into OK+empty
+		// (ipc/server_observe.go handleListEvents), so listErr alone is NOT
+		// enough; the empty-length check below is what actually closes the hole.
+		if sr.uuid == "" {
+			if result.Error == "" {
+				result.Error = "syscall collection failed: no process UUID captured from spawn progress"
+			}
+			return result, nil
+		}
 		// A fresh connection: SpawnAndWatch's streaming connection is spent once
 		// the final event arrives (the server closes it), so reusing `client`
 		// here gets "connection reset by peer" ([[ipc-e2e-test-traps]]).
@@ -312,16 +333,34 @@ func (e *ipcExecutor) Execute(ctx context.Context, tc *agtest.TestCaseSpec) (*ag
 			return result, nil
 		}
 		defer evClient.Close()
-		events, listErr := evClient.ListEvents(0, sr.uuid)
-		if listErr != nil {
+		// Bounded retry for the events.jsonl flush window (裁决 4): the final
+		// progress event can land a beat before the last disk flush. Retry a
+		// few times on an empty read before treating empty as a hard failure.
+		var syscalls []string
+		for attempt := range 3 {
+			if attempt > 0 {
+				time.Sleep(100 * time.Millisecond)
+			}
+			events, listErr := evClient.ListEvents(0, sr.uuid)
+			if listErr != nil {
+				if result.Error == "" {
+					result.Error = fmt.Sprintf("list_events(%s) failed: %v", sr.uuid, listErr)
+				}
+				return result, nil
+			}
+			if len(events) > 0 {
+				syscalls = make([]string, 0, len(events))
+				for _, sew := range events {
+					syscalls = append(syscalls, sew.Syscall)
+				}
+				break
+			}
+		}
+		if len(syscalls) == 0 {
 			if result.Error == "" {
-				result.Error = fmt.Sprintf("list_events(%s) failed: %v", sr.uuid, listErr)
+				result.Error = fmt.Sprintf("list_events(%s) returned no events after retries — collection/flush failure (every process emits at least ReasonStep+Spawn)", sr.uuid)
 			}
 			return result, nil
-		}
-		syscalls := make([]string, 0, len(events))
-		for _, sew := range events {
-			syscalls = append(syscalls, sew.Syscall)
 		}
 		result.Syscalls = syscalls
 	}

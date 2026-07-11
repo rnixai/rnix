@@ -9,5 +9,5 @@ assert:
   output:
     contains: ["syscall-excludes finished without kill or compact"]
   syscalls:
-    includes: ["ReasonStep", "Spawn"]
+    includes: ["ReasonStep", "Spawn", "Open", "Close"]
     excludes: ["Kill", "Compact", "LoopDetected"]

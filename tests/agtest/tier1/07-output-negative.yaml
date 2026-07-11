@@ -10,5 +10,5 @@ assert:
     contains: ["output-negative clean success"]
     not_contains: ["panic", "traceback", "FATAL"]
   syscalls:
-    includes: ["ReasonStep", "Spawn"]
+    includes: ["ReasonStep", "Spawn", "Open", "Close"]
     excludes: ["Kill"]

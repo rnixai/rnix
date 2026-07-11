@@ -23,6 +23,10 @@ tests/agtest/
   case would be mis-parsed as a case. The `scripts/` subdirectory is immune.
 - Naming: `NN-slug.yaml` ↔ `scripts/NN-slug.responses.yaml`, `NN` a two-digit
   ordinal (keeps `ParseDir`'s lexical read order stable).
+- **Suite files** (a single `NN-slug.yaml` with a top-level `tests:` list of
+  several cases) pair each member with its own script via a trailing letter:
+  `scripts/NN-slug-a.responses.yaml`, `-b`, … in `tests[]` order (e.g.
+  `10-suite-multi-case.yaml` → `10-suite-multi-case-a/-b.responses.yaml`).
 - A case's `agent.model` is the script path **relative to the case file's own
   directory** (e.g. `scripts/02-single-tool-echo.responses.yaml`). The agtest
   executor absolutizes it against that directory before spawning, so cases stay
@@ -57,10 +61,17 @@ Additional discipline (not machine-enforced, but required):
 Each `responses` entry is one scripted LLM turn (see Story 68.1 for the full
 schema). Key rules:
 
-- **The last response must be a `Complete` tool_call.** Running out of script
-  mid-flight is a fail-loud error (drift detection, not a normal path); a script
-  with no terminal `Complete` runs to the `max_steps` backstop and the step
-  count becomes nondeterministic.
+- **Every case that ends by calling a tool must have a `Complete` tool_call as
+  its last response.** Running out of script mid-flight is a fail-loud error
+  (drift detection, not a normal path); a tool-ending script with no terminal
+  `Complete` runs to the `max_steps` backstop and the step count becomes
+  nondeterministic.
+- **Exception — pure-text cases terminate without `Complete`.** A content-only
+  response (`content` set, no `tool_calls`) is itself a terminal `text` action:
+  the reasoning loop ends on it immediately. So a text-class case
+  (`03-text-then-complete`, `06-reasoning-step`) is a **single** content-only
+  response with no `Complete`, and any response scripted after it is never
+  consumed. Do not add a trailing `Complete` to a text case expecting it to run.
 - **Keep `usage` values small (or omit them).** Large token counts trip the
   context Compactor, which invokes a real LLM summary and destroys determinism.
 - **Tool commands must be safe, deterministic, dependency-free.** `echo` / `true`

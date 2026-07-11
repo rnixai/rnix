@@ -26,6 +26,17 @@ import (
 //     are unreliable to detect by machine and are left to README discipline +
 //     review) to avoid false-positives on legitimate relative-path assertions.
 func ValidateTier1(suite *TestSuiteSpec) error {
+	// Exported entry point (Story 68.3 will call it behind `rnix agtest
+	// --tier1`), so guard the degenerate inputs the guard test never feeds it: a
+	// nil suite would panic on the range below, and an empty suite would pass
+	// vacuously — neither has any Tier1 regression value.
+	if suite == nil {
+		return ValidationErrors{{Field: "suite", Message: "Tier1 validation requires a non-nil suite"}}
+	}
+	if len(suite.Tests) == 0 {
+		return ValidationErrors{{Field: "tests", Message: "Tier1 validation requires at least one test case"}}
+	}
+
 	var errs ValidationErrors
 
 	for i := range suite.Tests {

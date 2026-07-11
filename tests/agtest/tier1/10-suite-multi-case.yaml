@@ -11,7 +11,7 @@ tests:
       output:
         contains: ["suite-multi-case alpha finished"]
       syscalls:
-        includes: ["ReasonStep", "Spawn"]
+        includes: ["ReasonStep", "Spawn", "Open", "Close"]
         excludes: ["Kill"]
   - name: suite-beta
     intent: "complete in one step (suite member beta)"
