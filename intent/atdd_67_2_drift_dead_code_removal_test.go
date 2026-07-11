@@ -76,7 +76,7 @@ func TestATDD_67_2_LiveDriftEventChainStillIntact(t *testing.T) {
 		t.Errorf("DriftNodeTimeout = %q, want \"node_timeout\"", DriftNodeTimeout)
 	}
 
-	// 活体方法可调用（InitDesired 三处生产调用；AddDrift/ClearDrift/ActiveDrifts 走 reconciler 写入链）
+	// 活体方法可调用（InitDesired 三处生产调用；AddDrift/ClearDrift 是 reconciler 写入链；ActiveDrifts 是 Drifts 的只读 defensive-copy accessor）
 	tree := &IntentTree{
 		ID:         "intent-67-2",
 		RootIntent: "green guard",

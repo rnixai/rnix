@@ -51,7 +51,11 @@ func e2eDriftSpawner(waitByPID func(pid types.PID) intent.ExitStatus) *IntentKer
 // 再经 ipc 层 intentTreeToWire 转换为 DriftItemWire 时字段逐一完整——这是 AC4
 // 「DriftItem wire 暴露面零改动」的运行时端到端证据。
 //
-// MaxRetries=0 → CanRetry()==false → 失败即 MarkFailed（不 ClearDrift），drift 留存。
+// 注意：节点 MaxRetries=0 会被 Execute 重置为 DefaultMaxRetries=3（reconciler.go:102-106），
+// 故此恒失败节点共尝试 3 次（1 初始 + 2 重试：每次失败先 AddDrift、IncrRetry 后
+// CanRetry(RetryCount<MaxRetries) 为真即 ClearDrift 后 respawn），第 3 次失败
+// RetryCount==MaxRetries 即 CanRetry 为假，MarkFailed 并保留最后一次 drift——
+// tree.Drifts 终态为 1 条。
 func TestE2E_67_2_DriftFlowsToWireAfterNodeFailure(t *testing.T) {
 	tree := &intent.IntentTree{
 		ID:         "intent-67-2-e2e-fail",
