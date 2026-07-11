@@ -56,17 +56,17 @@ func (n *IntentNode) IncrRetry() {
 	n.LastFailedAt = &now
 }
 
-// DriftType classifies the kind of drift between desired and current state.
+// DriftType classifies a recorded node execution event — a failure or a timeout
+// (node_failed / node_timeout).
 type DriftType string
 
 const (
-	DriftNodeFailed     DriftType = "node_failed"
-	DriftNodeTimeout    DriftType = "node_timeout"
-	DriftNewRequirement DriftType = "new_requirement"
-	DriftNodeModified   DriftType = "node_modified"
+	DriftNodeFailed  DriftType = "node_failed"
+	DriftNodeTimeout DriftType = "node_timeout"
 )
 
-// DriftItem records a single divergence between desired and current state.
+// DriftItem records a single node failure or timeout event observed during
+// reconciliation.
 type DriftItem struct {
 	NodeID     string    `json:"node_id"`
 	Type       DriftType `json:"type"`
@@ -92,30 +92,6 @@ func (t *IntentTree) InitDesired() {
 	for id := range t.Nodes {
 		t.DesiredNodes[id] = IntentCompleted
 	}
-}
-
-// ComputeDrifts scans all nodes and returns items where current != desired.
-func (t *IntentTree) ComputeDrifts() []DriftItem {
-	var drifts []DriftItem
-	for id, node := range t.Nodes {
-		desired, ok := t.DesiredNodes[id]
-		if !ok {
-			continue
-		}
-		if node.State == desired {
-			continue
-		}
-		if node.State != IntentFailed {
-			continue
-		}
-		drifts = append(drifts, DriftItem{
-			NodeID:     id,
-			Type:       DriftNodeFailed,
-			Message:    node.Error,
-			DetectedAt: time.Now(),
-		})
-	}
-	return drifts
 }
 
 // AddDrift appends a drift record.

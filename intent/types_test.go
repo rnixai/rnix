@@ -275,37 +275,6 @@ func TestIntentTree_InitDesired(t *testing.T) {
 	}
 }
 
-func TestIntentTree_ComputeDrifts(t *testing.T) {
-	tree := &IntentTree{
-		ID:         "intent-1",
-		RootIntent: "compute drifts",
-		State:      IntentExecuting,
-		Nodes: map[string]*IntentNode{
-			"a": {ID: "a", Intent: "completed", State: IntentCompleted},
-			"b": {ID: "b", Intent: "failed", State: IntentFailed, Error: "spawn error"},
-			"c": {ID: "c", Intent: "pending", State: IntentPending},
-		},
-		DesiredNodes: map[string]IntentState{
-			"a": IntentCompleted,
-			"b": IntentCompleted,
-			"c": IntentCompleted,
-		},
-		CreatedAt: time.Now(),
-	}
-
-	drifts := tree.ComputeDrifts()
-
-	if len(drifts) != 1 {
-		t.Fatalf("expected 1 drift (b=failed; pending/executing nodes are not drifts), got %d", len(drifts))
-	}
-	if drifts[0].NodeID != "b" {
-		t.Fatalf("expected drift for node 'b', got %q", drifts[0].NodeID)
-	}
-	if drifts[0].Type != DriftNodeFailed {
-		t.Fatalf("expected drift type %q, got %q", DriftNodeFailed, drifts[0].Type)
-	}
-}
-
 func TestIntentTree_AddDrift_ClearDrift(t *testing.T) {
 	tree := &IntentTree{
 		ID:         "intent-1",

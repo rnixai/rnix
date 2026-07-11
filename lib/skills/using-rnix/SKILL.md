@@ -89,8 +89,8 @@ the reference only when the task needs that depth.
   dependencies in a YAML file; rnix runs them in DAG order with token budgets and
   optional SLAs. See `references/workflows.md`.
 - **Declarative intent** — give rnix a high-level goal; it decomposes the goal
-  into a sub-task DAG, you confirm, and it executes with retry and drift
-  detection. The method is *decompose → confirm → execute*, not a fixed script.
+  into a sub-task DAG, you confirm, and it executes with retry, timeout, and
+  cascade-failure handling. The method is *decompose → confirm → execute*, not a fixed script.
   See `references/workflows.md`.
 - **Skills & agents** — agents are defined by a manifest plus instructions;
   skills are reusable capability bundles (a `SKILL.md` like this one). rnix

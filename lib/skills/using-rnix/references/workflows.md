@@ -102,8 +102,8 @@ rnix intent status <intent-id>
 rnix apply "also add OpenAPI docs" -u <intent-id>
 ```
 
-The reconciler executes the DAG with retry, timeout, and drift detection;
-failed nodes cascade to their dependents. You don't script the steps — you state
+The reconciler executes the DAG with retry and timeout handling; failed nodes
+cascade to their dependents. You don't script the steps — you state
 the goal and let rnix plan it.
 
 ## Recipe 4 — Suspend, resume, and fork for long or risky runs

@@ -18,8 +18,6 @@ const injectResultMaxRunes = 2000
 type ReconcilerConfig struct {
 	DefaultMaxRetries int
 	DefaultTimeout    time.Duration
-	ReconcileInterval time.Duration
-	MaxReconcileDelay time.Duration
 }
 
 // DefaultReconcilerConfig returns production defaults.
@@ -27,8 +25,6 @@ func DefaultReconcilerConfig() ReconcilerConfig {
 	return ReconcilerConfig{
 		DefaultMaxRetries: 3,
 		DefaultTimeout:    5 * time.Minute,
-		ReconcileInterval: 1 * time.Second,
-		MaxReconcileDelay: 5 * time.Second,
 	}
 }
 
@@ -59,7 +55,12 @@ type reconcileEvent struct {
 	errMsg string
 }
 
-// Reconciler executes an IntentTree with retry, timeout, and drift management.
+// Reconciler is an event-driven failure-retry orchestrator for an IntentTree.
+// It advances the tree on node completed/failed/timeout events: failures and
+// timeouts are recorded as drift items and retried, and a node whose retries are
+// exhausted cascades failure to its dependents. It is NOT a periodic
+// desired-state reconciliation loop — there is no ticker and no expected-state
+// comparison; "drift" here denotes a recorded node failure/timeout event.
 type Reconciler struct {
 	tree      *IntentTree
 	spawner   KernelSpawner
@@ -87,7 +88,10 @@ func NewReconciler(tree *IntentTree, spawner KernelSpawner, config ReconcilerCon
 	}, nil
 }
 
-// Execute runs the intent tree with reconciliation (retry, timeout, drift tracking).
+// Execute drives the intent tree to a terminal state by reacting to node
+// completed/failed/timeout events (retry, timeout, cascade-failure). It blocks
+// until every node is terminal or the context is cancelled; it does not poll or
+// periodically reconcile against a desired state.
 func (r *Reconciler) Execute(ctx context.Context) error {
 	r.mu.Lock()
 	r.tree.State = IntentExecuting
