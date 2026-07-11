@@ -20,6 +20,16 @@ func ParseFile(path string) (*TestSuiteSpec, error) {
 	if err != nil {
 		return nil, fmt.Errorf("parse %s: %w", filepath.Base(path), err)
 	}
+	// Record the case file's directory so a downstream executor can resolve a
+	// relative script path (AgentConfig.Model) against it. Absolute where
+	// possible; fall back to the raw dir if Abs fails (never fatal).
+	dir := filepath.Dir(path)
+	if abs, absErr := filepath.Abs(dir); absErr == nil {
+		dir = abs
+	}
+	for i := range suite.Tests {
+		suite.Tests[i].SourceDir = dir
+	}
 	return suite, nil
 }
 

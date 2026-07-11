@@ -1,0 +1,7 @@
+version: "1"
+responses:
+  - content: "text-then-complete reached the end"
+    usage:
+      input_tokens: 8
+      output_tokens: 5
+    stop_reason: "end_turn"

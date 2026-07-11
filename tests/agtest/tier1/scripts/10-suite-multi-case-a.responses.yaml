@@ -1,0 +1,15 @@
+version: "1"
+responses:
+  - tool_calls:
+      - name: Bash
+        input:
+          command: "echo suite-case-alpha"
+  - content: "alpha done"
+    tool_calls:
+      - name: Complete
+        input:
+          result: "suite-multi-case alpha finished"
+    usage:
+      input_tokens: 8
+      output_tokens: 4
+    stop_reason: "tool_use"

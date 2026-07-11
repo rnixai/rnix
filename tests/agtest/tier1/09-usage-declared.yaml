@@ -1,0 +1,13 @@
+version: "1.0"
+name: usage-declared
+intent: "complete in one step with declared token usage"
+agent:
+  provider: replay
+  model: scripts/09-usage-declared.responses.yaml
+timeout: 30000
+assert:
+  output:
+    contains: ["usage-declared reported token usage"]
+  syscalls:
+    includes: ["ReasonStep"]
+    excludes: ["Kill"]

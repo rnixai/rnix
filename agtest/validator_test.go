@@ -363,3 +363,37 @@ func assertContainsField(t *testing.T, err error, field string) {
 	}
 	t.Errorf("expected error containing field %q, got: %v", field, err)
 }
+
+// --- Story 68.2: name/provider at-least-one relaxation ---
+
+func TestValidate_ProviderOnlyPasses(t *testing.T) {
+	suite := &TestSuiteSpec{
+		Version: "1.0",
+		Tests:   []TestCaseSpec{{Intent: "hi", Agent: AgentConfig{Provider: "replay"}}},
+	}
+	if err := Validate(suite, nil); err != nil {
+		t.Fatalf("provider-only agent should pass, got: %v", err)
+	}
+}
+
+func TestValidate_NameOnlyPasses(t *testing.T) {
+	suite := &TestSuiteSpec{
+		Version: "1.0",
+		Tests:   []TestCaseSpec{{Intent: "hi", Agent: AgentConfig{Name: "greeter"}}},
+	}
+	if err := Validate(suite, nil); err != nil {
+		t.Fatalf("name-only agent should pass, got: %v", err)
+	}
+}
+
+func TestValidate_NeitherNameNorProviderFails(t *testing.T) {
+	suite := &TestSuiteSpec{
+		Version: "1.0",
+		Tests:   []TestCaseSpec{{Intent: "hi", Agent: AgentConfig{Model: "some-model"}}},
+	}
+	err := Validate(suite, nil)
+	if err == nil {
+		t.Fatal("expected validation error when both name and provider empty")
+	}
+	assertContainsField(t, err, "agent.name")
+}

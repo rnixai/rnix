@@ -1,0 +1,15 @@
+version: "1"
+responses:
+  - tool_calls:
+      - name: Bash
+        input:
+          command: "echo producing-clean-output"
+  - content: "finalizing cleanly"
+    tool_calls:
+      - name: Complete
+        input:
+          result: "output-negative clean success"
+    usage:
+      input_tokens: 9
+      output_tokens: 5
+    stop_reason: "tool_use"

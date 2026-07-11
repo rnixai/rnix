@@ -1,0 +1,27 @@
+version: "1.0"
+name: suite-multi-case
+tests:
+  - name: suite-alpha
+    intent: "run a command then complete (suite member alpha)"
+    agent:
+      provider: replay
+      model: scripts/10-suite-multi-case-a.responses.yaml
+    timeout: 30000
+    assert:
+      output:
+        contains: ["suite-multi-case alpha finished"]
+      syscalls:
+        includes: ["ReasonStep", "Spawn"]
+        excludes: ["Kill"]
+  - name: suite-beta
+    intent: "complete in one step (suite member beta)"
+    agent:
+      provider: replay
+      model: scripts/10-suite-multi-case-b.responses.yaml
+    timeout: 30000
+    assert:
+      output:
+        contains: ["suite-multi-case beta finished"]
+      syscalls:
+        includes: ["ReasonStep"]
+        excludes: ["Kill"]

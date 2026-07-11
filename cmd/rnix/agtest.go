@@ -5,9 +5,11 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"path/filepath"
 	"time"
 
 	"github.com/rnixai/rnix/agtest"
+	"github.com/rnixai/rnix/internal/config"
 	"github.com/rnixai/rnix/ipc"
 	"github.com/rnixai/rnix/internal/types"
 	"github.com/spf13/cobra"
@@ -222,8 +224,18 @@ func (e *ipcExecutor) Execute(ctx context.Context, tc *agtest.TestCaseSpec) (*ag
 	req := ipc.SpawnRequest{
 		Intent:        tc.Intent,
 		Agent:         tc.Agent.Name,
-		Model:         tc.Agent.Model,
+		Provider:      tc.Agent.Provider,
+		Model:         resolveScriptModel(tc),
 		ContextBudget: tc.Agent.ContextBudget,
+	}
+	// Project-level providers.yaml (e.g. a replay provider) is only merged when
+	// req.ProjectDir is set (ipc/server_spawn.go per-spawn merge). The spawn CLI
+	// path fills this from config.ProjectDir(cwd) — mirror it here (Story 68.2
+	// 裁决 5) or the replay provider declaration never takes effect.
+	if cwd, cwdErr := os.Getwd(); cwdErr == nil {
+		if projectDir, pdErr := config.ProjectDir(cwd); pdErr == nil {
+			req.ProjectDir = projectDir
+		}
 	}
 	if tc.Timeout > 0 {
 		req.TimeoutMs = int64(tc.Timeout)
@@ -232,37 +244,27 @@ func (e *ipcExecutor) Execute(ctx context.Context, tc *agtest.TestCaseSpec) (*ag
 	}
 
 	hasSyscallAssert := tc.Assert != nil && tc.Assert.Syscalls != nil
-	var syscalls []string
-	var debugDone chan struct{}
 
 	type spawnResult struct {
 		pid  types.PID
 		pp   *ipc.ProgressPayload
 		err  error
+		uuid string
 	}
 	resultCh := make(chan spawnResult, 1)
 
 	go func() {
+		var uuid string
 		pid, final, spawnErr := client.SpawnAndWatch(req, func(ev ipc.StreamEvent) {
-			if hasSyscallAssert && ev.Type == ipc.StreamProgress {
-				var pp ipc.ProgressPayload
-				if err := json.Unmarshal(ev.Payload, &pp); err == nil && pp.Event == "spawn" && debugDone == nil {
-					debugDone = make(chan struct{})
-					go func() {
-						defer close(debugDone)
-						debugClient, dialErr := e.dialFunc()
-						if dialErr != nil {
-							return
-						}
-						defer debugClient.Close()
-						_ = debugClient.AttachDebug(pp.PID, func(sew ipc.SyscallEventWire) {
-							syscalls = append(syscalls, sew.Syscall)
-						})
-					}()
-				}
+			if ev.Type != ipc.StreamProgress {
+				return
+			}
+			var pp ipc.ProgressPayload
+			if err := json.Unmarshal(ev.Payload, &pp); err == nil && pp.Event == "spawn" && pp.UUID != "" {
+				uuid = pp.UUID
 			}
 		})
-		resultCh <- spawnResult{pid, final, spawnErr}
+		resultCh <- spawnResult{pid, final, spawnErr, uuid}
 	}()
 
 	var sr spawnResult
@@ -273,13 +275,7 @@ func (e *ipcExecutor) Execute(ctx context.Context, tc *agtest.TestCaseSpec) (*ag
 		return nil, ctx.Err()
 	}
 
-	if debugDone != nil {
-		<-debugDone
-	}
-
-	result := &agtest.ExecutionResult{
-		Syscalls: syscalls,
-	}
+	result := &agtest.ExecutionResult{}
 
 	if sr.err != nil {
 		result.Error = sr.err.Error()
@@ -294,7 +290,63 @@ func (e *ipcExecutor) Execute(ctx context.Context, tc *agtest.TestCaseSpec) (*ag
 			result.Error = sr.pp.ErrorMessage
 		}
 	}
+
+	// Syscall collection is a post-completion, full read from disk — NOT a live
+	// AttachDebug stream (Story 68.2 裁决 4). The replay driver returns
+	// instantly, so the process is usually already Dead before a freshly-dialed
+	// debug attach lands, dropping an unpredictable prefix of events — the exact
+	// nondeterminism that breaks the Tier1 red line. ListEvents(uuid) reads the
+	// complete persisted events.jsonl (valid even after reap) and includes the
+	// early ConfigResolve/Mount/Spawn events an attach would miss. Failure is
+	// fail-loud (result.Error): a silent empty syscall list would make an
+	// `excludes` assertion pass vacuously.
+	if hasSyscallAssert && sr.uuid != "" {
+		// A fresh connection: SpawnAndWatch's streaming connection is spent once
+		// the final event arrives (the server closes it), so reusing `client`
+		// here gets "connection reset by peer" ([[ipc-e2e-test-traps]]).
+		evClient, dialErr := e.dialFunc()
+		if dialErr != nil {
+			if result.Error == "" {
+				result.Error = fmt.Sprintf("list_events dial failed: %v", dialErr)
+			}
+			return result, nil
+		}
+		defer evClient.Close()
+		events, listErr := evClient.ListEvents(0, sr.uuid)
+		if listErr != nil {
+			if result.Error == "" {
+				result.Error = fmt.Sprintf("list_events(%s) failed: %v", sr.uuid, listErr)
+			}
+			return result, nil
+		}
+		syscalls := make([]string, 0, len(events))
+		for _, sew := range events {
+			syscalls = append(syscalls, sew.Syscall)
+		}
+		result.Syscalls = syscalls
+	}
+
 	return result, nil
+}
+
+// resolveScriptModel absolutizes a relative replay script path against the case
+// file's own directory (Story 68.2 裁决 3). The replacement fires ONLY on the
+// three-condition intersection — provider set ∧ model not already absolute ∧
+// the joined file exists — so ordinary model names ("haiku") and ParseBytes
+// cases (empty SourceDir) pass through untouched.
+func resolveScriptModel(tc *agtest.TestCaseSpec) string {
+	model := tc.Agent.Model
+	if tc.Agent.Provider == "" || model == "" || tc.SourceDir == "" {
+		return model
+	}
+	if filepath.IsAbs(model) {
+		return model
+	}
+	candidate := filepath.Join(tc.SourceDir, model)
+	if _, err := os.Stat(candidate); err == nil {
+		return candidate
+	}
+	return model
 }
 
 // --- IPC QualityJudge ---

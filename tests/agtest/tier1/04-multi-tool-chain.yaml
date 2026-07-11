@@ -1,0 +1,13 @@
+version: "1.0"
+name: multi-tool-chain
+intent: "run two shell commands in sequence then complete"
+agent:
+  provider: replay
+  model: scripts/04-multi-tool-chain.responses.yaml
+timeout: 30000
+assert:
+  output:
+    contains: ["multi-tool-chain ran two steps"]
+  syscalls:
+    includes: ["ReasonStep", "Spawn"]
+    excludes: ["Kill"]

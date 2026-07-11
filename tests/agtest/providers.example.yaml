@@ -1,0 +1,22 @@
+# replay provider declaration for the agtest Tier1 golden suite.
+#
+# The project config directory `.rnix/` is gitignored, so this declaration
+# cannot itself be committed. Copy the `providers:` entry below into
+# `.rnix/providers.yaml` (create the file if absent) before running:
+#
+#     rnix agtest tests/agtest/tier1/
+#
+# The unattended, isolated-daemon runner that ships its own config is Story
+# 68.3's `make agtest`; this sample documents the manual acceptance path.
+#
+# Notes:
+#   - driver: replay is the deterministic scripted LLM driver (Story 68.1).
+#   - No default_model here: every Tier1 case supplies its own script path via
+#     `agent.model` (relative to the case YAML; the agtest executor absolutizes
+#     it before spawning), so the provider needs no instance-level default.
+#   - The provider instance name MUST be "replay" — ValidateTier1 rule 3 fixes
+#     it by convention so every Tier1 case reads `agent.provider: replay`.
+version: "1"
+providers:
+  - name: replay
+    driver: replay

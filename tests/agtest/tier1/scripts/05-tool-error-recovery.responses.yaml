@@ -1,0 +1,15 @@
+version: "1"
+responses:
+  - tool_calls:
+      - name: Bash
+        input:
+          command: "false"
+  - content: "recovered from the failed command"
+    tool_calls:
+      - name: Complete
+        input:
+          result: "tool-error-recovery completed after a failing command"
+    usage:
+      input_tokens: 11
+      output_tokens: 6
+    stop_reason: "tool_use"

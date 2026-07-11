@@ -302,3 +302,71 @@ func writeTestYAML(t *testing.T, dir, name, content string) {
 		t.Fatal(err)
 	}
 }
+
+// --- Story 68.2: Provider field + SourceDir ---
+
+func TestParseBytes_ProviderField(t *testing.T) {
+	data := []byte(`
+version: "1.0"
+name: "replay-case"
+intent: "run echo"
+agent:
+  provider: replay
+  model: scripts/01-echo.responses.yaml
+`)
+	suite, err := ParseBytes(data)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	tc := suite.Tests[0]
+	if tc.Agent.Provider != "replay" {
+		t.Errorf("agent.provider = %q, want %q", tc.Agent.Provider, "replay")
+	}
+	if tc.Agent.Model != "scripts/01-echo.responses.yaml" {
+		t.Errorf("agent.model = %q, want script path", tc.Agent.Model)
+	}
+	// ParseBytes has no file origin — SourceDir must remain empty.
+	if tc.SourceDir != "" {
+		t.Errorf("SourceDir = %q, want empty for ParseBytes", tc.SourceDir)
+	}
+}
+
+func TestParseFile_SourceDirFilled(t *testing.T) {
+	dir := t.TempDir()
+	writeTestYAML(t, dir, "case.yaml", `
+version: "1.0"
+name: "sd-case"
+intent: "hi"
+agent:
+  provider: replay
+  model: scripts/x.responses.yaml
+`)
+	suite, err := ParseFile(filepath.Join(dir, "case.yaml"))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	absDir, _ := filepath.Abs(dir)
+	if suite.Tests[0].SourceDir != absDir {
+		t.Errorf("SourceDir = %q, want %q", suite.Tests[0].SourceDir, absDir)
+	}
+}
+
+func TestParseDir_SourceDirFilled(t *testing.T) {
+	dir := t.TempDir()
+	writeTestYAML(t, dir, "a.yaml", `
+version: "1.0"
+name: "a"
+intent: "hi"
+agent:
+  provider: replay
+  model: scripts/a.responses.yaml
+`)
+	suite, err := ParseDir(dir)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	absDir, _ := filepath.Abs(dir)
+	if suite.Tests[0].SourceDir != absDir {
+		t.Errorf("SourceDir = %q, want %q", suite.Tests[0].SourceDir, absDir)
+	}
+}

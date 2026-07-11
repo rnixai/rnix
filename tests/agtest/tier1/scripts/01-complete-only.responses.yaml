@@ -1,0 +1,11 @@
+version: "1"
+responses:
+  - content: "task finished"
+    tool_calls:
+      - name: Complete
+        input:
+          result: "complete-only result ok"
+    usage:
+      input_tokens: 8
+      output_tokens: 4
+    stop_reason: "tool_use"

@@ -1,0 +1,13 @@
+version: "1.0"
+name: text-then-complete
+intent: "answer directly with a bare text turn (text action completes the loop)"
+agent:
+  provider: replay
+  model: scripts/03-text-then-complete.responses.yaml
+timeout: 30000
+assert:
+  output:
+    contains: ["text-then-complete reached the end"]
+  syscalls:
+    includes: ["ReasonStep"]
+    excludes: ["Kill"]

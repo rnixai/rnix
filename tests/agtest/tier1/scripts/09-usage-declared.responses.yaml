@@ -1,0 +1,11 @@
+version: "1"
+responses:
+  - content: "reporting declared usage"
+    tool_calls:
+      - name: Complete
+        input:
+          result: "usage-declared reported token usage"
+    usage:
+      input_tokens: 7
+      output_tokens: 3
+    stop_reason: "tool_use"

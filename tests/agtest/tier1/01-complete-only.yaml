@@ -1,0 +1,13 @@
+version: "1.0"
+name: complete-only
+intent: "immediately report completion in a single step"
+agent:
+  provider: replay
+  model: scripts/01-complete-only.responses.yaml
+timeout: 30000
+assert:
+  output:
+    contains: ["complete-only result ok"]
+  syscalls:
+    includes: ["ReasonStep"]
+    excludes: ["Kill"]

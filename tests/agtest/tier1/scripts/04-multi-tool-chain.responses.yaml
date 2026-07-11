@@ -1,0 +1,19 @@
+version: "1"
+responses:
+  - tool_calls:
+      - name: Bash
+        input:
+          command: "echo first-step"
+  - tool_calls:
+      - name: Bash
+        input:
+          command: "echo second-step"
+  - content: "chain finished"
+    tool_calls:
+      - name: Complete
+        input:
+          result: "multi-tool-chain ran two steps"
+    usage:
+      input_tokens: 12
+      output_tokens: 7
+    stop_reason: "tool_use"

@@ -1,0 +1,15 @@
+version: "1"
+responses:
+  - tool_calls:
+      - name: Bash
+        input:
+          command: "echo syscall-excludes-check"
+  - content: "no kill needed"
+    tool_calls:
+      - name: Complete
+        input:
+          result: "syscall-excludes finished without kill or compact"
+    usage:
+      input_tokens: 10
+      output_tokens: 5
+    stop_reason: "tool_use"

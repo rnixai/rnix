@@ -1,0 +1,13 @@
+version: "1.0"
+name: tool-error-recovery
+intent: "run a failing command and recover to completion"
+agent:
+  provider: replay
+  model: scripts/05-tool-error-recovery.responses.yaml
+timeout: 30000
+assert:
+  output:
+    contains: ["tool-error-recovery completed after a failing command"]
+  syscalls:
+    includes: ["ReasonStep", "Spawn"]
+    excludes: ["Kill"]

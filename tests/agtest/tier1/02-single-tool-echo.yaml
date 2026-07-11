@@ -1,0 +1,13 @@
+version: "1.0"
+name: single-tool-echo
+intent: "run one shell command then report the output"
+agent:
+  provider: replay
+  model: scripts/02-single-tool-echo.responses.yaml
+timeout: 30000
+assert:
+  output:
+    contains: ["hi-from-replay"]
+  syscalls:
+    includes: ["ReasonStep", "Spawn"]
+    excludes: ["Kill"]

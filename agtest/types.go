@@ -16,11 +16,20 @@ type TestCaseSpec struct {
 	Timeout int           `yaml:"timeout,omitempty"`
 	Skip    bool          `yaml:"skip,omitempty"`
 	Assert  *AssertConfig `yaml:"assert,omitempty"`
+
+	// SourceDir is the absolute directory of the YAML file this case was parsed
+	// from (filled by ParseFile/ParseDir). It is NOT serialized (yaml:"-"): it
+	// exists so a downstream executor can resolve a relative script path in
+	// AgentConfig.Model against the case file's own directory. ParseBytes has no
+	// file origin, so it leaves this empty and relative-path resolution degrades
+	// gracefully to the driver's own base (Story 68.2 裁决 3).
+	SourceDir string `yaml:"-"`
 }
 
 // AgentConfig specifies which agent to use and its configuration overrides.
 type AgentConfig struct {
 	Name          string   `yaml:"name"`
+	Provider      string   `yaml:"provider,omitempty"`
 	Model         string   `yaml:"model,omitempty"`
 	Skills        []string `yaml:"skills,omitempty"`
 	ContextBudget int      `yaml:"context_budget,omitempty"`

@@ -1,0 +1,14 @@
+version: "1.0"
+name: output-negative
+intent: "produce a clean result with no error markers"
+agent:
+  provider: replay
+  model: scripts/07-output-negative.responses.yaml
+timeout: 30000
+assert:
+  output:
+    contains: ["output-negative clean success"]
+    not_contains: ["panic", "traceback", "FATAL"]
+  syscalls:
+    includes: ["ReasonStep", "Spawn"]
+    excludes: ["Kill"]

@@ -81,10 +81,10 @@ func Validate(suite *TestSuiteSpec, rawYAML []byte) error {
 				Line:    lineMap.lookupTest(i, "intent"),
 			})
 		}
-		if tc.Agent.Name == "" {
+		if tc.Agent.Name == "" && tc.Agent.Provider == "" {
 			errs = append(errs, ValidationError{
 				Field:   prefix + "agent.name",
-				Message: "required",
+				Message: "agent.name or agent.provider: at least one required",
 				Line:    lineMap.lookupTest(i, "agent"),
 			})
 		}

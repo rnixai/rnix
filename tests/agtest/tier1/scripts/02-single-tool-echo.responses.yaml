@@ -1,0 +1,15 @@
+version: "1"
+responses:
+  - tool_calls:
+      - name: Bash
+        input:
+          command: "echo hi-from-replay"
+  - content: "echo done"
+    tool_calls:
+      - name: Complete
+        input:
+          result: "single-tool-echo produced hi-from-replay"
+    usage:
+      input_tokens: 10
+      output_tokens: 5
+    stop_reason: "tool_use"

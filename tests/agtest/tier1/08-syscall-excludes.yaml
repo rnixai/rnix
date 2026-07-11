@@ -1,0 +1,13 @@
+version: "1.0"
+name: syscall-excludes
+intent: "run a single command and complete without kill or compaction"
+agent:
+  provider: replay
+  model: scripts/08-syscall-excludes.responses.yaml
+timeout: 30000
+assert:
+  output:
+    contains: ["syscall-excludes finished without kill or compact"]
+  syscalls:
+    includes: ["ReasonStep", "Spawn"]
+    excludes: ["Kill", "Compact", "LoopDetected"]
