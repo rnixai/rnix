@@ -16,7 +16,7 @@ package vfs
 type RawCapture struct {
 	TsMs          int64          `json:"ts_ms"`
 	Step          int            `json:"step"`
-	Kind          string         `json:"kind"` // "api" | "cli"
+	Kind          string         `json:"kind"` // "api" | "cli" | "replay"
 	Request       map[string]any `json:"request,omitempty"`
 	Response      map[string]any `json:"response,omitempty"`
 	Truncated     bool           `json:"truncated"`

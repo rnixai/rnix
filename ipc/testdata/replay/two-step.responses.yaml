@@ -1,0 +1,15 @@
+version: "1"
+responses:
+  - tool_calls:
+      - name: Bash
+        input:
+          command: "echo hello-from-replay"
+  - content: "task finished"
+    tool_calls:
+      - name: Complete
+        input:
+          result: "replay e2e done"
+    usage:
+      input_tokens: 10
+      output_tokens: 5
+    stop_reason: "tool_use"

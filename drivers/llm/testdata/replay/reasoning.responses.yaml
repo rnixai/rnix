@@ -1,0 +1,5 @@
+version: "1"
+responses:
+  - reasoning: "thinking about the problem"
+    content: "here is the answer"
+    stop_reason: "end_turn"

@@ -255,6 +255,21 @@ func CreateDriverWithEnv(cfg ProviderConfig, envLookup func(string) string) (LLM
 		}
 		return NewAnthropicDriver(cfg.Name, opts...), nil
 
+	case DriverReplay:
+		var opts []ReplayOption
+		if cfg.DefaultModel != "" {
+			opts = append(opts, WithReplayDefaultScript(cfg.DefaultModel))
+		}
+		// Replay has no reasoning-effort concept (deterministic scripted
+		// responses) — no-op with a warning, mirroring the cursor-cli/qwen-cli
+		// pattern above.
+		if cfg.ReasoningEffort != "" {
+			log.Printf("[llm] warning: provider %q (replay): reasoning_effort=%q ignored — "+
+				"replay has no reasoning-effort concept (deterministic scripted responses)",
+				cfg.Name, cfg.ReasoningEffort)
+		}
+		return NewReplayDriver(cfg.Name, opts...), nil
+
 	default:
 		return nil, fmt.Errorf("unsupported driver type: %q", cfg.Driver)
 	}

@@ -1,0 +1,15 @@
+version: "1"
+responses:
+  - tool_calls:
+      - name: Bash
+        input:
+          command: "echo hi"
+  - content: "all done"
+    tool_calls:
+      - name: Complete
+        input:
+          result: "done"
+    usage:
+      input_tokens: 12
+      output_tokens: 8
+    stop_reason: "tool_use"
