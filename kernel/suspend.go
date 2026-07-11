@@ -89,6 +89,23 @@ func (k *KernelImpl) suspendProcess(proc *Process, reason string, exitCode int) 
 	// reapSuspendedProcess SaveProcInfo block.
 	baseDir := k.ResolveStepBaseDir(proc)
 	if info, ierr := k.GetProcInfo(proc.PID); ierr == nil && info != nil {
+		// Story 66.6 code-review: GetProcInfo synthesizes TokensUsed =
+		// TokensUsed + StreamTokensUsed for the LIVE ps preview. Persisting that
+		// on the SUSPEND leg would fold an ABANDONED mid-stream attempt's usage
+		// into the authoritative on-disk base: resumeFromHistory (resume.go:901)
+		// reloads it, then the re-run of the interrupted step adds resp.TokensUsed
+		// on top — the abandoned attempt is counted twice (violates AC4's
+		// "mid-stream discarded at the step boundary" invariant; the fold-safe
+		// premise "no authoritative resp will come" holds for finishProcess but
+		// NOT for suspend, where resume brings one). Persist the RAW base so the
+		// suspend snapshot matches the checkpoint path (buildCheckpointData reads
+		// proc.TokensUsed raw). Mid-stream stays a preview-only concept, never
+		// authoritative on disk. (The terminal reap-of-killed-suspended leg
+		// below keeps the synthesized last-known value on purpose — it will not
+		// be re-run.)
+		proc.mu.Lock()
+		info.TokensUsed = proc.TokensUsed
+		proc.mu.Unlock()
 		if perr := SaveProcInfo(baseDir, *info); perr != nil {
 			log.Printf("[suspend] proc-info.json write error pid=%d uuid=%s: %v",
 				proc.PID, proc.UUID, perr)

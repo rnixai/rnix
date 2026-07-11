@@ -783,7 +783,17 @@ func (k *KernelImpl) setupDriverStreamHandler(proc *Process, llmFD types.FD) {
 			// counters and are NOT written to events.jsonl (high-frequency, same
 			// rationale as the content fan-out; heartbeat already refreshed above).
 			if evtType == "usage" {
-				proc.AddStreamUsage(evtInt(evt, "tokens_used"), evtInt(evt, "input_tokens"), vfs.UsageProvenanceCLIStream)
+				// code-review: pick provenance by driver family instead of
+				// hardcoding cli_stream. Only CLI drivers emit usage today (拍板 3),
+				// but if a future API driver ever emits a mid-stream usage event, a
+				// hardcoded cli_stream(rank 2) would sink the step boundary's correct
+				// api_response(rank 3) permanently — mergeProvenance keeps the LOWEST
+				// rank. Aligned with the step-boundary decision in reason.go.
+				usageProv := vfs.UsageProvenanceCLIStream
+				if !llm.IsCLIDriver(driverType) {
+					usageProv = vfs.UsageProvenanceAPIResponse
+				}
+				proc.AddStreamUsage(evtInt(evt, "tokens_used"), evtInt(evt, "input_tokens"), usageProv)
 				return
 			}
 

@@ -480,16 +480,21 @@ func (d *CodexCliDriver) Stream(ctx context.Context, req LLMRequest) (<-chan Str
 					// proof) so the kernel previews token growth during the long
 					// codex session. The `done` event still carries the authoritative
 					// accumulated total; this is discarded at the step boundary.
-					select {
-					case ch <- StreamEvent{
-						Type:              "usage",
-						TokensUsed:        evt.Usage.InputTokens + evt.Usage.OutputTokens,
-						InputTokens:       evt.Usage.InputTokens,
-						OutputTokens:      evt.Usage.OutputTokens,
-						CachedInputTokens: evt.Usage.CachedInputTokens,
-					}:
-					case <-ctx.Done():
-						return
+					// code-review: skip zero-usage turns (mirror the claude_cli.go
+					// guard) so we don't emit a spurious usage{0} event that only
+					// re-stamps provenance without moving the counter.
+					if evt.Usage.InputTokens != 0 || evt.Usage.OutputTokens != 0 {
+						select {
+						case ch <- StreamEvent{
+							Type:              "usage",
+							TokensUsed:        evt.Usage.InputTokens + evt.Usage.OutputTokens,
+							InputTokens:       evt.Usage.InputTokens,
+							OutputTokens:      evt.Usage.OutputTokens,
+							CachedInputTokens: evt.Usage.CachedInputTokens,
+						}:
+						case <-ctx.Done():
+							return
+						}
 					}
 				}
 
