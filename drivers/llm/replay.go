@@ -59,7 +59,10 @@ func loadReplayScript(path string) (*replayScript, error) {
 	}
 
 	var script replayScript
-	if err := yaml.Unmarshal(data, &script); err != nil {
+	// Strict decoding so a fixture typo (e.g. stop_reasn:, usge:) fails loud at
+	// load time instead of silently decoding to a zero value — a Tier1 script
+	// must never drift through an unnoticed misspelled field.
+	if err := yaml.UnmarshalWithOptions(data, &script, yaml.Strict()); err != nil {
 		return nil, fmt.Errorf("replay: parse script %s: %w", path, err)
 	}
 
@@ -106,10 +109,15 @@ type replaySession struct {
 	idx       int
 	total     int
 	exhausted bool
+	// loadedPath is the script this cursor was first bound to. It is set once
+	// at construction and never mutated, so it is safe to read without mu.
+	// sessionFor refuses to reuse a session for a different path (裁决 4: one
+	// script per CallerUUID cursor) rather than silently continue the old one.
+	loadedPath string
 }
 
-func newReplaySession(script *replayScript) *replaySession {
-	return &replaySession{script: script, total: len(script.Responses)}
+func newReplaySession(script *replayScript, path string) *replaySession {
+	return &replaySession{script: script, total: len(script.Responses), loadedPath: path}
 }
 
 // consume returns the next scripted response and its 0-based index, or a
@@ -212,14 +220,28 @@ func (d *ReplayDriver) resolveScriptPath(req LLMRequest) (string, error) {
 // redundant parse and reuses the winner).
 func (d *ReplayDriver) sessionFor(key, scriptPath string) (*replaySession, error) {
 	if sess, ok := d.sessions.Load(key); ok {
-		return sess, nil
+		return d.ensurePath(sess, key, scriptPath)
 	}
 	script, err := loadReplayScript(scriptPath)
 	if err != nil {
 		return nil, err
 	}
-	actual, _ := d.sessions.LoadOrStore(key, newReplaySession(script))
-	return actual, nil
+	// LoadOrStore may return another concurrent caller's session (racing under
+	// the same key); ensurePath then also catches a same-key/different-path
+	// race, not just the sequential fast path above.
+	actual, _ := d.sessions.LoadOrStore(key, newReplaySession(script, scriptPath))
+	return d.ensurePath(actual, key, scriptPath)
+}
+
+// ensurePath fails loud when an existing session is asked to serve a different
+// script than the one it was bound to. Silently continuing the old script's
+// cursor (the pre-review behavior) hid mid-flight model switches and produced
+// an exhaustion error naming the wrong file.
+func (d *ReplayDriver) ensurePath(sess *replaySession, key, scriptPath string) (*replaySession, error) {
+	if sess.loadedPath != scriptPath {
+		return nil, fmt.Errorf("replay [%s]: session %q already bound to script %s, refusing mid-flight switch to %s (裁决 4: one script per CallerUUID cursor)", d.name, key, sess.loadedPath, scriptPath)
+	}
+	return sess, nil
 }
 
 // call is the shared implementation behind Call/CallWithTools — tools is
@@ -394,7 +416,7 @@ func (d *ReplayDriver) captureRaw(ctx context.Context, scriptPath string, req LL
 	if sink == nil {
 		return
 	}
-	cap := &vfs.RawCapture{
+	rc := &vfs.RawCapture{
 		TsMs: time.Now().UnixMilli(),
 		Kind: "replay",
 		Request: map[string]any{
@@ -406,8 +428,8 @@ func (d *ReplayDriver) captureRaw(ctx context.Context, scriptPath string, req LL
 	}
 	if resp != nil && callErr == nil {
 		if body, err := json.Marshal(resp); err == nil {
-			cap.Response = map[string]any{"body": string(body)}
+			rc.Response = map[string]any{"body": string(body)}
 		}
 	}
-	sink.set(cap)
+	sink.set(rc)
 }
