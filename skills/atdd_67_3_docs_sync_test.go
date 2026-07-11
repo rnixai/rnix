@@ -39,10 +39,18 @@ func atdd673RepoRoot(t *testing.T) string {
 }
 
 // atdd673ReadDoc 读取仓库根相对路径的 living doc；缺文件即 Fatal（story 前提破坏）。
+// 例外：`_bmad-output/` 是 gitignored 的独立嵌套仓库（.gitignore:55），不被本仓库
+// 追踪——纯净 git clone / git worktree / CI checkout 下该目录不存在是预期状态而非
+// 故障，此类路径读取失败时优雅 Skip 而非 Fatal（code-review 2026-07-11 发现：原
+// 无条件 Fatalf 会在缺 `_bmad-output/` 的环境里把这 3 个测试跑红，破坏 AC9 的
+// "make all 全绿" 可移植性承诺）。
 func atdd673ReadDoc(t *testing.T, rel string) string {
 	t.Helper()
 	data, err := os.ReadFile(filepath.Join(atdd673RepoRoot(t), rel))
 	if err != nil {
+		if strings.HasPrefix(rel, "_bmad-output/") && os.IsNotExist(err) {
+			t.Skipf("%s not present — _bmad-output/ is gitignored and not checked out here: %v", rel, err)
+		}
 		t.Fatalf("read %s: %v", rel, err)
 	}
 	return string(data)
@@ -51,7 +59,7 @@ func atdd673ReadDoc(t *testing.T, rel string) string {
 // --- 67.3-AC5: CLAUDE.md 死符号零残留（ProcGroupManager / Team → ProcGroup / drift detection）---
 func TestATDD_67_3_CLAUDEMd_NoDeadSymbols(t *testing.T) {
 	content := atdd673ReadDoc(t, "CLAUDE.md")
-	dead := []string{"ProcGroupManager", "Team → ProcGroup", "drift detection"}
+	dead := []string{"ProcGroupManager", "Team → ProcGroup", "drift detection", "& reconciliation"}
 	for _, sym := range dead {
 		if strings.Contains(content, sym) {
 			t.Errorf("CLAUDE.md 仍含死符号 %q（67-1/67-2 已删对应体系，AC5 要求正名）", sym)
@@ -62,7 +70,7 @@ func TestATDD_67_3_CLAUDEMd_NoDeadSymbols(t *testing.T) {
 // --- 67.3-AC4: project-context.md 死符号零残留（67-1 删除面同步）---
 func TestATDD_67_3_ProjectContext_NoDeadSymbols(t *testing.T) {
 	content := atdd673ReadDoc(t, "_bmad-output/project-context.md")
-	dead := []string{"budget_status", "sla_status", "procGroups", "slaResults", "types.PGID"}
+	dead := []string{"budget_status", "sla_status", "procGroups", "budgetPools", "slaResults", "types.PGID"}
 	for _, sym := range dead {
 		if strings.Contains(content, sym) {
 			t.Errorf("project-context.md 仍含死符号 %q（67-1 删除面，AC4 要求同步）", sym)
@@ -81,11 +89,14 @@ func TestATDD_67_3_ArchitectureMd_NoDeadMethods(t *testing.T) {
 	}
 }
 
-// --- 67.3-AC6: .github/copilot-instructions.md 死符号零残留（ProcGroupManager）---
+// --- 67.3-AC6: .github/copilot-instructions.md 死符号零残留（ProcGroupManager / & reconciliation）---
 func TestATDD_67_3_CopilotInstructions_NoDeadSymbols(t *testing.T) {
 	content := atdd673ReadDoc(t, ".github/copilot-instructions.md")
-	if strings.Contains(content, "ProcGroupManager") {
-		t.Error(".github/copilot-instructions.md 仍含死符号 ProcGroupManager（AC6，与 CLAUDE.md:87 同款）")
+	dead := []string{"ProcGroupManager", "& reconciliation"}
+	for _, sym := range dead {
+		if strings.Contains(content, sym) {
+			t.Errorf(".github/copilot-instructions.md 仍含死符号 %q（AC6，与 CLAUDE.md:87/:65 同款）", sym)
+		}
 	}
 }
 

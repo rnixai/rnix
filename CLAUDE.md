@@ -56,7 +56,7 @@ cmd/rnix           ← Entry point, Cobra CLI, all commands
 ├── kernel         ← Microkernel: process table, spawn, kill, wait, reaper
 │   ├── vfs        ← VFS file abstraction, device registry, FD table
 │   ├── context    ← Per-process conversation history (CtxAlloc/Write/BuildPrompt)
-│   └── debug      ← Strace, recording (event time-travel + fork-continue, not deterministic replay; superseded in practice by always-on raw/events/steps), distributed tracing, GDB
+│   └── debug      ← Strace, recording (time-travel navigation + fork-continue, not deterministic replay — superseded in practice by raw/events/steps), distributed tracing, GDB
 ├── drivers/       ← VFS device implementations
 │   ├── llm        ← /dev/llm/claude (Claude CLI), /dev/llm/cursor (Cursor CLI)
 │   ├── fs         ← /dev/fs - sandboxed host filesystem
