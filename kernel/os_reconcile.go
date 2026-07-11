@@ -61,8 +61,9 @@ type osProcScanner func() []osCliProc
 
 // osProcKiller reaps the process group of osPid (SIGTERM → grace → SIGKILL).
 // Injectable for tests; the production implementation resolves the pgid and
-// signals the group (linux).
-type osProcKiller func(osPid int)
+// signals the group (linux). The ctx lets a daemon shutdown interrupt the
+// SIGTERM→SIGKILL grace wait instead of blocking the reconcile loop (F2).
+type osProcKiller func(ctx context.Context, osPid int)
 
 // osReconciler holds the reconcile loop's cross-round candidate state.
 type osReconciler struct {
@@ -83,9 +84,10 @@ type osReconciler struct {
 // exempt (Dev Notes 拍板 5 — Suspended/Zombie/Dead and not-in-table are all
 // orphan surfaces). Reaping is group-scoped via r.kill; redundant entries that
 // share a pgid already killed this round are ESRCH no-ops.
-func (r *osReconciler) reconcileOnce() {
+func (r *osReconciler) reconcileOnce(ctx context.Context) {
 	procs := r.scan()
 	next := make(map[int]string, len(procs))
+	reaped := make(map[string]bool) // UUID → already reaped this round (F2 dedup)
 
 	for _, p := range procs {
 		if p.UUID == "" {
@@ -94,12 +96,24 @@ func (r *osReconciler) reconcileOnce() {
 		if r.owned(p.UUID) {
 			continue // 有主豁免
 		}
-		// Orphan: no live owner in {Created, Running}.
-		if _, wasCandidate := r.candidates[p.OSPid]; wasCandidate {
-			// Second consecutive round orphaned & still alive → reap.
+		// Orphan: no live owner in {Created, Running}. Two-round confirmation
+		// must match BOTH OSPid AND the UUID captured last round — otherwise a
+		// pid recycled within the interval to a *different* orphan is reaped on
+		// its first sighting, bypassing the warn round the confirmation exists
+		// to provide (Story 66.5 code-review F1).
+		if prevUUID, wasCandidate := r.candidates[p.OSPid]; wasCandidate && prevUUID == p.UUID {
+			// Second consecutive round orphaned & still alive → reap. A leader
+			// and any subagents it forks share one UUID (env-inherited) and one
+			// process group, so reap each UUID's group at most once per round —
+			// avoids re-running the killer's full SIGTERM→grace→SIGKILL (and its
+			// blocking grace wait) for every member (F2 dedup).
+			if reaped[p.UUID] {
+				continue
+			}
+			reaped[p.UUID] = true
 			log.Printf("[os-reconcile] reaping orphan CLI process os_pid=%d uuid=%s argv=%q",
 				p.OSPid, p.UUID, p.Argv)
-			r.kill(p.OSPid)
+			r.kill(ctx, p.OSPid)
 			// Not carried forward; if it survives it re-enters as a fresh
 			// candidate next round.
 		} else {
@@ -119,7 +133,7 @@ func (r *osReconciler) reconcileOnce() {
 // of orphans starts warning without waiting a full interval.
 func (r *osReconciler) run(ctx context.Context) {
 	log.Printf("[os-reconcile] enabled: interval=%s", r.interval)
-	r.reconcileOnce()
+	r.reconcileOnce(ctx)
 
 	ticker := time.NewTicker(r.interval)
 	defer ticker.Stop()
@@ -129,7 +143,7 @@ func (r *osReconciler) run(ctx context.Context) {
 			log.Printf("[os-reconcile] daemon stopped")
 			return
 		case <-ticker.C:
-			r.reconcileOnce()
+			r.reconcileOnce(ctx)
 		}
 	}
 }

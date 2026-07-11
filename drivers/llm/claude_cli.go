@@ -526,6 +526,13 @@ func (d *ClaudeCliDriver) Stream(ctx context.Context, req LLMRequest) (<-chan St
 		// SIGTERM) and after any inline cmd.Wait — clears subagent残留 that
 		// ignored the grace window.
 		defer reapCommandGroup(cmd)
+		// Story 66.5 code-review F4: safety-net cmd.Wait on ALL goroutine exit
+		// paths. The scanner-loop `case <-ctx.Done(): return` early-returns skip
+		// the inline cmd.Wait below, so without this the reaped leader is never
+		// wait()'d → zombie + stdout-pipe fd leak (cursor already does this;
+		// align claude/codex/qwen). LIFO: registered before cancel so it runs
+		// AFTER cancel's group SIGTERM and BEFORE reapCommandGroup's group SIGKILL.
+		defer func() { _ = cmd.Wait() }()
 		defer cancel()
 		if sysPromptFile != "" {
 			defer func() { _ = os.Remove(sysPromptFile) }()

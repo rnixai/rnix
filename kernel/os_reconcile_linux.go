@@ -4,11 +4,13 @@ package kernel
 
 import (
 	"bytes"
+	"context"
 	"log"
 	"os"
 	"strconv"
 	"syscall"
 	"time"
+	"unicode/utf8"
 )
 
 // osReconcileSupported gates StartOSReconcileDaemon — Linux exposes
@@ -78,6 +80,16 @@ func readProcArgv(pid int) string {
 	joined := bytes.ReplaceAll(data, []byte{0}, []byte{' '})
 	if len(joined) > osReconcileArgvMax {
 		joined = joined[:osReconcileArgvMax]
+		// The byte cap may land inside a multi-byte rune; back off to the last
+		// rune boundary so the %q-logged argv stays valid UTF-8 (project CJK
+		// convention: truncate by rune, not by byte). A genuine trailing U+FFFD
+		// decodes with size>1 and is kept.
+		for len(joined) > 0 {
+			if r, size := utf8.DecodeLastRune(joined); r != utf8.RuneError || size != 1 {
+				break
+			}
+			joined = joined[:len(joined)-1]
+		}
 	}
 	return string(joined)
 }
@@ -86,13 +98,19 @@ func readProcArgv(pid int) string {
 // SIGKILL. The pgid is resolved via syscall.Getpgid; if that fails (process
 // already gone) the pid is treated as its own group leader. All signals are
 // best-effort — ESRCH means the target is already gone.
-func defaultOSProcKiller(osPid int) {
+func defaultOSProcKiller(ctx context.Context, osPid int) {
 	pgid, err := syscall.Getpgid(osPid)
 	if err != nil {
 		pgid = osPid
 	}
 	_ = syscall.Kill(-pgid, syscall.SIGTERM)
-	time.Sleep(osReconcileGrace)
+	// Interruptible grace: a daemon shutdown (ctx cancel) mid-reap escalates to
+	// SIGKILL immediately rather than blocking the reconcile loop for the full
+	// window (Story 66.5 code-review F2).
+	select {
+	case <-time.After(osReconcileGrace):
+	case <-ctx.Done():
+	}
 	_ = syscall.Kill(-pgid, syscall.SIGKILL)
 	log.Printf("[os-reconcile] reaped process group pgid=%d (os_pid=%d)", pgid, osPid)
 }

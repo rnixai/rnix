@@ -3,6 +3,7 @@
 package kernel
 
 import (
+	"context"
 	"os/exec"
 	"syscall"
 	"testing"
@@ -32,14 +33,14 @@ func TestOSReconcile_LinuxRealScanFakeKill(t *testing.T) {
 	var killed []int
 	r := &osReconciler{
 		scan: defaultOSProcScanner, // REAL /proc walk
-		kill: func(osPid int) { killed = append(killed, osPid) },
+		kill: func(_ context.Context, osPid int) { killed = append(killed, osPid) },
 		// Marker UUID is not in any process table ⇒ always orphan.
 		owned:      func(string) bool { return false },
 		candidates: map[int]string{},
 	}
 
 	// Round one: real scan must find our tagged sleep; warn only, no kill.
-	r.reconcileOnce()
+	r.reconcileOnce(context.Background())
 	if _, ok := r.candidates[sleepPID]; !ok {
 		t.Fatalf("real scanner did not discover tagged sleep pid=%d (candidates=%v)", sleepPID, r.candidates)
 	}
@@ -48,7 +49,7 @@ func TestOSReconcile_LinuxRealScanFakeKill(t *testing.T) {
 	}
 
 	// Round two: still orphan, still alive ⇒ reap with the exact OS pid.
-	r.reconcileOnce()
+	r.reconcileOnce(context.Background())
 	found := false
 	for _, p := range killed {
 		if p == sleepPID {

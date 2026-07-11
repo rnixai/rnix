@@ -9,6 +9,8 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
+	"strings"
 	"time"
 )
 
@@ -106,6 +108,17 @@ func configureCommandRnixParentEnv(cmd *exec.Cmd, req LLMRequest) {
 		cmd.Env = append(cmd.Env, fmt.Sprintf("RNIX_SPAWN_DEPTH=%d", req.CallerDepth))
 	}
 	if req.CallerUUID != "" {
+		// Strip any INHERITED RNIX_PROC_UUID before injecting our own. If this
+		// daemon was itself launched from a marked CLI-agent (e.g. a `rnix -i`
+		// shell tool that triggered EnsureDaemon), cmd.Env=os.Environ() already
+		// carries the ancestor's marker; appending a second one would leave two
+		// RNIX_PROC_UUID= entries in the child's environ, and the os-reconcile
+		// scanner (readProcUUID) returns the FIRST match — the ancestor UUID,
+		// which is absent from this daemon's table → every child mis-classified
+		// as an orphan and reaped (Story 66.5 code-review F5). Keep exactly one.
+		cmd.Env = slices.DeleteFunc(cmd.Env, func(kv string) bool {
+			return strings.HasPrefix(kv, "RNIX_PROC_UUID=")
+		})
 		cmd.Env = append(cmd.Env, "RNIX_PROC_UUID="+req.CallerUUID)
 	}
 }

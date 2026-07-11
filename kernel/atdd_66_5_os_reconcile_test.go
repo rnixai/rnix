@@ -37,7 +37,7 @@ type recordingKiller struct {
 	killed []int
 }
 
-func (r *recordingKiller) kill(osPid int) { r.killed = append(r.killed, osPid) }
+func (r *recordingKiller) kill(_ context.Context, osPid int) { r.killed = append(r.killed, osPid) }
 
 func newReconciler(sc *fakeScanner, ki *recordingKiller, owned func(string) bool) *osReconciler {
 	return &osReconciler{
@@ -58,8 +58,8 @@ func TestOSReconcile_OwnedRunningExempt(t *testing.T) {
 	ki := &recordingKiller{}
 	r := newReconciler(sc, ki, func(uuid string) bool { return uuid == "u-owned" })
 
-	r.reconcileOnce()
-	r.reconcileOnce()
+	r.reconcileOnce(context.Background())
+	r.reconcileOnce(context.Background())
 
 	if len(ki.killed) != 0 {
 		t.Fatalf("owned proc must never be reaped, got kills=%v", ki.killed)
@@ -77,7 +77,7 @@ func TestOSReconcile_TwoRoundConfirmation(t *testing.T) {
 	ki := &recordingKiller{}
 	r := newReconciler(sc, ki, func(string) bool { return false })
 
-	r.reconcileOnce()
+	r.reconcileOnce(context.Background())
 	if len(ki.killed) != 0 {
 		t.Fatalf("round one must not kill (warn only), got %v", ki.killed)
 	}
@@ -85,7 +85,7 @@ func TestOSReconcile_TwoRoundConfirmation(t *testing.T) {
 		t.Fatalf("round one must register candidate, got %v", r.candidates)
 	}
 
-	r.reconcileOnce()
+	r.reconcileOnce(context.Background())
 	if len(ki.killed) != 1 || ki.killed[0] != 200 {
 		t.Fatalf("round two must reap os_pid=200, got %v", ki.killed)
 	}
@@ -99,8 +99,8 @@ func TestOSReconcile_NotInTableIsOrphan(t *testing.T) {
 	ki := &recordingKiller{}
 	r := newReconciler(sc, ki, func(string) bool { return false })
 
-	r.reconcileOnce()
-	r.reconcileOnce()
+	r.reconcileOnce(context.Background())
+	r.reconcileOnce(context.Background())
 
 	if len(ki.killed) != 1 || ki.killed[0] != 300 {
 		t.Fatalf("unowned ghost must be reaped on round two, got %v", ki.killed)
@@ -118,8 +118,8 @@ func TestOSReconcile_VanishedCandidateNotKilled(t *testing.T) {
 	ki := &recordingKiller{}
 	r := newReconciler(sc, ki, func(string) bool { return false })
 
-	r.reconcileOnce()
-	r.reconcileOnce()
+	r.reconcileOnce(context.Background())
+	r.reconcileOnce(context.Background())
 
 	if len(ki.killed) != 0 {
 		t.Fatalf("vanished candidate must not be killed, got %v", ki.killed)
@@ -139,8 +139,8 @@ func TestOSReconcile_EmptyUUIDSkipped(t *testing.T) {
 	ki := &recordingKiller{}
 	r := newReconciler(sc, ki, func(string) bool { return false })
 
-	r.reconcileOnce()
-	r.reconcileOnce()
+	r.reconcileOnce(context.Background())
+	r.reconcileOnce(context.Background())
 
 	if len(ki.killed) != 0 {
 		t.Fatalf("blank-UUID entry must be skipped, got %v", ki.killed)
@@ -200,7 +200,7 @@ func TestOSReconcile_RunLoopFirstScanImmediate(t *testing.T) {
 			mu.Unlock()
 			return nil
 		},
-		kill:       func(int) {},
+		kill:       func(context.Context, int) {},
 		owned:      func(string) bool { return false },
 		interval:   time.Hour, // long; only the immediate first scan should run
 		candidates: map[int]string{},

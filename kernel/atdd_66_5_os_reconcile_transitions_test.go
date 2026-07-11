@@ -32,7 +32,7 @@ func TestOSReconcile_OwnedThenOrphan_RestartsConfirmation(t *testing.T) {
 	r := newReconciler(sc, ki, func(string) bool { return owned })
 
 	// Round 1 — owned ⇒ exempt, never registered as a candidate.
-	r.reconcileOnce()
+	r.reconcileOnce(context.Background())
 	if len(ki.killed) != 0 || len(r.candidates) != 0 {
 		t.Fatalf("owned round must not kill or register candidate: killed=%v candidates=%v", ki.killed, r.candidates)
 	}
@@ -41,7 +41,7 @@ func TestOSReconcile_OwnedThenOrphan_RestartsConfirmation(t *testing.T) {
 	// The fact it survived one OS scan as an owned proc must NOT count toward
 	// confirmation.
 	owned = false
-	r.reconcileOnce()
+	r.reconcileOnce(context.Background())
 	if len(ki.killed) != 0 {
 		t.Fatalf("first orphaned round must warn, not kill (prior owned scan must not count), got kills=%v", ki.killed)
 	}
@@ -50,7 +50,7 @@ func TestOSReconcile_OwnedThenOrphan_RestartsConfirmation(t *testing.T) {
 	}
 
 	// Round 3 — still orphaned & alive ⇒ reap.
-	r.reconcileOnce()
+	r.reconcileOnce(context.Background())
 	if len(ki.killed) != 1 || ki.killed[0] != 800 {
 		t.Fatalf("second orphaned round must reap os_pid=800, got %v", ki.killed)
 	}
@@ -69,14 +69,14 @@ func TestOSReconcile_CandidateThenOwned_NotKilled(t *testing.T) {
 	owned := false // round one: orphan
 	r := newReconciler(sc, ki, func(string) bool { return owned })
 
-	r.reconcileOnce()
+	r.reconcileOnce(context.Background())
 	if _, ok := r.candidates[801]; !ok {
 		t.Fatalf("round one must register orphan candidate, got %v", r.candidates)
 	}
 
 	// Round 2 — owner recovered ⇒ exempt despite being a prior candidate.
 	owned = true
-	r.reconcileOnce()
+	r.reconcileOnce(context.Background())
 	if len(ki.killed) != 0 {
 		t.Fatalf("recovered candidate must NOT be reaped, got kills=%v", ki.killed)
 	}
@@ -96,7 +96,7 @@ func TestOSReconcile_MultipleOrphans_IndependentConfirmation(t *testing.T) {
 	ki := &recordingKiller{}
 	r := newReconciler(sc, ki, func(string) bool { return false })
 
-	r.reconcileOnce()
+	r.reconcileOnce(context.Background())
 	if len(ki.killed) != 0 {
 		t.Fatalf("round one must warn all, kill none, got %v", ki.killed)
 	}
@@ -104,7 +104,7 @@ func TestOSReconcile_MultipleOrphans_IndependentConfirmation(t *testing.T) {
 		t.Fatalf("round one must register both candidates, got %v", r.candidates)
 	}
 
-	r.reconcileOnce()
+	r.reconcileOnce(context.Background())
 	killedSet := map[int]bool{}
 	for _, pid := range ki.killed {
 		killedSet[pid] = true
@@ -126,7 +126,7 @@ func TestOSReconcile_RunLoop_TwoRoundReapEndToEnd(t *testing.T) {
 	var killed []int
 	r := &osReconciler{
 		scan:       func() []osCliProc { return []osCliProc{orphan} },
-		kill:       func(pid int) { mu.Lock(); killed = append(killed, pid); mu.Unlock() },
+		kill:       func(_ context.Context, pid int) { mu.Lock(); killed = append(killed, pid); mu.Unlock() },
 		owned:      func(string) bool { return false },
 		interval:   20 * time.Millisecond, // short: the 2nd tick reaps quickly
 		candidates: map[int]string{},

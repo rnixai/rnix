@@ -2,6 +2,8 @@
 
 package kernel
 
+import "context"
+
 // osReconcileSupported is false on non-Linux platforms — /proc/<pid>/environ
 // (the RNIX_PROC_UUID self-marker source) has no portable equivalent, so
 // StartOSReconcileDaemon logs once and returns without scanning.
@@ -12,4 +14,4 @@ const osReconcileSupported = false
 func defaultOSProcScanner() []osCliProc { return nil }
 
 // defaultOSProcKiller is a no-op on non-Linux.
-func defaultOSProcKiller(_ int) {}
+func defaultOSProcKiller(_ context.Context, _ int) {}
