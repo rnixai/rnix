@@ -21,15 +21,26 @@ build:
 install:
 	go install -ldflags "$(LDFLAGS)" ./cmd/rnix/
 
+# TSan (the -race runtime) sleeps atexit_sleep_ms=1000 before every process
+# exit to catch late background-goroutine races. Each test binary — and every
+# re-exec'd TestHelperProcess child (drivers/llm spawns 100+ per run) — pays
+# that fixed 1s, which dominated package wall-clock (drivers/llm 49s → 9s).
+# Trade-off: races are reported live during the run; what we give up is only
+# the 1s post-main window that could catch a leaked goroutine racing at exit.
+# CI sets the same value (.github/workflows/test.yml / release.yml env) so
+# local and CI race configs stay identical. A user-supplied $(GORACE) is
+# appended and wins on conflict (TSan flag parsing is last-wins).
+GORACE_FAST := GORACE="atexit_sleep_ms=0 $(GORACE)"
+
 test:
-	go test -race ./...
+	$(GORACE_FAST) go test -race ./...
 
 # Mirrors CI's coverage stage (.github/workflows/test.yml). Coverage
 # instrumentation changes runtime behavior, so some failures only surface
 # under -cover — e.g. re-exec'd helper processes printing "GOCOVERDIR not set"
 # into combined output. Run this before pushing to catch what `make test` can't.
 test-cover:
-	go test -race -coverprofile=coverage.out -covermode=atomic ./...
+	$(GORACE_FAST) go test -race -coverprofile=coverage.out -covermode=atomic ./...
 	@echo "Coverage profile → coverage.out (view: go tool cover -html=coverage.out)"
 
 lint:

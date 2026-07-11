@@ -91,10 +91,10 @@ func processGroupAlive(t *testing.T, pgid int) bool {
 // Given an MCP transport whose backing shell fixture has 2 sleep children
 // (so cmd.Process.Pid is the pgid leader of 3 processes), when transport.Close
 // is invoked, then:
-//   1. Close returns nil within graceful budget (<200ms expected because the
-//      shell honors SIGTERM and the sleeps inherit it via the process group).
-//   2. The entire process group is gone — syscall.Kill(-pgid, 0) → ESRCH.
-//   3. cmd.Wait completed (no goroutine leak from the internal done channel).
+//  1. Close returns nil within graceful budget (<200ms expected because the
+//     shell honors SIGTERM and the sleeps inherit it via the process group).
+//  2. The entire process group is gone — syscall.Kill(-pgid, 0) → ESRCH.
+//  3. cmd.Wait completed (no goroutine leak from the internal done channel).
 //
 // Pre-implementation behaviour (baseline 16f86bc):
 //   - Close does cmd.Process.Kill() (SIGKILL on the shell only) + Wait
@@ -229,6 +229,19 @@ func TestATDD_48_2_003_Close_Idempotent(t *testing.T) {
 //     well-behaved servers also lose their cleanup window. This test asserts
 //     the 5s SIGTERM-first contract.
 func TestATDD_48_2_004_Close_TimeoutFallbackToSIGKILL(t *testing.T) {
+	// The SIGTERM-immune fixture forces Close to sleep through the ENTIRE
+	// escalation window, so inject a short one. The escalation CONTRACT
+	// (SIGTERM → full graceful wait → SIGKILL + ErrForceKilled sentinel) is
+	// asserted unchanged below with proportionally scaled bounds; the
+	// production 5s value lives in the gracefulShutdownTimeout default (NFR-
+	// 48-S2, pinned by TestTimeoutDefaultsUnchanged). Not t.Parallel: the
+	// injection would race with concurrent Closes — t.Setenv (panics under
+	// t.Parallel) enforces that mechanically.
+	t.Setenv("RNIX_TEST_TIMEOUT_INJECTION", "1")
+	origGraceful := gracefulShutdownTimeout
+	gracefulShutdownTimeout = 500 * time.Millisecond
+	t.Cleanup(func() { gracefulShutdownTimeout = origGraceful })
+
 	fixtureSrc, err := filepath.Abs("testdata/mcp_ignore_sigterm")
 	if err != nil {
 		t.Fatalf("resolve fixture src dir: %v", err)
@@ -257,13 +270,16 @@ func TestATDD_48_2_004_Close_TimeoutFallbackToSIGKILL(t *testing.T) {
 	closeErr := transport.Close()
 	elapsed := time.Since(start)
 
-	// Story NFR-48-S2: ≤ 5.5s upper bound (5s graceful + <500ms SIGKILL Wait).
-	// Lower bound 4.9s confirms SIGTERM truly waited the full window.
-	if elapsed < 4900*time.Millisecond {
-		t.Errorf("Close returned in %v — expected ≥ 4.9s graceful wait before SIGKILL escalation", elapsed)
+	// Story NFR-48-S2 contract, scaled to the injected 500ms window (production
+	// default is 5s): lower bound (98% of window) confirms SIGTERM truly
+	// waited the full window; upper bound 3× the window keeps absolute slack
+	// (~1s) for timer lateness + SIGKILL reap under loaded -race runners while
+	// still catching a stalled Wait join by an order of magnitude.
+	if elapsed < 490*time.Millisecond {
+		t.Errorf("Close returned in %v — expected ≥ 490ms graceful wait before SIGKILL escalation", elapsed)
 	}
-	if elapsed > 5500*time.Millisecond {
-		t.Errorf("Close took %v > 5.5s — SIGKILL Wait join is stalling", elapsed)
+	if elapsed > 3*gracefulShutdownTimeout {
+		t.Errorf("Close took %v > %v — SIGKILL Wait join is stalling", elapsed, 3*gracefulShutdownTimeout)
 	}
 
 	// Sentinel: dev-story (Task 2.5 / 3.2) decided to express this as
@@ -301,13 +317,29 @@ exit 0
 `
 
 func TestATDD_48_2_005_Connect_FailureCleansSubprocessTree(t *testing.T) {
+	// Two waits dominate this test, so shorten both without touching the
+	// behavior under test (GROUP CLEANUP after a failed Connect):
+	//   - the initialize handshake budget derives from THIS ctx deadline
+	//     (handshakeTimeout) and runs to the full deadline because the fixture's
+	//     non-JSON line is ignored, not rejected — 2s (down from 5s) still
+	//     leaves cold-start headroom for exec'ing bash on a loaded -race
+	//     runner (a late start would Fatal on lastChildPID==0);
+	//   - the failure rollback reuses the graceful escalation window while the
+	//     orphaned background child still holds the pipes — inject a short one
+	//     (production 5s). Not t.Parallel — enforced by t.Setenv (panics under
+	//     t.Parallel).
+	t.Setenv("RNIX_TEST_TIMEOUT_INJECTION", "1")
+	origGraceful := gracefulShutdownTimeout
+	gracefulShutdownTimeout = 300 * time.Millisecond
+	t.Cleanup(func() { gracefulShutdownTimeout = origGraceful })
+
 	transport := NewStdioTransport(TransportConfig{
 		Command:       "bash",
 		Args:          []string{"-c", mockConnectFailureWithChildren},
 		TimeoutMillis: 3000,
 	})
 
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
 
 	// Capture the child PID via the transport's lastChildPID atomic counter,
@@ -377,3 +409,17 @@ func TestATDD_48_2_008_Close_NeverConnected_NoSignal(t *testing.T) {
 	}
 }
 
+// TestTimeoutDefaultsUnchanged pins the production defaults of the injectable
+// timeout vars. Since gracefulShutdownTimeout (NFR-48-S2's 5s contract) and
+// l2PingTimeout became test-injectable, nothing else asserts their values —
+// this guard catches both a silently changed default and an injecting test
+// that forgot its t.Cleanup restore (which would poison every later sequential
+// test in the package). Not t.Parallel: it must observe un-injected values.
+func TestTimeoutDefaultsUnchanged(t *testing.T) {
+	if gracefulShutdownTimeout != 5*time.Second {
+		t.Errorf("gracefulShutdownTimeout = %v, want 5s (NFR-48-S2 production default; injected value leaked?)", gracefulShutdownTimeout)
+	}
+	if l2PingTimeout != 2*time.Second {
+		t.Errorf("l2PingTimeout = %v, want 2s (Story 48.5 production default; injected value leaked?)", l2PingTimeout)
+	}
+}

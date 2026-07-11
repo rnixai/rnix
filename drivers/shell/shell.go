@@ -37,13 +37,6 @@ const (
 	// clamped (not rejected) to keep a single command from holding a worker for
 	// an unbounded time.
 	maxCommandTimeout = maxCommandTimeoutSeconds * time.Second
-	// waitDelay is the grace period after ctx cancellation before stdlib
-	// forcibly closes stdin/stdout/stderr to unblock readers (see
-	// golang/go#23019). Required because shell commands may fork background
-	// daemons that inherit the pipe fds; without WaitDelay, io.Copy on those
-	// pipes hangs forever and Cmd.Wait → awaitGoroutines deadlocks the
-	// reasonStep goroutine.
-	waitDelay = 5 * time.Second
 	// maxOutputChars is the maximum character count before shell output is truncated.
 	maxOutputChars = 30000
 	// headLines is the number of leading lines to preserve when truncating.
@@ -51,6 +44,18 @@ const (
 	// tailLines is the number of trailing lines to preserve when truncating.
 	tailLines = 200
 )
+
+// waitDelay is the grace period after ctx cancellation before stdlib
+// forcibly closes stdin/stdout/stderr to unblock readers (see
+// golang/go#23019). Required because shell commands may fork background
+// daemons that inherit the pipe fds; without WaitDelay, io.Copy on those
+// pipes hangs forever and Cmd.Wait → awaitGoroutines deadlocks the
+// reasonStep goroutine.
+//
+// var (not const) so tests that exercise the full grace window can inject a
+// short value instead of sleeping the production 5s (see shell_test.go);
+// production code never mutates it.
+var waitDelay = 5 * time.Second
 
 // CommandBuilder is a function type that creates exec.Cmd instances.
 // In production, this wraps exec.CommandContext; in tests, it can be replaced with a mock.

@@ -24,18 +24,24 @@ import (
 // transport.Close (Story 48.2 AC4). Kept package-level (not configurable) by
 // design — Story 48.6 added per-server mount/request timeout + output config
 // (TransportConfig.{MountTimeout,RequestTimeout,MaxOutputBytes}), but the Close
-// escalation budget intentionally stays a single global.
-const gracefulShutdownTimeout = 5 * time.Second
+// escalation budget intentionally stays a single global. var (not const) only
+// so tests that must sleep through the full escalation window can inject a
+// short value (like nowFunc below); production code never mutates it.
+var gracefulShutdownTimeout = 5 * time.Second
 
-// Story 48.5 health-check tuning. Package-level consts (the per-server knobs
+// Story 48.5 health-check tuning. Package-level (the per-server knobs
 // added by Story 48.6 cover mount/request timeout + output size, not these L2
 // internals). l2IdleThreshold is the idle window after which the next
 // Call runs an L2 readiness ping; l2PingTimeout bounds that ping so a hung-but-
 // alive child cannot stall the call. stderrRingCapacity bounds the captured
 // stderr ring buffer (AC4: "保留最近 256 行").
+//
+// l2PingTimeout is a var for the same test-injection reason as
+// gracefulShutdownTimeout above; production code never mutates it.
+var l2PingTimeout = 2 * time.Second
+
 const (
 	l2IdleThreshold    = 30 * time.Second
-	l2PingTimeout      = 2 * time.Second
 	stderrRingCapacity = 256
 	// stderrMaxLineBytes caps a single captured stderr line. An oversized line
 	// (e.g. a multi-MB stack dump) is truncated to this length rather than

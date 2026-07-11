@@ -82,6 +82,14 @@ func TestHelperProcess(t *testing.T) {
 	case "invalid_json":
 		fmt.Fprint(os.Stdout, "not json at all")
 	case "timeout":
+		// The capability probe (`-p --help`, claudeCapabilityProbeTimeout=5s)
+		// runs before the real Call. Without this branch the probe ALSO hits
+		// the sleep and burns the full probe window, inflating the test from
+		// ~0.3s to 5s+. Only the real invocation should hang.
+		if isHelpProbe {
+			fmt.Fprintln(os.Stdout, "Usage: claude [options]")
+			os.Exit(0)
+		}
 		time.Sleep(5 * time.Second)
 	case "args_echo":
 		fmt.Fprint(os.Stderr, strings.Join(os.Args, " "))

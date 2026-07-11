@@ -239,8 +239,20 @@ func TestShellFile_Write_TimeoutPreservesPartialOutput(t *testing.T) {
 // soft warning appended.
 //
 // Uses a real command (the bug is specific to stdlib pipe handling). Driver
-// timeout is large (30s) so ctx is not cancelled; the 5s WaitDelay fires first.
+// timeout is large (30s) so ctx is not cancelled; the WaitDelay fires first.
 func TestShellFile_Write_ErrWaitDelayKeepsOutputNotTimeout(t *testing.T) {
+	// This path sleeps through the ENTIRE grace window (the background child
+	// holds the pipe until WaitDelay force-closes it), so inject a short
+	// window instead of the production 5s. 1s keeps ample margin for the
+	// stdout copier to drain "done-ok" before the force-close on a loaded
+	// -race runner. Not t.Parallel: the injection would race with concurrent
+	// Writes reading waitDelay — t.Setenv (panics under t.Parallel) enforces
+	// that mechanically.
+	t.Setenv("RNIX_TEST_TIMEOUT_INJECTION", "1")
+	origWaitDelay := waitDelay
+	waitDelay = 1 * time.Second
+	t.Cleanup(func() { waitDelay = origWaitDelay })
+
 	driver := NewDriverWithOptions(DriverOpts{
 		Timeout: 30 * time.Second,
 	})
@@ -248,17 +260,17 @@ func TestShellFile_Write_ErrWaitDelayKeepsOutputNotTimeout(t *testing.T) {
 
 	start := time.Now()
 	// Main sh prints, then forks a background sleep that inherits the pipe and
-	// exits 0. Pipe stays open → ErrWaitDelay after waitDelay (5s); ctx (30s)
-	// is never cancelled.
+	// exits 0. Pipe stays open → ErrWaitDelay after waitDelay (1s injected);
+	// ctx (30s) is never cancelled.
 	err := f.Write(context.Background(), []byte("echo done-ok; (sleep 30 &); exit 0"))
 	elapsed := time.Since(start)
 
 	if err != nil {
 		t.Fatalf("ErrWaitDelay with clean exit must NOT be an error, got: %v", err)
 	}
-	// Fires around waitDelay (5s), well before the 30s driver timeout.
+	// Fires around waitDelay, well before the 30s driver timeout.
 	if elapsed > 20*time.Second {
-		t.Fatalf("expected ErrWaitDelay path (~5s), elapsed %v (ctx cancelled instead?)", elapsed)
+		t.Fatalf("expected ErrWaitDelay path (~waitDelay), elapsed %v (ctx cancelled instead?)", elapsed)
 	}
 
 	data, readErr := f.Read(0)
@@ -678,6 +690,20 @@ func TestExtractCommand(t *testing.T) {
 // Uses a real exec.Command (not mockCmdBuilder) because the bug is specific
 // to how stdlib os/exec handles inherited pipe fds.
 func TestShellFile_Write_BackgroundProcessPipeLeak(t *testing.T) {
+	// The exit path is ctx cancel (500ms) + the waitDelay backstop before
+	// stdlib force-closes the inherited pipes — inject a shorter window so the
+	// backstop costs ~2s, not the production 5s. The injected value MUST stay
+	// comfortably above the 500ms driver timeout: WaitDelay arms when the main
+	// sh exits (≈t0), so if it fires before the ctx path finishes (cancel →
+	// SIGKILL pgrp → pipe EOF → Wait) the run takes the ErrWaitDelay soft path
+	// (nil error) instead of the ErrTimeout path under test. 2s leaves ~1.5s
+	// of completion margin for loaded -race runners. Not t.Parallel — enforced
+	// by t.Setenv (panics under t.Parallel).
+	t.Setenv("RNIX_TEST_TIMEOUT_INJECTION", "1")
+	origWaitDelay := waitDelay
+	waitDelay = 2 * time.Second
+	t.Cleanup(func() { waitDelay = origWaitDelay })
+
 	driver := NewDriverWithOptions(DriverOpts{
 		Timeout: 500 * time.Millisecond,
 	})
@@ -686,9 +712,10 @@ func TestShellFile_Write_BackgroundProcessPipeLeak(t *testing.T) {
 	// Background sleep 30s holds stdout/stderr; main sh exits immediately.
 	// Pre-fix: Write hangs ≥30s waiting for sleep to release the pipes.
 	// Post-fix: ctx timeout (500ms) triggers cmd.Cancel which SIGKILLs the
-	// whole pgrp, freeing pipes; Write returns ErrTimeout in <1s.
-	// Ceiling 10s = defaultTimeout (500ms) + waitDelay (5s) + headroom for
-	// race detector / virtualized CI overhead.
+	// whole pgrp, freeing pipes; Write returns ErrTimeout well under the
+	// ceiling. Ceiling 10s = driver timeout (500ms) + injected waitDelay +
+	// generous headroom for race detector / virtualized CI overhead — a
+	// pre-fix regression still blows past it (≥30s).
 	start := time.Now()
 	err := f.Write(context.Background(), []byte("(sleep 30 &); exit 0"))
 	elapsed := time.Since(start)
@@ -1006,5 +1033,17 @@ func TestShellDriver_ToolDefs(t *testing.T) {
 	// timeout stays optional — only command is required.
 	if len(req) != 1 || req[0] != "command" {
 		t.Fatalf("expected required=['command'], got %v", req)
+	}
+}
+
+// TestTimeoutDefaultsUnchanged pins the production default of the injectable
+// waitDelay var. Since it became test-injectable, nothing else asserts the 5s
+// value — this guard catches both a silently changed default and an injecting
+// test that forgot its t.Cleanup restore (which would poison every later
+// sequential test in the package). Not t.Parallel: it must observe the
+// un-injected value.
+func TestTimeoutDefaultsUnchanged(t *testing.T) {
+	if waitDelay != 5*time.Second {
+		t.Errorf("waitDelay = %v, want 5s (production default; injected value leaked from another test?)", waitDelay)
 	}
 }

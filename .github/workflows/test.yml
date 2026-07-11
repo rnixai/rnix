@@ -31,6 +31,10 @@ env:
   COVERAGE_THRESHOLD: "30"
   # Use Node.js 24 for actions (Node 20 deprecated on GitHub-hosted runners)
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
+  # Skip TSan's 1s atexit sleep per -race process exit — every test binary and
+  # every re-exec'd TestHelperProcess child pays it otherwise (mirrors the
+  # Makefile GORACE_FAST rationale). Races are still reported live.
+  GORACE: "atexit_sleep_ms=0"
 
 jobs:
   # Stage 1: Lint - Static analysis with golangci-lint

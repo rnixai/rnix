@@ -122,6 +122,15 @@ func TestIsDaemonRunning_WithDaemon(t *testing.T) {
 }
 
 func TestWaitForDaemon_Timeout(t *testing.T) {
+	// The timeout path sleeps through the ENTIRE DaemonStartTimeout window, so
+	// inject a short one (production 3s, pinned by TestTimeoutDefaultsUnchanged).
+	// Not t.Parallel: the injection would race with concurrent waitForDaemon
+	// callers — t.Setenv (panics under t.Parallel) enforces that mechanically.
+	t.Setenv("RNIX_TEST_TIMEOUT_INJECTION", "1")
+	origTimeout := DaemonStartTimeout
+	DaemonStartTimeout = 400 * time.Millisecond
+	t.Cleanup(func() { DaemonStartTimeout = origTimeout })
+
 	sockDir := t.TempDir()
 	sockPath := filepath.Join(sockDir, "nonexistent.sock")
 
@@ -132,8 +141,24 @@ func TestWaitForDaemon_Timeout(t *testing.T) {
 	if err == nil {
 		t.Fatal("should timeout")
 	}
-	if elapsed < 2*time.Second {
-		t.Errorf("should wait at least 2 seconds, waited %v", elapsed)
+	// Absolute literal (NOT derived from the injected var, which the code
+	// under test also reads): 350ms = injected 400ms window minus half a
+	// daemonPollInterval (100ms) of measurement slack. Proves waitForDaemon
+	// polled the full window instead of bailing early.
+	if elapsed < 350*time.Millisecond {
+		t.Errorf("should wait at least 350ms (injected 400ms window minus poll slack), waited %v", elapsed)
+	}
+}
+
+// TestTimeoutDefaultsUnchanged pins the production default of the injectable
+// timeout var. Since DaemonStartTimeout became test-injectable, nothing else
+// asserts the 3s contract — this guard catches both a silently changed default
+// and an injecting test that forgot its t.Cleanup restore (which would poison
+// every later sequential test in the package). Not t.Parallel: it must observe
+// the un-injected value.
+func TestTimeoutDefaultsUnchanged(t *testing.T) {
+	if DaemonStartTimeout != 3*time.Second {
+		t.Errorf("DaemonStartTimeout = %v, want 3s (production default; injected value leaked from another test?)", DaemonStartTimeout)
 	}
 }
 

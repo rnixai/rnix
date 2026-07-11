@@ -72,7 +72,9 @@ func swapNowFunc(t *testing.T, fn func() time.Time) {
 
 // -----------------------------------------------------------------------------
 // _010: L1 — child killed → Call returns ErrDeviceDisconnected FAST (< 2s),
-//        NOT after the 30s mcpCallTimeout stdio scan. (AC1)
+//
+//	NOT after the 30s mcpCallTimeout stdio scan. (AC1)
+//
 // -----------------------------------------------------------------------------
 func TestATDD_48_5_010_L1_ChildDead_FastFailDeviceDisconnected(t *testing.T) {
 	tr := connectMock(t, mockMCPServer)
@@ -115,7 +117,9 @@ func TestATDD_48_5_010_L1_ChildDead_FastFailDeviceDisconnected(t *testing.T) {
 
 // -----------------------------------------------------------------------------
 // _011: L1 healthy fast-path — child alive + ≤30s idle → Call succeeds, only
-//        the ≤1ms L1 check runs, no reconnect. (AC1 happy + AC6)
+//
+//	the ≤1ms L1 check runs, no reconnect. (AC1 happy + AC6)
+//
 // -----------------------------------------------------------------------------
 func TestATDD_48_5_011_L1_HealthyFastPath(t *testing.T) {
 	// Fixed clock: every Call sees the same "now" → idle delta is 0 (≤30s),
@@ -147,7 +151,9 @@ func TestATDD_48_5_011_L1_HealthyFastPath(t *testing.T) {
 
 // -----------------------------------------------------------------------------
 // _012: L2 — > 30s idle triggers a ping before the real Call; ping success
-//        advances LastCheck and the original Call still completes. (AC2)
+//
+//	advances LastCheck and the original Call still completes. (AC2)
+//
 // -----------------------------------------------------------------------------
 func TestATDD_48_5_012_L2_IdleTriggersPing(t *testing.T) {
 	base := time.Unix(1_700_000_000, 0)
@@ -184,12 +190,29 @@ func TestATDD_48_5_012_L2_IdleTriggersPing(t *testing.T) {
 
 // -----------------------------------------------------------------------------
 // _013: L2 ping failure — child alive but unresponsive, > 30s idle → ping
-//        times out → Status leaves Connected (Error/Reconnecting/Backoff). (AC2)
+//
+//	times out → Status leaves Connected (Error/Reconnecting/Backoff). (AC2)
+//
 // -----------------------------------------------------------------------------
 func TestATDD_48_5_013_L2_PingTimeout_LeavesConnected(t *testing.T) {
 	base := time.Unix(1_700_000_000, 0)
 	clock := base
 	swapNowFunc(t, func() time.Time { return clock })
+
+	// The hung child forces BOTH the L2 ping and the reconnect's tools/list
+	// refresh to run to their full timeouts, so shorten both: inject a short
+	// ping window (production 2s; same injection pattern as swapNowFunc) and a
+	// small TimeoutMillis (bounds the tools/list wait). The behavior under
+	// test — ping timeout ⇒ status leaves Connected — is unchanged. Only the
+	// ping window is injected (NOT gracefulShutdownTimeout): the hang fixture
+	// honors SIGTERM, so teardown never waits the escalation window. Note the
+	// restore t.Cleanup runs AFTER the deferred tr.Close() below (defer before
+	// Cleanup) — safe today because Close never reads l2PingTimeout. Not
+	// t.Parallel — enforced by t.Setenv (panics under t.Parallel).
+	t.Setenv("RNIX_TEST_TIMEOUT_INJECTION", "1")
+	origPing := l2PingTimeout
+	l2PingTimeout = 200 * time.Millisecond
+	t.Cleanup(func() { l2PingTimeout = origPing })
 
 	// Cap reconnect retries to a single fast attempt so a failed reconnect
 	// resolves quickly (the hung child cannot be revived by a re-exec of the
@@ -197,7 +220,7 @@ func TestATDD_48_5_013_L2_PingTimeout_LeavesConnected(t *testing.T) {
 	tr := NewStdioTransport(TransportConfig{
 		Command:         "bash",
 		Args:            []string{"-c", mockMCPHangAfterInit},
-		TimeoutMillis:   3000,
+		TimeoutMillis:   500,
 		ReconnectPolicy: ReconnectPolicy{MaxRetries: 1, Backoff: []time.Duration{1 * time.Millisecond}},
 	})
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
@@ -218,9 +241,11 @@ func TestATDD_48_5_013_L2_PingTimeout_LeavesConnected(t *testing.T) {
 
 // -----------------------------------------------------------------------------
 // _014: fast-path — ≤30s idle skips L2 entirely (zero ping overhead). (AC6)
-//        Asserted by: a server that would HANG on a second request still lets
-//        ≤30s calls through, because L2 (ping) never fires. We prove the ping
-//        was skipped by confirming LastCheck did NOT advance.
+//
+//	Asserted by: a server that would HANG on a second request still lets
+//	≤30s calls through, because L2 (ping) never fires. We prove the ping
+//	was skipped by confirming LastCheck did NOT advance.
+//
 // -----------------------------------------------------------------------------
 func TestATDD_48_5_014_L2_WithinThreshold_Skipped(t *testing.T) {
 	base := time.Unix(1_700_000_000, 0)
