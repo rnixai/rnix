@@ -286,6 +286,23 @@ func (f *LLMFile) writeStream(ctx context.Context, req LLMRequest) error {
 				maps.Copy(evtData, evt.Data)
 				f.onEvent(evtData)
 			}
+		case "usage":
+			// Story 66.6: forward the mid-stream usage delta to the kernel so ps /
+			// proc-info can preview token growth during a long CLI session. This
+			// deliberately does NOT touch the `content`/`tokens` accumulators — the
+			// `done` event remains the sole authoritative source (AC4), and the
+			// kernel discards these deltas at the step boundary.
+			if f.onEvent != nil {
+				evtData := map[string]any{
+					"type":                "usage",
+					"tokens_used":         evt.TokensUsed,
+					"input_tokens":        evt.InputTokens,
+					"output_tokens":       evt.OutputTokens,
+					"cached_input_tokens": evt.CachedInputTokens,
+				}
+				maps.Copy(evtData, evt.Data)
+				f.onEvent(evtData)
+			}
 		case "done":
 			receivedDone = true
 			// Use result content if available (CLI drivers put final result here)

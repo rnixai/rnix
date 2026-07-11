@@ -427,6 +427,23 @@ func driverEventToSyscall(evtType string) string {
 	}
 }
 
+// evtInt reads an integer field from a driver event map (Story 66.6). The
+// usage event is constructed in-process by vfsfile.writeStream with Go int
+// values, but float64 is also handled defensively in case the map ever arrives
+// via a JSON round-trip. Missing / non-numeric keys yield 0.
+func evtInt(evt map[string]any, key string) int {
+	switch v := evt[key].(type) {
+	case int:
+		return v
+	case int64:
+		return int(v)
+	case float64:
+		return int(v)
+	default:
+		return 0
+	}
+}
+
 // driverEventToLog maps a driver event to a LogEntry category and content.
 func driverEventToLog(evt map[string]any) (types.LogCategory, string, string, bool) {
 	evtType, _ := evt["type"].(string)
@@ -621,6 +638,10 @@ func (k *KernelImpl) setupDriverStreamHandler(proc *Process, llmFD types.FD) {
 				aggEvt["path"] = path
 			}
 			k.emitEvent(proc, "DriverToolCall", aggEvt, nil, nil, 0)
+			// Story 66.6: bump the process-level tool-call liveness counter once
+			// per CLI DriverToolCall flush (the ACTIVE ps column keeps moving even
+			// when usage data is unavailable).
+			proc.IncToolCallCount()
 			// Remove from tracking so it cannot be flushed again. The
 			// authoritative input entry is deleted to bound memory and prevent
 			// crosstalk between calls reusing identifiers.
@@ -713,6 +734,12 @@ func (k *KernelImpl) setupDriverStreamHandler(proc *Process, llmFD types.FD) {
 		if dtp, ok := file.(vfs.DriverTypeProvider); ok {
 			driverType = dtp.DriverType()
 		}
+		// Story 66.6: snapshot the resolved driver type so the step boundary
+		// (reason.go) can label usage provenance cli_stream vs api_response.
+		// Set under proc.mu for -race safety against the reasonStep reader.
+		proc.mu.Lock()
+		proc.DriverType = driverType
+		proc.mu.Unlock()
 		if llm.IsCLIDriver(driverType) {
 			subagentTracker = k.newCLISubagentTracker(proc)
 		}
@@ -746,6 +773,17 @@ func (k *KernelImpl) setupDriverStreamHandler(proc *Process, llmFD types.FD) {
 			// parent_tool_use_id matches no known child fall through to normal
 			// host processing below.
 			if subagentTracker != nil && subagentTracker.route(evt) {
+				return
+			}
+
+			// Story 66.6: mid-stream usage delta from a CLI driver (claude/codex).
+			// Accumulate into the live per-step counter for real-time ps/proc-info
+			// preview and mark provenance cli_stream. Placed BEFORE the content
+			// early-return and any emit — usage events only update in-memory
+			// counters and are NOT written to events.jsonl (high-frequency, same
+			// rationale as the content fan-out; heartbeat already refreshed above).
+			if evtType == "usage" {
+				proc.AddStreamUsage(evtInt(evt, "tokens_used"), evtInt(evt, "input_tokens"), vfs.UsageProvenanceCLIStream)
 				return
 			}
 

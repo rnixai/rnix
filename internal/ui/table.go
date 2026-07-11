@@ -19,7 +19,7 @@ const (
 	colWidthSkill   = 15
 	colWidthTokens  = 14
 	colWidthCost    = 12
-	colWidthActive  = 10
+	colWidthActive  = 13 // Story 66.6: widened for "age/toolcalls" (e.g. "⚠️ 59m/9999")
 	colWidthElapsed = 8
 	colWidthPPID    = 5
 	colWidthUUID    = 7 // "…" / "~" prefix + last 6 chars (ShortUUID form)
@@ -193,17 +193,27 @@ func RenderProcessTable(r *Renderer, procs []vfs.ProcInfo, verbose, showUUID boo
 		}
 		if showMetrics {
 			row.WriteString(gap)
-			fmt.Fprintf(&row, "%*s", colWidthTokens, FormatTokensBudget(proc.TokensUsed, proc.MaxTokens))
+			// Story 66.6: guard against estimated usage silently masquerading as a
+			// real count — an "estimated" provenance prefixes a "~". No producer
+			// emits estimated in this story; the branch exists so any future
+			// estimator is visually distinct at the display layer.
+			tokStr := FormatTokensBudget(proc.TokensUsed, proc.MaxTokens)
+			if proc.UsageProvenance == vfs.UsageProvenanceEstimated {
+				tokStr = "~" + tokStr
+			}
+			fmt.Fprintf(&row, "%*s", colWidthTokens, tokStr)
 			if showCost {
 				row.WriteString(gap)
 				fmt.Fprintf(&row, "%*s", colWidthCost, FormatCostBudget(proc.UsedCost, proc.MaxCost))
 			}
 			row.WriteString(gap)
-			// ACTIVE column: relative heartbeat time for running processes
+			// ACTIVE column: compact last-event age + cumulative tool-call count
+			// (Story 66.6) — e.g. "3s/594" — so the column keeps moving during a
+			// long agentic step even when usage data is unavailable.
 			var activeStr string
 			switch proc.State {
 			case types.StateRunning, types.StateCreated:
-				activeStr = FormatRelativeTime(proc.LastHeartbeat)
+				activeStr = FormatActivity(proc.LastHeartbeat, proc.ToolCallCount, dash)
 				if IsStale(proc.LastHeartbeat, proc.StepTimeout) {
 					staleWarning := "⚠️"
 					if !r.Profile.IsUnicode {
@@ -420,6 +430,38 @@ func FormatRelativeTime(t time.Time) string {
 		return fmt.Sprintf("%dh ago", int(d.Hours()))
 	default:
 		return fmt.Sprintf("%dd ago", int(d.Hours()/24))
+	}
+}
+
+// FormatActivity renders the ps ACTIVE column (Story 66.6): a compact
+// last-event age plus the cumulative tool-call count in the form "3s/594". The
+// count is omitted when zero to keep the fresh-spawn view clean; a zero
+// heartbeat (no driver activity yet) renders the dash placeholder. dash is the
+// caller's unicode/ascii-aware em-dash so callers keep a single glyph policy.
+func FormatActivity(lastHeartbeat time.Time, toolCallCount int, dash string) string {
+	if lastHeartbeat.IsZero() {
+		return dash
+	}
+	age := formatAgeShort(nowFunc().Sub(lastHeartbeat))
+	if toolCallCount > 0 {
+		return age + "/" + strconv.Itoa(toolCallCount)
+	}
+	return age
+}
+
+// formatAgeShort renders a duration as a compact age ("3s", "5m", "2h", "1d")
+// without the " ago" suffix FormatRelativeTime uses — the ACTIVE column packs
+// the age next to a tool-call count and cannot spare the suffix width.
+func formatAgeShort(d time.Duration) string {
+	switch {
+	case d < time.Minute:
+		return strconv.Itoa(max(int(d.Seconds()), 0)) + "s"
+	case d < time.Hour:
+		return strconv.Itoa(int(d.Minutes())) + "m"
+	case d < 24*time.Hour:
+		return strconv.Itoa(int(d.Hours())) + "h"
+	default:
+		return strconv.Itoa(int(d.Hours()/24)) + "d"
 	}
 }
 

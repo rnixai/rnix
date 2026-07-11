@@ -453,7 +453,14 @@ func (k *KernelImpl) GetProcInfo(pid types.PID) (*vfs.ProcInfo, error) {
 		State:           proc.State,
 		Intent:          proc.Intent,
 		Skills:          append([]string(nil), proc.Skills...),
-		TokensUsed:      proc.TokensUsed,
+		// Story 66.6: synthesize the live token preview = authoritative TokensUsed
+		// + the current step's mid-stream accumulation. For a completed / dead
+		// process StreamTokensUsed is 0 (cleared at the step boundary or folded in
+		// by finishProcess), so this equals TokensUsed — every downstream
+		// consumer (ps/top/dashboard/compose) heals with zero changes.
+		TokensUsed:      proc.TokensUsed + proc.StreamTokensUsed,
+		UsageProvenance: proc.UsageProvenance,
+		ToolCallCount:   proc.ToolCallCount,
 		LastInputTokens: proc.LastInputTokens,
 		ContextBudget:   proc.ContextBudget,
 		MaxTokens:       proc.Budget.MaxTokens,
@@ -534,7 +541,11 @@ func (k *KernelImpl) ListProcs() []vfs.ProcInfo {
 			State:           proc.State,
 			Intent:          proc.Intent,
 			Skills:          append([]string(nil), proc.Skills...),
-			TokensUsed:      proc.TokensUsed,
+			// Story 66.6: live token preview + provenance + tool-call liveness
+			// (see GetProcInfo above for the synthesis rationale).
+			TokensUsed:      proc.TokensUsed + proc.StreamTokensUsed,
+			UsageProvenance: proc.UsageProvenance,
+			ToolCallCount:   proc.ToolCallCount,
 			LastInputTokens: proc.LastInputTokens,
 			ContextBudget:   proc.ContextBudget,
 			MaxTokens:       proc.Budget.MaxTokens,

@@ -396,6 +396,16 @@ type claudeStreamEvent struct {
 		ID      string               `json:"id,omitempty"`
 		Content []claudeContentBlock `json:"content,omitempty"`
 		Role    string               `json:"role,omitempty"`
+		// Usage carries this assistant message's per-round-trip token usage
+		// (Story 66.6). Same shape as the top-level result usage below. Non-zero
+		// on `assistant` frames; used to emit a mid-stream "usage" StreamEvent
+		// so the kernel can preview token growth during a long CLI session
+		// instead of seeing 0 until the final `result`.
+		Usage struct {
+			InputTokens          int `json:"input_tokens"`
+			CacheReadInputTokens int `json:"cache_read_input_tokens"`
+			OutputTokens         int `json:"output_tokens"`
+		} `json:"usage,omitzero"`
 	} `json:"message,omitzero"`
 	Tools        []string        `json:"tools,omitempty"` // system:init tools list
 	Event        json.RawMessage `json:"event,omitempty"` // raw API event for stream_event type
@@ -609,6 +619,29 @@ func (d *ClaudeCliDriver) Stream(ctx context.Context, req LLMRequest) (<-chan St
 				case ch <- se:
 				case <-ctx.Done():
 					return
+				}
+				// Story 66.6: emit a mid-stream usage delta for this API round-trip
+				// so the kernel can preview token growth during a long CLI session.
+				// MAIN-THREAD frames only (ParentToolUseID == "") — subagent frames
+				// are excluded to keep the tally consistent with the final `result`
+				// usage and to avoid touching the subagentTracker route. Skipped when
+				// the message carried no usage (older CLIs / non-final assistant frames).
+				if evt.ParentToolUseID == "" {
+					uin := evt.Message.Usage.InputTokens
+					uout := evt.Message.Usage.OutputTokens
+					if uin != 0 || uout != 0 {
+						select {
+						case ch <- StreamEvent{
+							Type:              "usage",
+							TokensUsed:        uin + uout,
+							InputTokens:       uin,
+							OutputTokens:      uout,
+							CachedInputTokens: evt.Message.Usage.CacheReadInputTokens,
+						}:
+						case <-ctx.Done():
+							return
+						}
+					}
 				}
 				// When the partial-messages stream already delivered text via
 				// text_delta, skip the legacy block re-emit to avoid doubling

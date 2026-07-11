@@ -40,6 +40,17 @@ type MCPMountSnapshot struct {
 	Config MCPConfig `json:"config"`
 }
 
+// Usage provenance levels (Story 66.6), lowest → highest fidelity. This is an
+// OPEN string set (same passthrough philosophy as reasoning_effort / KillOrigin
+// — no enum type, no validation gate): only these three participate in the
+// kernel's merge ranking; any unknown value is held conservatively and never
+// used to lower an existing rank. Empty ("") means no usage data has arrived.
+const (
+	UsageProvenanceEstimated   = "estimated"    // approximated — never produced in Story 66.6 (render guard only)
+	UsageProvenanceCLIStream   = "cli_stream"   // parsed from a CLI driver's stdout stream
+	UsageProvenanceAPIResponse = "api_response" // native usage from an API driver response
+)
+
 // ProcInfo is a snapshot of process information at a point in time.
 // Value type (not a reference to *Process) to avoid concurrency issues and cross-package dependencies.
 type ProcInfo struct {
@@ -136,6 +147,21 @@ type ProcInfo struct {
 	// implement it.
 	DriverMeta     map[string]string `json:"driver_meta,omitempty"`
 	FeatureProfile string            `json:"feature_profile,omitempty"`
+
+	// UsageProvenance labels the fidelity source of TokensUsed (Story 66.6):
+	// one of UsageProvenanceAPIResponse / UsageProvenanceCLIStream /
+	// UsageProvenanceEstimated, or "" when no usage data has arrived yet. It is
+	// a process-level single value (not per-step); on mixed sources (e.g. a
+	// fallback that switches driver families) the kernel keeps the LOWEST
+	// fidelity seen (estimated < cli_stream < api_response) so the label never
+	// overstates. omitempty keeps legacy snapshots / wires clean.
+	UsageProvenance string `json:"usage_provenance,omitempty"`
+	// ToolCallCount is the cumulative number of tool calls this process has made
+	// (Story 66.6): CLI drivers contribute their DriverToolCall flushes, the
+	// kernel contributes its native (API-driver) tool dispatches. A liveness
+	// signal for the ps ACTIVE column that keeps moving during a long agentic
+	// step even when usage data is unavailable. omitempty keeps legacy data clean.
+	ToolCallCount int `json:"tool_call_count,omitempty"`
 
 	// Synthetic marks a process-tree node that was NOT spawned by the rnix
 	// kernel but synthesized from observing a CLI driver's internal subagent

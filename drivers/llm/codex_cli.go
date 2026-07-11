@@ -475,6 +475,22 @@ func (d *CodexCliDriver) Stream(ctx context.Context, req LLMRequest) (<-chan Str
 					lastUsage.inputTokens += evt.Usage.InputTokens
 					lastUsage.outputTokens += evt.Usage.OutputTokens
 					lastUsage.cachedInputTokens += evt.Usage.CachedInputTokens
+					// Story 66.6: emit this turn's usage as a mid-stream delta
+					// (evt.Usage is per-turn — the `+=` accumulation above is the
+					// proof) so the kernel previews token growth during the long
+					// codex session. The `done` event still carries the authoritative
+					// accumulated total; this is discarded at the step boundary.
+					select {
+					case ch <- StreamEvent{
+						Type:              "usage",
+						TokensUsed:        evt.Usage.InputTokens + evt.Usage.OutputTokens,
+						InputTokens:       evt.Usage.InputTokens,
+						OutputTokens:      evt.Usage.OutputTokens,
+						CachedInputTokens: evt.Usage.CachedInputTokens,
+					}:
+					case <-ctx.Done():
+						return
+					}
 				}
 
 			case "turn.failed":

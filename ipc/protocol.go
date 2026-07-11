@@ -306,6 +306,15 @@ type ProcInfoWire struct {
 	DriverMeta     map[string]string `json:"driver_meta,omitempty"`
 	FeatureProfile string            `json:"feature_profile,omitempty"`
 
+	// Story 66.6 — usage provenance label + tool-call liveness count, mirrored
+	// from vfs.ProcInfo so `rnix ps` / dashboard (list_procs) can render the
+	// ACTIVE column and the estimated-usage `~` guard. Additive omitempty: a
+	// pre-66.6 daemon omits them and the CLI reads back "" / 0. ProcInfoWire has
+	// no ipc/wire mirror (it is not in the wire package), so TestWireDrift does
+	// not cover it — the round-trip guard here is TestProcInfoWire_* below.
+	UsageProvenance string `json:"usage_provenance,omitempty"`
+	ToolCallCount   int    `json:"tool_call_count,omitempty"`
+
 	// Story 48.1 / code-review P7 — vfs.ProcInfo.MCPMounts is INTENTIONALLY
 	// not mirrored onto this wire type. The field is consumed only by the
 	// kernel-internal resume / load_suspended path (kernel/rehydrate.go); no
@@ -361,6 +370,8 @@ func ProcInfoToWire(p vfs.ProcInfo) ProcInfoWire {
 		ExitCodeSet:     p.ExitCodeSet,
 		DriverMeta:      p.DriverMeta,
 		FeatureProfile:  p.FeatureProfile,
+		UsageProvenance: p.UsageProvenance,
+		ToolCallCount:   p.ToolCallCount,
 	}
 	if !p.DeadAt.IsZero() {
 		w.DeadAt = p.DeadAt.UnixMilli()
@@ -416,6 +427,8 @@ func WireToProcInfo(w ProcInfoWire) vfs.ProcInfo {
 		ExitCodeSet:     w.ExitCodeSet,
 		DriverMeta:      w.DriverMeta,
 		FeatureProfile:  w.FeatureProfile,
+		UsageProvenance: w.UsageProvenance,
+		ToolCallCount:   w.ToolCallCount,
 	}
 	if w.DeadAt != 0 {
 		p.DeadAt = unixMilliToTime(w.DeadAt)

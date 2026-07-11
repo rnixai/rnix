@@ -93,6 +93,19 @@ func (k *KernelImpl) attachStepObservation(proc *Process) {
 // finishProcess terminates the process and writes the exit status to the Done channel.
 func (k *KernelImpl) finishProcess(proc *Process, exit ExitStatus) {
 	proc.mu.Lock()
+	// Story 66.6: a step killed / interrupted / write-failed before its normal
+	// boundary never reached reason.go's authoritative accounting, so its
+	// mid-stream usage still sits in StreamTokensUsed. Fold it into TokensUsed as
+	// the last-known value — there is no authoritative resp at this point, so
+	// there is no double-count window. Everything below that reads TokensUsed
+	// (reputation, synergy, GetProcInfo → proc-info.json, immune Finalize via
+	// OnProcessExit) benefits with zero changes. Normal completion already
+	// cleared StreamTokensUsed at the last step boundary, so this is a no-op there.
+	if proc.StreamTokensUsed > 0 {
+		proc.TokensUsed += proc.StreamTokensUsed
+		proc.StreamTokensUsed = 0
+		proc.StreamInputTokens = 0
+	}
 	// Story 48.1 code-review P2/P4 — mount lifetime is now ref-counted in
 	// the MountManager (see vfs/mount.go). finishProcess always releases
 	// ONE reference per path the process held (whether obtained via the
@@ -878,6 +891,19 @@ func (k *KernelImpl) reasonStep(proc *Process, llmFD types.FD, opts SpawnOpts) {
 		}
 
 		proc.mu.Lock()
+		// Story 66.6: the final LLMResponse is authoritative. Discard the current
+		// step's mid-stream accumulation (StreamTokensUsed = session total ⊇ Σ
+		// deltas for CLI drivers) BEFORE folding resp.TokensUsed in, so the live
+		// preview never double-counts. Provenance for the authoritative value is
+		// cli_stream when the driver parsed it out of a CLI stream, api_response
+		// when it came straight from an API response (mergeProvenance only lowers).
+		proc.StreamTokensUsed = 0
+		proc.StreamInputTokens = 0
+		stepProvenance := vfs.UsageProvenanceAPIResponse
+		if llm.IsCLIDriver(proc.DriverType) {
+			stepProvenance = vfs.UsageProvenanceCLIStream
+		}
+		proc.UsageProvenance = mergeProvenance(proc.UsageProvenance, stepProvenance)
 		proc.TokensUsed += resp.TokensUsed
 		proc.LastInputTokens = resp.InputTokens
 		budget := proc.ContextBudget

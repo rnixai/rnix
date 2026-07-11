@@ -256,6 +256,11 @@ toolLoop:
 
 		switch mapping.Type {
 		case "vfs":
+			// Story 66.6: count each native (API-driver) VFS tool dispatch toward
+			// the process-level tool-call liveness counter — one bump per real
+			// dispatch, success or failure (parse-error / think / unknown-tool /
+			// permission-denied all `continue` above without reaching here).
+			proc.IncToolCallCount()
 			callStart := time.Now()
 			result, err := k.executeVFSTool(proc, tc, mapping)
 			callDurMs := float64(time.Since(callStart).Microseconds()) / 1000.0

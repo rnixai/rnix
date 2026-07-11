@@ -283,6 +283,12 @@ type procInfoDisk struct {
 	DriverMeta     map[string]string `json:"driver_meta,omitempty"`
 	FeatureProfile string            `json:"feature_profile,omitempty"`
 
+	// Story 66.6 — usage provenance + tool-call liveness count. Additive
+	// omitempty: legacy snapshots without these keys load as "" / 0 (no usage
+	// label, no count), which the ps ACTIVE column renders as a placeholder.
+	UsageProvenance string `json:"usage_provenance,omitempty"`
+	ToolCallCount   int    `json:"tool_call_count,omitempty"`
+
 	// Synthetic marks a CLI-subagent observation node (Story 56.6) — see
 	// vfs.ProcInfo.Synthetic. omitempty keeps legacy proc-info.json clean and
 	// makes absent → false on load (backward compatible).
@@ -338,11 +344,13 @@ func procInfoToDisk(info vfs.ProcInfo) procInfoDisk {
 		// reload Suspended placeholders into procTable.
 		SuspendReason:  info.SuspendReason,
 		IsPaused:       info.IsPaused,
-		ExitCode:       info.ExitCode,
-		ExitCodeSet:    info.ExitCodeSet,
-		DriverMeta:     info.DriverMeta,
-		FeatureProfile: info.FeatureProfile,
-		Synthetic:      info.Synthetic,
+		ExitCode:        info.ExitCode,
+		ExitCodeSet:     info.ExitCodeSet,
+		DriverMeta:      info.DriverMeta,
+		FeatureProfile:  info.FeatureProfile,
+		Synthetic:       info.Synthetic,
+		UsageProvenance: info.UsageProvenance,
+		ToolCallCount:   info.ToolCallCount,
 	}
 	if !info.DeadAt.IsZero() {
 		d.DeadAt = info.DeadAt.Format(time.RFC3339Nano)
@@ -403,11 +411,13 @@ func procInfoFromDisk(d procInfoDisk) vfs.ProcInfo {
 		// stays zero on parse failure.
 		SuspendReason:  d.SuspendReason,
 		IsPaused:       d.IsPaused,
-		ExitCode:       d.ExitCode,
-		ExitCodeSet:    d.ExitCodeSet,
-		DriverMeta:     d.DriverMeta,
-		FeatureProfile: d.FeatureProfile,
-		Synthetic:      d.Synthetic,
+		ExitCode:        d.ExitCode,
+		ExitCodeSet:     d.ExitCodeSet,
+		DriverMeta:      d.DriverMeta,
+		FeatureProfile:  d.FeatureProfile,
+		Synthetic:       d.Synthetic,
+		UsageProvenance: d.UsageProvenance,
+		ToolCallCount:   d.ToolCallCount,
 	}
 	if d.CreatedAt != "" {
 		info.CreatedAt, _ = time.Parse(time.RFC3339Nano, d.CreatedAt)

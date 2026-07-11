@@ -208,8 +208,18 @@ type LLMResponse struct {
 }
 
 // StreamEvent represents a single event in a streaming LLM response.
+//
+// Story 66.6 — a "usage" event carries the token usage of ONE API round-trip
+// as a DELTA (not a running total): claude-cli emits it per assistant message
+// (message.usage), codex-cli per turn.completed. The kernel accumulates these
+// deltas into a live per-step counter for real-time ps / proc-info visibility;
+// the final "done" event's usage stays authoritative (the mid-stream deltas are
+// discarded at the step boundary). usage events reuse the token fields below
+// (TokensUsed = input+output for the round-trip) and are NOT emitted for
+// subagent frames (claude-cli main-thread only) to keep the tally consistent
+// with `done`.
 type StreamEvent struct {
-	Type              string           `json:"type"` // "content", "reasoning", "done", "error", "tool_call", "thinking", "system", "user"
+	Type              string           `json:"type"` // "content", "reasoning", "done", "error", "tool_call", "thinking", "system", "user", "usage"
 	Content           string           `json:"content,omitempty"`
 	TokensUsed        int              `json:"tokens_used,omitempty"`
 	InputTokens       int              `json:"input_tokens,omitempty"`

@@ -86,6 +86,27 @@ type Process struct {
 	ResultPartial   bool          // true when Result contains incomplete stream content (signal kill)
 	TokensUsed      int           // cumulative token consumption
 	LastInputTokens int           // most recent LLM call's prompt input tokens (for context_budget check)
+	// Story 66.6 — mid-stream usage ledger (all mu protected). A single CLI
+	// ReasonStep is an entire CLI session (hundreds of API round-trips inside
+	// the CLI process), so TokensUsed stays 0 until `done`. StreamTokensUsed
+	// accumulates the driver's mid-stream usage deltas for the CURRENT step so
+	// ps / proc-info can preview live growth; it is cleared at the step boundary
+	// (reason.go) where resp.TokensUsed is authoritative, and folded into
+	// TokensUsed only when the step is killed before that boundary
+	// (finishProcess). StreamInputTokens keeps the most recent mid-stream input
+	// value (observation only). UsageProvenance labels the fidelity source
+	// (see vfs.UsageProvenance*). DriverType is the resolved LLM driver type
+	// (e.g. "claude-cli") captured by setupDriverStreamHandler, read at the step
+	// boundary to decide cli_stream vs api_response provenance.
+	StreamTokensUsed  int
+	StreamInputTokens int
+	UsageProvenance   string
+	DriverType        string
+	// ToolCallCount is the process-level cumulative tool-call count (Story 66.6):
+	// CLI drivers bump it per DriverToolCall flush (observe.go), the kernel bumps
+	// it per native VFS tool dispatch (tool_exec.go). A ps ACTIVE-column liveness
+	// signal that keeps moving during a long step regardless of usage availability.
+	ToolCallCount int
 	ContextBudget   int           // 0 = no limit; >0 = suspend when single-step InputTokens >= ContextBudget
 	CtxSize         int           // context message slot limit used at allocation (for checkpoint)
 	Budget          ProcessBudget // per-process resource budget (mu protected); suspend when exhausted
@@ -907,6 +928,79 @@ func (p *Process) TouchHeartbeat() {
 	p.mu.Lock()
 	p.LastHeartbeat = time.Now()
 	p.mu.Unlock()
+}
+
+// AddStreamUsage folds one mid-stream usage delta into the live ledger for the
+// current step (Story 66.6). tokensDelta is added to StreamTokensUsed;
+// inputTokens overwrites StreamInputTokens (most-recent semantics — the driver
+// reports the round-trip's prompt size, not a delta). prov is merged into
+// UsageProvenance via mergeProvenance (only ever lowers, never raises). Called
+// from the driver stream handler; heartbeat is refreshed separately by the
+// handler's TouchHeartbeat.
+func (p *Process) AddStreamUsage(tokensDelta, inputTokens int, prov string) {
+	p.mu.Lock()
+	p.StreamTokensUsed += tokensDelta
+	if inputTokens > 0 {
+		p.StreamInputTokens = inputTokens
+	}
+	p.UsageProvenance = mergeProvenance(p.UsageProvenance, prov)
+	p.mu.Unlock()
+}
+
+// IncToolCallCount bumps the process-level tool-call liveness counter by one
+// (Story 66.6). Called once per CLI DriverToolCall flush and once per kernel
+// native VFS tool dispatch.
+func (p *Process) IncToolCallCount() {
+	p.mu.Lock()
+	p.ToolCallCount++
+	p.mu.Unlock()
+}
+
+// mergeProvenance combines the current and incoming usage-provenance labels,
+// keeping the LOWEST fidelity of the two (Story 66.6 拍板 6). Empty current →
+// take the incoming value. Unknown labels rank 0 (below every known level) so a
+// future / mistyped value is held conservatively and never used to lower a
+// known rank silently — but if current is known and incoming is unknown, the
+// known value is preserved (we do not downgrade to an unrecognised label).
+func mergeProvenance(cur, incoming string) string {
+	if incoming == "" {
+		return cur
+	}
+	if cur == "" {
+		return incoming
+	}
+	if cur == incoming {
+		return cur
+	}
+	cr, ck := provenanceRank(cur)
+	ir, ik := provenanceRank(incoming)
+	// If either side is unrecognised, keep the recognised one rather than
+	// blindly lowering to an unknown label.
+	if !ck {
+		return incoming
+	}
+	if !ik {
+		return cur
+	}
+	if ir < cr {
+		return incoming
+	}
+	return cur
+}
+
+// provenanceRank maps a known provenance label to its fidelity rank (higher =
+// more authoritative) and reports whether the label was recognised.
+func provenanceRank(p string) (int, bool) {
+	switch p {
+	case vfs.UsageProvenanceEstimated:
+		return 1, true
+	case vfs.UsageProvenanceCLIStream:
+		return 2, true
+	case vfs.UsageProvenanceAPIResponse:
+		return 3, true
+	default:
+		return 0, false
+	}
 }
 
 // AttachEventWriter installs an EventWriter on a process whose driver is not
