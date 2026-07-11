@@ -56,13 +56,13 @@ cmd/rnix           ← Entry point, Cobra CLI, all commands
 ├── kernel         ← Microkernel: process table, spawn, kill, wait, reaper
 │   ├── vfs        ← VFS file abstraction, device registry, FD table
 │   ├── context    ← Per-process conversation history (CtxAlloc/Write/BuildPrompt)
-│   └── debug      ← Strace, recording, distributed tracing, GDB
+│   └── debug      ← Strace, recording (event time-travel + fork-continue, not deterministic replay; superseded in practice by always-on raw/events/steps), distributed tracing, GDB
 ├── drivers/       ← VFS device implementations
 │   ├── llm        ← /dev/llm/claude (Claude CLI), /dev/llm/cursor (Cursor CLI)
 │   ├── fs         ← /dev/fs - sandboxed host filesystem
 │   ├── shell      ← /dev/shell - subprocess execution
 │   └── mcp        ← /dev/mcp/* - MCP server stdio transport
-├── intent         ← Declarative intent decomposition & reconciliation (Epic 19)
+├── intent         ← Declarative intent decomposition (Epic 19)
 ├── compose        ← DAG-based multi-agent orchestration from YAML
 ├── shell          ← AgentShell scripting language (spawn, pipe, variables, control flow)
 ├── agents         ← Agent loader (lib/agents/{name}/agent.yaml + instructions.md)
@@ -84,9 +84,9 @@ cmd/rnix           ← Entry point, Cobra CLI, all commands
 
 **Context** (`context/`): Per-process message history. `CtxAlloc` → `CtxWrite` → `BuildPrompt` cycle. Fixed-size message array with configurable MaxSize (default 256). When token usage or slot usage exceeds thresholds, Compact replaces history with an LLM-generated summary plus restored context (files, skills, plan).
 
-**Kernel** (`kernel/kernel.go`): Composed of sub-interfaces — ProcessManager, MountManager, IPCManager, SignalManager, ProcGroupManager. Holds SyncMap-based process table.
+**Kernel** (`kernel/kernel.go`): Composed of sub-interfaces — ProcessManager, MountManager, IPCManager, SignalManager. Holds SyncMap-based process table.
 
-**Intent System** (`intent/`): LLM-based decomposition of high-level intent into a DAG of sub-tasks. Reconciler executes with retry, timeout, and drift detection. States: pending → decomposing → await_confirm → executing → completed/failed.
+**Intent System** (`intent/`): LLM-based decomposition of high-level intent into a DAG of sub-tasks. Reconciler executes with retry, timeout, and cascade-failure handling. States: pending → decomposing → await_confirm → executing → completed/failed.
 
 **Unified Reasoning Loop**: Single `reasonStep` loop where LLM autonomously selects action type per step: tool_call, plan, spawn, complete, specialize, replan, text. Planning is a configurable capability (`planning: true/false`, default true), not a separate mode.
 
@@ -127,7 +127,7 @@ Two-tier configuration: global (`~/.config/rnix/`) + project (`.rnix/`). Run `rn
 
 All prompt text (system prompts, VFS device descriptions, Action Protocol, compact prompts) follows the "Claude Code Baseline" principle:
 - Reference Claude Code source files in `cc-src/src/` for established prompt patterns
-- Apply concept mapping (Tool → VFS Device, Session → Process, Team → ProcGroup, etc.)
+- Apply concept mapping (Tool → VFS Device, Session → Process, etc.)
 - Do NOT rewrite validated behavioral guidelines — adapt minimally
 - New Rnix-specific content (signals, supervisor, intent) follows CC writing style
 

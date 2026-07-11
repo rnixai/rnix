@@ -75,8 +75,8 @@ Representative methods (run against the daemon socket):
   `record_stop`, `replay_load`, `fork_continue`
 - Intent: `apply_intent`, `intent_status`, `intent_confirm`,
   `apply_incremental_intent`, `intent_list`
-- Token/security/telemetry: `budget_status`, `sla_status`, `reputation_status`,
-  `synergy_list`, `immune_status`, `immune_resume`, `lineage`, `topology_query`
+- Token/security/telemetry: `reputation_status`, `synergy_list`, `immune_status`,
+  `immune_resume`, `lineage`, `topology_query`
 - Misc: `ping`, `shutdown`, `provider_status`, `ctx_profile`, `ctx_growth`
 
 For most tasks you should drive rnix through the CLI (run commands with `Bash`),

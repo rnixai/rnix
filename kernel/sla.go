@@ -7,7 +7,12 @@ import (
 	"time"
 )
 
-// SLASpec defines contract SLA constraints for agent execution.
+// SLASpec declares post-hoc contract constraints for an agent run. These are
+// NOT runtime guards: they neither terminate execution nor gate scheduling.
+// After an agent completes, compose calls Evaluate (compose/engine.go) to score
+// the run against these limits and feeds the result to the ReputationStore for
+// reputation scoring. Runtime token enforcement is a separate mechanism —
+// proc.Budget.MaxTokens (over-limit → selfSuspend), distinct from SLASpec.MaxTokens.
 type SLASpec struct {
 	MaxTokens     int    `yaml:"max_tokens,omitempty" json:"max_tokens,omitempty"`
 	MaxDurationMs int64  `yaml:"max_duration_ms,omitempty" json:"max_duration_ms,omitempty"`
@@ -37,9 +42,12 @@ func (s *SLASpec) IsEmpty() bool {
 	return s.MaxTokens == 0 && s.MaxDurationMs == 0 && s.OutputFormat == ""
 }
 
-// Evaluate checks the SLA against actual execution metrics.
-// Only non-zero constraints are evaluated. Returns an SLAResult with
-// individual check results and an overall Passed flag.
+// Evaluate scores a completed run against the SLA constraints. This is a
+// post-hoc contract check, not a runtime guard — it never terminates the
+// process or gates scheduling; the returned SLAResult is fed to the
+// ReputationStore as a reputation input. Only non-zero constraints are
+// evaluated. Returns an SLAResult with individual check results and an
+// overall Passed flag.
 func (s *SLASpec) Evaluate(agentName string, tokensUsed int, durationMs int64, output string) *SLAResult {
 	result := &SLAResult{
 		AgentName:   agentName,

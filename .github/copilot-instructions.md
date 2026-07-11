@@ -59,7 +59,7 @@ cmd/rnix           ← Entry point, Cobra CLI
 │   ├── fs         ← /dev/fs - sandboxed host filesystem
 │   ├── shell      ← /dev/shell - subprocess execution
 │   └── mcp        ← /dev/mcp/* - MCP server stdio transport
-├── intent         ← Declarative intent decomposition & reconciliation
+├── intent         ← Declarative intent decomposition
 ├── compose        ← DAG-based multi-agent orchestration from YAML
 ├── shell          ← AgentShell scripting language
 ├── agents         ← Agent loader (lib/agents/{name}/agent.yaml + instructions.md)
@@ -76,7 +76,7 @@ cmd/rnix           ← Entry point, Cobra CLI
 - **Process** (`kernel/process.go`): State machine: Created → Running → Zombie → Dead. Each process runs a `reasonStep` goroutine looping LLM calls through VFS devices.
 - **VFS** (`vfs/`): All resources (LLM, filesystem, shell, MCP) accessed as files via Open/Read/Write/Close. Devices register path prefixes.
 - **Context** (`context/`): Per-process message history. `CtxAlloc` → `CtxWrite` → `BuildPrompt` cycle. Circular buffer.
-- **Kernel** (`kernel/kernel.go`): Composed of sub-interfaces — ProcessManager, MountManager, IPCManager, SignalManager, ProcGroupManager.
+- **Kernel** (`kernel/kernel.go`): Composed of sub-interfaces — ProcessManager, MountManager, IPCManager, SignalManager.
 - **Intent** (`intent/`): LLM-based decomposition of high-level intent into a DAG of sub-tasks. States: pending → decomposing → await_confirm → executing → completed/failed.
 - **IPC**: NDJSON over Unix socket. Request: `{"method": "spawn|kill|list_procs|...", "payload": {...}}`.
 

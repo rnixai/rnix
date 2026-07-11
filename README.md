@@ -93,9 +93,9 @@ rnix dashboard
 - **14 VFS Devices** — LLM, filesystem, shell, memory (commit/recall/profile), web, LSP, tasks, TTY, cron, ProcFS, MCP
 - **Agent Memory** — Persistent cross-session knowledge with security scanning and async writeback
 - **50+ Syscalls** — Stable ABI covering process, context, VFS, IPC, signal, capability, and supervisor
-- **Interactive Debugging** — gdb-style debugger + time-travel replay + execution recording
+- **Interactive Debugging** — gdb-style debugger + time-travel event navigation + fork-based continuation (not deterministic replay)
 - **Multi-Pane Dashboard** — Process tree, timeline, heatmap, LLM conversation replay, debug mode
-- **Token Economy** — Budget pools, SLA contracts, agent reputation scoring, skill synergy matrix
+- **Token Economy** — Budget pools (compose quota engine + per-process runtime budgets), post-hoc SLA contract evaluation feeding agent reputation scoring, skill synergy matrix
 - **Adaptive Security** — Behavioral monitoring, anomaly detection, and auto-suspension
 
 ## License
