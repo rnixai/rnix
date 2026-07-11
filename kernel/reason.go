@@ -910,21 +910,12 @@ func (k *KernelImpl) reasonStep(proc *Process, llmFD types.FD, opts SpawnOpts) {
 		tokens := proc.TokensUsed
 		inputTokens := resp.InputTokens
 		hasTrace := proc.TraceID != ""
-		procGroups := make([]types.PGID, len(proc.groups))
-		copy(procGroups, proc.groups)
 		proc.mu.Unlock()
 
 		proc.AppendTokenSnapshot(step, tokens)
 
 		if hasTrace && k.spanRecorder != nil {
 			k.spanRecorder.RecordTokens(proc.PID, resp.TokensUsed)
-		}
-
-		for _, pgid := range procGroups {
-			if pool, ok := k.budgetPools.Load(pgid); ok {
-				_ = pool.RecordUsage(proc.PID, resp.TokensUsed)
-				break
-			}
 		}
 
 		k.checkBudgetWarning(proc, step, inputTokens, budget)

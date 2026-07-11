@@ -90,30 +90,6 @@ func TestWireDrift_ProgressPayload(t *testing.T) {
 	}
 }
 
-func TestWireDrift_BudgetStatusRequest(t *testing.T) {
-	ipcFields := jsonFieldSet(reflect.TypeFor[BudgetStatusRequest]())
-	wireFields := jsonFieldSet(reflect.TypeFor[wire.BudgetStatusRequest]())
-	if !reflect.DeepEqual(ipcFields, wireFields) {
-		t.Fatalf("BudgetStatusRequest drift:\nipc  = %v\nwire = %v", ipcFields, wireFields)
-	}
-}
-
-func TestWireDrift_BudgetStatusResponse(t *testing.T) {
-	ipcFields := jsonFieldSet(reflect.TypeFor[BudgetStatusResponse]())
-	wireFields := jsonFieldSet(reflect.TypeFor[wire.BudgetStatusResponse]())
-	if !reflect.DeepEqual(ipcFields, wireFields) {
-		t.Fatalf("BudgetStatusResponse drift:\nipc  = %v\nwire = %v", ipcFields, wireFields)
-	}
-}
-
-func TestWireDrift_AgentQuotaWire(t *testing.T) {
-	ipcFields := jsonFieldSet(reflect.TypeFor[AgentQuotaWire]())
-	wireFields := jsonFieldSet(reflect.TypeFor[wire.AgentQuotaWire]())
-	if !reflect.DeepEqual(ipcFields, wireFields) {
-		t.Fatalf("AgentQuotaWire drift:\nipc  = %v\nwire = %v", ipcFields, wireFields)
-	}
-}
-
 func TestWireDrift_AttachDebugRequest(t *testing.T) {
 	ipcFields := jsonFieldSet(reflect.TypeFor[AttachDebugRequest]())
 	wireFields := jsonFieldSet(reflect.TypeFor[wire.AttachDebugRequest]())

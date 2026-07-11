@@ -363,32 +363,6 @@ func TestKill_WithSIGPAUSE(t *testing.T) {
 	}
 }
 
-// TestSignalGroup_WithNewSignals verifies SignalGroup + SIGPAUSE suspends all members.
-// Story 44.1 — group signal still works; each member's SIGPAUSE drives the
-// state machine independently (the per-member subtree is just the member
-// itself since these are independent processes).
-func TestSignalGroup_WithNewSignals(t *testing.T) {
-	k := newSimpleKernel(t)
-
-	procs := make([]*Process, 3)
-	for i := range procs {
-		procs[i] = newSignalTestProcess(t, k)
-		if err := k.JoinGroup(procs[i].PID, 100); err != nil {
-			t.Fatalf("JoinGroup failed: %v", err)
-		}
-	}
-
-	if err := k.SignalGroup(100, types.SIGPAUSE); err != nil {
-		t.Fatalf("SignalGroup failed: %v", err)
-	}
-
-	for i, proc := range procs {
-		if got := proc.GetState(); got != types.StateSuspended {
-			t.Errorf("proc[%d] state = %s, want Suspended", i, got)
-		}
-	}
-}
-
 // TestReapProcess_CleanupSignalState verifies signal state is cleaned on reap.
 func TestReapProcess_CleanupSignalState(t *testing.T) {
 	k := newSimpleKernel(t)

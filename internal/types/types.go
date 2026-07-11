@@ -17,9 +17,6 @@ type CtxID uint64
 // MsgSeq represents a globally unique message sequence number.
 type MsgSeq uint64
 
-// PGID represents a process group identifier.
-type PGID uint64
-
 // TID represents a thread identifier (process-local).
 type TID uint64
 

@@ -152,47 +152,6 @@ func (k *KernelImpl) ListResumable() ([]vfs.ProcInfo, error) {
 	return out, nil
 }
 
-// RegisterBudgetPool associates a BudgetPool with a process group.
-func (k *KernelImpl) RegisterBudgetPool(groupID types.PGID, pool *BudgetPool) {
-	k.budgetPools.Store(groupID, pool)
-}
-
-// UnregisterBudgetPool removes a BudgetPool association.
-func (k *KernelImpl) UnregisterBudgetPool(groupID types.PGID) {
-	k.budgetPools.Delete(groupID)
-}
-
-// GetBudgetStatus returns a snapshot of the budget pool for the given group.
-func (k *KernelImpl) GetBudgetStatus(groupID types.PGID) (*BudgetPoolStatus, error) {
-	pool, ok := k.budgetPools.Load(groupID)
-	if !ok {
-		return nil, fmt.Errorf("no budget pool for group %d", groupID)
-	}
-	status := pool.GetStatus()
-	return &status, nil
-}
-
-// RecordSLAResult appends an SLA evaluation result for a compose group (Story 21.2).
-func (k *KernelImpl) RecordSLAResult(groupID types.PGID, result *SLAResult) {
-	k.slaResultsMu.Lock()
-	defer k.slaResultsMu.Unlock()
-	existing, ok := k.slaResults.Load(groupID)
-	if !ok {
-		existing = []*SLAResult{}
-	}
-	existing = append(existing, result)
-	k.slaResults.Store(groupID, existing)
-}
-
-// GetSLAResults returns the SLA evaluation results for a compose group (Story 21.2).
-func (k *KernelImpl) GetSLAResults(groupID types.PGID) ([]*SLAResult, error) {
-	results, ok := k.slaResults.Load(groupID)
-	if !ok {
-		return nil, fmt.Errorf("no SLA results for group %d", groupID)
-	}
-	return results, nil
-}
-
 // GetLineage returns the lineage events for the given PID.
 func (k *KernelImpl) GetLineage(pid types.PID) ([]LineageEvent, error) {
 	proc, ok := k.GetProcess(pid)

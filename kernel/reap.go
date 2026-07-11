@@ -136,9 +136,6 @@ func (k *KernelImpl) reapProcess(proc *Process) {
 			}
 		}
 
-		// 6. removeFromAllGroups — clean up process group memberships (Story 6.3)
-		k.removeFromAllGroups(proc.PID, proc)
-
 		// 7. ClearSignalState — clean up signal handlers/blocked/pending/resume (Story 6.4)
 		proc.ClearSignalState()
 

@@ -5,9 +5,7 @@ import (
 	"testing"
 	"time"
 
-	rnixctx "github.com/rnixai/rnix/context"
 	"github.com/rnixai/rnix/internal/types"
-	"github.com/rnixai/rnix/vfs"
 )
 
 // ============================================================
@@ -243,69 +241,5 @@ func TestBudgetPool_AllocationPerformance_100ms(t *testing.T) {
 
 	if elapsed > 100*time.Millisecond {
 		t.Fatalf("NFR43 violation: allocation of 100 agents took %v (max 100ms)", elapsed)
-	}
-}
-
-// --- 21.1-KINT-001: [P0] Kernel RegisterBudgetPool (AC1) ---
-
-func TestKernel_RegisterBudgetPool(t *testing.T) {
-	k := newSimpleKernel(t)
-
-	pool := NewBudgetPool(50000)
-	groupID := types.PGID(100)
-
-	k.RegisterBudgetPool(groupID, pool)
-
-	status, err := k.GetBudgetStatus(groupID)
-	if err != nil {
-		t.Fatalf("GetBudgetStatus failed: %v", err)
-	}
-	if status == nil {
-		t.Fatal("expected non-nil status")
-	}
-	if status.TotalBudget != 50000 {
-		t.Fatalf("expected TotalBudget 50000, got %d", status.TotalBudget)
-	}
-
-	_, err = k.GetBudgetStatus(types.PGID(999))
-	if err == nil {
-		t.Fatal("expected error for non-existent group budget pool")
-	}
-}
-
-// --- 21.1-KINT-002: [P0] reasonStep updates BudgetPool consumption (AC2/AC4) ---
-
-func TestKernel_ReasonStep_UpdatesBudgetPool(t *testing.T) {
-	reg := vfs.NewDeviceRegistry()
-	_ = reg.Register("/dev/llm/claude", func(_ string, _ vfs.OpenFlag, _ string) (vfs.VFSFile, error) {
-		return &mockLLMFile{readData: makeLLMResponse("done", 2000)}, nil
-	})
-	v := vfs.NewVFS(reg)
-	ctxMgr := rnixctx.NewManager()
-	k := NewKernel(v, ctxMgr, nil)
-	defer k.Shutdown()
-
-	pool := NewBudgetPool(50000)
-	groupID := types.PGID(200)
-	k.RegisterBudgetPool(groupID, pool)
-
-	pid, err := k.Spawn("budget pool test", nil, SpawnOpts{ContextBudget: 10000})
-	if err != nil {
-		t.Fatalf("Spawn failed: %v", err)
-	}
-	_ = k.JoinGroup(pid, groupID)
-
-	pool.AllocateQuota(pid, "test-agent", PriorityNormal)
-
-	proc, _ := k.GetProcess(pid)
-	select {
-	case <-proc.Done:
-	case <-time.After(5 * time.Second):
-		t.Fatal("timed out waiting for process")
-	}
-
-	status := pool.GetStatus()
-	if status.Consumed == 0 {
-		t.Fatal("expected pool consumed > 0 after reasonStep completed")
 	}
 }

@@ -210,9 +210,6 @@ type KernelImpl struct {
 	msgQueues *xsync.SyncMap[types.PID, *MessageQueue]
 	msgSeq    atomic.Uint64
 
-	// Process groups (Story 6.3)
-	procGroups *xsync.SyncMap[types.PGID, *ProcGroup]
-
 	// MCP mount manager (Story 9.1)
 	mountMgr MountManager
 
@@ -275,13 +272,6 @@ type KernelImpl struct {
 	// hanging. (Epic 44 follow-up to the dashboard-`r` regression.)
 	projectConfigLoader func(projectDir string) (*config.ProjectConfig, error)
 
-	// Budget pools (Story 21.1)
-	budgetPools *xsync.SyncMap[types.PGID, *BudgetPool]
-
-	// SLA results (Story 21.2)
-	slaResults   *xsync.SyncMap[types.PGID, []*SLAResult]
-	slaResultsMu sync.Mutex // guards Load+Modify+Store on slaResults
-
 	// Process history (Story 29.4)
 	procHistory *ProcessHistory
 
@@ -338,11 +328,8 @@ func NewKernel(v *vfs.VFS, ctxMgr *rnixctx.Manager, cb KernelCallbacks) *KernelI
 		reapCh:       make(chan types.PID, 64),
 		stopCh:       make(chan struct{}),
 		msgQueues:    xsync.NewSyncMap[types.PID, *MessageQueue](),
-		procGroups:   xsync.NewSyncMap[types.PGID, *ProcGroup](),
 		spanRecorder: debug.NewSpanRecorder(),
 		procHistory:  NewProcessHistory(1000),
-		budgetPools:  xsync.NewSyncMap[types.PGID, *BudgetPool](),
-		slaResults:   xsync.NewSyncMap[types.PGID, []*SLAResult](),
 		featureFlags: FullFeatureFlags(),
 	}
 	k.startReaper()

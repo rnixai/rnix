@@ -224,8 +224,7 @@ func (k *KernelImpl) reapSuspendedProcess(proc *Process) {
 			queue.close()
 		}
 
-		// Clean up groups and signal state
-		k.removeFromAllGroups(proc.PID, proc)
+		// Clean up signal state
 		proc.ClearSignalState()
 		proc.ClearThreads()
 		proc.ClearCoroutines()

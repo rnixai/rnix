@@ -17,7 +17,6 @@ type Method string
 const (
 	MethodPing         Method = "ping"
 	MethodSpawn        Method = "spawn"
-	MethodBudgetStatus Method = "budget_status"
 	MethodDaemonStatus Method = "daemon_status"
 	MethodAttachDebug  Method = "attach_debug"
 	MethodListEvents   Method = "list_events"
@@ -159,26 +158,6 @@ type DaemonStatusResponse struct {
 	StartedAt       int64           `json:"started_at_ms,omitempty"`
 	FeatureProfile  string          `json:"feature_profile"`
 	FeatureFlags    map[string]bool `json:"feature_flags,omitempty"`
-}
-
-type BudgetStatusRequest struct {
-	GroupID uint64 `json:"group_id"`
-}
-
-type BudgetStatusResponse struct {
-	TotalBudget int              `json:"total_budget"`
-	Allocated   int              `json:"allocated"`
-	Consumed    int              `json:"consumed"`
-	Remaining   int              `json:"remaining"`
-	Quotas      []AgentQuotaWire `json:"quotas"`
-}
-
-type AgentQuotaWire struct {
-	PID      uint64 `json:"pid"`
-	Name     string `json:"name"`
-	Priority string `json:"priority"`
-	Quota    int    `json:"quota"`
-	Consumed int    `json:"consumed"`
 }
 
 type AttachDebugRequest struct {

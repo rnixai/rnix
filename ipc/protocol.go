@@ -23,7 +23,6 @@ type Method = wire.Method
 const (
 	MethodPing         = wire.MethodPing
 	MethodSpawn        = wire.MethodSpawn
-	MethodBudgetStatus = wire.MethodBudgetStatus
 	MethodDaemonStatus = wire.MethodDaemonStatus
 	MethodAttachDebug  = wire.MethodAttachDebug
 	MethodListEvents   = wire.MethodListEvents
@@ -56,28 +55,26 @@ const (
 	MethodIntentList             Method = "intent_list"
 	MethodLineage                Method = "lineage"
 	MethodProviderStatus         Method = "provider_status"
-	// MethodBudgetStatus — re-exported from wire above.
-	MethodSLAStatus        Method = "sla_status"
-	MethodReputationStatus Method = "reputation_status"
-	MethodSynergyList      Method = "synergy_list"
-	MethodImmuneStatus     Method = "immune_status"
-	MethodImmuneResume     Method = "immune_resume"
-	MethodSimilarityQuery  Method = "similarity_query"
-	MethodTopologyQuery    Method = "topology_query"
-	MethodGetStepDetail    Method = "get_step_detail"
-	MethodListSteps        Method = "list_steps"
-	MethodGetRawCapture    Method = "get_raw_capture"
-	MethodGetProcDetail    Method = "get_proc_detail"
-	MethodTraceList        Method = "trace_list"
-	MethodTraceTree        Method = "trace_tree"
-	MethodListAllProcs     Method = "list_all_procs"
-	MethodSuspend          Method = "suspend"
-	MethodHeartbeatStatus  Method = "heartbeat_status"
-	MethodCompact          Method = "compact"
-	MethodAnswerUser       Method = "answer_user"
-	MethodSignalTree       Method = "signal_tree"
-	MethodListResumable    Method = "list_resumable"
-	MethodGetResumeLineage Method = "get_resume_lineage"
+	MethodReputationStatus       Method = "reputation_status"
+	MethodSynergyList            Method = "synergy_list"
+	MethodImmuneStatus           Method = "immune_status"
+	MethodImmuneResume           Method = "immune_resume"
+	MethodSimilarityQuery        Method = "similarity_query"
+	MethodTopologyQuery          Method = "topology_query"
+	MethodGetStepDetail          Method = "get_step_detail"
+	MethodListSteps              Method = "list_steps"
+	MethodGetRawCapture          Method = "get_raw_capture"
+	MethodGetProcDetail          Method = "get_proc_detail"
+	MethodTraceList              Method = "trace_list"
+	MethodTraceTree              Method = "trace_tree"
+	MethodListAllProcs           Method = "list_all_procs"
+	MethodSuspend                Method = "suspend"
+	MethodHeartbeatStatus        Method = "heartbeat_status"
+	MethodCompact                Method = "compact"
+	MethodAnswerUser             Method = "answer_user"
+	MethodSignalTree             Method = "signal_tree"
+	MethodListResumable          Method = "list_resumable"
+	MethodGetResumeLineage       Method = "get_resume_lineage"
 
 	// Story 44.4 — dedicated subtree pause/resume methods. dashboard p/r keys
 	// route through these instead of emitting raw SIGPAUSE/SIGRESUME via
@@ -1153,53 +1150,6 @@ type ProviderStatusWire struct {
 	Driver string `json:"driver"`
 	Health string `json:"health"`           // "healthy", "unhealthy", "unchecked"
 	Source string `json:"source,omitempty"` // "global", "project"
-}
-
-// --- Budget Status (Story 21.1) ---
-
-// BudgetStatusRequest is the payload for MethodBudgetStatus.
-type BudgetStatusRequest struct {
-	GroupID types.PGID `json:"group_id"`
-}
-
-// BudgetStatusResponse is the response for MethodBudgetStatus.
-type BudgetStatusResponse struct {
-	TotalBudget int              `json:"total_budget"`
-	Allocated   int              `json:"allocated"`
-	Consumed    int              `json:"consumed"`
-	Remaining   int              `json:"remaining"`
-	Quotas      []AgentQuotaWire `json:"quotas"`
-}
-
-// AgentQuotaWire is the wire-format representation of a single agent's quota.
-type AgentQuotaWire struct {
-	PID      types.PID `json:"pid"`
-	Name     string    `json:"name"`
-	Priority string    `json:"priority"`
-	Quota    int       `json:"quota"`
-	Consumed int       `json:"consumed"`
-}
-
-// --- SLA Status (Story 21.2) ---
-
-// SLAStatusRequest is the payload for MethodSLAStatus.
-type SLAStatusRequest struct {
-	GroupID types.PGID `json:"group_id"`
-}
-
-// SLAStatusResponse is the response for MethodSLAStatus.
-type SLAStatusResponse struct {
-	Results []SLAResultWire `json:"results"`
-}
-
-// SLAResultWire is the wire-format representation of kernel.SLAResult.
-type SLAResultWire struct {
-	AgentName  string                  `json:"agent_name"`
-	PID        types.PID               `json:"pid,omitempty"`
-	Passed     bool                    `json:"passed"`
-	Checks     []kernel.SLACheckResult `json:"checks"`
-	TokensUsed int                     `json:"tokens_used"`
-	DurationMs int64                   `json:"duration_ms"`
 }
 
 // --- Reputation Status (Story 21.3) ---

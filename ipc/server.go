@@ -361,10 +361,6 @@ func (s *Server) handleConn(conn net.Conn) {
 			s.handleLineage(conn, req.Payload)
 		case MethodProviderStatus:
 			s.handleProviderStatus(conn)
-		case MethodBudgetStatus:
-			s.handleBudgetStatus(conn, req.Payload)
-		case MethodSLAStatus:
-			s.handleSLAStatus(conn, req.Payload)
 		case MethodReputationStatus:
 			s.handleReputationStatus(conn, req.Payload)
 		case MethodSynergyList:

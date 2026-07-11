@@ -1244,32 +1244,6 @@ func (c *Client) ProviderStatus() ([]ProviderStatusWire, error) {
 	return pr.Providers, nil
 }
 
-// BudgetStatus returns the budget pool status for the given process group.
-func (c *Client) BudgetStatus(groupID types.PGID) (*BudgetStatusResponse, error) {
-	resp, err := c.call(MethodBudgetStatus, BudgetStatusRequest{GroupID: groupID})
-	if err != nil {
-		return nil, err
-	}
-	var result BudgetStatusResponse
-	if err := json.Unmarshal(resp.Payload, &result); err != nil {
-		return nil, fmt.Errorf("ipc: unmarshal budget_status: %w", err)
-	}
-	return &result, nil
-}
-
-// SLAStatus returns the SLA evaluation results for the given process group.
-func (c *Client) SLAStatus(groupID types.PGID) (*SLAStatusResponse, error) {
-	resp, err := c.call(MethodSLAStatus, SLAStatusRequest{GroupID: groupID})
-	if err != nil {
-		return nil, err
-	}
-	var result SLAStatusResponse
-	if err := json.Unmarshal(resp.Payload, &result); err != nil {
-		return nil, fmt.Errorf("ipc: unmarshal sla_status: %w", err)
-	}
-	return &result, nil
-}
-
 // ReputationStatus returns reputation summaries for the specified agent or all agents.
 func (c *Client) ReputationStatus(agentName string) (*ReputationStatusResponse, error) {
 	resp, err := c.call(MethodReputationStatus, ReputationStatusRequest{AgentName: agentName})
