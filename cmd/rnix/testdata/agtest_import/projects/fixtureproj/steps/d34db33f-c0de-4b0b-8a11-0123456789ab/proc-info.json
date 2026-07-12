@@ -1,0 +1,1 @@
+{"pid":42,"uuid":"d34db33f-c0de-4b0b-8a11-0123456789ab","ppid":0,"state":"dead","intent":"echo a greeting via shell and report it","tokens_used":130,"created_at":"2026-07-01T00:00:00Z","ctx_id":1,"result":"hi-from-import produced the greeting","provider":"replay","model":"scripts/import-fixture.responses.yaml","exit_code":0}

@@ -20,6 +20,8 @@ make test           # Run all tests with race detection
 make lint           # golangci-lint
 make vet            # go vet
 make all            # lint + vet + test + build
+make agtest         # Tier1 agent-behavior regression suite, isolated daemon (PR gate; not part of `all`)
+make agtest-live    # Tier2 advisory suite against your ambient daemon + real provider/API key
 
 # Run a single test
 go test -race -run TestFunctionName ./package/...

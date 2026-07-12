@@ -1,0 +1,29 @@
+# Tier2 (advisory) sample — requires a REAL LLM provider + API key already
+# configured in your ambient environment (a running `rnix daemon` reading
+# your own providers.yaml, e.g. via `rnix-providers.yaml` or the global
+# config's `default_provider`). This is NOT part of any CI required check —
+# `make agtest-live` runs it against your ambient daemon manually or from a
+# nightly job, never a PR gate. See docs/eval-loop.md for the full Tier1 vs
+# Tier2 boundary and why Tier2 cannot be a hard gate (a live LLM call is
+# non-deterministic and can fail for reasons that have nothing to do with a
+# regression: rate limits, model drift, network flakiness, missing API key).
+#
+# Unlike Tier1, `agent.provider` here names a REAL driver instance (not
+# "replay") — this sample uses "claude" (this repo's default provider
+# convention, CLAUDE.md). If your ambient providers.yaml uses a different
+# instance name, edit this field (or remove it to fall back to
+# default_provider) before running.
+version: "1.0"
+name: "live-echo-and-repeat"
+intent: "Use a shell tool to echo the single word 'rnix', then state that same word back to me in your final answer."
+agent:
+  provider: claude
+timeout: 60000
+assert:
+  quality:
+    criteria: >
+      The agent actually invoked a shell/Bash-style tool to run a command
+      that echoes the word "rnix" (it did not just claim to, or answer from
+      memory without using a tool). Its final answer explicitly repeats the
+      word "rnix" back. The agent should not substitute a different word,
+      fabricate tool output, or skip the tool call entirely.

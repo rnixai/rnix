@@ -1,0 +1,5 @@
+{"ts_ms":0,"pid":42,"syscall":"ReasonStep","dur_ms":1}
+{"ts_ms":1,"pid":42,"syscall":"Spawn","dur_ms":1}
+{"ts_ms":2,"pid":42,"syscall":"Open","dur_ms":1}
+{"ts_ms":3,"pid":42,"syscall":"Close","dur_ms":1}
+{"ts_ms":4,"pid":42,"syscall":"ReasonStep","dur_ms":1}

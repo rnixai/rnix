@@ -16,8 +16,9 @@ import (
 )
 
 var (
-	flagAgtestDryRun bool
+	flagAgtestDryRun  bool
 	flagAgtestTimeout int64
+	flagAgtestTier1   bool
 )
 
 var agtestCmd = &cobra.Command{
@@ -38,6 +39,7 @@ Accepts a single YAML file or a directory containing *.yaml files.`,
 func init() {
 	agtestCmd.Flags().BoolVar(&flagAgtestDryRun, "dry-run", false, "Parse and validate only, do not execute tests")
 	agtestCmd.Flags().Int64Var(&flagAgtestTimeout, "timeout", 60000, "Global timeout per test case in milliseconds")
+	agtestCmd.Flags().BoolVar(&flagAgtestTier1, "tier1", false, "Enforce Tier1 deterministic assertion discipline (agtest.ValidateTier1) before parsing/running")
 	rootCmd.AddCommand(agtestCmd)
 }
 
@@ -59,6 +61,16 @@ func runAgtest(cmd *cobra.Command, args []string) error {
 
 	if err != nil {
 		return agtestError(w, err.Error())
+	}
+
+	// Tier1 discipline is opt-in (Story 68.3 裁决 2): a plain `rnix agtest` call
+	// never sees this check, so ordinary Tier2/adhoc suites are unaffected.
+	// Checked in both dry-run and execute mode so `--dry-run --tier1` can be
+	// used as a pure CI-style lint step without spawning anything.
+	if flagAgtestTier1 {
+		if err := agtest.ValidateTier1(suite); err != nil {
+			return agtestError(w, err.Error())
+		}
 	}
 
 	if flagAgtestDryRun {

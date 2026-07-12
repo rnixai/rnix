@@ -1,0 +1,13 @@
+# Reconstructed by `rnix agtest import` from a real recorded run's
+# steps.jsonl, then hand-reviewed (Story 68.3 reverse-proof — see the paired
+# 11-imported-from-recording.yaml case file).
+version: "1"
+responses:
+  - tool_calls:
+      - name: Bash
+        input:
+          command: echo import-e2e-check
+  - tool_calls:
+      - name: Complete
+        input:
+          result: import-e2e-check produced the expected echo

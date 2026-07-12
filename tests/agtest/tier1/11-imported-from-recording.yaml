@@ -1,0 +1,19 @@
+# Seeded via Story 68.3's `rnix agtest import` reverse-proof: recorded a real
+# replay-driven run (`rnix --provider replay --model <script> -i "..."`),
+# imported it with `rnix agtest import <uuid>`, reviewed the generated
+# skeleton's commented-out suggestions, and filled in the assertions below.
+# See docs/eval-loop.md#失败转用例流程 for the full workflow this case
+# demonstrates end to end.
+version: "1.0"
+name: imported-from-recording
+intent: "echo a distinctive phrase and report it back"
+agent:
+  provider: replay
+  model: scripts/11-imported-from-recording.responses.yaml
+timeout: 30000
+assert:
+  output:
+    contains: ["import-e2e-check produced the expected echo"]
+  syscalls:
+    includes: ["ReasonStep", "Spawn", "Open", "Close"]
+    excludes: ["Kill"]

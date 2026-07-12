@@ -80,11 +80,29 @@ schema). Key rules:
   (`Bash`, `Read`, ...) — cases omit `agent.name`, so they run a direct intent
   spawn with the default tool set available.
 
-## Running
+## Make targets (Story 68.3)
+
+The unattended, isolated-daemon runner — this is what CI and most local runs
+should use:
+
+```bash
+make agtest        # Tier1 (this directory), isolated daemon, PR gate
+make agtest-live   # Tier2 (tests/agtest/tier2/), your ambient daemon, advisory
+```
+
+`make agtest` runs `tests/agtest/run-tier1.sh`: it starts a daemon in a
+throwaway `mktemp` sandbox (own socket / data dir / global config — never your
+real `rnix daemon`), writes this directory's `providers.example.yaml` into
+that sandbox's config, runs `rnix agtest tests/agtest/tier1/ --tier1`, and
+cleans up on any exit path (pass or fail). Not part of `make all` — it drives
+a real spawn/daemon/VFS stack, a different failure class than `go test`. Full
+walkthrough (including the failure-to-case workflow below): see
+[`docs/eval-loop.md`](../../docs/eval-loop.md).
+
+## Running (manual, for iterating on a single case)
 
 Copy the replay provider declaration into your project config (the `.rnix/`
-directory is gitignored, so this step is manual — the unattended isolated-daemon
-runner is Story 68.3's `make agtest`):
+directory is gitignored, so this step is manual):
 
 ```bash
 mkdir -p .rnix
@@ -97,11 +115,35 @@ repository root:
 
 ```bash
 rnix daemon stop        # CLI auto-restarts a fresh daemon on next command
-rnix agtest tests/agtest/tier1/ --dry-run   # parse + validate only
-rnix agtest tests/agtest/tier1/             # execute
+rnix agtest tests/agtest/tier1/ --dry-run           # parse + validate only
+rnix agtest tests/agtest/tier1/ --dry-run --tier1   # + enforce Tier1 discipline
+rnix agtest tests/agtest/tier1/                     # execute
 ```
 
-`timeout` in a case is milliseconds (`30000` = 30s).
+`timeout` in a case is milliseconds (`30000` = 30s). `--tier1` calls the same
+`agtest.ValidateTier1` the `tier1_guard_test.go` repository guard and
+`make agtest` both use — handy to check a new/edited case before it ever
+reaches CI.
+
+## Importing a failure into a case (Story 68.3)
+
+Turn a real (mis)behaving process into a regression case without hand-writing
+the response script:
+
+```bash
+rnix ps -a --uuid                  # find the UUID (or its last-6 short id)
+rnix agtest import <uuid>          # generates tests/agtest/imported/import-<short>.{yaml,...}
+```
+
+Reads `steps.jsonl` / `proc-info.json` / `events.jsonl` directly off disk — no
+daemon required. The output is a **skeleton, not a ready case**: assertions
+are only commented-out suggestions (no live `assert:` key), so
+`agtest.ValidateTier1` refuses it on purpose until a human fills in real
+assertions. Review the warnings printed in both generated files' headers, then
+move the pair into `tier1/` + `tier1/scripts/`, renaming to the next
+`NN-slug` ordinal, and confirm with `make agtest`. `tests/agtest/imported/` is
+gitignored — nothing there is ever auto-committed. Full step-by-step: see
+[`docs/eval-loop.md`](../../docs/eval-loop.md#失败转用例流程).
 
 ## Determinism check (two-run equality)
 

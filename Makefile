@@ -11,6 +11,7 @@ LDFLAGS := -X main.ldVersion=$(GIT_VERSION) -X main.ldGitCommit=$(GIT_COMMIT) -X
 GH := NO_PROXY="*" HTTP_PROXY="" HTTPS_PROXY="" gh
 
 .PHONY: build install test test-cover lint vet modernize modernize-check clean cache-clean all \
+	agtest agtest-live \
 	changelog-check release-notes release publish release-watch help \
 	gh-status gh-view gh-repo-edit gh-pr gh-pr-list gh-issue gh-issue-list gh-push
 .DEFAULT_GOAL := help
@@ -68,6 +69,26 @@ cache-clean:
 	go clean -cache -testcache
 
 all: lint vet modernize-check test build
+
+# --- agent behavior regression (Story 68.3) ---
+#
+# Deliberately NOT part of `all:` (that line does not change — Story 68.3
+# 拍板红线): agtest exercises a real spawn/daemon/VFS stack end to end, which
+# is a different failure class than `go test`, and CI runs it as its own
+# job (.github/workflows/test.yml) in parallel with lint/vet/test rather than
+# serially inside `make all`.
+
+# Tier1: deterministic golden suite, PR-blocking. Starts an isolated daemon
+# (own socket/data/config — never the ambient `rnix daemon`) via
+# tests/agtest/run-tier1.sh, which cleans up on any exit path.
+agtest: build
+	bash tests/agtest/run-tier1.sh
+
+# Tier2: advisory live-LLM suite against the user's ambient daemon and real
+# provider config — never wired into any CI required check. Requires a
+# working `rnix daemon` + real API keys already configured.
+agtest-live: build
+	./rnix daemon start && ./rnix agtest tests/agtest/tier2/
 
 # --- Release workflow ---
 
@@ -189,6 +210,9 @@ help: ## Show this help
 	@printf "  \033[36m%-18s\033[0m %s\n" "all"             "lint + vet + modernize-check + test + build"
 	@printf "  \033[36m%-18s\033[0m %s\n" "clean"           "Remove build artifacts"
 	@printf "  \033[36m%-18s\033[0m %s\n" "cache-clean"     "Clean lint and Go caches"
+	@printf "\n  \033[1mAgent behavior regression:\033[0m\n"
+	@printf "  \033[36m%-18s\033[0m %s\n" "agtest"          "Run the Tier1 golden suite in an isolated daemon (PR gate)"
+	@printf "  \033[36m%-18s\033[0m %s\n" "agtest-live"     "Run the Tier2 advisory suite against your ambient daemon"
 	@printf "\n  \033[1mRelease (VERSION=x.y.z):\033[0m\n"
 	@printf "  \033[36m%-18s\033[0m %s\n" "changelog-check" "Verify CHANGELOG.md has a section for VERSION"
 	@printf "  \033[36m%-18s\033[0m %s\n" "release-notes"   "Print the CHANGELOG body for VERSION"
