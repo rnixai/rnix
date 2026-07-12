@@ -7,6 +7,36 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.12.0] - 2026-07-12
+
+Theme: **Process Lifecycle Accuracy & Agent-Behavior Testing (Epics 64–68)** — the Dashboard now reports process state truthfully across daemon restarts and interruptions, terminated processes carry a clear reason for why they ended, and a new `rnix agtest` framework makes agent behavior regression-testable with scripted LLM responses.
+
+### Added
+
+- **`rnix agtest` — agent-behavior regression testing (Epic 68)**: run declarative agent-behavior test cases (`rnix agtest [file-or-dir]`) against a replay LLM driver that serves scripted responses, so agent loops can be validated deterministically without a live provider. A Tier1 suite runs against an isolated daemon as a PR gate (`make agtest`), and a Tier2 advisory suite runs against a real provider (`make agtest-live`).
+- **`rnix agtest import <uuid>`**: convert a previously recorded process session into a replayable test case, turning real-world runs into regression fixtures.
+- **Resume with new input**: `rnix resume --new-input` carries a fresh user message into the resumed conversation, enabling continue-with-follow-up workflows instead of resuming verbatim.
+- **Process exit reasons & termination attribution (Epic 66)**: terminated processes now record why they ended — including who or what killed them — and surface it in process listings and the Dashboard.
+- **Fallback provider on spawn failure**: when the primary LLM provider fails at spawn, the process can fall back to a configured alternate provider, with a visible warning instead of a silent failure.
+- **Interrupted process state**: processes cut off mid-stream (e.g. daemon shutdown or a dropped LLM connection) are now distinguished from cleanly failed ones, in both process history and Dashboard statistics.
+- **Memory recall for newly committed memories**: memories written during a session are now immediately recallable by other processes, closing the write-to-read loop without a daemon restart.
+
+### Changed
+
+- **Dashboard state accuracy (Epic 64)**: dead processes no longer linger as Running after a daemon restart, running counts no longer include zombies, and duplicate history entries are reconciled — the Dashboard now reflects true process state.
+- **Streaming tool-call traces (Epic 65)**: incremental tool-call input fragments from streaming drivers are aggregated into single readable trace entries instead of appearing as fragment noise, with cleaner previews in the Dashboard.
+- **Interrupted-stream error handling**: an LLM stream that dies mid-response now produces an explicit, attributable error instead of an ambiguous failure.
+
+### Fixed
+
+- **Dashboard sub-agent display**: reconstructed sub-agent nodes no longer show a false failure badge, and their step details open correctly.
+- **Resume output restoration**: resuming from a checkpoint now also restores the final assistant output of the prior run.
+- **Orphaned OS process cleanup**: child OS processes are reconciled by process group, so nothing is left behind when an agent process ends.
+
+### Removed
+
+- **Legacy budget/SLA subsystem**: an unused internal budget and SLA tracking mechanism and its IPC methods were removed; unknown methods degrade gracefully.
+
 ## [0.11.0] - 2026-07-06
 
 Theme: **CLI Driver Reliability & Shell-Channel Orchestration (Epics 61–63)** — orchestration exit codes now reflect real failures instead of incidental tool errors, the Codex driver's sandbox can be configured explicitly, and processes spawned from outside the daemon can attach correctly to the process tree and be waited on synchronously.
@@ -564,6 +594,8 @@ Theme: **Process lifecycle reshape** — resume from history, unified subtree pa
 - **IPC Protocol**: NDJSON over Unix socket request/response protocol
 - **VFS Devices**: `/dev/llm/claude`, `/dev/fs`, `/dev/shell` device implementations
 
+[0.12.0]: https://github.com/rnixai/rnix/compare/v0.11.0...v0.12.0
+[0.11.0]: https://github.com/rnixai/rnix/compare/v0.10.1...v0.11.0
 [0.10.1]: https://github.com/rnixai/rnix/compare/v0.10.0...v0.10.1
 [0.10.0]: https://github.com/rnixai/rnix/compare/v0.9.4...v0.10.0
 [0.9.4]: https://github.com/rnixai/rnix/compare/v0.9.3...v0.9.4
