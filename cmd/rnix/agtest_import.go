@@ -81,19 +81,36 @@ func runAgtestImport(cmd *cobra.Command, args []string) error {
 		return agtestError(w, fmt.Sprintf("no steps recorded for %s (%s is empty or unreadable)", match.uuid, stepsPath))
 	}
 
-	info := readImportProcInfo(filepath.Join(match.dir, "proc-info.json"))
+	info, procWarn := readImportProcInfo(filepath.Join(match.dir, "proc-info.json"))
 
 	// events.jsonl is raw material for a suggested assertion, not a hard
-	// dependency — missing/unreadable degrades to an empty suggestion list.
+	// dependency — a truly absent file degrades silently to an empty suggestion
+	// list, but a present-but-unreadable file (corrupt / oversized line) surfaces
+	// a warning so real corruption isn't mislabeled as "missing".
 	var eventTypes []string
+	var eventWarn string
 	if events, evErr := kernel.ReadAllEvents(filepath.Join(match.dir, "events.jsonl")); evErr == nil {
 		eventTypes = dedupSyscallTypes(events)
+	} else if !os.IsNotExist(evErr) {
+		eventWarn = fmt.Sprintf("events.jsonl was present but unreadable (%v) — syscall suggestions degraded to empty, inspect the file manually", evErr)
 	}
 
 	responses, warnings := buildImportResponses(steps, info.Result)
+	if procWarn != "" {
+		warnings = append(warnings, procWarn)
+	}
+	if eventWarn != "" {
+		warnings = append(warnings, eventWarn)
+	}
 
 	slug := "import-" + shortUUID(match.uuid)
-	outDir := flagAgtestImportOut
+	outDir := strings.TrimSpace(flagAgtestImportOut)
+	if outDir == "" {
+		// An empty --out would filepath.Join into a cwd-relative path, landing
+		// the skeleton outside the gitignored tests/agtest/imported/ guard
+		// (Review 2026-07-12).
+		return agtestError(w, "--out must not be empty (the default is tests/agtest/imported)")
+	}
 	scriptRelPath := filepath.Join("scripts", slug+".responses.yaml")
 	casePath := filepath.Join(outDir, slug+".yaml")
 	scriptPath := filepath.Join(outDir, scriptRelPath)
@@ -124,6 +141,10 @@ func runAgtestImport(cmd *cobra.Command, args []string) error {
 		return agtestError(w, fmt.Sprintf("write %s: %v", scriptPath, err))
 	}
 	if err := os.WriteFile(casePath, caseYAML, 0o644); err != nil {
+		// Roll back the just-written script so a re-run isn't blocked by a
+		// misleading refuse-overwrite pointing at an orphan script whose case
+		// never landed (Review 2026-07-12).
+		_ = os.Remove(scriptPath)
 		return agtestError(w, fmt.Sprintf("write %s: %v", casePath, err))
 	}
 
@@ -257,17 +278,24 @@ type importProcInfo struct {
 	ExitCode int    `json:"exit_code"`
 }
 
-// readImportProcInfo degrades to a zero-value struct on any read/parse
-// failure — proc-info.json is optional context (intent backfill / result
-// candidate), never a hard dependency the way steps.jsonl is.
-func readImportProcInfo(path string) importProcInfo {
+// readImportProcInfo degrades to a zero-value struct on read/parse failure —
+// proc-info.json is optional context (intent backfill / result candidate),
+// never a hard dependency the way steps.jsonl is. A truly absent file degrades
+// silently (empty warning); a present-but-corrupt file returns a warning so the
+// generated skeleton doesn't mislabel real corruption as "no intent recorded".
+func readImportProcInfo(path string) (importProcInfo, string) {
 	var info importProcInfo
 	data, err := os.ReadFile(path)
 	if err != nil {
-		return info
+		if os.IsNotExist(err) {
+			return info, ""
+		}
+		return info, fmt.Sprintf("proc-info.json was present but unreadable (%v) — intent/result backfill degraded to empty", err)
 	}
-	_ = json.Unmarshal(data, &info)
-	return info
+	if err := json.Unmarshal(data, &info); err != nil {
+		return info, fmt.Sprintf("proc-info.json is corrupt (%v) — intent/result backfill degraded to empty", err)
+	}
+	return info, ""
 }
 
 // dedupSyscallTypes extracts the distinct SyscallEventDisk.Syscall type names
@@ -379,7 +407,7 @@ func buildImportResponses(steps []types.StepRecord, procResult string) (response
 			responses = append(responses, importedResponseYAML{
 				ToolCalls: []importedToolCallYAML{{Name: name, Input: input}},
 			})
-			msg := fmt.Sprintf("step %d: reconstructed from legacy tool_path %q (action=%q) — this step's shape wasn't one of the documented cases, verify carefully", rec.Step, rec.ToolPath, rec.Action)
+			msg := fmt.Sprintf("step %d: reconstructed from legacy tool_path %q (action=%q) using name %q — this is the device path's last segment, NOT a canonical (Decision 45 PascalCase) tool name; it almost certainly must be hand-edited to the real tool name (e.g. shell -> Bash) before this response will replay", rec.Step, rec.ToolPath, rec.Action, name)
 			if warn != "" {
 				msg += "; " + warn
 			}
@@ -399,6 +427,8 @@ func buildImportResponses(steps []types.StepRecord, procResult string) (response
 		if len(last.ToolCalls) > 0 && !lastCallIsComplete(last) {
 			warnings = append(warnings, "the last scripted response is a tool_call that is not Complete — a real replay run would either exhaust the script (fail-loud) or hit max_steps; add a trailing Complete response or confirm this is intentional (tests/agtest/README.md)")
 		}
+	} else if len(steps) > 0 {
+		warnings = append(warnings, fmt.Sprintf("none of the %d recorded step(s) yielded a reconstructable response — the generated script's `responses:` list is EMPTY and the first replay Read will fail-loud; inspect steps.jsonl manually before using this skeleton", len(steps)))
 	}
 
 	return responses, warnings
@@ -421,18 +451,22 @@ func textOrSummary(rec types.StepRecord) string {
 	return rec.Summary
 }
 
-// decodeToolInput best-effort JSON-decodes a recorded input string into a map
-// for YAML re-serialization. Empty input decodes to (nil, ""). A non-empty
-// string that isn't valid JSON is passed through unchanged as a raw string
-// value, together with a warning describing the failure — generation must
-// never abort over one malformed step (Story 68.3 「import 生成映射」表).
+// decodeToolInput best-effort JSON-decodes a recorded input string into any
+// JSON value (object, array, or scalar) for YAML re-serialization. Empty input
+// decodes to (nil, ""). A non-empty string that isn't valid JSON is passed
+// through unchanged as a raw string value, together with a warning describing
+// the failure — generation must never abort over one malformed step (Story
+// 68.3 「import 生成映射」表).
 func decodeToolInput(raw string) (value any, warning string) {
 	if raw == "" {
 		return nil, ""
 	}
-	var m map[string]any
-	if err := json.Unmarshal([]byte(raw), &m); err == nil {
-		return m, ""
+	// Decode into any (not map) so a legitimate JSON array/scalar input keeps
+	// its structure instead of being misreported as "not valid JSON" and
+	// flattened into a raw string (Review 2026-07-12).
+	var v any
+	if err := json.Unmarshal([]byte(raw), &v); err == nil {
+		return v, ""
 	}
 	return raw, fmt.Sprintf("input was not valid JSON (%s), inlined as a raw string", truncateForJudge(raw, 80))
 }
@@ -460,6 +494,11 @@ func renderImportScript(responses []importedResponseYAML, warnings []string) ([]
 	b.WriteString("# Story 68.1 response-script format (drivers/llm/replay.go). No `usage` block\n")
 	b.WriteString("# is ever generated here — large token counts trip the context Compactor and\n")
 	b.WriteString("# destroy Tier1 determinism; add one by hand only if you know it stays small.\n")
+	b.WriteString("#\n")
+	b.WriteString("# DETERMINISM: replay only scripts the LLM's *output* — the tool_calls below\n")
+	b.WriteString("# are RE-EXECUTED for real on replay. Before moving this into tier1/, confirm\n")
+	b.WriteString("# every tool here is deterministic: no date/hostname/network/random, no reads\n")
+	b.WriteString("# of machine-specific absolute paths — otherwise the Tier1 case will flake in CI.\n")
 	writeWarningComments(&b, warnings)
 	b.WriteString("\n")
 	b.Write(body)
@@ -550,7 +589,13 @@ func outputCandidate(result string) (string, bool) {
 		return "", false
 	}
 	line := strings.TrimSpace(strings.SplitN(result, "\n", 2)[0])
-	line = truncateForJudge(line, 80)
+	// Truncate by rune (CJK-safe) but WITHOUT an ellipsis: this value is a
+	// copy-paste-ready `contains:` suggestion, and a trailing "..." would make
+	// the assertion string mismatch the real output if used verbatim
+	// (Review 2026-07-12).
+	if r := []rune(line); len(r) > 80 {
+		line = string(r[:80])
+	}
 	if line == "" || looksMachineDependent(line) {
 		return "", false
 	}
