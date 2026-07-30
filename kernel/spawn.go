@@ -871,18 +871,13 @@ func (k *KernelImpl) Spawn(intent string, agent *agents.AgentInfo, opts SpawnOpt
 			}
 		}
 
-		if k.contextWindowFunc != nil {
-			proc.ContextWindow = k.contextWindowFunc(proc.Provider, proc.Model)
-		}
-
-		if proc.ContextBudget == 0 && proc.ContextWindow > 0 {
-			proc.ContextBudget = proc.ContextWindow * 9 / 10
-		}
-		if proc.ContextBudget > 0 && proc.ContextWindow > 0 && proc.ContextBudget > proc.ContextWindow {
-			log.Printf("[kernel] pid=%d clamped context_budget %d to context_window %d",
-				proc.PID, proc.ContextBudget, proc.ContextWindow)
-			proc.ContextBudget = proc.ContextWindow
-		}
+		// Story 69.2 — resolve the context window here, not at CtxAlloc time:
+		// proc.Provider / proc.Model only become known once the LLM device has
+		// been opened inside this !SkipReasonLoop block, so contextWindowFunc
+		// would return 0 anywhere earlier. See kernel/ctx_token_limit.go for the
+		// full providers.yaml → ctx.TokenLimit scale chain.
+		k.resolveContextBudget(proc)
+		k.applyCtxTokenLimit(proc)
 
 		// Determine model source: CLI --model > agent manifest preferred > driver default
 		modelSource := "driver"

@@ -561,8 +561,16 @@ func (m *Manager) TokenUsage(cid types.CtxID) (TokenStats, error) {
 		sysPrompt = sections.Build()
 	}
 	total := EstimateTokens(sysPrompt)
+	// Story 69.2 AC2/AC7: per-message accounting goes through the single
+	// EstimateMessageTokens口径 so ToolCalls / ReasoningBlocks / Reasoning stop
+	// being invisible to the token axis. It stays OUTSIDE the read lock and
+	// reads only the snapshot copied above — moving this loop back under
+	// ctx.mu.RLock to reach ToolCalls would revive the Story 69.1 deadlock
+	// (Sections.Build → backpressure ComputeFn → SlotUsage → recursive RLock).
+	// The snapshot is shallow: ToolCalls / ReasoningBlocks share backing arrays
+	// with ctx.Messages, so they may be read here but never mutated.
 	for _, msg := range msgs {
-		total += EstimateTokens(msg.Content)
+		total += EstimateMessageTokens(msg)
 	}
 
 	pct := float64(total) / float64(limit) * 100

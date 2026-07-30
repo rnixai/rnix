@@ -1,6 +1,7 @@
 package context
 
 import (
+	"encoding/json"
 	"math"
 )
 
@@ -36,4 +37,61 @@ func EstimateTokens(text string) int {
 
 	tokens := float64(asciiBytes)/3.5 + float64(nonASCIIRunes)/1.5
 	return int(math.Ceil(tokens))
+}
+
+// EstimateMessageTokens estimates the tokens a single Message contributes to a
+// request. It is the SINGLE source of truth for per-message accounting — three
+// call sites depend on it (Manager.TokenUsage, Manager.estimateMessagesTokens,
+// and Compact's postTokens loop). Do not inline a Content-only loop anywhere:
+// before Story 69.2 all three sites counted Content alone, which under-reported
+// tool-heavy workloads by up to 58% and kept the token axis from ever firing.
+//
+// Counted payloads:
+//   - Content and the flat Reasoning field (openai-compat drivers echo
+//     reasoning_content back; DeepSeek returns HTTP 400 when it is dropped).
+//   - ToolCalls[].Name (the tool name goes on the wire) and ToolCalls[].Input.
+//     Input is map[string]any, not a pre-serialized arguments string, so it is
+//     marshalled first. json.Marshal orders keys deterministically; a
+//     fmt.Sprintf("%v", …) would inherit Go's randomized map iteration and make
+//     the estimate jitter between calls. Marshal failure counts 0 for that call
+//     and is otherwise ignored — this is a best-effort statistic, not a
+//     validator, so it must never fail or panic a TokenUsage query.
+//   - ReasoningBlocks[].Thinking and .Data. Thinking is replayed verbatim by
+//     the Anthropic and Gemini drivers (drivers/llm/anthropic.go,
+//     drivers/llm/gemini.go), and Data is the redacted_thinking ciphertext,
+//     which is likewise echoed as request body text.
+//
+// Deliberately NOT counted: ReasoningBlock.Signature and .ThoughtSignature.
+// Both are opaque round-trip credentials rather than model-visible text, and
+// whether a provider bills them as tokens cannot be established from inside
+// this repo. Counting an opaque blob's byte length as "tokens" would silently
+// mix a guess into a number the compact threshold acts on, which
+// [[observability-data-provenance-principle]] forbids; their omission is a
+// bounded, documented residual instead.
+//
+// Story 69.2 AC3 constraint: this function only adds previously-missing fields.
+// It must NOT compensate for tokenizer inaccuracy — EstimateTokens' 3.5 / 1.5
+// ratios stay untouched and no magic multiplier may be introduced here. Ratio
+// calibration would need a provider-feedback loop (raw.jsonl prompt_tokens) and
+// is a separate concern; residual drift is recorded, not papered over.
+func EstimateMessageTokens(msg Message) int {
+	total := EstimateTokens(msg.Content)
+	total += EstimateTokens(msg.Reasoning)
+
+	for _, tc := range msg.ToolCalls {
+		total += EstimateTokens(tc.Name)
+		if len(tc.Input) == 0 {
+			continue
+		}
+		if b, err := json.Marshal(tc.Input); err == nil {
+			total += EstimateTokens(string(b))
+		}
+	}
+
+	for _, rb := range msg.ReasoningBlocks {
+		total += EstimateTokens(rb.Thinking)
+		total += EstimateTokens(rb.Data)
+	}
+
+	return total
 }

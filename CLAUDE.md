@@ -84,7 +84,13 @@ cmd/rnix           ← Entry point, Cobra CLI, all commands
 
 **VFS** (`vfs/`): All resources (LLM, filesystem, shell, MCP) are accessed as files via Open/Read/Write/Close. Devices register path prefixes. Each process has an FD table.
 
-**Context** (`context/`): Per-process message history. `CtxAlloc` → `CtxWrite` → `BuildPrompt` cycle. Fixed-size message array with configurable MaxSize (default 256). When token usage or slot usage exceeds thresholds, Compact replaces history with an LLM-generated summary plus restored context (files, skills, plan).
+**Context** (`context/`): Per-process message history. `CtxAlloc` → `CtxWrite` → `BuildPrompt` cycle. 可增长消息切片 + `MaxSize` 准入上限（默认 256，`SpawnOpts.CtxSize` 可配）——`CtxAlloc` 建的是 `make([]Message, 0)`，`MaxSize` 只在 `AppendAssistantWithToolCalls` 等准入点作上限校验（超限返回 `ErrContextFull`），不是预分配定长数组。When token usage or slot usage exceeds thresholds, Compact replaces history with an LLM-generated summary plus restored context (files, skills, plan).
+
+**token 轴刻度来源**（Story 69.2，配置语义的唯一路径）：`providers.yaml` 的 `providers[].models[<model>].context_window` → `SetContextWindowFunc` 闭包（`cmd/rnix/main.go`）→ `proc.ContextWindow` → `*9/10` → `proc.ContextBudget`（clamp 到 window）→ `ctx.TokenLimit`（`kernel/ctx_token_limit.go` 的 `applyCtxTokenLimit`，覆盖 spawn / checkpoint resume / disk resume 三条路径）→ `TokenUsage().Limit` → compact 的 token 阈值分母。取 `ContextBudget`（9/10）而非裸 window 是为与四处既有观测分母统一（`debug/ctx_profile.go` 的 `usagePct`、`ipc/server_process.go`、`cmd/rnix/top.go`）。未配 `context_window` 时 `ctx.TokenLimit` 保持 0 并回落 `DefaultTokenLimit`（200k）。
+
+⚠️ **`proc.ContextBudget` 是语义重载字段**：除了由 window 派生，它同时是 `agent.yaml` 的 `context_budget` / `init.yaml` / `SpawnOpts` / supervisor `ChildSpec` 设的**单步 InputTokens 勒绳**（`reason.go` 用它判断单步越限即挂起，manifest 里 4096 这类小值很常见）。故 `applyCtxTokenLimit` 的闸门是 `ContextWindow > 0` 而非「budget 非零」——把勒绳当容量刻度会让进程每步都越 80% 阈值并被 compact。
+
+**token 统计口径**：`EstimateMessageTokens`（`context/tokenizer.go`）是**唯一**的 per-message 口径，`TokenUsage` / `estimateMessagesTokens` / `Compact` 的 `postTokens` 三处共用。计入 `Content` + `Reasoning` + `ToolCalls[].Name` + `json.Marshal(ToolCalls[].Input)` + `ReasoningBlocks[].Thinking`/`.Data`；刻意不计 `Signature` / `ThoughtSignature`（不透明凭据，非模型可见文本）。`EstimateTokens` 的 3.5 / 1.5 比率不得改、不得加补偿系数。`debug/ctx_profile.go` 的 `TotalTokens` 仍是 Content-only 口径（其 `CtxMessage` schema 只有 Role/Content/ToolCallID），故**低于** `TokenUsage().Used`，属已知残差。
 
 **Kernel** (`kernel/kernel.go`): Composed of sub-interfaces — ProcessManager, MountManager, IPCManager, SignalManager. Holds SyncMap-based process table.
 

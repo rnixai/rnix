@@ -633,6 +633,19 @@ func (k *KernelImpl) resumeFromCheckpoint(uuid string, opts ResumeOpts, start ti
 		return nil, NewSyscallError("Resume", proc.PID, "", fmt.Errorf("context deserialize: %w", err), types.ErrInternal)
 	}
 
+	// Story 69.2 — the checkpoint snapshot schema (kernel/checkpoint.go) carries
+	// only CtxSize, never ContextWindow / ContextBudget, so this path has no
+	// window to inherit and must RECOMPUTE from the Provider / Model restored
+	// above. Recomputing rather than widening the snapshot schema is deliberate:
+	// it also fixes existing checkpoint files (a new field would only help ones
+	// written from now on), and it picks up a providers.yaml that changed after
+	// the checkpoint was taken. Without this, ContextBudget stays 0, the
+	// applyCtxTokenLimit guard skips silently, and every `rnix resume` degrades
+	// the token scale back to DefaultTokenLimit — exactly how the incident
+	// replayed itself four times in a row. Scale chain: kernel/ctx_token_limit.go.
+	k.resolveContextBudget(proc)
+	k.applyCtxTokenLimit(proc)
+
 	// apex 10-11: checkpoint-path NewInput. Checkpoints are written on the step's
 	// INPUT side (last_step anchors before that round's final assistant output),
 	// so the snapshot usually lacks the previous round's final output — same

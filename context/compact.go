@@ -186,9 +186,13 @@ func (m *Manager) Compact(cid types.CtxID, opts CompactOpts) (*CompactResult, er
 	if ctx.Sections != nil {
 		ctx.Sections.Invalidate()
 	}
+	// Story 69.2: postTokens used to be an inlined Content-only loop — a second
+	// copy of the same accounting that had already drifted from
+	// estimateMessagesTokens. Both now route through EstimateMessageTokens so
+	// PreTokens and PostTokens stay comparable.
 	postTokens := 0
 	for _, msg := range ctx.Messages {
-		postTokens += EstimateTokens(msg.Content)
+		postTokens += EstimateMessageTokens(msg)
 	}
 	ctx.mu.Unlock()
 
@@ -201,10 +205,13 @@ func (m *Manager) Compact(cid types.CtxID, opts CompactOpts) (*CompactResult, er
 }
 
 // estimateMessagesTokens estimates total tokens across all messages (caller must hold at least RLock).
+// Story 69.2: delegates per-message accounting to EstimateMessageTokens so this
+// site cannot drift from TokenUsage / postTokens. The lock contract is unchanged
+// — EstimateMessageTokens is a pure function and takes no locks.
 func (m *Manager) estimateMessagesTokens(ctx *Context) int {
 	total := 0
 	for _, msg := range ctx.Messages {
-		total += EstimateTokens(msg.Content)
+		total += EstimateMessageTokens(msg)
 	}
 	return total
 }

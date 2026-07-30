@@ -219,7 +219,19 @@ func (k *KernelImpl) rehydrateRuntimeStateFromDisk(proc *Process, stepsDir strin
 			fmt.Errorf("context rebuild: %w", err), types.ErrInternal)
 	}
 
-	// 7. Bookkeeping: record the highest replayed step so subtree.go's
+	// 7. Story 69.2 — apply the token scale to the context just allocated above.
+	//    Both callers (resumeFromHistory and LoadSuspendedFromDisk) have already
+	//    inherited ContextWindow / ContextBudget from their on-disk snapshot
+	//    (proc-info.json persists context_window), so this is the one place both
+	//    disk-backed paths get the connection. resolveContextBudget re-reads
+	//    providers.yaml via contextWindowFunc, so a window edited since the
+	//    snapshot was written wins over the stale inherited value. Without this,
+	//    a revived process measures against DefaultTokenLimit no matter what the
+	//    provider declares. Scale chain: kernel/ctx_token_limit.go.
+	k.resolveContextBudget(proc)
+	k.applyCtxTokenLimit(proc)
+
+	// 8. Bookkeeping: record the highest replayed step so subtree.go's
 	//    resumeOneForSubtree fallback (LastCompletedStep+1) lands on a sane
 	//    startStep without re-parsing steps.jsonl. Use the atomic setter
 	//    rather than touching the field directly so any future readers that
