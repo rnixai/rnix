@@ -90,7 +90,7 @@ cmd/rnix           ← Entry point, Cobra CLI, all commands
 
 ⚠️ **`proc.ContextBudget` 是语义重载字段**：除了由 window 派生，它同时是 `agent.yaml` 的 `context_budget` / `init.yaml` / `SpawnOpts` / supervisor `ChildSpec` 设的**单步 InputTokens 勒绳**（`reason.go` 用它判断单步越限即挂起，manifest 里 4096 这类小值很常见）。故 `applyCtxTokenLimit` 的闸门是 `ContextWindow > 0` 而非「budget 非零」——把勒绳当容量刻度会让进程每步都越 80% 阈值并被 compact。
 
-**token 统计口径**：`EstimateMessageTokens`（`context/tokenizer.go`）是**唯一**的 per-message 口径，`TokenUsage` / `estimateMessagesTokens` / `Compact` 的 `postTokens` 三处共用。计入 `Content` + `Reasoning` + `ToolCalls[].Name` + `json.Marshal(ToolCalls[].Input)` + `ReasoningBlocks[].Thinking`/`.Data`；刻意不计 `Signature` / `ThoughtSignature`（不透明凭据，非模型可见文本）。`EstimateTokens` 的 3.5 / 1.5 比率不得改、不得加补偿系数。`debug/ctx_profile.go` 的 `TotalTokens` 仍是 Content-only 口径（其 `CtxMessage` schema 只有 Role/Content/ToolCallID），故**低于** `TokenUsage().Used`，属已知残差。
+**token 统计口径**：`EstimateMessageTokens`（`context/tokenizer.go`）是**唯一**的 per-message 口径，`TokenUsage` / `estimateMessagesTokens` / `Compact` 的 `postTokens` 三处共用，`GetContextInfo`（gdb `inspect context`）亦按角色循环调它——与 `TokenUsage` 对同一 `effectiveTokenLimit()` 分母保持分子一致（69-2 Review P1，此前 Content-only 分子使 gdb 百分比偏低 4-8 倍）。计入 `Content` + `Reasoning` + `ToolCalls[].ID`/`.Name` + `json.Marshal(ToolCalls[].Input)` + 消息级 `ToolCallID` + `ReasoningBlocks[].Type`/`.Thinking`/`.Data`；刻意不计 `Signature` / `ThoughtSignature`（不透明凭据，非模型可见文本）。`EstimateTokens` 的 3.5 / 1.5 比率不得改、不得加补偿系数。`debug/ctx_profile.go` 的 `TotalTokens` 仍是 Content-only 口径（其 `CtxMessage` schema 只有 Role/Content/ToolCallID），故**低于** `TokenUsage().Used`，属已知残差。
 
 **Kernel** (`kernel/kernel.go`): Composed of sub-interfaces — ProcessManager, MountManager, IPCManager, SignalManager. Holds SyncMap-based process table.
 

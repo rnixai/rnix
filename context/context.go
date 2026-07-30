@@ -641,7 +641,11 @@ func (m *Manager) GetContextSummary(ctxID types.CtxID) (string, error) {
 
 // GetContextInfo returns structured context information for gdb inspect.
 // Returns a map with system_prompt_chars, message counts by role,
-// token estimates via EstimateTokens, and last message preview.
+// per-message token estimates via EstimateMessageTokens, and last message
+// preview. The per-message accounting deliberately matches Manager.TokenUsage
+// (Story 69.2 Review P1): both measure against effectiveTokenLimit(), so a
+// Content-only numerator here would make gdb's token_usage_percent diverge
+// from TokenUsage().Percentage by the same factor the full口径 closes.
 func (m *Manager) GetContextInfo(ctxID types.CtxID) (map[string]any, error) {
 	ctx, err := m.getContext("GetContextInfo", ctxID)
 	if err != nil {
@@ -654,7 +658,7 @@ func (m *Manager) GetContextInfo(ctxID types.CtxID) (map[string]any, error) {
 	var systemCount, userCount, assistantCount, toolCount int
 	var systemTokens, userTokens, assistantTokens, toolTokens int
 	for _, msg := range ctx.Messages {
-		tokens := EstimateTokens(msg.Content)
+		tokens := EstimateMessageTokens(msg)
 		switch msg.Role {
 		case RoleSystem:
 			systemCount++

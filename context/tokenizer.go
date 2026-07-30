@@ -60,6 +60,12 @@ func EstimateTokens(text string) int {
 //     the Anthropic and Gemini drivers (drivers/llm/anthropic.go,
 //     drivers/llm/gemini.go), and Data is the redacted_thinking ciphertext,
 //     which is likewise echoed as request body text.
+//   - The correlation IDs and the reasoning-block type selector: ToolCalls[].ID,
+//     the message-level ToolCallID, and ReasoningBlocks[].Type. All three are
+//     serialized onto the wire as model-visible text (json tags id /
+//     tool_call_id / type), unlike Signature / ThoughtSignature below; leaving
+//     them out would keep a third, undocumented category of payload invisible
+//     (Story 69.2 Review P2).
 //
 // Deliberately NOT counted: ReasoningBlock.Signature and .ThoughtSignature.
 // Both are opaque round-trip credentials rather than model-visible text, and
@@ -77,8 +83,10 @@ func EstimateTokens(text string) int {
 func EstimateMessageTokens(msg Message) int {
 	total := EstimateTokens(msg.Content)
 	total += EstimateTokens(msg.Reasoning)
+	total += EstimateTokens(msg.ToolCallID)
 
 	for _, tc := range msg.ToolCalls {
+		total += EstimateTokens(tc.ID)
 		total += EstimateTokens(tc.Name)
 		if len(tc.Input) == 0 {
 			continue
@@ -89,6 +97,7 @@ func EstimateMessageTokens(msg Message) int {
 	}
 
 	for _, rb := range msg.ReasoningBlocks {
+		total += EstimateTokens(rb.Type)
 		total += EstimateTokens(rb.Thinking)
 		total += EstimateTokens(rb.Data)
 	}

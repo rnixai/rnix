@@ -1,6 +1,7 @@
 package context
 
 import (
+	"strconv"
 	"strings"
 	"testing"
 
@@ -330,12 +331,12 @@ func TestAC3_ToolHeavyContextDeviation(t *testing.T) {
 
 	const rounds = 20
 	for i := range rounds {
-		id := "call_" + itoa(i)
+		id := "call_" + strconv.Itoa(i)
 		calls := []ToolCall{{
 			ID:   id,
 			Name: "Write",
 			Input: map[string]any{
-				"file_path": "/mnt/disk0/project/src/module_" + itoa(i) + ".go",
+				"file_path": "/mnt/disk0/project/src/module_" + strconv.Itoa(i) + ".go",
 				"content":   strings.Repeat("func handler() error { return nil }\n", 40),
 			},
 		}}
@@ -387,21 +388,6 @@ func TestAC3_ToolHeavyContextDeviation(t *testing.T) {
 		t.Errorf("Content-only口径 still accounts for %.1f%% of a tool-heavy context — "+
 			"expected the missing payload to dominate (投卷宗基准 41.7%%/75.4%%/90.2%%)", ratio)
 	}
-}
-
-// itoa keeps the fixture allocation-light without pulling in fmt.
-func itoa(n int) string {
-	if n == 0 {
-		return "0"
-	}
-	var buf [20]byte
-	pos := len(buf)
-	for n > 0 {
-		pos--
-		buf[pos] = byte('0' + n%10)
-		n /= 10
-	}
-	return string(buf[pos:])
 }
 
 func TestSetTokenLimit_ReflectedInTokenUsage(t *testing.T) {
