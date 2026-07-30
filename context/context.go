@@ -488,16 +488,24 @@ func (m *Manager) BuildPrompt(cid types.CtxID) (*PromptResult, error) {
 		return nil, err
 	}
 
+	// Lock ordering (Story 69.1 AC4): snapshot under RLock, then release it
+	// BEFORE calling Sections.Build(). Section ComputeFns call back into this
+	// Manager — kernel's backpressure section reads SlotUsage(), which takes a
+	// second RLock on this same ctx.mu from this same goroutine. Under
+	// sync.RWMutex semantics a recursive RLock deadlocks as soon as any writer is
+	// queued (Compact, IPC handleCompact, gdb AppendMessage, fork_continue all
+	// take ctx.mu.Lock() from other goroutines). Deliberately no `defer RUnlock`.
+	// Same de-coupling section.go's Build() already does for r.mu.
 	ctx.mu.RLock()
-	defer ctx.mu.RUnlock()
-
 	sysPrompt := ctx.SystemPrompt
-	if ctx.Sections != nil {
-		sysPrompt = ctx.Sections.Build()
-	}
-
+	sections := ctx.Sections
 	msgs := make([]Message, len(ctx.Messages))
 	copy(msgs, ctx.Messages)
+	ctx.mu.RUnlock()
+
+	if sections != nil {
+		sysPrompt = sections.Build()
+	}
 
 	return &PromptResult{
 		SystemPrompt: sysPrompt,
@@ -535,23 +543,30 @@ func (m *Manager) TokenUsage(cid types.CtxID) (TokenStats, error) {
 		return TokenStats{}, err
 	}
 
+	// Lock ordering (Story 69.1 AC4): snapshot under RLock, Build() after release.
+	// See BuildPrompt for the full rationale — Sections.Build() re-enters this
+	// Manager via the backpressure ComputeFn's SlotUsage() call, so holding the
+	// read lock across it deadlocks whenever a writer is queued.
 	ctx.mu.RLock()
-	defer ctx.mu.RUnlock()
-
 	sysPrompt := ctx.SystemPrompt
-	if ctx.Sections != nil {
-		sysPrompt = ctx.Sections.Build()
+	sections := ctx.Sections
+	msgs := make([]Message, len(ctx.Messages))
+	copy(msgs, ctx.Messages)
+	limit := ctx.effectiveTokenLimit()
+	slotUsed := len(ctx.Messages)
+	slotMax := ctx.MaxSize
+	ctx.mu.RUnlock()
+
+	if sections != nil {
+		sysPrompt = sections.Build()
 	}
 	total := EstimateTokens(sysPrompt)
-	for _, msg := range ctx.Messages {
+	for _, msg := range msgs {
 		total += EstimateTokens(msg.Content)
 	}
 
-	limit := ctx.effectiveTokenLimit()
 	pct := float64(total) / float64(limit) * 100
 
-	slotUsed := len(ctx.Messages)
-	slotMax := ctx.MaxSize
 	var slotPct float64
 	if slotMax > 0 {
 		slotPct = float64(slotUsed) / float64(slotMax) * 100

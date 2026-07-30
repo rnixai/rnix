@@ -99,8 +99,14 @@ func TestBackpressureSection_AboveThreshold(t *testing.T) {
 	if !strings.Contains(result, "Context Resource Warning") {
 		t.Error("expected backpressure section when slot usage > 70%, got none")
 	}
-	if !strings.Contains(result, "80%") {
-		t.Error("expected slot percentage in backpressure text")
+	// Story 69.1: the body is now a per-tier constant, so assert on the tier's
+	// qualitative wording instead of a slot percentage. 8/10 = 80% → elevated
+	// (default threshold 70, critical boundary 85).
+	if !strings.Contains(result, "Context message slots are running low.") {
+		t.Errorf("expected elevated-tier wording in backpressure text, got:\n%s", result)
+	}
+	if strings.Contains(result, "80%") {
+		t.Error("backpressure text must not carry the slot percentage (breaks the prompt cache prefix)")
 	}
 }
 

@@ -2,9 +2,11 @@ package kernel
 
 import (
 	"fmt"
+	"maps"
 	"os"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"strings"
 	"time"
 
@@ -14,6 +16,59 @@ import (
 	skillpkg "github.com/rnixai/rnix/skills"
 	"github.com/rnixai/rnix/vfs"
 )
+
+// nowFn returns the current time. Package-level indirection so tests can inject
+// a fixed "now" when validating that env_info's Date is frozen at registration
+// time (Story 69.1). Mirrors the internal/ui nowFunc precedent.
+var nowFn = time.Now
+
+// Backpressure tiers. Content within a tier is byte-identical across every
+// Build() of the same session — that stability is the whole point (Story 69.1).
+const (
+	backpressureTierElevated = "elevated"
+	backpressureTierCritical = "critical"
+)
+
+// backpressureTier classifies slot pressure into a discrete tier.
+// Returns "" (no warning), "elevated", or "critical".
+//
+// Boundaries use strict `>`: exactly at the threshold does NOT trigger, matching
+// the pre-existing behaviour (TestBackpressureSection_AtExactThreshold).
+// The critical boundary is threshold + (100-threshold)/2 rather than a hardcoded
+// 85 so a custom BackpressureThreshold splits the remaining headroom evenly
+// (default 70 → 85; custom 50 → 75; custom 90 → 95, never inverted).
+func backpressureTier(slotPct, threshold float64) string {
+	if slotPct <= threshold {
+		return ""
+	}
+	if slotPct > threshold+(100-threshold)/2 {
+		return backpressureTierCritical
+	}
+	return backpressureTierElevated
+}
+
+// backpressureText returns the byte-identical warning body for a tier.
+// Unknown/empty tiers return "" so the section is skipped by Build() phase 4.
+//
+// Deliberately qualitative, never quantitative (Story 69.1 / Decision 33): the
+// LLM only needs a behavioural direction, and the exact numbers are for the
+// operator — who still gets them through the untouched IPC SlotUsed/SlotMax/
+// SlotPercentage fields rendered by the dashboard. Putting them in the prompt
+// bought nothing and cost the whole prompt cache prefix on every single step.
+func backpressureText(tier string) string {
+	switch tier {
+	case backpressureTierElevated:
+		return `# Context Resource Warning
+
+Context message slots are running low. Prefer sequential tool calls over parallel batches to conserve context space. Avoid requesting more than 2 tool calls per turn until context is compacted.`
+	case backpressureTierCritical:
+		return `# Context Resource Warning
+
+Context message slots are nearly exhausted. Limit yourself to a single tool call per turn until context is compacted. Write down any important information from device results in your response, as older results may be cleared to free up space.`
+	default:
+		return ""
+	}
+}
 
 // registerSections creates a SectionRegistry with all standard sections for an agent-based spawn.
 // Static sections use embedded template content; dynamic sections capture proc and kernel pointers.
@@ -88,6 +143,15 @@ func registerSections(proc *Process, k *KernelImpl, agentInstructions string) *r
 	}, true)
 
 	// scratchpad: per-process scratchpad directory instructions (CC-aligned)
+	//
+	// DO NOT change this to cached=true (Story 69.1 ruling 4, correcting the
+	// Epic 69 audit table which claimed it was a free win). spawn.go Build()s
+	// eagerly to capture FinalSystemPrompt *before* reason.go assigns
+	// proc.scratchDir, so at that moment GetScratchDir() returns "". Caching would
+	// freeze computed=true with an empty value and the section would disappear for
+	// the rest of the process (until a compact's Invalidate()) — a behaviour
+	// regression, not a no-op. It is not a cache-prefix breaker either: scratchDir
+	// is assigned once and stays constant from step 1 onward.
 	reg.Register("scratchpad", func() string {
 		dir := proc.GetScratchDir()
 		if dir == "" {
@@ -152,7 +216,19 @@ Best practices:
 		return buildMCPInstructionsSection(proc.mcpConfigs)
 	}, true)
 
+	// spawnDate is captured eagerly at registration time (same pattern as
+	// projectDoc / agentInstructions) so a long-running process that crosses
+	// midnight keeps a byte-stable Date line instead of silently invalidating the
+	// provider's prompt cache prefix mid-run (Story 69.1).
+	spawnDate := nowFn().Format("2006-01-02")
+
 	// env_info: working directory, git status, platform, model, date (CC-aligned)
+	//
+	// Cached stays false on purpose (Story 69.1 ruling 3): gdb env vars are written
+	// at runtime via IPC SetGdbEnv, an explicit operator action that must take
+	// effect without waiting for the next Invalidate() (i.e. the next compact).
+	// With the date frozen above and the gdb map key-sorted below, this section is
+	// byte-stable step to step unless the operator actually changes something.
 	reg.Register("env_info", func() string {
 		var items []string
 
@@ -179,7 +255,7 @@ Best practices:
 			items = append(items, "Model: "+modelDesc)
 		}
 
-		items = append(items, "Date: "+time.Now().Format("2006-01-02"))
+		items = append(items, "Date: "+spawnDate)
 
 		var b strings.Builder
 		b.WriteString("# Environment\n\nYou have been invoked in the following environment:\n")
@@ -189,11 +265,14 @@ Best practices:
 			b.WriteString("\n")
 		}
 
-		// GDB environment variables (debug mode only)
+		// GDB environment variables (debug mode only).
+		// Key-sorted: GetGdbEnvVars returns a map, and Go randomizes map iteration
+		// order, so an unsorted range emitted different bytes for the same variables
+		// on adjacent steps — another silent prompt-cache prefix breaker (69.1).
 		if envVars := proc.GetGdbEnvVars(); len(envVars) > 0 {
 			b.WriteString("\n## Debug Environment Variables\n")
-			for k, v := range envVars {
-				fmt.Fprintf(&b, "%s=%s\n", k, v)
+			for _, k := range slices.Sorted(maps.Keys(envVars)) {
+				fmt.Fprintf(&b, "%s=%s\n", k, envVars[k])
 			}
 		}
 
@@ -204,6 +283,12 @@ Best practices:
 	// Skill bodies are delivered out-of-band:
 	//   • Claude CLI gets them via a content-addressed bundle + --add-dir;
 	//   • Other drivers receive them merged into SystemPrompt by the VFS layer.
+	//
+	// cached=false is intentional (Story 69.1 ruling 5): the only mutation source
+	// is specialize (tool_exec.go appends / rolls back proc.Skills), and a change
+	// there IS a semantic change that must reach the prompt immediately — the same
+	// contract Invalidate() expresses. No hidden byte churn: DetectSynergies sorts
+	// its inputs, so identical skill sets always render identically.
 	reg.Register("loaded_skills", func() string {
 		proc.mu.Lock()
 		skills := make([]string, len(proc.Skills))
@@ -233,20 +318,26 @@ Best practices:
 		return b.String()
 	}, false)
 
+	// backpressure: qualitative context-pressure guidance (Story 69.1).
+	//
+	// The body is a per-tier constant so the system prompt stays byte-identical
+	// across every step within a tier — a single changed byte invalidates the
+	// provider's prompt cache prefix (both Anthropic's explicit CacheControl
+	// breakpoint on the system prompt and implicit auto-caching), which is what
+	// drove the measured 99.5% → 8.9% cache-hit collapse and the compact-timeout
+	// death spiral. Tier transitions (≤2 per session) are the only churn left.
+	//
+	// Do NOT "fix" this by flipping Cached to true: Cached only holds until the
+	// next Invalidate(), and compact *does* Invalidate() — worse, caching a stale
+	// slot count feeds the LLM wrong capacity information, which is strictly worse
+	// than not injecting at all. The content itself has to be step-invariant.
 	reg.Register("backpressure", func() string {
 		slotUsed, slotMax, err := k.ctxMgr.SlotUsage(proc.CtxID)
 		if err != nil || slotMax == 0 {
 			return ""
 		}
 		slotPct := float64(slotUsed) / float64(slotMax) * 100
-		if slotPct <= proc.effectiveBackpressureThreshold() {
-			return ""
-		}
-		return fmt.Sprintf("# Context Resource Warning\n\n"+
-			"Context message slots are %.0f%% full (%d/%d). "+
-			"Prefer sequential tool calls over parallel batches to conserve context space. "+
-			"Avoid requesting more than 2 tool calls per turn until context is compacted.",
-			slotPct, slotUsed, slotMax)
+		return backpressureText(backpressureTier(slotPct, proc.effectiveBackpressureThreshold()))
 	}, false)
 
 	// action_protocol: no longer used (text protocol removed); section returns empty.
