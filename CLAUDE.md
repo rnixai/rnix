@@ -255,3 +255,16 @@ See `internal/dashboard/inspector/meta_lens.go:ComputeCacheHitRate` for branchin
 **解析优先级（四级兜底，`kernel/spawn.go`，与 model 同构）**：`opts.ReasoningEffort`（per-spawn：CLI `--effort`/compose/intent）> `agent.Manifest.Models.ReasoningEffort`（`lib/agents/{name}/agent.yaml` 的 `models.reasoning_effort`）> driver 快照（`providers.yaml` 实例级）> 透传 `""`（API/CLI 原生默认）。高级别非空即胜出。⚠️ **providers.yaml 一旦设值即成该 provider 的事实地板**——agent/任务都没指定时，落到的是 provider 值而非 API 原生默认（第 4 级仅在前三级全空时到达）。
 
 配置文档与示例见 [docs/reasoning-effort.md](docs/reasoning-effort.md)。
+
+## Wiki Knowledge Base（跨项目研究资料）
+
+Path: /mnt/disk0/project/note/claude-obsidian
+
+当需要本项目代码之外的研究上下文时（尤其是 emergent 子系统：stem agents / skill synergy / immune system / feature profiles）：
+
+1. 先读 `wiki/hot.md`（约 500 词最近上下文）
+2. 不够再读 `wiki/index.md`
+3. 涉及智能涌现设计决策时，读 `wiki/questions/Research - Emergent Intelligence for Agent OS.md`——包含 rnix 各子系统 ↔ 2025-2026 研究（DGM/SEAL/AlphaEvolve、bandit 技能选择、技能库终身学习、轨迹异常检测、多智能体涌现）的映射表与升级路径
+4. 需要单篇细节再读 `wiki/sources/` 与 `wiki/concepts/` 下的对应页面
+
+不要为一般编码问题或本项目已有文档能回答的问题读 wiki。
