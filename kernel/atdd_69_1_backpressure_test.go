@@ -1,6 +1,7 @@
 package kernel
 
 import (
+	"regexp"
 	"strings"
 	"testing"
 	"time"
@@ -102,6 +103,12 @@ func fillTo(t *testing.T, ctxMgr *rnixctx.Manager, proc *Process, total int) {
 	if err != nil {
 		t.Fatalf("SlotUsage: %v", err)
 	}
+	// Code review P3: fail loud instead of silently no-op'ing when the context
+	// already holds more messages than requested — a no-op here would let the
+	// caller assert on a slot percentage that never materialized.
+	if used > total {
+		t.Fatalf("fillTo: context already has %d messages, more than requested total %d", used, total)
+	}
 	for i := used; i < total; i++ {
 		role := rnixctx.RoleUser
 		if i%2 == 1 {
@@ -153,11 +160,25 @@ func TestATDD_69_1_AC6_BackpressureTextHasNoSlotNumbers(t *testing.T) {
 	// Note "2 tool calls" legitimately contains a digit, so the guard targets
 	// concrete slot counts / limits / percentages rather than "any digit".
 	forbidden := []string{"181", "183", "200", "220", "256", "181/256", "71%", "78%", "80%", "85%"}
+	// Pattern guard (code review P2): the literal list above only blocks the old
+	// implementation's known numbers. Regexps also catch future re-introductions
+	// it cannot know about — any "N%" or "N/M" emission. Both tier bodies are free
+	// of % and fraction patterns today; the legitimate constant "2 tool calls"
+	// matches neither pattern.
+	patterns := []*regexp.Regexp{
+		regexp.MustCompile(`\d+%`),
+		regexp.MustCompile(`\d+\s*/\s*\d+`),
+	}
 	for _, tier := range []string{backpressureTierElevated, backpressureTierCritical} {
 		text := backpressureText(tier)
 		for _, f := range forbidden {
 			if strings.Contains(text, f) {
 				t.Errorf("tier %q body contains dynamic slot literal %q:\n%s", tier, f, text)
+			}
+		}
+		for _, re := range patterns {
+			if m := re.FindString(text); m != "" {
+				t.Errorf("tier %q body matches numeric pattern /%s/ (%q):\n%s", tier, re, m, text)
 			}
 		}
 	}

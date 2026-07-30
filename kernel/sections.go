@@ -36,7 +36,12 @@ const (
 // the pre-existing behaviour (TestBackpressureSection_AtExactThreshold).
 // The critical boundary is threshold + (100-threshold)/2 rather than a hardcoded
 // 85 so a custom BackpressureThreshold splits the remaining headroom evenly
-// (default 70 → 85; custom 50 → 75; custom 90 → 95, never inverted).
+// (default 70 → 85; custom 50 → 75; custom 90 → 95). For any threshold in
+// (0, 100) the critical boundary never inverts against the threshold.
+// Threshold ≥ 100 silently disables every warning: the first branch is always
+// true (slotPct is bounded at 100), exactly as the pre-69.1 `slotPct > threshold`
+// test behaved — a misconfiguration degrades as before, not in some new way.
+// Spawn-time validation of the threshold is tracked in deferred-work.md.
 func backpressureTier(slotPct, threshold float64) string {
 	if slotPct <= threshold {
 		return ""
