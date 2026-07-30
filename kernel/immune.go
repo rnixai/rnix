@@ -35,6 +35,7 @@ type NormalProfile struct {
 	SampleCount      int                `json:"sample_count"`
 	SyscallMean      map[string]float64 `json:"syscall_mean"`
 	SyscallStdDev    map[string]float64 `json:"syscall_std_dev"`
+	SyscallMax       map[string]float64 `json:"syscall_max,omitempty"` // per-syscall max observed in any single sample (IN-3 F2); nil on legacy profiles
 	TokenRateMean    float64            `json:"token_rate_mean"`
 	TokenRateStdDev  float64            `json:"token_rate_std_dev"`
 	DurationMeanMs   float64            `json:"duration_mean_ms"`
@@ -79,6 +80,16 @@ func ComputeProfile(agentTemplate string, samples []BehaviorSample, minSamples i
 		syscallStdDev[name] = math.Sqrt(sumSqDiff / n)
 	}
 
+	// Compute per-syscall max observed in any single sample (IN-3 F2)
+	syscallMax := make(map[string]float64, len(syscallMean))
+	for _, s := range samples {
+		for name, count := range s.SyscallCounts {
+			if float64(count) > syscallMax[name] {
+				syscallMax[name] = float64(count)
+			}
+		}
+	}
+
 	// Compute token rate mean and stddev
 	var tokenRateSum float64
 	for _, s := range samples {
@@ -112,6 +123,7 @@ func ComputeProfile(agentTemplate string, samples []BehaviorSample, minSamples i
 		SampleCount:      len(samples),
 		SyscallMean:      syscallMean,
 		SyscallStdDev:    syscallStdDev,
+		SyscallMax:       syscallMax,
 		TokenRateMean:    tokenRateMean,
 		TokenRateStdDev:  tokenRateStdDev,
 		DurationMeanMs:   durationMean,
@@ -231,8 +243,15 @@ func (s *ImmuneStore) LoadProfile(agentTemplate string) (*NormalProfile, error) 
 	return &profile, nil
 }
 
-// SaveThreat appends a threat signature to the threat memory (threats.jsonl).
-func (s *ImmuneStore) SaveThreat(sig ThreatSignature) error {
+// RewriteThreats replaces the threat memory file (threats.jsonl) with the
+// given signatures. This is the only write path for threat memory (IN-3 F3):
+// the in-memory list is the source of truth (upsert / TTL / cap / forget
+// applied there) and is flushed here as a whole.
+//
+// Written via temp file + rename so a crash mid-write cannot truncate the
+// threat memory: whole-file rewrite would otherwise lose every signature,
+// where the previous append-only path risked only the last line.
+func (s *ImmuneStore) RewriteThreats(threats []ThreatSignature) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -240,20 +259,42 @@ func (s *ImmuneStore) SaveThreat(sig ThreatSignature) error {
 		return err
 	}
 
-	filePath := filepath.Join(s.baseDir, "threats.jsonl")
-	f, err := os.OpenFile(filePath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644)
-	if err != nil {
-		return err
+	var buf []byte
+	for _, sig := range threats {
+		data, err := json.Marshal(sig)
+		if err != nil {
+			return err
+		}
+		buf = append(buf, data...)
+		buf = append(buf, '\n')
 	}
-	defer f.Close()
 
-	data, err := json.Marshal(sig)
+	target := filepath.Join(s.baseDir, "threats.jsonl")
+	tmp, err := os.CreateTemp(s.baseDir, ".threats-*.jsonl")
 	if err != nil {
 		return err
 	}
-	data = append(data, '\n')
-	_, err = f.Write(data)
-	return err
+	tmpName := tmp.Name()
+	defer func() {
+		// No-op once the rename succeeded; cleans up on any early return.
+		_ = os.Remove(tmpName)
+	}()
+
+	if _, err := tmp.Write(buf); err != nil {
+		tmp.Close()
+		return err
+	}
+	if err := tmp.Sync(); err != nil {
+		tmp.Close()
+		return err
+	}
+	if err := tmp.Close(); err != nil {
+		return err
+	}
+	if err := os.Chmod(tmpName, 0o644); err != nil {
+		return err
+	}
+	return os.Rename(tmpName, target)
 }
 
 // LoadThreats loads all threat signatures from the threat memory file.
@@ -336,16 +377,20 @@ type BehaviorCollector struct {
 	mu            sync.Mutex
 	pid           types.PID
 	agentTemplate string
+	projectID     string // immune store bucket this process's data lands in (IN-3 F6)
 	startTime     time.Time
 	syscallCounts map[string]int
 	deviceAccess  map[string]struct{}
 }
 
 // NewBehaviorCollector creates a new BehaviorCollector for the given process.
-func NewBehaviorCollector(pid types.PID, agentTemplate string) *BehaviorCollector {
+// projectID selects the per-project immune store bucket ("global" when the
+// process has no project context).
+func NewBehaviorCollector(pid types.PID, agentTemplate, projectID string) *BehaviorCollector {
 	return &BehaviorCollector{
 		pid:           pid,
 		agentTemplate: agentTemplate,
+		projectID:     projectID,
 		startTime:     time.Now(),
 		syscallCounts: make(map[string]int),
 		deviceAccess:  make(map[string]struct{}),
@@ -426,10 +471,16 @@ func (c *BehaviorCollector) GetAgentTemplate() string {
 type AnomalyType string
 
 const (
-	AnomalySyscallFreq  AnomalyType = "syscall_freq"  // syscall invocation frequency anomaly
+	AnomalySyscallFreq  AnomalyType = "syscall_freq"  // lifetime syscall count anomaly — see naming note below (IN-3 F6)
 	AnomalyTokenRate    AnomalyType = "token_rate"     // token consumption rate anomaly
 	AnomalyDeviceAccess AnomalyType = "device_access"  // unexpected device access anomaly
 )
+
+// Naming note (IN-3 F6): despite the name, "syscall_freq" is a lifetime-count
+// check — it compares the process's cumulative call count for one syscall
+// against full-run baseline totals. There is no time window and no rate. The
+// enum string is kept as-is for on-disk / wire compatibility (threats.jsonl,
+// AlertWire.Type, dashboard AlertTypeColor mapping).
 
 // AnomalyAlert records a single anomaly detection event.
 type AnomalyAlert struct {
@@ -458,6 +509,19 @@ type ThreatSignature struct {
 // 3.0 corresponds to 99.7% confidence interval of a normal distribution.
 const DefaultDeviationThreshold = 3.0
 
+// minAnomalyFloor is the absolute lower gate for syscall-count anomalies
+// (IN-3 F2): a handful of calls is never an anomaly, regardless of how rare
+// the syscall is in the baseline. Kills the base-rate fallacy where a syscall
+// seen in 1/N historical runs makes its first normal call show as an Nx
+// deviation (mean=1/N, σ≈√(1/N) → cur=1 breaks mean+3σ whenever p≲0.1).
+const minAnomalyFloor = 5.0
+
+// histMaxGrowthFactor is the growth gate over the historical per-sample max
+// (IN-3 F2): the current count must also exceed max-observed × this factor.
+// Guards against heavy-tailed mixed workloads where mean+3σ sits below counts
+// that past runs already reached legitimately (e.g. long multi-step tasks).
+const histMaxGrowthFactor = 1.5
+
 // AnomalyDetector detects behavioral anomalies by comparing runtime metrics against NormalProfiles.
 type AnomalyDetector struct {
 	threshold float64 // standard deviation multiplier
@@ -470,6 +534,14 @@ func NewAnomalyDetector(threshold float64) *AnomalyDetector {
 
 // CheckSyscallAnomaly checks whether the current syscall count is anomalous.
 // Returns nil if normal or if profile is nil / has no data for this syscall.
+//
+// Semantics (IN-3 F6 naming note applies): this is a lifetime-count check —
+// currentCount is the process's cumulative count, compared against full-run
+// baseline statistics. Three gates must ALL be exceeded (IN-3 F2):
+//  1. cur > mean + threshold·σ (statistical gate)
+//  2. cur > minAnomalyFloor (absolute floor — rare-syscall base-rate guard)
+//  3. cur > histMax × histMaxGrowthFactor (growth gate; skipped when the
+//     profile has no max data, e.g. legacy profiles without syscall_max)
 func (d *AnomalyDetector) CheckSyscallAnomaly(
 	pid types.PID,
 	agentTemplate string,
@@ -491,6 +563,12 @@ func (d *AnomalyDetector) CheckSyscallAnomaly(
 	cur := float64(currentCount)
 
 	if cur <= upperBound {
+		return nil
+	}
+	if cur <= minAnomalyFloor {
+		return nil
+	}
+	if histMax := profile.SyscallMax[syscallName]; histMax > 0 && cur <= histMax*histMaxGrowthFactor {
 		return nil
 	}
 
@@ -562,21 +640,36 @@ func (d *AnomalyDetector) MatchThreat(
 
 // ImmuneDaemon is the security monitoring daemon.
 // It passively monitors agent behavior through event-driven hooks (no polling).
+//
+// Storage layout (IN-3 F6): behavior data is bucketed per project under
+// <baseDir>/<projectID>/{<template>.jsonl, profiles/, threats.jsonl}. The
+// store passed to NewImmuneDaemon is the bucket root; per-bucket sub-stores
+// are created lazily. Legacy top-level files (pre-bucketing) are ignored.
 type ImmuneDaemon struct {
-	mu         sync.RWMutex
-	config     ImmuneConfig
-	store      *ImmuneStore
-	profiles   map[string]*NormalProfile
-	collectors map[types.PID]*BehaviorCollector
-	running    bool
-	stopCh     chan struct{}
+	mu           sync.RWMutex
+	config       ImmuneConfig
+	store        *ImmuneStore            // bucket root — do not read/write directly, use storeForLocked
+	bucketStores map[string]*ImmuneStore // projectID → sub-store, lazily created
+	profiles     map[string]*NormalProfile // key: projectID + "/" + template (immuneScopedKey)
+	collectors   map[types.PID]*BehaviorCollector
+	running      bool
+	stopCh       chan struct{}
 
 	// Story 22.2: anomaly detection and threat memory
 	detector   *AnomalyDetector
-	threats    []ThreatSignature
+	threats    map[string][]ThreatSignature // projectID → signatures (copy-on-write slices)
 	alerts     map[types.PID]*AnomalyAlert
 	suspendFn  func(pid types.PID) error
 	suspending map[types.PID]bool // re-entrancy guard for suspendFn
+
+	// flushMu serializes threat-memory snapshot+write pairs (IN-3 F3). Disk
+	// writes happen outside d.mu (never hold the hot-path lock across I/O), so
+	// without this two concurrent detections could each snapshot under d.mu and
+	// then race to rename() — the older snapshot landing last would silently
+	// drop the newer signature. Taking the snapshot INSIDE flushMu makes the
+	// last writer always the freshest. Lock order: flushMu → d.mu, never the
+	// reverse.
+	flushMu sync.Mutex
 
 	// Story 22.3: uptime tracking
 	startedAt time.Time
@@ -594,17 +687,148 @@ type ImmuneDaemon struct {
 	agentSkills map[string][]string // template name → skill list (deduplicated by template)
 }
 
+// immuneGlobalBucket is the store bucket for processes without a project context.
+const immuneGlobalBucket = "global"
+
+// immuneScopedKey builds the in-memory profile key for a (project, template)
+// pair. Statistics are project-scoped (IN-3 F6); similarity / cooperation
+// remain agent-level and do NOT use scoped keys.
+func immuneScopedKey(projectID, template string) string {
+	if projectID == "" {
+		projectID = immuneGlobalBucket
+	}
+	return projectID + "/" + template
+}
+
 // NewImmuneDaemon creates a new ImmuneDaemon backed by the given store and config.
+// store is the bucket root: per-project data lives in subdirectories of it.
 func NewImmuneDaemon(store *ImmuneStore, cfg ImmuneConfig) *ImmuneDaemon {
 	return &ImmuneDaemon{
-		config:     cfg,
-		store:      store,
-		profiles:   make(map[string]*NormalProfile),
-		collectors: make(map[types.PID]*BehaviorCollector),
-		alerts:     make(map[types.PID]*AnomalyAlert),
-		suspending: make(map[types.PID]bool),
-		stopCh:     make(chan struct{}),
+		config:       cfg,
+		store:        store,
+		bucketStores: make(map[string]*ImmuneStore),
+		profiles:     make(map[string]*NormalProfile),
+		collectors:   make(map[types.PID]*BehaviorCollector),
+		threats:      make(map[string][]ThreatSignature),
+		alerts:       make(map[types.PID]*AnomalyAlert),
+		suspending:   make(map[types.PID]bool),
+		stopCh:       make(chan struct{}),
 	}
+}
+
+// storeForLocked returns (creating if needed) the sub-store for a project
+// bucket. Caller must hold d.mu.
+func (d *ImmuneDaemon) storeForLocked(projectID string) *ImmuneStore {
+	if projectID == "" {
+		projectID = immuneGlobalBucket
+	}
+	if s, ok := d.bucketStores[projectID]; ok {
+		return s
+	}
+	s := NewImmuneStore(filepath.Join(d.store.baseDir, projectID))
+	d.bucketStores[projectID] = s
+	return s
+}
+
+// storeFor is the locking variant of storeForLocked.
+func (d *ImmuneDaemon) storeFor(projectID string) *ImmuneStore {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	return d.storeForLocked(projectID)
+}
+
+// listBuckets returns the projectID bucket directories under the store root.
+// Legacy top-level files are not buckets and are skipped (IN-3 F6: ignoring
+// them is the stock cleanup — polluted pre-bucketing data is never loaded).
+func (d *ImmuneDaemon) listBuckets() ([]string, error) {
+	entries, err := os.ReadDir(d.store.baseDir)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil, nil
+		}
+		return nil, err
+	}
+	var buckets []string
+	for _, e := range entries {
+		if e.IsDir() && e.Name() != "profiles" {
+			buckets = append(buckets, e.Name())
+		}
+	}
+	return buckets, nil
+}
+
+// cleanThreats deduplicates (same template+type+metric keeps newest CreatedAt),
+// drops signatures older than ttlDays (0 = never expire), and evicts the
+// oldest beyond maxThreats (0 = no cap). Reports whether anything was removed.
+func cleanThreats(threats []ThreatSignature, ttlDays, maxThreats int, now time.Time) ([]ThreatSignature, bool) {
+	// Dedup: keep the newest signature per key, preserving first-seen order.
+	type key struct {
+		template string
+		typ      AnomalyType
+		metric   string
+	}
+	newest := make(map[key]ThreatSignature, len(threats))
+	order := make([]key, 0, len(threats))
+	for _, t := range threats {
+		k := key{t.AgentTemplate, t.Type, t.Metric}
+		if prev, ok := newest[k]; ok {
+			if t.CreatedAt.After(prev.CreatedAt) {
+				newest[k] = t
+			}
+		} else {
+			newest[k] = t
+			order = append(order, k)
+		}
+	}
+
+	out := make([]ThreatSignature, 0, len(order))
+	cutoff := time.Time{}
+	if ttlDays > 0 {
+		cutoff = now.AddDate(0, 0, -ttlDays)
+	}
+	for _, k := range order {
+		t := newest[k]
+		if !cutoff.IsZero() && t.CreatedAt.Before(cutoff) {
+			continue
+		}
+		out = append(out, t)
+	}
+
+	if maxThreats > 0 && len(out) > maxThreats {
+		sort.SliceStable(out, func(i, j int) bool { return out[i].CreatedAt.Before(out[j].CreatedAt) })
+		out = out[len(out)-maxThreats:]
+	}
+
+	return out, len(out) != len(threats)
+}
+
+// upsertThreat returns a new slice with sig replacing any same-key entry or
+// appended, evicting the oldest entry beyond maxThreats. Copy-on-write:
+// readers holding the previous slice are never mutated under them.
+func upsertThreat(threats []ThreatSignature, sig ThreatSignature, maxThreats int) []ThreatSignature {
+	out := make([]ThreatSignature, 0, len(threats)+1)
+	replaced := false
+	for _, t := range threats {
+		if t.AgentTemplate == sig.AgentTemplate && t.Type == sig.Type && t.Metric == sig.Metric {
+			out = append(out, sig)
+			replaced = true
+			continue
+		}
+		out = append(out, t)
+	}
+	if !replaced {
+		out = append(out, sig)
+	}
+	if maxThreats > 0 && len(out) > maxThreats {
+		oldest := 0
+		for i := range out {
+			if out[i].CreatedAt.Before(out[oldest].CreatedAt) {
+				oldest = i
+			}
+		}
+		out = append(out[:oldest], out[oldest+1:]...)
+	}
+	return out
 }
 
 // SetDetector sets the anomaly detector engine.
@@ -654,20 +878,40 @@ func (d *ImmuneDaemon) Start() error {
 		d.detector = NewAnomalyDetector(d.config.DeviationThreshold)
 	}
 
-	// Load existing profiles from disk
-	profiles, err := d.store.LoadAllProfiles()
+	// Load profiles and threat signatures from per-project buckets (IN-3 F6).
+	// Legacy top-level files are ignored — see listBuckets.
+	d.profiles = make(map[string]*NormalProfile)
+	d.threats = make(map[string][]ThreatSignature)
+	buckets, err := d.listBuckets()
 	if err != nil {
 		return err
 	}
-	d.profiles = profiles
+	now := time.Now()
+	for _, projectID := range buckets {
+		sub := d.storeForLocked(projectID)
 
-	// Load threat signatures from disk (Story 22.2)
-	threats, err := d.store.LoadThreats()
-	if err != nil {
-		// Non-fatal: continue without threat memory
-		threats = []ThreatSignature{}
+		profiles, err := sub.LoadAllProfiles()
+		if err != nil {
+			return err
+		}
+		for tpl, p := range profiles {
+			d.profiles[immuneScopedKey(projectID, tpl)] = p
+		}
+
+		// Threat memory: non-fatal, continue without it (Story 22.2 behavior).
+		threats, err := sub.LoadThreats()
+		if err != nil {
+			threats = []ThreatSignature{}
+		}
+		// One-time hygiene pass (IN-3 F3): dedup + TTL + cap, rewrite on change.
+		cleaned, changed := cleanThreats(threats, d.config.ThreatTTLDays, d.config.MaxThreats, now)
+		d.threats[projectID] = cleaned
+		if changed {
+			if err := sub.RewriteThreats(cleaned); err != nil {
+				log.Printf("[immune] warn: rewrite threats for bucket %q failed: %v", projectID, err)
+			}
+		}
 	}
-	d.threats = threats
 
 	d.startedAt = time.Now()
 	d.running = true
@@ -691,8 +935,12 @@ func (d *ImmuneDaemon) Stop() {
 }
 
 // OnProcessStart creates a BehaviorCollector for the new process.
-func (d *ImmuneDaemon) OnProcessStart(pid types.PID, agentTemplate string) {
-	if d == nil {
+// projectID selects the immune store bucket (IN-3 F6); "" maps to the global
+// bucket. Processes without an agent template are skipped entirely (IN-3 F6):
+// ad-hoc bare spawns share no behavioral identity, so a "" baseline is
+// meaningless and only breeds cross-workload false positives.
+func (d *ImmuneDaemon) OnProcessStart(pid types.PID, agentTemplate, projectID string) {
+	if d == nil || agentTemplate == "" {
 		return
 	}
 
@@ -703,7 +951,10 @@ func (d *ImmuneDaemon) OnProcessStart(pid types.PID, agentTemplate string) {
 		return
 	}
 
-	d.collectors[pid] = NewBehaviorCollector(pid, agentTemplate)
+	if projectID == "" {
+		projectID = immuneGlobalBucket
+	}
+	d.collectors[pid] = NewBehaviorCollector(pid, agentTemplate, projectID)
 }
 
 // AgentTemplateForPID resolves the agent template name registered for pid via
@@ -727,7 +978,14 @@ func (d *ImmuneDaemon) AgentTemplateForPID(pid types.PID) string {
 }
 
 // OnSyscallEvent forwards a SyscallEvent to the corresponding BehaviorCollector
-// and performs anomaly detection (Story 22.2).
+// and performs anomaly detection (Story 22.2, reworked by IN-3 F1/F5).
+//
+// Detection order matters: the statistical check ALWAYS runs first and is the
+// only alert source. A matching threat signature no longer raises an alert by
+// itself — it only annotates the alert Detail and suppresses re-minting the
+// signature. This kills the "first call hits a known threat" determinstic
+// false positive (signatures used to short-circuit before any count check)
+// and keeps Alert.Deviation an actual current measurement (provenance).
 func (d *ImmuneDaemon) OnSyscallEvent(pid types.PID, event types.SyscallEvent) {
 	if d == nil {
 		return
@@ -748,8 +1006,9 @@ func (d *ImmuneDaemon) OnSyscallEvent(pid types.PID, event types.SyscallEvent) {
 	}
 	detector := d.detector
 	agentTpl := collector.GetAgentTemplate()
-	profile := d.profiles[agentTpl]
-	threats := d.threats
+	projectID := collector.projectID
+	profile := d.profiles[immuneScopedKey(projectID, agentTpl)]
+	threats := d.threats[projectID]
 	suspendFn := d.suspendFn
 	warnOnly := d.config.WarnOnly
 	d.mu.RUnlock()
@@ -761,68 +1020,59 @@ func (d *ImmuneDaemon) OnSyscallEvent(pid types.PID, event types.SyscallEvent) {
 		return
 	}
 
-	// Fast path: check threat signature match first
-	if matched := detector.MatchThreat(agentTpl, AnomalySyscallFreq, event.Syscall, threats); matched != nil {
-		alert := &AnomalyAlert{
-			PID:           pid,
-			AgentTemplate: agentTpl,
-			Type:          AnomalySyscallFreq,
-			Detail:        fmt.Sprintf("known threat: %s (signature %s)", event.Syscall, matched.ID),
-			Deviation:     matched.Threshold,
-			Timestamp:     time.Now(),
-		}
-		d.mu.Lock()
-		d.alerts[pid] = alert
-		if warnOnly {
-			d.mu.Unlock()
-			log.Printf("[immune] warn-only: threat match for PID %d agent %q syscall %q (signature %s)", pid, agentTpl, event.Syscall, matched.ID)
-			return
-		}
-		d.suspending[pid] = true
-		d.mu.Unlock()
-		if suspendFn != nil {
-			_ = suspendFn(pid)
-		}
-		d.mu.Lock()
-		delete(d.suspending, pid)
-		d.mu.Unlock()
-		return
-	}
-
-	// Statistical anomaly detection: check syscall frequency
+	// Statistical anomaly detection: lifetime syscall count vs baseline.
 	currentCount := collector.GetSyscallCount(event.Syscall)
 	alert := detector.CheckSyscallAnomaly(pid, agentTpl, event.Syscall, currentCount, profile)
 	if alert == nil {
 		return
 	}
 
-	// Anomaly detected: record alert, persist threat
+	// Known-threat annotation (IN-3 F1/F5): the signature adds context to the
+	// alert but never replaces the measured deviation, and an existing
+	// signature is not re-minted.
+	matched := detector.MatchThreat(agentTpl, AnomalySyscallFreq, event.Syscall, threats)
+	if matched != nil {
+		alert.Detail += fmt.Sprintf("; matches known threat %s (created %s)", matched.ID, matched.CreatedAt.Format("2006-01-02"))
+	}
+
+	// Mint (if new) and flush under flushMu so the snapshot taken here is the
+	// one that reaches disk last — see the flushMu field comment. Lock order:
+	// flushMu → d.mu.
+	d.flushMu.Lock()
 	d.mu.Lock()
 	d.alerts[pid] = alert
 
-	// Create and persist threat signature
-	sig := ThreatSignature{
-		ID:            fmt.Sprintf("threat-%d", time.Now().UnixNano()),
-		Type:          AnomalySyscallFreq,
-		AgentTemplate: agentTpl,
-		Metric:        event.Syscall,
-		Threshold:     alert.Deviation,
-		CreatedAt:     time.Now(),
+	var persistStore *ImmuneStore
+	var persistSnapshot []ThreatSignature
+	if matched == nil {
+		sig := ThreatSignature{
+			ID:            fmt.Sprintf("threat-%d", time.Now().UnixNano()),
+			Type:          AnomalySyscallFreq,
+			AgentTemplate: agentTpl,
+			Metric:        event.Syscall,
+			Threshold:     alert.Deviation,
+			CreatedAt:     time.Now(),
+		}
+		d.threats[projectID] = upsertThreat(d.threats[projectID], sig, d.config.MaxThreats)
+		persistSnapshot = d.threats[projectID]
+		persistStore = d.storeForLocked(projectID)
 	}
-	d.threats = append(d.threats, sig)
+	if !warnOnly {
+		d.suspending[pid] = true
+	}
+	d.mu.Unlock()
+
+	// Persist threat to disk (synchronous, per 22.1 lesson) — outside d.mu so
+	// the hot syscall path never blocks on file I/O.
+	if persistStore != nil {
+		_ = persistStore.RewriteThreats(persistSnapshot)
+	}
+	d.flushMu.Unlock()
 
 	if warnOnly {
-		d.mu.Unlock()
-		_ = d.store.SaveThreat(sig)
 		log.Printf("[immune] warn-only: anomaly detected for PID %d agent %q syscall %q (deviation %.2f)", pid, agentTpl, event.Syscall, alert.Deviation)
 		return
 	}
-
-	d.suspending[pid] = true
-	d.mu.Unlock()
-
-	// Persist threat to disk (synchronous, per 22.1 lesson)
-	_ = d.store.SaveThreat(sig)
 
 	// Suspend the process
 	if suspendFn != nil {
@@ -834,15 +1084,25 @@ func (d *ImmuneDaemon) OnSyscallEvent(pid types.PID, event types.SyscallEvent) {
 }
 
 // OnProcessExit finalizes the behavior sample and updates the NormalProfile.
+// The process's anomaly alert (if any) is cleared (IN-3 F4): alerts describe a
+// live process needing action (resume/kill); a dead PID has nothing to act on,
+// and letting it linger until manual ClearAlert kept dashboards permanently
+// red. Suspended processes never reach finishProcess, so enforce-mode alerts
+// survive until resume/kill as before.
 func (d *ImmuneDaemon) OnProcessExit(pid types.PID, tokensUsed int, exitNormal bool) {
 	if d == nil {
 		return
 	}
 
 	d.mu.Lock()
+	delete(d.alerts, pid)
 	collector, ok := d.collectors[pid]
 	if ok {
 		delete(d.collectors, pid)
+	}
+	var store *ImmuneStore
+	if ok {
+		store = d.storeForLocked(collector.projectID)
 	}
 	d.mu.Unlock()
 
@@ -852,13 +1112,15 @@ func (d *ImmuneDaemon) OnProcessExit(pid types.PID, tokensUsed int, exitNormal b
 
 	sample := collector.Finalize(tokensUsed, exitNormal)
 
-	_ = d.store.RecordSample(sample)
-	d.updateProfile(sample.AgentTemplate)
+	_ = store.RecordSample(sample)
+	d.updateProfile(collector.projectID, sample.AgentTemplate)
 }
 
-// updateProfile recomputes and saves the NormalProfile for an agent template.
-func (d *ImmuneDaemon) updateProfile(agentTemplate string) {
-	samples, err := d.store.GetSamples(agentTemplate)
+// updateProfile recomputes and saves the NormalProfile for an agent template
+// within one project bucket.
+func (d *ImmuneDaemon) updateProfile(projectID, agentTemplate string) {
+	store := d.storeFor(projectID)
+	samples, err := store.GetSamples(agentTemplate)
 	if err != nil {
 		return
 	}
@@ -868,24 +1130,25 @@ func (d *ImmuneDaemon) updateProfile(agentTemplate string) {
 		return
 	}
 
-	if err := d.store.SaveProfile(profile); err != nil {
+	if err := store.SaveProfile(profile); err != nil {
 		return
 	}
 
 	d.mu.Lock()
-	d.profiles[agentTemplate] = profile
+	d.profiles[immuneScopedKey(projectID, agentTemplate)] = profile
 	d.mu.Unlock()
 }
 
-// GetProfile returns the NormalProfile for the given agent template, or nil if none exists.
-func (d *ImmuneDaemon) GetProfile(agentTemplate string) *NormalProfile {
+// GetProfile returns the NormalProfile for the given agent template in the
+// given project bucket, or nil if none exists.
+func (d *ImmuneDaemon) GetProfile(projectID, agentTemplate string) *NormalProfile {
 	if d == nil {
 		return nil
 	}
 
 	d.mu.RLock()
 	defer d.mu.RUnlock()
-	return d.profiles[agentTemplate]
+	return d.profiles[immuneScopedKey(projectID, agentTemplate)]
 }
 
 // GetAllProfiles returns a copy of all established NormalProfiles.
@@ -999,7 +1262,8 @@ func (d *ImmuneDaemon) ClearAlert(pid types.PID) {
 	delete(d.alerts, pid)
 }
 
-// GetThreats returns a copy of all known threat signatures.
+// GetThreats returns a copy of all known threat signatures across all project
+// buckets (flattened; used for threat-count display).
 func (d *ImmuneDaemon) GetThreats() []ThreatSignature {
 	if d == nil {
 		return nil
@@ -1008,9 +1272,59 @@ func (d *ImmuneDaemon) GetThreats() []ThreatSignature {
 	d.mu.RLock()
 	defer d.mu.RUnlock()
 
-	result := make([]ThreatSignature, len(d.threats))
-	copy(result, d.threats)
+	result := make([]ThreatSignature, 0)
+	for _, list := range d.threats {
+		result = append(result, list...)
+	}
 	return result
+}
+
+// ForgetThreats removes threat signatures from memory and disk across all
+// project buckets (IN-3 F3 correction port). When all is true every signature
+// is removed; otherwise signatures matching agentTemplate (and metric, when
+// non-empty) are removed. Returns the number of signatures removed.
+func (d *ImmuneDaemon) ForgetThreats(agentTemplate, metric string, all bool) int {
+	if d == nil {
+		return 0
+	}
+
+	type flush struct {
+		store *ImmuneStore
+		list  []ThreatSignature
+	}
+
+	// Same snapshot+write serialization as OnSyscallEvent (see flushMu field):
+	// without it a concurrent detection's flush could resurrect signatures this
+	// call just forgot. Lock order: flushMu → d.mu.
+	d.flushMu.Lock()
+	defer d.flushMu.Unlock()
+
+	d.mu.Lock()
+	removed := 0
+	var flushes []flush
+	for projectID, list := range d.threats {
+		kept := make([]ThreatSignature, 0, len(list))
+		for _, t := range list {
+			match := all || (t.AgentTemplate == agentTemplate && (metric == "" || t.Metric == metric))
+			if match {
+				removed++
+				continue
+			}
+			kept = append(kept, t)
+		}
+		if len(kept) != len(list) {
+			d.threats[projectID] = kept
+			flushes = append(flushes, flush{d.storeForLocked(projectID), kept})
+		}
+	}
+	d.mu.Unlock()
+
+	for _, f := range flushes {
+		if err := f.store.RewriteThreats(f.list); err != nil {
+			log.Printf("[immune] warn: forget threats rewrite failed: %v", err)
+		}
+	}
+	return removed
 }
 
 // --- Story 22.5: Collaboration Topology & Reinforcement Paths ---

@@ -517,7 +517,7 @@ func TestImmuneStore_ConcurrentWrites(t *testing.T) {
 
 func TestBehaviorCollector_ObserveAccumulates(t *testing.T) {
 	// Given: a BehaviorCollector for PID 42
-	collector := NewBehaviorCollector(types.PID(42), "code-analyst")
+	collector := NewBehaviorCollector(types.PID(42), "code-analyst", "global")
 
 	// When: observing multiple syscall events
 	events := []types.SyscallEvent{
@@ -562,7 +562,7 @@ func TestBehaviorCollector_ObserveAccumulates(t *testing.T) {
 
 func TestBehaviorCollector_Finalize(t *testing.T) {
 	// Given: a BehaviorCollector
-	collector := NewBehaviorCollector(types.PID(1), "test-agent")
+	collector := NewBehaviorCollector(types.PID(1), "test-agent", "global")
 
 	// When: a single event observed and finalized after some time
 	collector.Observe(types.SyscallEvent{PID: 1, Syscall: "Open"})
@@ -588,7 +588,7 @@ func TestBehaviorCollector_Finalize(t *testing.T) {
 
 func TestBehaviorCollector_DeviceAccessDedup(t *testing.T) {
 	// Given: a BehaviorCollector
-	collector := NewBehaviorCollector(types.PID(1), "test-agent")
+	collector := NewBehaviorCollector(types.PID(1), "test-agent", "global")
 
 	// When: observing events with repeated device paths
 	collector.Observe(types.SyscallEvent{PID: 1, Syscall: "Open", Args: map[string]any{"path": "/dev/llm/claude"}})
@@ -619,7 +619,7 @@ func TestBehaviorCollector_DeviceAccessDedup(t *testing.T) {
 
 func TestBehaviorCollector_ZeroEvents(t *testing.T) {
 	// Given: a BehaviorCollector with no events
-	collector := NewBehaviorCollector(types.PID(1), "idle-agent")
+	collector := NewBehaviorCollector(types.PID(1), "idle-agent", "global")
 
 	// When: finalizing immediately
 	sample := collector.Finalize(0, true)
@@ -665,8 +665,8 @@ func TestImmuneDaemon_StartStop(t *testing.T) {
 func TestImmuneDaemon_OnProcessLifecycle(t *testing.T) {
 	// Given: a running ImmuneDaemon
 	dir := t.TempDir()
-	store := NewImmuneStore(dir)
-	daemon := NewImmuneDaemon(store, DefaultImmuneConfig())
+	store := NewImmuneStore(filepath.Join(dir, "global"))
+	daemon := NewImmuneDaemon(NewImmuneStore(dir), DefaultImmuneConfig())
 	if err := daemon.Start(); err != nil {
 		t.Fatalf("Start failed: %v", err)
 	}
@@ -674,7 +674,7 @@ func TestImmuneDaemon_OnProcessLifecycle(t *testing.T) {
 
 	// When: simulating a process lifecycle
 	pid := types.PID(100)
-	daemon.OnProcessStart(pid, "code-analyst")
+	daemon.OnProcessStart(pid, "code-analyst", "global")
 
 	// And: sending syscall events
 	daemon.OnSyscallEvent(pid, types.SyscallEvent{PID: pid, Syscall: "Open", Args: map[string]any{"path": "/dev/llm/claude"}})
@@ -715,13 +715,13 @@ func TestImmuneDaemon_ProfileBuilding(t *testing.T) {
 	// When: simulating 5 complete process lifecycles (enough for profile)
 	for i := range 5 {
 		pid := types.PID(200 + i)
-		daemon.OnProcessStart(pid, "profile-test-agent")
+		daemon.OnProcessStart(pid, "profile-test-agent", "global")
 		daemon.OnSyscallEvent(pid, types.SyscallEvent{PID: pid, Syscall: "Open"})
 		daemon.OnProcessExit(pid, 1000+i*100, true)
 	}
 
 	// Then: a profile should be established
-	profile := daemon.GetProfile("profile-test-agent")
+	profile := daemon.GetProfile("global", "profile-test-agent")
 	if profile == nil {
 		t.Fatal("expected profile to be built after 5 samples")
 	}
@@ -738,7 +738,7 @@ func TestImmuneDaemon_ProfileBuilding(t *testing.T) {
 func TestImmuneDaemon_ProfilePersistence(t *testing.T) {
 	// Given: a daemon that has built and saved a profile
 	dir := t.TempDir()
-	store := NewImmuneStore(dir)
+	store := NewImmuneStore(filepath.Join(dir, "global"))
 
 	// Pre-populate samples directly to build a profile
 	for i := range 6 {
@@ -774,7 +774,7 @@ func TestImmuneDaemon_ProfilePersistence(t *testing.T) {
 	defer daemon2.Stop()
 
 	// Then: the profile is loaded from disk
-	loaded := daemon2.GetProfile("persistent-agent")
+	loaded := daemon2.GetProfile("global", "persistent-agent")
 	if loaded == nil {
 		t.Fatal("expected profile to be loaded after restart")
 	}
@@ -790,12 +790,12 @@ func TestImmuneDaemon_NilSafe(t *testing.T) {
 	var daemon *ImmuneDaemon
 
 	// Then: all methods should not panic
-	daemon.OnProcessStart(types.PID(1), "agent")
+	daemon.OnProcessStart(types.PID(1), "agent", "global")
 	daemon.OnSyscallEvent(types.PID(1), types.SyscallEvent{})
 	daemon.OnProcessExit(types.PID(1), 100, true)
 	daemon.Stop()
 
-	profile := daemon.GetProfile("agent")
+	profile := daemon.GetProfile("global", "agent")
 	if profile != nil {
 		t.Error("GetProfile on nil daemon should return nil")
 	}
@@ -811,8 +811,8 @@ func TestImmuneDaemon_NilSafe(t *testing.T) {
 func TestImmuneDaemon_ConcurrentAccess(t *testing.T) {
 	// Given: a running ImmuneDaemon
 	dir := t.TempDir()
-	store := NewImmuneStore(dir)
-	daemon := NewImmuneDaemon(store, DefaultImmuneConfig())
+	store := NewImmuneStore(filepath.Join(dir, "global"))
+	daemon := NewImmuneDaemon(NewImmuneStore(dir), DefaultImmuneConfig())
 	if err := daemon.Start(); err != nil {
 		t.Fatalf("Start failed: %v", err)
 	}
@@ -827,7 +827,7 @@ func TestImmuneDaemon_ConcurrentAccess(t *testing.T) {
 		go func(idx int) {
 			defer wg.Done()
 			pid := types.PID(300 + idx)
-			daemon.OnProcessStart(pid, "concurrent-agent")
+			daemon.OnProcessStart(pid, "concurrent-agent", "global")
 			for j := range 5 {
 				daemon.OnSyscallEvent(pid, types.SyscallEvent{
 					PID:     pid,
@@ -917,7 +917,7 @@ func TestImmuneStore_ProfilePath(t *testing.T) {
 func TestImmuneDaemon_GetAllProfiles(t *testing.T) {
 	// Given: a daemon that has loaded profiles
 	dir := t.TempDir()
-	store := NewImmuneStore(dir)
+	store := NewImmuneStore(filepath.Join(dir, "global"))
 
 	// Pre-save 2 profiles
 	for _, tmpl := range []string{"agent-a", "agent-b"} {
@@ -933,7 +933,7 @@ func TestImmuneDaemon_GetAllProfiles(t *testing.T) {
 		}
 	}
 
-	daemon := NewImmuneDaemon(store, DefaultImmuneConfig())
+	daemon := NewImmuneDaemon(NewImmuneStore(dir), DefaultImmuneConfig())
 	if err := daemon.Start(); err != nil {
 		t.Fatalf("Start failed: %v", err)
 	}
@@ -942,15 +942,15 @@ func TestImmuneDaemon_GetAllProfiles(t *testing.T) {
 	// When: getting all profiles
 	all := daemon.GetAllProfiles()
 
-	// Then: returns 2 profiles
+	// Then: returns 2 profiles (keys are project-scoped since IN-3 F6)
 	if len(all) != 2 {
 		t.Fatalf("expected 2 profiles, got %d", len(all))
 	}
-	if _, ok := all["agent-a"]; !ok {
-		t.Error("missing profile for agent-a")
+	if _, ok := all["global/agent-a"]; !ok {
+		t.Error("missing profile for global/agent-a")
 	}
-	if _, ok := all["agent-b"]; !ok {
-		t.Error("missing profile for agent-b")
+	if _, ok := all["global/agent-b"]; !ok {
+		t.Error("missing profile for global/agent-b")
 	}
 }
 

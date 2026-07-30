@@ -369,6 +369,8 @@ func (s *Server) handleConn(conn net.Conn) {
 			s.handleImmuneStatus(conn)
 		case MethodImmuneResume:
 			s.handleImmuneResume(conn, req.Payload)
+		case MethodImmuneForget:
+			s.handleImmuneForget(conn, req.Payload)
 		case MethodSimilarityQuery:
 			s.handleSimilarityQuery(conn, req.Payload)
 		case MethodTopologyQuery:

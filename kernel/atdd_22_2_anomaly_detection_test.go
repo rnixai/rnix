@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -188,10 +189,8 @@ func TestImmuneStore_SaveAndLoadThreats(t *testing.T) {
 		},
 	}
 
-	for _, sig := range threats {
-		if err := store.SaveThreat(sig); err != nil {
-			t.Fatalf("SaveThreat failed: %v", err)
-		}
+	if err := store.RewriteThreats(threats); err != nil {
+		t.Fatalf("RewriteThreats failed: %v", err)
 	}
 
 	// Then: reading back returns 3 threat signatures
@@ -244,18 +243,19 @@ func TestImmuneStore_ThreatsJSONLinesFormat(t *testing.T) {
 	dir := t.TempDir()
 	store := NewImmuneStore(dir)
 
+	sigs := make([]ThreatSignature, 0, 2)
 	for i := range 2 {
-		sig := ThreatSignature{
+		sigs = append(sigs, ThreatSignature{
 			ID:            "threat-format-" + string(rune('0'+i)),
 			Type:          AnomalySyscallFreq,
 			AgentTemplate: "format-test",
 			Metric:        "Open",
 			Threshold:     3.0,
 			CreatedAt:     time.Now(),
-		}
-		if err := store.SaveThreat(sig); err != nil {
-			t.Fatalf("SaveThreat failed: %v", err)
-		}
+		})
+	}
+	if err := store.RewriteThreats(sigs); err != nil {
+		t.Fatalf("RewriteThreats failed: %v", err)
 	}
 
 	// Then: the file contains 2 lines (JSON Lines format)
@@ -519,7 +519,7 @@ func TestAnomalyDetector_NoMatchThreat(t *testing.T) {
 func TestImmuneDaemon_AnomalyDetection(t *testing.T) {
 	// Given: a running ImmuneDaemon with a profile and a suspendFn
 	dir := t.TempDir()
-	store := NewImmuneStore(dir)
+	store := NewImmuneStore(filepath.Join(dir, "global"))
 
 	// Pre-save a profile with low Open mean for easy triggering
 	profile := &NormalProfile{
@@ -536,7 +536,7 @@ func TestImmuneDaemon_AnomalyDetection(t *testing.T) {
 
 	cfg := DefaultImmuneConfig()
 	cfg.WarnOnly = false // enforce mode for suspend testing
-	daemon := NewImmuneDaemon(store, cfg)
+	daemon := NewImmuneDaemon(NewImmuneStore(dir), cfg)
 	if err := daemon.Start(); err != nil {
 		t.Fatalf("Start failed: %v", err)
 	}
@@ -554,7 +554,7 @@ func TestImmuneDaemon_AnomalyDetection(t *testing.T) {
 
 	// When: a process generates far more Open calls than the baseline
 	pid := types.PID(42)
-	daemon.OnProcessStart(pid, "anomaly-agent")
+	daemon.OnProcessStart(pid, "anomaly-agent", "global")
 
 	// Exceed threshold: mean=2.0, stddev=0.5, threshold=3.0 -> limit=2.0+3*0.5=3.5
 	// Send enough events to exceed the threshold
@@ -588,12 +588,12 @@ func TestImmuneDaemon_AnomalyDetection(t *testing.T) {
 	}
 }
 
-// --- 22.2-UNIT-017: [P0] ImmuneDaemon threat memory match triggers immediate suspend (AC2) ---
+// --- 22.2-UNIT-017: [P0] known threat signature annotates but does not bypass counts (AC2, reworked by IN-3 F1) ---
 
 func TestImmuneDaemon_ThreatMemoryMatch(t *testing.T) {
 	// Given: a running ImmuneDaemon with a known threat signature
 	dir := t.TempDir()
-	store := NewImmuneStore(dir)
+	seed := NewImmuneStore(filepath.Join(dir, "global"))
 
 	// Pre-save a threat signature
 	sig := ThreatSignature{
@@ -604,24 +604,24 @@ func TestImmuneDaemon_ThreatMemoryMatch(t *testing.T) {
 		Threshold:     3.0,
 		CreatedAt:     time.Now(),
 	}
-	if err := store.SaveThreat(sig); err != nil {
-		t.Fatalf("SaveThreat failed: %v", err)
+	if err := seed.RewriteThreats([]ThreatSignature{sig}); err != nil {
+		t.Fatalf("RewriteThreats failed: %v", err)
 	}
 
 	// Also save a profile so daemon starts with context
 	profile := &NormalProfile{
 		AgentTemplate: "known-threat-agent",
 		SampleCount:   10,
-		SyscallMean:   map[string]float64{"Open": 5.0},
-		SyscallStdDev: map[string]float64{"Open": 1.0},
+		SyscallMean:   map[string]float64{"Open": 2.0},
+		SyscallStdDev: map[string]float64{"Open": 0.5},
 	}
-	if err := store.SaveProfile(profile); err != nil {
+	if err := seed.SaveProfile(profile); err != nil {
 		t.Fatalf("SaveProfile failed: %v", err)
 	}
 
 	cfg := DefaultImmuneConfig()
 	cfg.WarnOnly = false // enforce mode for suspend testing
-	daemon := NewImmuneDaemon(store, cfg)
+	daemon := NewImmuneDaemon(NewImmuneStore(dir), cfg)
 	if err := daemon.Start(); err != nil {
 		t.Fatalf("Start failed: %v", err)
 	}
@@ -636,20 +636,45 @@ func TestImmuneDaemon_ThreatMemoryMatch(t *testing.T) {
 		return nil
 	})
 
-	// When: a process with matching template sends any Open syscall
+	// When: a process with matching template sends ONE Open syscall
 	pid := types.PID(99)
-	daemon.OnProcessStart(pid, "known-threat-agent")
-	// Just one event should trigger via threat memory match (no need to exceed statistical threshold)
+	daemon.OnProcessStart(pid, "known-threat-agent", "global")
 	daemon.OnSyscallEvent(pid, types.SyscallEvent{
 		PID:     pid,
 		Syscall: "Open",
 	})
 
-	// Then: the process should be immediately suspended via threat match
+	// Then (IN-3 F1): a single call must NOT suspend — the signature no longer
+	// bypasses the statistical count gates ("first call hits known threat" was
+	// the deterministic false positive this rework kills).
+	suspendedMu.Lock()
+	if len(suspendedPIDs) != 0 {
+		t.Error("single call must not suspend: threat signature must not bypass count gates")
+	}
+	suspendedMu.Unlock()
+
+	// When: the count genuinely exceeds all gates (mean+3σ=3.5, floor=5, no histMax)
+	for range 9 {
+		daemon.OnSyscallEvent(pid, types.SyscallEvent{PID: pid, Syscall: "Open"})
+	}
+
+	// Then: the process is suspended, and the alert carries the measured
+	// deviation plus a known-threat annotation.
 	suspendedMu.Lock()
 	defer suspendedMu.Unlock()
 	if len(suspendedPIDs) == 0 {
-		t.Error("expected process to be suspended via threat memory match")
+		t.Error("expected suspend once counts exceed the statistical gates")
+	}
+	alerts := daemon.GetAlerts()
+	alert, ok := alerts[pid]
+	if !ok {
+		t.Fatal("expected alert for PID 99")
+	}
+	if !strings.Contains(alert.Detail, "matches known threat threat-test-001") {
+		t.Errorf("alert Detail should annotate the matched signature, got %q", alert.Detail)
+	}
+	if alert.Deviation == sig.Threshold {
+		t.Errorf("alert Deviation must be the measured value, not the signature's frozen threshold %.1f", sig.Threshold)
 	}
 }
 
@@ -674,7 +699,7 @@ func TestImmuneDaemon_NoProfileNoDetection(t *testing.T) {
 
 	// When: a process sends many syscall events (but no profile exists)
 	pid := types.PID(50)
-	daemon.OnProcessStart(pid, "no-profile-agent")
+	daemon.OnProcessStart(pid, "no-profile-agent", "global")
 	for i := range 100 {
 		daemon.OnSyscallEvent(pid, types.SyscallEvent{
 			PID:     pid,
@@ -694,8 +719,8 @@ func TestImmuneDaemon_NoProfileNoDetection(t *testing.T) {
 func TestImmuneDaemon_ClearAlert(t *testing.T) {
 	// Given: a daemon with an active alert
 	dir := t.TempDir()
-	store := NewImmuneStore(dir)
-	daemon := NewImmuneDaemon(store, DefaultImmuneConfig())
+	store := NewImmuneStore(filepath.Join(dir, "global"))
+	daemon := NewImmuneDaemon(NewImmuneStore(dir), DefaultImmuneConfig())
 	if err := daemon.Start(); err != nil {
 		t.Fatalf("Start failed: %v", err)
 	}
@@ -713,7 +738,7 @@ func TestImmuneDaemon_ClearAlert(t *testing.T) {
 	}
 	// Restart to load profile
 	daemon.Stop()
-	daemon = NewImmuneDaemon(store, DefaultImmuneConfig())
+	daemon = NewImmuneDaemon(NewImmuneStore(dir), DefaultImmuneConfig())
 	if err := daemon.Start(); err != nil {
 		t.Fatalf("Start failed: %v", err)
 	}
@@ -721,7 +746,7 @@ func TestImmuneDaemon_ClearAlert(t *testing.T) {
 	daemon.SetSuspendFunc(func(pid types.PID) error { return nil })
 
 	pid := types.PID(77)
-	daemon.OnProcessStart(pid, "clear-test-agent")
+	daemon.OnProcessStart(pid, "clear-test-agent", "global")
 	// Trigger anomaly
 	for i := range 20 {
 		daemon.OnSyscallEvent(pid, types.SyscallEvent{
@@ -772,25 +797,28 @@ func TestImmuneDaemon_GetAlerts(t *testing.T) {
 // --- 22.2-UNIT-021: [P0] ImmuneDaemon GetThreats returns loaded threats (AC2) ---
 
 func TestImmuneDaemon_GetThreats(t *testing.T) {
-	// Given: a store with 2 threat signatures
+	// Given: a "global" bucket with 2 threat signatures (distinct metrics —
+	// same-key duplicates would be deduped by the Start hygiene pass, IN-3 F3)
 	dir := t.TempDir()
-	store := NewImmuneStore(dir)
+	seed := NewImmuneStore(filepath.Join(dir, "global"))
 
+	metrics := []string{"Open", "Write"}
+	sigs := make([]ThreatSignature, 0, 2)
 	for i := range 2 {
-		sig := ThreatSignature{
+		sigs = append(sigs, ThreatSignature{
 			ID:            "threat-get-" + string(rune('0'+i)),
 			Type:          AnomalySyscallFreq,
 			AgentTemplate: "threat-test",
-			Metric:        "Open",
+			Metric:        metrics[i],
 			Threshold:     3.0,
 			CreatedAt:     time.Now(),
-		}
-		if err := store.SaveThreat(sig); err != nil {
-			t.Fatalf("SaveThreat failed: %v", err)
-		}
+		})
+	}
+	if err := seed.RewriteThreats(sigs); err != nil {
+		t.Fatalf("RewriteThreats failed: %v", err)
 	}
 
-	daemon := NewImmuneDaemon(store, DefaultImmuneConfig())
+	daemon := NewImmuneDaemon(NewImmuneStore(dir), DefaultImmuneConfig())
 	if err := daemon.Start(); err != nil {
 		t.Fatalf("Start failed: %v", err)
 	}
@@ -808,9 +836,9 @@ func TestImmuneDaemon_GetThreats(t *testing.T) {
 // --- 22.2-UNIT-022: [P0] ImmuneDaemon threat persistence across restart (AC5) ---
 
 func TestImmuneDaemon_ThreatPersistence(t *testing.T) {
-	// Given: a daemon that has saved threat signatures
+	// Given: a daemon that has saved threat signatures (in the "global" bucket)
 	dir := t.TempDir()
-	store := NewImmuneStore(dir)
+	seed := NewImmuneStore(filepath.Join(dir, "global"))
 
 	sig := ThreatSignature{
 		ID:            "threat-persist",
@@ -820,8 +848,8 @@ func TestImmuneDaemon_ThreatPersistence(t *testing.T) {
 		Threshold:     4.0,
 		CreatedAt:     time.Now(),
 	}
-	if err := store.SaveThreat(sig); err != nil {
-		t.Fatalf("SaveThreat failed: %v", err)
+	if err := seed.RewriteThreats([]ThreatSignature{sig}); err != nil {
+		t.Fatalf("RewriteThreats failed: %v", err)
 	}
 
 	// When: creating a new daemon (simulating restart)
@@ -870,7 +898,7 @@ func TestImmuneDaemon_SuspendFnNil(t *testing.T) {
 
 	// When: triggering an anomaly
 	pid := types.PID(88)
-	daemon.OnProcessStart(pid, "nil-suspend-agent")
+	daemon.OnProcessStart(pid, "nil-suspend-agent", "global")
 
 	// Then: should not panic even when anomaly detected
 	for i := range 20 {
@@ -912,7 +940,7 @@ func TestImmuneDaemon_NilSafe_NewMethods(t *testing.T) {
 func TestImmuneDaemon_ConcurrentAnomalyDetection(t *testing.T) {
 	// Given: a running ImmuneDaemon with a profile
 	dir := t.TempDir()
-	store := NewImmuneStore(dir)
+	store := NewImmuneStore(filepath.Join(dir, "global"))
 
 	profile := &NormalProfile{
 		AgentTemplate: "concurrent-anomaly",
@@ -926,7 +954,7 @@ func TestImmuneDaemon_ConcurrentAnomalyDetection(t *testing.T) {
 
 	cfg := DefaultImmuneConfig()
 	cfg.WarnOnly = false // enforce mode for suspend testing
-	daemon := NewImmuneDaemon(store, cfg)
+	daemon := NewImmuneDaemon(NewImmuneStore(dir), cfg)
 	if err := daemon.Start(); err != nil {
 		t.Fatalf("Start failed: %v", err)
 	}
@@ -950,7 +978,7 @@ func TestImmuneDaemon_ConcurrentAnomalyDetection(t *testing.T) {
 		go func(idx int) {
 			defer wg.Done()
 			pid := types.PID(500 + idx)
-			daemon.OnProcessStart(pid, "concurrent-anomaly")
+			daemon.OnProcessStart(pid, "concurrent-anomaly", "global")
 			for j := range 20 {
 				daemon.OnSyscallEvent(pid, types.SyscallEvent{
 					PID:     pid,

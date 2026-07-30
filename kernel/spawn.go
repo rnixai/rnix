@@ -1174,7 +1174,14 @@ func (k *KernelImpl) Spawn(intent string, agent *agents.AgentInfo, opts SpawnOpt
 		if agent != nil {
 			agentName = agent.Manifest.Name
 		}
-		k.immuneDaemon.OnProcessStart(proc.PID, agentName)
+		// Immune store bucket (IN-3 F6): behavior stats are project-scoped so
+		// same-named templates from different projects never pollute each
+		// other's baselines or threat memory.
+		immuneProjectID := "global"
+		if opts.ProjectConfig != nil && opts.ProjectConfig.ProjectDir != "" {
+			immuneProjectID = config.ProjectDataID(opts.ProjectConfig.ProjectDir)
+		}
+		k.immuneDaemon.OnProcessStart(proc.PID, agentName, immuneProjectID)
 
 		// Cooperation topology feed: record parent→child spawn edge (Story 51.2 / EM-3).
 		// Parent collector was registered at the parent's earlier OnProcessStart.

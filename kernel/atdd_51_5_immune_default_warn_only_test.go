@@ -3,6 +3,7 @@ package kernel
 import (
 	"encoding/json"
 	"fmt"
+	"path/filepath"
 	"sync"
 	"testing"
 	"time"
@@ -76,7 +77,7 @@ func TestATDD_51_5_INT_001_DefaultImmuneConfig_EnabledAndWarnOnly(t *testing.T) 
 func TestATDD_51_5_INT_002_WarnOnly_StatisticalAnomaly_NoSuspend(t *testing.T) {
 	// Given: a daemon in warn-only mode (default) with a profile and suspendFn
 	dir := t.TempDir()
-	store := NewImmuneStore(dir)
+	store := NewImmuneStore(filepath.Join(dir, "global"))
 
 	profile := &NormalProfile{
 		AgentTemplate: "warn-test-agent",
@@ -96,7 +97,7 @@ func TestATDD_51_5_INT_002_WarnOnly_StatisticalAnomaly_NoSuspend(t *testing.T) {
 		t.Fatal("precondition: DefaultImmuneConfig().WarnOnly must be true")
 	}
 
-	daemon := NewImmuneDaemon(store, cfg)
+	daemon := NewImmuneDaemon(NewImmuneStore(dir), cfg)
 	if err := daemon.Start(); err != nil {
 		t.Fatalf("Start failed: %v", err)
 	}
@@ -114,7 +115,7 @@ func TestATDD_51_5_INT_002_WarnOnly_StatisticalAnomaly_NoSuspend(t *testing.T) {
 
 	// When: a process generates far more Open calls than the baseline
 	pid := types.PID(42)
-	daemon.OnProcessStart(pid, "warn-test-agent")
+	daemon.OnProcessStart(pid, "warn-test-agent", "global")
 
 	// Exceed threshold: mean=2.0, stddev=0.5, threshold=3.0 -> limit=2.0+3*0.5=3.5
 	for i := range 10 {
@@ -163,7 +164,7 @@ func TestATDD_51_5_INT_002_WarnOnly_StatisticalAnomaly_NoSuspend(t *testing.T) {
 func TestATDD_51_5_INT_003_Enforce_StatisticalAnomaly_Suspends(t *testing.T) {
 	// Given: a daemon in enforce mode (WarnOnly=false) — existing 22.2 behavior
 	dir := t.TempDir()
-	store := NewImmuneStore(dir)
+	store := NewImmuneStore(filepath.Join(dir, "global"))
 
 	profile := &NormalProfile{
 		AgentTemplate: "enforce-test-agent",
@@ -179,7 +180,7 @@ func TestATDD_51_5_INT_003_Enforce_StatisticalAnomaly_Suspends(t *testing.T) {
 
 	cfg := DefaultImmuneConfig()
 	cfg.WarnOnly = false // enforce mode
-	daemon := NewImmuneDaemon(store, cfg)
+	daemon := NewImmuneDaemon(NewImmuneStore(dir), cfg)
 	if err := daemon.Start(); err != nil {
 		t.Fatalf("Start failed: %v", err)
 	}
@@ -196,7 +197,7 @@ func TestATDD_51_5_INT_003_Enforce_StatisticalAnomaly_Suspends(t *testing.T) {
 
 	// When: a process exceeds anomaly threshold
 	pid := types.PID(43)
-	daemon.OnProcessStart(pid, "enforce-test-agent")
+	daemon.OnProcessStart(pid, "enforce-test-agent", "global")
 	for i := range 10 {
 		daemon.OnSyscallEvent(pid, types.SyscallEvent{
 			PID:     pid,
@@ -224,7 +225,7 @@ func TestATDD_51_5_INT_003_Enforce_StatisticalAnomaly_Suspends(t *testing.T) {
 func TestATDD_51_5_INT_004_WarnOnly_ThreatMatch_NoSuspend(t *testing.T) {
 	// Given: a daemon in warn-only mode with a known threat signature
 	dir := t.TempDir()
-	store := NewImmuneStore(dir)
+	seed := NewImmuneStore(filepath.Join(dir, "global"))
 
 	// Pre-save threat signature
 	sig := ThreatSignature{
@@ -235,8 +236,8 @@ func TestATDD_51_5_INT_004_WarnOnly_ThreatMatch_NoSuspend(t *testing.T) {
 		Threshold:     3.0,
 		CreatedAt:     time.Now(),
 	}
-	if err := store.SaveThreat(sig); err != nil {
-		t.Fatalf("SaveThreat failed: %v", err)
+	if err := seed.RewriteThreats([]ThreatSignature{sig}); err != nil {
+		t.Fatalf("RewriteThreats failed: %v", err)
 	}
 
 	// Pre-save profile so daemon has detection context
@@ -246,13 +247,13 @@ func TestATDD_51_5_INT_004_WarnOnly_ThreatMatch_NoSuspend(t *testing.T) {
 		SyscallMean:   map[string]float64{"Open": 5.0},
 		SyscallStdDev: map[string]float64{"Open": 1.0},
 	}
-	if err := store.SaveProfile(profile); err != nil {
+	if err := seed.SaveProfile(profile); err != nil {
 		t.Fatalf("SaveProfile failed: %v", err)
 	}
 
 	cfg := DefaultImmuneConfig()
 	// cfg.WarnOnly == true (default)
-	daemon := NewImmuneDaemon(store, cfg)
+	daemon := NewImmuneDaemon(NewImmuneStore(dir), cfg)
 	if err := daemon.Start(); err != nil {
 		t.Fatalf("Start failed: %v", err)
 	}
@@ -264,13 +265,17 @@ func TestATDD_51_5_INT_004_WarnOnly_ThreatMatch_NoSuspend(t *testing.T) {
 		return nil
 	})
 
-	// When: a process with matching template sends a syscall that matches the threat
+	// When: the process's count exceeds all gates on a threat-matching syscall
+	// (IN-3 F1: signatures annotate but no longer bypass count gates —
+	// mean+3σ=8, floor=5 → 9th call triggers)
 	pid := types.PID(99)
-	daemon.OnProcessStart(pid, "threat-warn-agent")
-	daemon.OnSyscallEvent(pid, types.SyscallEvent{
-		PID:     pid,
-		Syscall: "Open",
-	})
+	daemon.OnProcessStart(pid, "threat-warn-agent", "global")
+	for range 10 {
+		daemon.OnSyscallEvent(pid, types.SyscallEvent{
+			PID:     pid,
+			Syscall: "Open",
+		})
+	}
 
 	// Then: alert should exist (threat match records alert even in warn-only)
 	alerts := daemon.GetAlerts()
@@ -459,7 +464,7 @@ func TestATDD_51_5_INT_009_WarnOnly_vs_Enforce_Contrast(t *testing.T) {
 	setupDaemon := func(t *testing.T, warnOnly bool) (*ImmuneDaemon, *int, string) {
 		t.Helper()
 		dir := t.TempDir()
-		store := NewImmuneStore(dir)
+		store := NewImmuneStore(filepath.Join(dir, "global"))
 
 		profile := &NormalProfile{
 			AgentTemplate: "contrast-agent",
@@ -475,7 +480,7 @@ func TestATDD_51_5_INT_009_WarnOnly_vs_Enforce_Contrast(t *testing.T) {
 
 		cfg := DefaultImmuneConfig()
 		cfg.WarnOnly = warnOnly
-		daemon := NewImmuneDaemon(store, cfg)
+		daemon := NewImmuneDaemon(NewImmuneStore(dir), cfg)
 		if err := daemon.Start(); err != nil {
 			t.Fatalf("Start failed: %v", err)
 		}
@@ -491,7 +496,7 @@ func TestATDD_51_5_INT_009_WarnOnly_vs_Enforce_Contrast(t *testing.T) {
 
 	// Run identical event sequence in both modes
 	fireEvents := func(daemon *ImmuneDaemon, pid types.PID) {
-		daemon.OnProcessStart(pid, "contrast-agent")
+		daemon.OnProcessStart(pid, "contrast-agent", "global")
 		for i := range 10 {
 			daemon.OnSyscallEvent(pid, types.SyscallEvent{
 				PID:     pid,
@@ -563,7 +568,7 @@ func TestATDD_51_5_INT_010_WarnOnly_NoSuspendingFlag(t *testing.T) {
 	})
 
 	pid := types.PID(200)
-	daemon.OnProcessStart(pid, "suspending-flag-agent")
+	daemon.OnProcessStart(pid, "suspending-flag-agent", "global")
 
 	// Trigger anomaly
 	for i := range 10 {

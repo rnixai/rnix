@@ -2,6 +2,7 @@ package kernel
 
 import (
 	gocontext "context"
+	"path/filepath"
 	"strings"
 	"sync"
 	"testing"
@@ -97,7 +98,7 @@ func setupImmuneE2E(t *testing.T, k *KernelImpl, warnOnly bool, agentTemplate st
 	t.Helper()
 
 	dir := t.TempDir()
-	store := NewImmuneStore(dir)
+	store := NewImmuneStore(filepath.Join(dir, "global"))
 
 	profile := &NormalProfile{
 		AgentTemplate: agentTemplate,
@@ -114,7 +115,7 @@ func setupImmuneE2E(t *testing.T, k *KernelImpl, warnOnly bool, agentTemplate st
 	cfg := DefaultImmuneConfig()
 	cfg.WarnOnly = warnOnly
 	cfg.DeviationThreshold = 3.0
-	daemon := NewImmuneDaemon(store, cfg)
+	daemon := NewImmuneDaemon(NewImmuneStore(dir), cfg)
 	if err := daemon.Start(); err != nil {
 		t.Fatalf("daemon.Start: %v", err)
 	}
@@ -195,7 +196,7 @@ func TestATDD_50_3_INT_001_E2E_StatisticalAnomaly_SuspendsClosure(t *testing.T) 
 	}
 
 	// Register collector for this PID (simulates kernel's OnProcessStart callback)
-	daemon.OnProcessStart(pid, agentTpl)
+	daemon.OnProcessStart(pid, agentTpl, "global")
 
 	// Feed 10 Open events — threshold = mean+3*stddev = 2.0+1.5 = 3.5, so 10 >> 3.5
 	// OnSyscallEvent → anomaly detected → suspendFn → k.Kill(SIGPAUSE) →
@@ -242,7 +243,7 @@ func TestATDD_50_3_INT_002_E2E_ThreatMatch_SuspendsClosure(t *testing.T) {
 
 	// Setup immune with a pre-stored threat signature
 	dir := t.TempDir()
-	store := NewImmuneStore(dir)
+	seed := NewImmuneStore(filepath.Join(dir, "global"))
 
 	profile := &NormalProfile{
 		AgentTemplate: agentTpl,
@@ -252,7 +253,7 @@ func TestATDD_50_3_INT_002_E2E_ThreatMatch_SuspendsClosure(t *testing.T) {
 		TokenRateMean:   2.0,
 		TokenRateStdDev: 0.3,
 	}
-	if err := store.SaveProfile(profile); err != nil {
+	if err := seed.SaveProfile(profile); err != nil {
 		t.Fatalf("SaveProfile: %v", err)
 	}
 
@@ -264,13 +265,13 @@ func TestATDD_50_3_INT_002_E2E_ThreatMatch_SuspendsClosure(t *testing.T) {
 		Threshold:     3.0,
 		CreatedAt:     time.Now(),
 	}
-	if err := store.SaveThreat(sig); err != nil {
-		t.Fatalf("SaveThreat: %v", err)
+	if err := seed.RewriteThreats([]ThreatSignature{sig}); err != nil {
+		t.Fatalf("RewriteThreats: %v", err)
 	}
 
 	cfg := DefaultImmuneConfig()
 	cfg.WarnOnly = false
-	daemon := NewImmuneDaemon(store, cfg)
+	daemon := NewImmuneDaemon(NewImmuneStore(dir), cfg)
 	if err := daemon.Start(); err != nil {
 		t.Fatalf("daemon.Start: %v", err)
 	}
@@ -295,14 +296,18 @@ func TestATDD_50_3_INT_002_E2E_ThreatMatch_SuspendsClosure(t *testing.T) {
 		t.Fatal("timed out waiting for process to reach LLM Write")
 	}
 
-	daemon.OnProcessStart(pid, agentTpl)
+	daemon.OnProcessStart(pid, agentTpl, "global")
 
-	// Single matching syscall should trigger threat fast-path
-	daemon.OnSyscallEvent(pid, types.SyscallEvent{
-		PID:     pid,
-		Syscall: "Open",
-		Args:    map[string]any{"threat": true},
-	})
+	// Feed enough matching syscalls to exceed all count gates (IN-3 F1: a
+	// signature no longer bypasses statistics — mean+3σ=3.5, floor=5 → 6th
+	// call triggers; the signature only annotates the alert Detail).
+	for range 6 {
+		daemon.OnSyscallEvent(pid, types.SyscallEvent{
+			PID:     pid,
+			Syscall: "Open",
+			Args:    map[string]any{"threat": true},
+		})
+	}
 
 	// AC2: process suspended via threat match
 	if got := proc.GetState(); got != types.StateSuspended {
@@ -343,7 +348,7 @@ func TestATDD_50_3_INT_003_E2E_WarnOnly_NoSuspend(t *testing.T) {
 		t.Fatal("timed out waiting for process to reach LLM Write")
 	}
 
-	daemon.OnProcessStart(pid, agentTpl)
+	daemon.OnProcessStart(pid, agentTpl, "global")
 
 	// Feed the same 10 Open events that would trigger suspend in enforce mode
 	feedSyscalls(daemon, pid, "Open", 10)

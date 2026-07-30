@@ -11,7 +11,17 @@ type ImmuneConfig struct {
 	MinSamples             int     `json:"min_samples" yaml:"min_samples"`
 	ReinforcementThreshold int     `json:"reinforcement_threshold" yaml:"reinforcement_threshold"`
 	MinMigrationSimilarity float64 `json:"min_migration_similarity" yaml:"min_migration_similarity"`
+	ThreatTTLDays          int     `json:"threat_ttl_days" yaml:"threat_ttl_days"`
+	MaxThreats             int     `json:"max_threats" yaml:"max_threats"`
 }
+
+// DefaultThreatTTLDays is the default expiry for threat signatures (IN-3 F3).
+// Signatures older than this are dropped at daemon startup. 0 disables expiry.
+const DefaultThreatTTLDays = 30
+
+// DefaultMaxThreats caps the per-project threat memory size (IN-3 F3).
+// When exceeded, the oldest signatures are evicted. 0 disables the cap.
+const DefaultMaxThreats = 500
 
 // DefaultImmuneConfig returns the default immune configuration.
 // Enabled=true and WarnOnly=true: immune system is on by default in observation mode.
@@ -23,6 +33,8 @@ func DefaultImmuneConfig() ImmuneConfig {
 		MinSamples:             MinSamplesForProfile,
 		ReinforcementThreshold: DefaultReinforcementThreshold,
 		MinMigrationSimilarity: MinMigrationSimilarity,
+		ThreatTTLDays:          DefaultThreatTTLDays,
+		MaxThreats:             DefaultMaxThreats,
 	}
 }
 
@@ -88,6 +100,26 @@ func ParseImmuneConfig(data map[string]any, base ...ImmuneConfig) (ImmuneConfig,
 				warnings = append(warnings, fmt.Sprintf("immune: min_migration_similarity %.2f invalid (must be 0~1), using default %.2f", f, MinMigrationSimilarity))
 			} else {
 				cfg.MinMigrationSimilarity = f
+			}
+		}
+	}
+
+	if v, ok := data["threat_ttl_days"]; ok {
+		if n, parsed := toInt(v); parsed {
+			if n < 0 {
+				warnings = append(warnings, fmt.Sprintf("immune: threat_ttl_days %d invalid (must be >=0, 0=never expire), using default %d", n, DefaultThreatTTLDays))
+			} else {
+				cfg.ThreatTTLDays = n
+			}
+		}
+	}
+
+	if v, ok := data["max_threats"]; ok {
+		if n, parsed := toInt(v); parsed {
+			if n < 0 {
+				warnings = append(warnings, fmt.Sprintf("immune: max_threats %d invalid (must be >=0, 0=no cap), using default %d", n, DefaultMaxThreats))
+			} else {
+				cfg.MaxThreats = n
 			}
 		}
 	}

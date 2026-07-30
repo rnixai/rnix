@@ -209,6 +209,29 @@ func (s *Server) handleImmuneResume(conn net.Conn, rawPayload json.RawMessage) {
 	writeResponse(conn, Response{OK: true, Payload: respPayload})
 }
 
+// handleImmuneForget removes threat signatures from the immune threat memory
+// (IN-3 F3 correction port).
+func (s *Server) handleImmuneForget(conn net.Conn, rawPayload json.RawMessage) {
+	var req ImmuneForgetRequest
+	if err := json.Unmarshal(rawPayload, &req); err != nil {
+		writeResponse(conn, Response{OK: false, Error: &ErrorPayload{Code: "INVALID", Message: "invalid immune_forget request"}})
+		return
+	}
+
+	if !req.All && req.Template == "" {
+		writeResponse(conn, Response{OK: false, Error: &ErrorPayload{Code: "INVALID", Message: "immune_forget requires a template or all=true"}})
+		return
+	}
+
+	removed := 0
+	if s.immuneDaemon != nil {
+		removed = s.immuneDaemon.ForgetThreats(req.Template, req.Metric, req.All)
+	}
+
+	respPayload, _ := json.Marshal(ImmuneForgetResponse{Removed: removed})
+	writeResponse(conn, Response{OK: true, Payload: respPayload})
+}
+
 // handleSimilarityQuery returns similar agents for the given agent (Story 22.4).
 func (s *Server) handleSimilarityQuery(conn net.Conn, rawPayload json.RawMessage) {
 	var req SimilarityQueryRequest

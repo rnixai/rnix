@@ -59,6 +59,7 @@ const (
 	MethodSynergyList            Method = "synergy_list"
 	MethodImmuneStatus           Method = "immune_status"
 	MethodImmuneResume           Method = "immune_resume"
+	MethodImmuneForget           Method = "immune_forget"
 	MethodSimilarityQuery        Method = "similarity_query"
 	MethodTopologyQuery          Method = "topology_query"
 	MethodGetStepDetail          Method = "get_step_detail"
@@ -1215,6 +1216,22 @@ type ImmuneResumeRequest struct {
 type ImmuneResumeResponse struct {
 	OK      bool   `json:"ok"`
 	Message string `json:"message"`
+}
+
+// --- Immune Forget (IN-3 F3) ---
+
+// ImmuneForgetRequest is the payload for MethodImmuneForget. Either All is
+// true, or Template selects signatures for one agent template (optionally
+// narrowed by Metric).
+type ImmuneForgetRequest struct {
+	Template string `json:"template,omitempty"`
+	Metric   string `json:"metric,omitempty"`
+	All      bool   `json:"all,omitempty"`
+}
+
+// ImmuneForgetResponse is the response for MethodImmuneForget.
+type ImmuneForgetResponse struct {
+	Removed int `json:"removed"`
 }
 
 // --- Similarity Query (Story 22.4) ---

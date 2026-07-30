@@ -173,7 +173,7 @@ func TestATDD_51_2_AC3_AgentTemplateForPID_Hit(t *testing.T) {
 	}
 	defer d.Stop()
 
-	d.OnProcessStart(types.PID(42), "code-analyst")
+	d.OnProcessStart(types.PID(42), "code-analyst", "global")
 
 	if got := d.AgentTemplateForPID(types.PID(42)); got != "code-analyst" {
 		t.Errorf("AgentTemplateForPID(42) = %q, want %q", got, "code-analyst")

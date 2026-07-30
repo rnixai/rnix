@@ -256,6 +256,17 @@ See `internal/dashboard/inspector/meta_lens.go:ComputeCacheHitRate` for branchin
 
 配置文档与示例见 [docs/reasoning-effort.md](docs/reasoning-effort.md)。
 
+## 免疫系统检测语义与存储约定 (IN-3)
+
+`kernel/immune.go` 的 `syscall_freq` 检测经 IN-3（2026-07-30）修复确定性误报退化。碰免疫检测/威胁库/Sec 面板任务前先读[卷宗](_bmad-output/implementation-artifacts/investigations/immune-false-positive-degeneration-investigation.md)。
+
+- **三重门，缺一不报**：`cur > mean+3σ` **且** `cur > minAnomalyFloor(5)` **且** `cur > SyscallMax×histMaxGrowthFactor(1.5)`。旧实现只有第一条，对出现率 p≲0.1 的稀有 syscall 单次正常调用必报（偏差倍数 = 样本数，纯基率算术），重尾混合负载下正常长任务也必越界。`SyscallMax` 为 0/缺失时跳过增长门（兼容 legacy profile）。
+- **威胁签名只标注、不报警**：`MatchThreat` 命中**不再**短路。顺序恒为「统计检验先行 → 命中则 Detail 追加 `matches known threat <id> (created <date>)` 并跳过重复铸签名」。`AnomalyAlert.Deviation` 恒为当前实测（旧实现填签名冻结的历史阈值，违反 provenance 原则）。
+- **威胁库唯一写路径 = `ImmuneStore.RewriteThreats`**（`SaveThreat` append-only 已删）。内存为准：`upsertThreat` 同 `(template,type,metric)` 键替换；`Start` 跑一次清洗（去重留最新 + `threat_ttl_days` 默认 30 + `max_threats` 默认 500，0 = 关闭）。纠错口 `rnix immune forget <template> [--metric M] | --all`（IPC `immune_forget`）。
+- **store 按项目分桶**：`<dataDir>/immune/<projectID>/{<template>.jsonl, profiles/, threats.jsonl}`，`projectID` = `config.ProjectDataID(ProjectDir)`，无项目上下文落 `"global"`。⚠️ 内存 `profiles`/`threats` 键为 scoped（`immuneScopedKey`），但 similarity / coopHistory / `AgentTemplateForPID` **保持 agent 级全局语义不分桶**。旧顶层文件被忽略——这就是存量污染数据的清洗方式，勿写迁移代码。
+- **`syscall_freq` 名不副实**：实为 lifetime-count 检验（累计计数 vs 完整运行总量，无时间窗）。枚举字符串值**不可改**（threats.jsonl / `AlertWire.Type` / dashboard `AlertTypeColor` 兼容），正名只在注释与文档层。
+- 空 `agentTemplate` 的裸 spawn 在 `OnProcessStart` 直接 no-op（无行为身份，共享 `""` 桶只会制造跨负载误报）。
+
 ## Wiki Knowledge Base（跨项目研究资料）
 
 Path: /mnt/disk0/project/note/claude-obsidian

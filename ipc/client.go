@@ -1296,6 +1296,21 @@ func (c *Client) ImmuneResume(pid uint64) (*ImmuneResumeResponse, error) {
 	return &result, nil
 }
 
+// ImmuneForget removes threat signatures from the immune threat memory
+// (IN-3 F3). Pass all=true to clear everything, or a template (optionally
+// narrowed by metric) to remove matching signatures.
+func (c *Client) ImmuneForget(template, metric string, all bool) (*ImmuneForgetResponse, error) {
+	resp, err := c.call(MethodImmuneForget, ImmuneForgetRequest{Template: template, Metric: metric, All: all})
+	if err != nil {
+		return nil, err
+	}
+	var result ImmuneForgetResponse
+	if err := json.Unmarshal(resp.Payload, &result); err != nil {
+		return nil, fmt.Errorf("ipc: unmarshal immune_forget: %w", err)
+	}
+	return &result, nil
+}
+
 // SimilarityQuery returns similar agents for the given agent (Story 22.4).
 func (c *Client) SimilarityQuery(agentName string, minScore float64) (*SimilarityQueryResponse, error) {
 	resp, err := c.call(MethodSimilarityQuery, SimilarityQueryRequest{AgentName: agentName, MinScore: minScore})

@@ -1,6 +1,7 @@
 package kernel
 
 import (
+	"path/filepath"
 	"sync"
 	"testing"
 	"time"
@@ -126,7 +127,7 @@ func TestImmuneDaemon_SuspendedPIDs_Empty(t *testing.T) {
 func TestImmuneDaemon_SuspendedPIDs_WithAlerts(t *testing.T) {
 	// Given: a running ImmuneDaemon with alerts (via anomaly triggering)
 	dir := t.TempDir()
-	store := NewImmuneStore(dir)
+	store := NewImmuneStore(filepath.Join(dir, "global"))
 
 	// Pre-save a profile with very tight baseline for easy triggering
 	profile := &NormalProfile{
@@ -141,7 +142,7 @@ func TestImmuneDaemon_SuspendedPIDs_WithAlerts(t *testing.T) {
 
 	cfg := DefaultImmuneConfig()
 	cfg.WarnOnly = false // enforce mode for suspend testing
-	daemon := NewImmuneDaemon(store, cfg)
+	daemon := NewImmuneDaemon(NewImmuneStore(dir), cfg)
 	if err := daemon.Start(); err != nil {
 		t.Fatalf("Start failed: %v", err)
 	}
@@ -151,7 +152,7 @@ func TestImmuneDaemon_SuspendedPIDs_WithAlerts(t *testing.T) {
 
 	// Trigger alerts for two PIDs
 	for _, pidVal := range []types.PID{42, 99} {
-		daemon.OnProcessStart(pidVal, "suspended-test-agent")
+		daemon.OnProcessStart(pidVal, "suspended-test-agent", "global")
 		for i := range 20 {
 			daemon.OnSyscallEvent(pidVal, types.SyscallEvent{
 				PID:     pidVal,
@@ -202,7 +203,7 @@ func TestImmuneDaemon_SuspendedPIDs_Nil(t *testing.T) {
 func TestImmuneDaemon_SuspendedPIDs_AfterClear(t *testing.T) {
 	// Given: a daemon with one alert
 	dir := t.TempDir()
-	store := NewImmuneStore(dir)
+	store := NewImmuneStore(filepath.Join(dir, "global"))
 
 	profile := &NormalProfile{
 		AgentTemplate: "clear-suspended-agent",
@@ -216,7 +217,7 @@ func TestImmuneDaemon_SuspendedPIDs_AfterClear(t *testing.T) {
 
 	cfg := DefaultImmuneConfig()
 	cfg.WarnOnly = false // enforce mode for suspend testing
-	daemon := NewImmuneDaemon(store, cfg)
+	daemon := NewImmuneDaemon(NewImmuneStore(dir), cfg)
 	if err := daemon.Start(); err != nil {
 		t.Fatalf("Start failed: %v", err)
 	}
@@ -225,7 +226,7 @@ func TestImmuneDaemon_SuspendedPIDs_AfterClear(t *testing.T) {
 	daemon.SetSuspendFunc(func(pid types.PID) error { return nil })
 
 	pid := types.PID(55)
-	daemon.OnProcessStart(pid, "clear-suspended-agent")
+	daemon.OnProcessStart(pid, "clear-suspended-agent", "global")
 	for i := range 20 {
 		daemon.OnSyscallEvent(pid, types.SyscallEvent{
 			PID:     pid,
@@ -310,7 +311,7 @@ func TestImmuneDaemon_SuspendedPIDs_Concurrent(t *testing.T) {
 
 	// Trigger an alert
 	pid := types.PID(77)
-	daemon.OnProcessStart(pid, "concurrent-suspended")
+	daemon.OnProcessStart(pid, "concurrent-suspended", "global")
 	for i := range 20 {
 		daemon.OnSyscallEvent(pid, types.SyscallEvent{
 			PID:     pid,

@@ -122,3 +122,75 @@ func TestSecuritySummary(t *testing.T) {
 		}
 	}
 }
+
+// --- IN-3 F3: rnix immune forget ---
+
+// forgetTestReset saves/restores forget flags + exitCode around a test run.
+func forgetTestReset(t *testing.T) *bytes.Buffer {
+	t.Helper()
+
+	oldJSON := flagJSON
+	oldAll := flagImmuneForgetAll
+	oldMetric := flagImmuneForgetMetric
+	oldExitCode := exitCode
+	flagJSON = false
+	flagImmuneForgetAll = false
+	flagImmuneForgetMetric = ""
+	exitCode = 0
+	t.Cleanup(func() {
+		flagJSON = oldJSON
+		flagImmuneForgetAll = oldAll
+		flagImmuneForgetMetric = oldMetric
+		exitCode = oldExitCode
+	})
+
+	var buf bytes.Buffer
+	immuneForgetCmd.SetOut(&buf)
+	immuneForgetCmd.SetErr(&buf)
+	return &buf
+}
+
+func TestRunImmuneForget_RequiresTemplateOrAll(t *testing.T) {
+	buf := forgetTestReset(t)
+
+	_ = immuneForgetCmd.RunE(immuneForgetCmd, nil)
+
+	if !strings.Contains(buf.String(), "a template argument or --all is required") {
+		t.Errorf("expected validation error, got: %s", buf.String())
+	}
+	if exitCode != 1 {
+		t.Errorf("exitCode = %d, want 1", exitCode)
+	}
+}
+
+func TestRunImmuneForget_AllExclusiveWithTemplate(t *testing.T) {
+	buf := forgetTestReset(t)
+	flagImmuneForgetAll = true
+
+	_ = immuneForgetCmd.RunE(immuneForgetCmd, []string{"some-template"})
+
+	if !strings.Contains(buf.String(), "--all cannot be combined") {
+		t.Errorf("expected exclusivity error, got: %s", buf.String())
+	}
+	if exitCode != 1 {
+		t.Errorf("exitCode = %d, want 1", exitCode)
+	}
+}
+
+func TestRunImmuneForget_NoDaemon(t *testing.T) {
+	old := ipc.SocketPathOverride
+	ipc.SocketPathOverride = "/tmp/rnix-immune-forget-test-nonexistent.sock"
+	defer func() { ipc.SocketPathOverride = old }()
+
+	buf := forgetTestReset(t)
+	flagImmuneForgetAll = true
+
+	_ = immuneForgetCmd.RunE(immuneForgetCmd, nil)
+
+	if !strings.Contains(buf.String(), "daemon not available") {
+		t.Errorf("expected 'daemon not available', got: %s", buf.String())
+	}
+	if exitCode != 1 {
+		t.Errorf("exitCode = %d, want 1 (diagnostic command hard-fails)", exitCode)
+	}
+}

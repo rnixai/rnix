@@ -43,11 +43,96 @@ var immuneSimilarityCmd = &cobra.Command{
 	RunE: runImmuneSimilarity,
 }
 
+var flagImmuneForgetMetric string
+var flagImmuneForgetAll bool
+
+var immuneForgetCmd = &cobra.Command{
+	Use:   "forget [template]",
+	Short: "Remove threat signatures from the immune threat memory",
+	Example: `  rnix immune forget sa-orchestrator                  Remove all signatures for one template
+  rnix immune forget sa-orchestrator --metric Shutdown  Remove one (template, syscall) signature
+  rnix immune forget --all                            Clear the entire threat memory`,
+	Args: cobra.MaximumNArgs(1),
+	RunE: runImmuneForget,
+}
+
 func init() {
+	immuneForgetCmd.Flags().StringVar(&flagImmuneForgetMetric, "metric", "", "restrict removal to one metric (syscall name)")
+	immuneForgetCmd.Flags().BoolVar(&flagImmuneForgetAll, "all", false, "remove every threat signature")
 	immuneCmd.AddCommand(immuneStatusCmd)
 	immuneCmd.AddCommand(immuneResumeCmd)
 	immuneCmd.AddCommand(immuneSimilarityCmd)
+	immuneCmd.AddCommand(immuneForgetCmd)
 	rootCmd.AddCommand(immuneCmd)
+}
+
+func runImmuneForget(cmd *cobra.Command, args []string) error {
+	w := cmd.OutOrStdout()
+
+	template := ""
+	if len(args) > 0 {
+		template = args[0]
+	}
+
+	if !flagImmuneForgetAll && template == "" {
+		if flagJSON {
+			resp := JSONResponse{OK: false, Error: map[string]string{"message": "a template argument or --all is required"}}
+			data, _ := json.Marshal(resp)
+			fmt.Fprintln(w, string(data))
+		} else {
+			fmt.Fprintln(w, "[immune] error: a template argument or --all is required")
+		}
+		exitCode = 1
+		return nil
+	}
+	if flagImmuneForgetAll && (template != "" || flagImmuneForgetMetric != "") {
+		if flagJSON {
+			resp := JSONResponse{OK: false, Error: map[string]string{"message": "--all cannot be combined with a template or --metric"}}
+			data, _ := json.Marshal(resp)
+			fmt.Fprintln(w, string(data))
+		} else {
+			fmt.Fprintln(w, "[immune] error: --all cannot be combined with a template or --metric")
+		}
+		exitCode = 1
+		return nil
+	}
+
+	client, err := ipc.Dial(ipc.SocketPath())
+	if err != nil {
+		if flagJSON {
+			resp := JSONResponse{OK: false, Error: map[string]string{"message": "daemon not available"}}
+			data, _ := json.Marshal(resp)
+			fmt.Fprintln(w, string(data))
+		} else {
+			fmt.Fprintln(w, "[immune] error: daemon not available (is the daemon running?)")
+		}
+		exitCode = 1
+		return nil
+	}
+	defer client.Close()
+
+	result, err := client.ImmuneForget(template, flagImmuneForgetMetric, flagImmuneForgetAll)
+	if err != nil {
+		if flagJSON {
+			resp := JSONResponse{OK: false, Error: map[string]string{"message": err.Error()}}
+			data, _ := json.Marshal(resp)
+			fmt.Fprintln(w, string(data))
+		} else {
+			fmt.Fprintf(w, "[immune] error: %v\n", err)
+		}
+		exitCode = 1
+		return nil
+	}
+
+	if flagJSON {
+		resp := JSONResponse{OK: true, Data: result}
+		data, _ := json.Marshal(resp)
+		fmt.Fprintln(w, string(data))
+		return nil
+	}
+
+	fmt.Fprintf(w, "Removed %d threat signature(s).\n", result.Removed)
+	return nil
 }
 
 func runImmuneResume(cmd *cobra.Command, args []string) error {
