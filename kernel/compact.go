@@ -188,6 +188,139 @@ func (k *KernelImpl) unloadForResume(proc *Process, ctxSize int, label string) {
 		label, proc.UUID, used, ctxSize, threshold, res.Pruned, res.DroppedRounds, res.TokensFreed, postUsed, ctxSize)
 }
 
+// reclaimLeakedIfNeeded proactively clears stale tool outputs out of the cold
+// zone BEFORE the compaction threshold is reached (Story 69.4). It is the
+// consumer for the "consider pruning unused tool outputs" suggestion that
+// debug/ctx_profile.go has been generating with nothing acting on it.
+//
+// TWO GATES, both mandatory. The cost being rationed is not cpu — the leaked
+// predicate is a role compare plus a len(). It is the PROVIDER PROMPT CACHE
+// PREFIX: drivers/llm/anthropic.go's applyCacheControlToMessageHistory puts the
+// cache breakpoint after the message history, so the cold zone sits inside the
+// cached prefix and rewriting any byte of it invalidates the whole thing. An
+// ungated per-step reclamation would invalidate the cache on every single step
+// (the cold-zone boundary marches right as messages accumulate, so fresh
+// entries keep falling in), which is the same failure mode Story 69.1 removed
+// on the system-prompt axis — 15k-token full recomputes and a 7.4s → 48.7s
+// latency blow-up.
+//
+//	watermark gate — fire only once usage is within striking distance of the
+//	  compact threshold, so low-pressure steps leave the context byte-identical.
+//	  Derived as a RATIO of the threshold, never a subtraction: threshold-20 goes
+//	  negative for any configured threshold ≤ 20 and then fires every step (same
+//	  倒挂 trap Story 69.1's tier boundary formula avoids).
+//	yield gate — enforced inside PruneToolResults via MinTokens, so the scan and
+//	  the rewrite decision happen under ONE write lock. Splitting them into a
+//	  read-only scan plus a rewrite would be a TOCTOU window against the real
+//	  concurrent writers (IPC handleCompact / gdb AppendMessage / fork_continue).
+//
+// Honest accounting (story F2): PruneToolResults frees exactly 0 message slots
+// by design (slot usage is literally len(ctx.Messages)), so this function does
+// NOT relieve slot pressure and must not be described as preventing a hang. What
+// it buys is a smaller request body every subsequent step, and a deferred token
+// threshold.
+//
+// No cooldown timer, deliberately (story F4): the placeholder is 37 bytes versus
+// a 1000-byte LeakedThreshold, so a rewritten entry can never match the
+// predicate again, and the yield gate then requires a fresh batch to accumulate.
+// The hysteresis is structural — no "last reclaimed step" process field needed.
+func (k *KernelImpl) reclaimLeakedIfNeeded(proc *Process, step int) {
+	// AC5: routine reclamation, so it honours the same flag that suppresses the
+	// `frc` system-prompt section (kernel/sections.go). Deliberately ASYMMETRIC
+	// with Story 69.3: runMechanicalFallback / unloadForResume / reclaimForResume
+	// stay ungated because "disabling routine compaction must not mean 'prefer to
+	// hang'" — those are fault handling. This one is routine, so it stops here.
+	if proc.CompactionDisabled {
+		return
+	}
+
+	// Same mutual exclusion as autoCompactIfNeeded: a manual IPC compact must not
+	// interleave with an in-place rewrite of the same message slice.
+	if !proc.compactMu.TryLock() {
+		return
+	}
+	defer proc.compactMu.Unlock()
+
+	start := time.Now()
+
+	// One TokenUsage call covers both axes: since Story 69.2 TokenStats carries
+	// SlotUsed / SlotMax / SlotPercentage read under the SAME read lock as the
+	// token total. Calling SlotUsage separately (as autoCompactIfNeeded does)
+	// would take a second lock and could mix two different context states into
+	// one gate decision.
+	usage, err := k.ctxMgr.TokenUsage(proc.CtxID)
+	if err != nil {
+		return
+	}
+
+	tokenWatermark := proc.effectiveCompactThreshold() * proactiveReclaimWatermarkRatio
+	slotWatermark := proc.effectiveSlotCompactThreshold() * proactiveReclaimWatermarkRatio
+
+	tokenTriggered := usage.Percentage > tokenWatermark
+	slotTriggered := usage.SlotMax > 0 && usage.SlotPercentage > slotWatermark
+
+	if !tokenTriggered && !slotTriggered {
+		return
+	}
+
+	// Trigger classification mirrors autoCompactIfNeeded's shape, with
+	// _watermark suffixes so an event consumer can never confuse a proactive
+	// reclamation trigger with a compaction one.
+	trigger := "token_watermark"
+	if slotTriggered && !tokenTriggered {
+		trigger = "slot_watermark"
+	}
+	if slotTriggered && tokenTriggered {
+		trigger = "both"
+	}
+
+	// Yield gate: an absolute floor for small contexts, scaled by usage for large
+	// ones. Evaluated inside the primitive so the decision is atomic with the
+	// scan that informs it.
+	minTokens := max(minReclaimTokens, usage.Used*minReclaimRatioPct/100)
+
+	res, err := k.ctxMgr.PruneToolResults(proc.CtxID, rnixctx.PruneOpts{MinTokens: minTokens})
+	if err != nil {
+		log.Printf("[kernel] pid=%d step=%d proactive reclaim failed: %v", proc.PID, step, err)
+		return
+	}
+	if res == nil || res.Pruned == 0 {
+		// Nothing worth a cache invalidation. Stay silent rather than emitting an
+		// event on every step above the watermark — AC6 keeps this at debug level
+		// precisely so the event stream does not become unreadable.
+		log.Printf("[kernel] pid=%d step=%d proactive reclaim declined (%s): %s min_tokens=%d",
+			proc.PID, step, trigger, res, minTokens)
+		return
+	}
+
+	args := map[string]any{
+		"step":             step,
+		"trigger":          trigger,
+		"pruned":           res.Pruned,
+		"tokens_freed":     res.TokensFreed,
+		"candidate_tokens": res.CandidateTokens,
+		"pre_tokens":       usage.Used,
+		"pre_pct":          usage.Percentage,
+	}
+
+	// post_* comes from a re-read so it reflects reality rather than
+	// pre-tokens minus an estimate. Error shape reuses the Story 69.3 convention
+	// (post_tokens_err instead of a fabricated number).
+	postUsage, postErr := k.ctxMgr.TokenUsage(proc.CtxID)
+	if postErr != nil {
+		args["post_tokens_err"] = postErr.Error()
+	} else {
+		args["post_tokens"] = postUsage.Used
+		args["post_pct"] = postUsage.Percentage
+	}
+
+	k.emitEvent(proc, "CtxReclaim", args, nil, nil, time.Since(start))
+
+	log.Printf("[kernel] pid=%d step=%d proactive reclaim (%s): pruned=%d tokens %d→%d (%.1f%%→%.1f%%) candidates=%d",
+		proc.PID, step, trigger, res.Pruned, usage.Used, postUsage.Used,
+		usage.Percentage, postUsage.Percentage, res.CandidateTokens)
+}
+
 // autoCompactIfNeeded checks if context token usage or slot usage exceeds the
 // compact threshold and triggers automatic compaction if so. Best-effort:
 // failures are logged but do not terminate the process.

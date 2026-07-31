@@ -1189,6 +1189,34 @@ func (p *Process) effectiveCompactThreshold() float64 {
 	return DefaultCompactThreshold
 }
 
+// --- Story 69.4: proactive leaked-tool-result reclamation gates ---
+//
+// proactiveReclaimWatermarkRatio derives the reclamation watermark from the
+// compaction threshold rather than declaring a second absolute number: 0.75 of
+// the compact threshold, i.e. 60% under the 80% defaults. It is a RATIO on
+// purpose. A subtraction (threshold-20) goes negative once an operator
+// configures a threshold of 20 or less, and a negative watermark fires on every
+// single step — the same倒挂 trap Story 69.1's tier boundary formula avoids.
+//
+// The point of firing below the compact threshold is to reclaim while there is
+// still slack, so the (expensive) compaction is deferred rather than merely
+// preceded.
+const proactiveReclaimWatermarkRatio = 0.75
+
+// minReclaimTokens is the absolute floor on a reclamation batch. Below roughly
+// one leaked tool result's worth of payload, rewriting cold-zone bytes costs
+// more than it saves: every rewrite invalidates the provider's cached prompt
+// prefix (drivers/llm/anthropic.go applyCacheControlToMessageHistory), so the
+// next request is billed as a full recompute.
+const minReclaimTokens = 1000
+
+// minReclaimRatioPct scales that floor with the context: on a large context a
+// 1000-token batch is noise, so require the candidates to be worth at least 20%
+// of current usage. 20% is the point where one reclamation plausibly defers a
+// compaction by several steps, which is what pays for the single cache
+// invalidation it causes.
+const minReclaimRatioPct = 20
+
 const DefaultSlotCompactThreshold = 80.0
 
 // effectiveSlotCompactThreshold returns the configured slot compact threshold, defaulting to 80%.

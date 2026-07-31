@@ -1024,6 +1024,17 @@ func (k *KernelImpl) reasonStep(proc *Process, llmFD types.FD, opts SpawnOpts) {
 			if !shouldContinue {
 				return
 			}
+			// Proactive reclamation of leaked tool results (Story 69.4). This is
+			// the ONLY call site on purpose: tool_exec.go's autoCompactIfNeeded is
+			// a fault-handling path already covered by Story 69.3's mechanical
+			// fallback, and preCompactForToolCalls is a pure slot judgement that
+			// a token-axis prune cannot move.
+			//
+			// Ordering is the mechanism, not a coincidence: the reclamation runs
+			// FIRST, then autoCompactIfNeeded re-reads TokenUsage and sees the
+			// lowered figure — so a compaction that would have fired may now not
+			// fire at all. That deferral is what "推迟触阈" means here.
+			k.reclaimLeakedIfNeeded(proc, step)
 			// Auto-compact check (Story 31.2): after tool calls processed, before checkpoint
 			k.autoCompactIfNeeded(proc, step)
 			k.asyncWriteCheckpoint(proc, step, consecutiveToolErrors.count)
