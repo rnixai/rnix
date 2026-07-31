@@ -273,6 +273,25 @@ See `internal/dashboard/inspector/meta_lens.go:ComputeCacheHitRate` for branchin
 - **`syscall_freq` 名不副实**：实为 lifetime-count 检验（累计计数 vs 完整运行总量，无时间窗）。枚举字符串值**不可改**（threats.jsonl / `AlertWire.Type` / dashboard `AlertTypeColor` 兼容），正名只在注释与文档层。
 - 空 `agentTemplate` 的裸 spawn 在 `OnProcessStart` 直接 no-op（无行为身份，共享 `""` 桶只会制造跨负载误报）。
 
+## 循环检测阈值语义 (Story 70.1)
+
+**新不变量：结果重复是循环判定的必要条件。** `kernel/loop_detector.go` 两条轨道均把 tool result hash 混入判据——细粒度 = `(actionType, toolPath, toolInput, result)`，粗粒度 = `(actionType, toolPath, result)`（仍忽略 input，捕捉「LLM 变参数但结果不动」的 thrashing）。修复前粗粒度 hash 对所有 `Bash` 调用是同一常量，「连续 30 步 Bash」即挂起，与是否原地打转无关——长跑编排器每跑完一个 story 撞线一次。
+
+- **默认值**：`DefaultLoopThreshold` 30（挂起线 60）、`DefaultCoarseLoopThreshold` 60（挂起线 120）。结果判据落地后粗粒度退化为纯兜底，故阈值抬高而非收紧。
+- **三级解析**：`SpawnOpts` > `agent.yaml` 的 `loop_threshold` / `coarse_loop_threshold` > 默认常量（`applyLoopThresholds`）。⚠️ 判定用 `!= 0` 而非 `> 0`——照抄 StepTimeout 的 `> 0` 会让负数被当「未设置」，禁用意图静默消失。**不入** CLI flag / IPC wire（运维逃生阀由 manifest 提供）。
+- **结果 hash 取全批顺序敏感聚合**（`ToolResultHash`，含 `Error`）。⚠️ 禁止按下标配 `toolCallsAcc[i]` 与 `resp.ToolCalls[i]`——`tool_exec.go` 的 parse_error / think / unknown tool 三分支 `continue` 时不 append，对应关系不成立。action 侧仍只取 `ToolCalls[0]`（deferred-work 已登记），该不对称是刻意的：结果侧取全批更保守（更易判为「不同」= 更少误报）。
+- **滞后一格**：检测点在 `executeToolCalls` **之前**，本步 result 尚不存在，故传入的是**上一个** tool_call 步骤的结果 hash（首步哨兵 `0`）。保留「执行前拦截」避免真死循环在挂起前多跑一次副作用工具（`git commit` / `spawn` / `rm`）；连续同 action 同 result 的真循环其 result 序列亦全同，错位只把触发点从 2N 推到 2N+1。
+- **已知局限**（不得掩盖）：结果含时间戳 / PID / 随机 ID 时两条轨道**均永不触发**。这是该不变量的固有代价，兜底是 `--max-steps` / `MaxTokens` / `MaxCost` / `StepTimeout` 四道独立闸门。
+- **写测试须知**：新默认值 30/60 下「40 步各异」这类反证会**真空 PASS**（40 撞不到 60，判据一行未改也绿）。反证必须显式构造小阈值 `NewLoopDetector(3, 5)`。
+
+**三种零值约定并存对照**（加旋钮前先确认落在哪一栏，勿盲目对齐相邻字段形状）：
+
+| 旋钮 | 类型 | `0` 的含义 | 负数 | 禁用方式 |
+|---|---|---|---|---|
+| `StepTimeout` | duration 字符串 | **禁用**超时检测 | — | 设 `0` |
+| `CompactTimeout` | duration 字符串 | 回落默认 30s（**无**禁用语义） | — | 不可禁用 |
+| `loop_threshold` / `coarse_loop_threshold` | **int 步数** | 回落默认 30 / 60 | **禁用该轨道** | 设负数（如 `-1`） |
+
 ## Wiki Knowledge Base（跨项目研究资料）
 
 Path: /mnt/disk0/project/note/claude-obsidian

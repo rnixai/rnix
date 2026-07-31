@@ -500,7 +500,10 @@ func (k *KernelImpl) reasonStep(proc *Process, llmFD types.FD, opts SpawnOpts) {
 	var lastResultSummary string
 	var consecutiveToolErrors errFingerprintCounter
 	var consecutiveTransientRetries int
-	loopDetector := NewLoopDetector(DefaultLoopThreshold)
+	// lastToolResultHash carries the PREVIOUS tool_call step's result hash into the
+	// loop check, which happens before this step's tools run (Story 70.1 AC2).
+	var lastToolResultHash uint64
+	loopDetector := NewLoopDetector(proc.effectiveLoopThreshold(), proc.effectiveCoarseLoopThreshold())
 
 	startStep := 1
 	if opts.StartStep > 0 {
@@ -994,7 +997,7 @@ func (k *KernelImpl) reasonStep(proc *Process, llmFD types.FD, opts SpawnOpts) {
 			}
 			loopHash := ActionHash("tool_call", tc.Name, inputStr)
 			coarseHash := CoarseActionHash("tool_call", tc.Name)
-			if loopResult := loopDetector.CheckDual(loopHash, coarseHash); loopResult != LoopNone {
+			if loopResult := loopDetector.CheckDual(loopHash, coarseHash, lastToolResultHash); loopResult != LoopNone {
 				if stopped := k.handleLoopDetection(proc, loopResult, loopDetector.LastTriggeredThreshold, step, stepStart); stopped {
 					return
 				}
@@ -1024,6 +1027,18 @@ func (k *KernelImpl) reasonStep(proc *Process, llmFD types.FD, opts SpawnOpts) {
 			if !shouldContinue {
 				return
 			}
+			// Feed this step's batch result into the NEXT step's loop check
+			// (Story 70.1 AC2/AC3). The check above runs before executeToolCalls,
+			// so it can only ever see the previous step's result — hence the
+			// one-step lag.
+			//
+			// Why the lag is harmless: in a genuine loop of identical actions the
+			// result sequence is identical too, so shifting the results by one
+			// position leaves every comparison window uniform. The only effect is
+			// that the trigger moves from step 2N to step 2N+1. Keeping the check
+			// BEFORE execution is what matters — it stops a real spin before one
+			// more side-effecting tool call (git commit / spawn / rm) runs.
+			lastToolResultHash = ToolResultHash(toolCallsAcc)
 			// Proactive reclamation of leaked tool results (Story 69.4). This is
 			// the ONLY call site on purpose: tool_exec.go's autoCompactIfNeeded is
 			// a fault-handling path already covered by Story 69.3's mechanical

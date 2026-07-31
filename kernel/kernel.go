@@ -96,6 +96,17 @@ type SpawnOpts struct {
 	FallbackProvider string        // CLI --fallback-provider override; "" = same-provider fallback
 	StepTimeout      time.Duration // per-step heartbeat timeout; 0 = use agent manifest or default 5m
 	CompactTimeout   time.Duration // Story 69.3: bounds the compaction LLM call; 0 = use agent manifest compact_timeout or DefaultCompactTimeout (30s). Note 0 means "default", NOT "disabled" (unlike StepTimeout).
+	// LoopThreshold / CoarseLoopThreshold override loop detection thresholds
+	// (Story 70.1) for compose / intent / supervisor callers. STEP COUNTS, not
+	// durations. 0 = fall through to agent manifest, then the kernel default
+	// (30 fine / 60 coarse); NEGATIVE = disable that track.
+	//
+	// ⚠️ Resolution must test `!= 0`, never `> 0`: the StepTimeout template
+	// above uses `> 0`, and copying it here would silently swallow a caller's
+	// -1 as "unset" and fall through to the manifest/default — the disable
+	// request would vanish with no error.
+	LoopThreshold       int
+	CoarseLoopThreshold int
 	StartStep        int           // Resume: start reasoning loop from this step (0 = normal start from 1)
 
 	PreallocatedCtxID types.CtxID           // non-zero = skip CtxAlloc, use this pre-setup context

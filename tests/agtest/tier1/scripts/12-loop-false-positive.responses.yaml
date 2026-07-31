@@ -1,0 +1,168 @@
+version: "1"
+responses:
+  - tool_calls:
+      - name: Bash
+        input:
+          command: "echo loop-probe-1"
+  - tool_calls:
+      - name: Bash
+        input:
+          command: "echo loop-probe-2"
+  - tool_calls:
+      - name: Bash
+        input:
+          command: "echo loop-probe-3"
+  - tool_calls:
+      - name: Bash
+        input:
+          command: "echo loop-probe-4"
+  - tool_calls:
+      - name: Bash
+        input:
+          command: "echo loop-probe-5"
+  - tool_calls:
+      - name: Bash
+        input:
+          command: "echo loop-probe-6"
+  - tool_calls:
+      - name: Bash
+        input:
+          command: "echo loop-probe-7"
+  - tool_calls:
+      - name: Bash
+        input:
+          command: "echo loop-probe-8"
+  - tool_calls:
+      - name: Bash
+        input:
+          command: "echo loop-probe-9"
+  - tool_calls:
+      - name: Bash
+        input:
+          command: "echo loop-probe-10"
+  - tool_calls:
+      - name: Bash
+        input:
+          command: "echo loop-probe-11"
+  - tool_calls:
+      - name: Bash
+        input:
+          command: "echo loop-probe-12"
+  - tool_calls:
+      - name: Bash
+        input:
+          command: "echo loop-probe-13"
+  - tool_calls:
+      - name: Bash
+        input:
+          command: "echo loop-probe-14"
+  - tool_calls:
+      - name: Bash
+        input:
+          command: "echo loop-probe-15"
+  - tool_calls:
+      - name: Bash
+        input:
+          command: "echo loop-probe-16"
+  - tool_calls:
+      - name: Bash
+        input:
+          command: "echo loop-probe-17"
+  - tool_calls:
+      - name: Bash
+        input:
+          command: "echo loop-probe-18"
+  - tool_calls:
+      - name: Bash
+        input:
+          command: "echo loop-probe-19"
+  - tool_calls:
+      - name: Bash
+        input:
+          command: "echo loop-probe-20"
+  - tool_calls:
+      - name: Bash
+        input:
+          command: "echo loop-probe-21"
+  - tool_calls:
+      - name: Bash
+        input:
+          command: "echo loop-probe-22"
+  - tool_calls:
+      - name: Bash
+        input:
+          command: "echo loop-probe-23"
+  - tool_calls:
+      - name: Bash
+        input:
+          command: "echo loop-probe-24"
+  - tool_calls:
+      - name: Bash
+        input:
+          command: "echo loop-probe-25"
+  - tool_calls:
+      - name: Bash
+        input:
+          command: "echo loop-probe-26"
+  - tool_calls:
+      - name: Bash
+        input:
+          command: "echo loop-probe-27"
+  - tool_calls:
+      - name: Bash
+        input:
+          command: "echo loop-probe-28"
+  - tool_calls:
+      - name: Bash
+        input:
+          command: "echo loop-probe-29"
+  - tool_calls:
+      - name: Bash
+        input:
+          command: "echo loop-probe-30"
+  - tool_calls:
+      - name: Bash
+        input:
+          command: "echo loop-probe-31"
+  - tool_calls:
+      - name: Bash
+        input:
+          command: "echo loop-probe-32"
+  - tool_calls:
+      - name: Bash
+        input:
+          command: "echo loop-probe-33"
+  - tool_calls:
+      - name: Bash
+        input:
+          command: "echo loop-probe-34"
+  - tool_calls:
+      - name: Bash
+        input:
+          command: "echo loop-probe-35"
+  - tool_calls:
+      - name: Bash
+        input:
+          command: "echo loop-probe-36"
+  - tool_calls:
+      - name: Bash
+        input:
+          command: "echo loop-probe-37"
+  - tool_calls:
+      - name: Bash
+        input:
+          command: "echo loop-probe-38"
+  - tool_calls:
+      - name: Bash
+        input:
+          command: "echo loop-probe-39"
+  - tool_calls:
+      - name: Bash
+        input:
+          command: "echo loop-probe-40"
+  - content: "forty distinct steps done"
+    tool_calls:
+      - name: Complete
+        input:
+          result: "loop-false-positive survived forty distinct steps"
+    stop_reason: "tool_use"

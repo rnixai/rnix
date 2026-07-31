@@ -3,10 +3,12 @@ package kernel
 import (
 	"fmt"
 	"testing"
+
+	"github.com/rnixai/rnix/internal/types"
 )
 
 func TestLoopDetector_NoLoop(t *testing.T) {
-	d := NewLoopDetector(3)
+	d := NewLoopDetector(3, 5)
 	for i := range 10 {
 		status := d.Check(uint64(i)) // all different hashes
 		if status != LoopNone {
@@ -16,7 +18,7 @@ func TestLoopDetector_NoLoop(t *testing.T) {
 }
 
 func TestLoopDetector_Warning(t *testing.T) {
-	d := NewLoopDetector(3)
+	d := NewLoopDetector(3, 5)
 	hash := uint64(42)
 	var gotWarning bool
 	for i := range 3 {
@@ -34,7 +36,7 @@ func TestLoopDetector_Warning(t *testing.T) {
 }
 
 func TestLoopDetector_WarningOnlyOnce(t *testing.T) {
-	d := NewLoopDetector(3)
+	d := NewLoopDetector(3, 5)
 	hash := uint64(42)
 	warnings := 0
 	for range 5 {
@@ -48,7 +50,7 @@ func TestLoopDetector_WarningOnlyOnce(t *testing.T) {
 }
 
 func TestLoopDetector_Suspend(t *testing.T) {
-	d := NewLoopDetector(3)
+	d := NewLoopDetector(3, 5)
 	hash := uint64(42)
 	var gotSuspend bool
 	for i := range 6 {
@@ -66,7 +68,7 @@ func TestLoopDetector_Suspend(t *testing.T) {
 }
 
 func TestLoopDetector_ResetAfterDifferentAction(t *testing.T) {
-	d := NewLoopDetector(3)
+	d := NewLoopDetector(3, 5)
 	hash := uint64(42)
 	// 2 identical, then different, then 2 identical again
 	d.Check(hash)
@@ -80,7 +82,7 @@ func TestLoopDetector_ResetAfterDifferentAction(t *testing.T) {
 }
 
 func TestLoopDetector_WarnedResetsOnPatternBreak(t *testing.T) {
-	d := NewLoopDetector(3)
+	d := NewLoopDetector(3, 5)
 	hashA := uint64(42)
 	hashB := uint64(77)
 
@@ -105,9 +107,15 @@ func TestLoopDetector_WarnedResetsOnPatternBreak(t *testing.T) {
 }
 
 func TestLoopDetector_DefaultThreshold(t *testing.T) {
-	d := NewLoopDetector(0)
+	d := NewLoopDetector(0, 0)
 	if d.threshold != DefaultLoopThreshold {
 		t.Errorf("expected default threshold %d, got %d", DefaultLoopThreshold, d.threshold)
+	}
+	if d.coarseThreshold != DefaultCoarseLoopThreshold {
+		t.Errorf("expected default coarse threshold %d, got %d", DefaultCoarseLoopThreshold, d.coarseThreshold)
+	}
+	if d.fineDisabled || d.coarseDisabled {
+		t.Error("zero thresholds must mean default, not disabled")
 	}
 }
 
@@ -127,66 +135,78 @@ func TestActionHash_DifferentInputs(t *testing.T) {
 	}
 }
 
-func TestActionHash_TruncatesInput(t *testing.T) {
+// TestActionHash_HashesFullInput is the inverted form of the old
+// TestActionHash_TruncatesInput (Story 70.1 AC8/AC9-⑤). The truncation it used to
+// assert WAS the defect: two different commands sharing a long prefix collided
+// into one hash, which the detector then read as a repeated action. The observed
+// incident had 24 bytes of headroom below the old 256-byte cutoff.
+func TestActionHash_HashesFullInput(t *testing.T) {
 	longInput := make([]byte, 500)
 	for i := range longInput {
 		longInput[i] = 'a'
 	}
-	// Same first 256 bytes, different after
+	// Identical for the first 300 bytes, different only after the old cutoff.
 	input1 := string(longInput)
 	longInput[300] = 'b'
 	input2 := string(longInput)
 	h1 := ActionHash("tool_call", "/dev/shell", input1)
 	h2 := ActionHash("tool_call", "/dev/shell", input2)
-	if h1 != h2 {
-		t.Error("inputs differing only after 256 bytes should produce same hash")
+	if h1 == h2 {
+		t.Error("inputs differing after byte 256 must produce DIFFERENT hashes (no truncation)")
 	}
 }
 
 func TestLoopDetector_CheckDual_CoarseWarning(t *testing.T) {
-	d := NewLoopDetector(3)
+	d := NewLoopDetector(3, 5)
 	coarseHash := CoarseActionHash("tool_call", "/dev/fs")
+	// The CONSTANT result hash is this case's premise, not incidental setup.
+	// Since Story 70.1 the result is part of both tracks' criteria, so varying it
+	// here would (correctly) suppress detection and the case would test nothing.
+	const constResult = uint64(0xC0FFEE)
 
 	var gotWarning bool
-	for i := range DefaultCoarseLoopThreshold {
+	for i := range d.coarseThreshold {
 		fineHash := ActionHash("tool_call", "/dev/fs", fmt.Sprintf("input-%d", i))
-		status := d.CheckDual(fineHash, coarseHash)
+		status := d.CheckDual(fineHash, coarseHash, constResult)
 		if status == LoopWarning {
 			gotWarning = true
-			if i != DefaultCoarseLoopThreshold-1 {
-				t.Errorf("coarse warning at step %d, expected step %d", i, DefaultCoarseLoopThreshold-1)
+			if i != d.coarseThreshold-1 {
+				t.Errorf("coarse warning at step %d, expected step %d", i, d.coarseThreshold-1)
 			}
 		}
 	}
 	if !gotWarning {
-		t.Errorf("expected coarse LoopWarning after %d same-tool steps with different inputs", DefaultCoarseLoopThreshold)
+		t.Errorf("expected coarse LoopWarning after %d same-tool same-result steps with different inputs", d.coarseThreshold)
 	}
 }
 
 func TestLoopDetector_CheckDual_CoarseSuspend(t *testing.T) {
-	d := NewLoopDetector(3)
+	d := NewLoopDetector(3, 5)
 	coarseHash := CoarseActionHash("tool_call", "/dev/fs")
+	// Constant result hash — see the note in the CoarseWarning case above.
+	const constResult = uint64(0xC0FFEE)
 
 	var gotSuspend bool
-	for i := range 2 * DefaultCoarseLoopThreshold {
+	for i := range 2 * d.coarseThreshold {
 		fineHash := ActionHash("tool_call", "/dev/fs", fmt.Sprintf("input-%d", i))
-		status := d.CheckDual(fineHash, coarseHash)
+		status := d.CheckDual(fineHash, coarseHash, constResult)
 		if status == LoopSuspend {
 			gotSuspend = true
 		}
 	}
 	if !gotSuspend {
-		t.Errorf("expected coarse LoopSuspend after %d same-tool steps", 2*DefaultCoarseLoopThreshold)
+		t.Errorf("expected coarse LoopSuspend after %d same-tool same-result steps", 2*d.coarseThreshold)
 	}
 }
 
 func TestLoopDetector_CheckDual_FineStillWorks(t *testing.T) {
-	d := NewLoopDetector(3)
+	d := NewLoopDetector(3, 5)
 	hash := uint64(42)
+	const constResult = uint64(7)
 
 	var gotWarning bool
 	for i := range 3 {
-		status := d.CheckDual(hash, hash)
+		status := d.CheckDual(hash, hash, constResult)
 		if status == LoopWarning {
 			gotWarning = true
 			if i != 2 {
@@ -200,13 +220,13 @@ func TestLoopDetector_CheckDual_FineStillWorks(t *testing.T) {
 }
 
 func TestLoopDetector_CheckDual_DifferentToolsNoTrigger(t *testing.T) {
-	d := NewLoopDetector(3)
+	d := NewLoopDetector(3, 5)
 
-	for i := range DefaultCoarseLoopThreshold {
+	for i := range 2 * d.coarseThreshold {
 		tool := fmt.Sprintf("/dev/tool-%d", i)
 		fineHash := ActionHash("tool_call", tool, "input")
 		coarseHash := CoarseActionHash("tool_call", tool)
-		status := d.CheckDual(fineHash, coarseHash)
+		status := d.CheckDual(fineHash, coarseHash, uint64(i))
 		if status != LoopNone {
 			t.Errorf("step %d: expected LoopNone for different tools, got %d", i, status)
 		}
@@ -233,3 +253,172 @@ func TestLoopWarningMessage(t *testing.T) {
 		t.Error("expected non-empty warning message")
 	}
 }
+
+// ============================================================================
+// Story 70.1 New Test Cases — Five Groups
+// ============================================================================
+
+// TestLoopDetector_FalsePositive_40DifferentSteps verifies AC9-① (误判反证):
+// 40 consecutive tool_call steps with distinct (action, result) pairs must never
+// trigger either track, even though the old粗粒度 hash was a constant for every
+// `Bash` call and would have suspended at step 30 with the old ceiling.
+//
+// RED form: Under the old code (粗粒度 hash = actionType+toolPath only, no result),
+// this case red-lights at step 15 (coarse warning with the old DefaultCoarse=15),
+// then at step 30 (coarse suspend with the old DefaultCoarse=15).
+//
+// GREEN form: With the result criterion added, the coarse track sees 40 *different*
+// mixed hashes (different results), so neither track fires.
+func TestLoopDetector_FalsePositive_40DifferentSteps(t *testing.T) {
+	// Use explicit small thresholds so the test runs fast and doesn't rely on
+	// the new raised defaults (陷阱一：真空 PASS).
+	d := NewLoopDetector(3, 5)
+	coarseHash := CoarseActionHash("tool_call", "Bash")
+
+	for i := range 40 {
+		fineHash := ActionHash("tool_call", "Bash", fmt.Sprintf("echo step-%d", i))
+		// Each step produces a DIFFERENT result hash — the key fix.
+		resultHash := uint64(0xBADA550 + uint64(i))
+		status := d.CheckDual(fineHash, coarseHash, resultHash)
+		if status != LoopNone {
+			t.Errorf("step %d: expected LoopNone for 40 different (action,result) pairs, got %v", i, status)
+		}
+	}
+}
+
+// TestLoopDetector_RealLoop_StillCaught verifies AC9-② (真循环仍被捕获):
+// The result criterion must not disable detection when a genuine loop exists.
+// Two sub-cases: fine-grain (same tool+input+result) and coarse-grain (same
+// tool+result, input varies).
+func TestLoopDetector_RealLoop_Fine(t *testing.T) {
+	d := NewLoopDetector(3, 5)
+	hash := uint64(42)
+	const constResult = uint64(0xDEADBEEF)
+
+	for i := range 10 {
+		status := d.CheckDual(hash, hash, constResult)
+		if i == 2 && status != LoopWarning {
+			t.Errorf("fine: expected LoopWarning at step %d (threshold=3), got %v", i, status)
+		}
+		if i == 5 && status != LoopSuspend {
+			t.Errorf("fine: expected LoopSuspend at step %d (2*3), got %v", i, status)
+			return
+		}
+	}
+}
+
+func TestLoopDetector_RealLoop_Coarse(t *testing.T) {
+	d := NewLoopDetector(3, 5)
+	coarseHash := CoarseActionHash("tool_call", "Bash")
+	const constResult = uint64(0xC0FFEE)
+
+	for i := range 12 {
+		// Input varies, but result is CONSTANT — the LLM is thrashing.
+		fineHash := ActionHash("tool_call", "Bash", fmt.Sprintf("attempt-%d", i))
+		status := d.CheckDual(fineHash, coarseHash, constResult)
+		if i == 4 && status != LoopWarning {
+			t.Errorf("coarse: expected LoopWarning at step %d (coarse threshold=5), got %v", i, status)
+		}
+		if i >= 9 && status == LoopSuspend {
+			// 2*5 = 10, so suspend at step 9 (0-indexed) or 10 (1-indexed).
+			return
+		}
+	}
+	t.Error("coarse: expected LoopSuspend after 10 same-tool same-result steps with varying input")
+}
+
+// TestLoopDetector_PollProgression_NoFalseKill verifies AC9-③ (poll 递进不误杀):
+// 20 consecutive calls to the same command, each result ≥300 bytes with an
+// identical prefix but a PROGRESSIVELY CHANGING tail (e.g., elapsed time counter),
+// must not trigger either track. The old 256-byte truncation would have made
+// every result hash identical, firing the coarse track at step 5 with coarse=5.
+//
+// RED form: If ActionHash or ToolResultHash truncates at 256 bytes, every result
+// hashes identically → coarse track fires at step 5.
+//
+// GREEN form: Full hashing sees the tail differences → LoopNone throughout.
+func TestLoopDetector_PollProgression_NoFalseKill(t *testing.T) {
+	d := NewLoopDetector(3, 5)
+	actionHash := ActionHash("tool_call", "Bash", "rnix ps 12345")
+	coarseHash := CoarseActionHash("tool_call", "Bash")
+
+	// Build 20 results with identical 300-byte prefix + unique tail.
+	prefix := make([]byte, 300)
+	for i := range prefix {
+		prefix[i] = 'X'
+	}
+
+	for i := range 20 {
+		// Result = 300-byte prefix + tail showing progression.
+		var tail string
+		if i < 19 {
+			tail = fmt.Sprintf("RUNNING (elapsed=%ds)", i*30)
+		} else {
+			tail = "EXITED exit=0"
+		}
+		result := string(prefix) + tail
+
+		// Compute result hash from the simulated ToolCallRecord.
+		rec := []types.ToolCallRecord{{Name: "Bash", Result: result}}
+		resultHash := ToolResultHash(rec)
+
+		status := d.CheckDual(actionHash, coarseHash, resultHash)
+		if status != LoopNone {
+			t.Errorf("poll step %d: expected LoopNone for progressing result (tail=%q), got %v", i, tail, status)
+		}
+	}
+}
+
+// TestLoopDetector_DisableSemantics verifies AC9-④ (禁用/默认 green-guard):
+// A negative threshold must disable that track without panic, and a zero threshold
+// must fall back to the default.
+func TestLoopDetector_DisableBothTracks(t *testing.T) {
+	d := NewLoopDetector(-1, -1)
+	hash := uint64(42)
+	const constResult = uint64(7)
+
+	// 100 identical steps must remain LoopNone when both tracks disabled.
+	for i := range 100 {
+		status := d.CheckDual(hash, hash, constResult)
+		if status != LoopNone {
+			t.Errorf("disabled: step %d expected LoopNone, got %v", i, status)
+		}
+	}
+}
+
+func TestLoopDetector_ZeroMeansDefault(t *testing.T) {
+	d := NewLoopDetector(0, 0)
+	if d.threshold != DefaultLoopThreshold {
+		t.Errorf("0 threshold must fall back to DefaultLoopThreshold (%d), got %d", DefaultLoopThreshold, d.threshold)
+	}
+	if d.coarseThreshold != DefaultCoarseLoopThreshold {
+		t.Errorf("0 coarse must fall back to DefaultCoarseLoopThreshold (%d), got %d", DefaultCoarseLoopThreshold, d.coarseThreshold)
+	}
+	if d.fineDisabled || d.coarseDisabled {
+		t.Error("0 threshold must mean default, not disabled")
+	}
+}
+
+// TestToolResultHash_EmptyBatch verifies that an empty batch hashes to the
+// sentinel 0, and a non-empty batch incorporates Name, Result, and Error.
+func TestToolResultHash_EmptyBatch(t *testing.T) {
+	h := ToolResultHash(nil)
+	if h != 0 {
+		t.Errorf("empty batch must hash to 0, got %d", h)
+	}
+	h = ToolResultHash([]types.ToolCallRecord{})
+	if h != 0 {
+		t.Errorf("empty slice must hash to 0, got %d", h)
+	}
+}
+
+func TestToolResultHash_IncorporatesError(t *testing.T) {
+	rec1 := []types.ToolCallRecord{{Name: "Bash", Result: "ok", Error: ""}}
+	rec2 := []types.ToolCallRecord{{Name: "Bash", Result: "ok", Error: "timeout"}}
+	h1 := ToolResultHash(rec1)
+	h2 := ToolResultHash(rec2)
+	if h1 == h2 {
+		t.Error("result hash must differ when Error differs (same command, same error = loop)")
+	}
+}
+

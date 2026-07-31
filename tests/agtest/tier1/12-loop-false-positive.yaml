@@ -1,0 +1,13 @@
+version: "1.0"
+name: loop-false-positive
+intent: "forty consecutive distinct Bash calls must not trigger loop detection"
+agent:
+  provider: replay
+  model: scripts/12-loop-false-positive.responses.yaml
+timeout: 60000
+assert:
+  output:
+    contains: ["loop-false-positive survived forty distinct steps"]
+  syscalls:
+    includes: ["ReasonStep", "Spawn"]
+    excludes: ["LoopSuspend"]

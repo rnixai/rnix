@@ -111,6 +111,14 @@ type Process struct {
 	CtxSize         int           // context message slot limit used at allocation (for checkpoint)
 	Budget          ProcessBudget // per-process resource budget (mu protected); suspend when exhausted
 	MaxSteps        int           // max reasoning steps for this process (from SpawnOpts.MaxTurns or DefaultMaxSteps)
+
+	// Loop detection (Story 70.1). STEP COUNTS, not durations.
+	// 0 = use the kernel default (30 fine / 60 coarse); NEGATIVE = disable that
+	// track. Read via effectiveLoopThreshold() / effectiveCoarseLoopThreshold(),
+	// which pass a negative value through UNCHANGED so NewLoopDetector can honour
+	// the disable request.
+	LoopThreshold       int
+	CoarseLoopThreshold int
 	AllowedDevices  []string      // nil/empty = all devices allowed; non-empty = whitelist only
 	DeniedDevices   []string      // device blacklist; checked before AllowedDevices; blocks access regardless of whitelist
 	// AllowedTools is the process-level AUTHORITATIVE tool-name whitelist (Story 54.1).
@@ -1245,6 +1253,28 @@ func (p *Process) effectiveBackpressureThreshold() float64 {
 		return p.BackpressureThreshold
 	}
 	return DefaultBackpressureThreshold
+}
+
+// effectiveLoopThreshold returns the fine-grain loop detection threshold.
+//
+// ⚠️ The test is `!= 0`, not `> 0`. A negative value is a deliberate "disable
+// this track" request and must reach NewLoopDetector unchanged; treating it as
+// unset would silently fall back to the default and re-enable the very detection
+// the operator switched off.
+func (p *Process) effectiveLoopThreshold() int {
+	if p.LoopThreshold != 0 {
+		return p.LoopThreshold
+	}
+	return DefaultLoopThreshold
+}
+
+// effectiveCoarseLoopThreshold returns the coarse-grain loop detection
+// threshold. Same `!= 0` rule as effectiveLoopThreshold.
+func (p *Process) effectiveCoarseLoopThreshold() int {
+	if p.CoarseLoopThreshold != 0 {
+		return p.CoarseLoopThreshold
+	}
+	return DefaultCoarseLoopThreshold
 }
 
 // TryLockCompact attempts to acquire the compact mutex without blocking.

@@ -46,6 +46,27 @@ type AgentManifest struct {
 	// routine knob: raising it trades a fast failure for a slow one. The real
 	// answer when the LLM is unavailable is the mechanical fallback.
 	CompactTimeout string `yaml:"compact_timeout,omitempty"`
+	// LoopThreshold / CoarseLoopThreshold configure loop detection (Story 70.1).
+	//
+	// ⚠️ These are STEP COUNTS (int), not duration strings — deliberately unlike
+	// the StepTimeout / CompactTimeout fields above them. Do not "align the
+	// shape" by making them strings.
+	//
+	// Semantics for both, and a THIRD convention distinct from either neighbour:
+	//
+	//	0 (omitted) → use the kernel default (30 fine / 60 coarse; 2N suspends)
+	//	>0          → warn after N consecutive matching tool_call steps, suspend at 2N
+	//	<0          → DISABLE that track entirely
+	//
+	// The negative-disables case is the operator escape hatch: it needs no
+	// recompile, so a long-running orchestrator that trips a false positive in
+	// production can be unblocked from its agent.yaml.
+	//
+	// Fine track matches on (actionType, toolPath, toolInput, result); coarse
+	// ignores toolInput, catching "the LLM varies arguments but gets the same
+	// result every time".
+	LoopThreshold       int `yaml:"loop_threshold,omitempty"`
+	CoarseLoopThreshold int `yaml:"coarse_loop_threshold,omitempty"`
 	SLA            *AgentSLA   `yaml:"sla,omitempty"`             // SLA constraints (Story 21.2)
 	Alternatives   []string    `yaml:"alternatives,omitempty"`    // alternative agent names for auto-selection (Story 21.3)
 	Language       string      `yaml:"language,omitempty"`        // preferred response language (e.g. "Chinese", "English"); empty = no preference

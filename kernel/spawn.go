@@ -604,6 +604,7 @@ func (k *KernelImpl) Spawn(intent string, agent *agents.AgentInfo, opts SpawnOpt
 	proc.mu.Unlock()
 
 	applyCompactTimeout(proc, agent, opts)
+	applyLoopThresholds(proc, agent, opts)
 
 	// CompactThreshold: opts > default (80%)
 	if opts.CompactThreshold > 0 {
