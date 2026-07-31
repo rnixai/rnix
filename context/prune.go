@@ -271,6 +271,17 @@ func (m *Manager) DropOldestRounds(cid types.CtxID, opts DropOpts) (*DropResult,
 	}
 
 	ctx.Messages = flattenGroups(groups[dropUpTo:])
+
+	// Provider safety: Anthropic requires messages[0].role == "user". Dropping
+	// group 0 (the user prefix before the first assistant) leaves the context
+	// headed by RoleAssistant → HTTP 400. Prepend a minimal user marker so the
+	// invariant holds regardless of which groups were dropped. The marker costs
+	// one slot, so adjust the reported reclamation accordingly.
+	if len(ctx.Messages) > 0 && ctx.Messages[0].Role != RoleUser {
+		ctx.Messages = append([]Message{{Role: RoleUser, Content: "[earlier conversation history dropped to free context]"}}, ctx.Messages...)
+		freed--
+	}
+
 	if ctx.Sections != nil {
 		ctx.Sections.Invalidate()
 	}

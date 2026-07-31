@@ -49,6 +49,9 @@ func applyCompactTimeout(proc *Process, agent *agents.AgentInfo, opts SpawnOpts)
 	}
 	if d > 0 {
 		proc.CompactTimeout = d
+	} else {
+		log.Printf("[kernel] agent %q has non-positive compact_timeout %q: %v (using default %v)",
+			agent.Manifest.Name, agent.Manifest.CompactTimeout, d, DefaultCompactTimeout)
 	}
 }
 
@@ -64,11 +67,6 @@ type mechanicalFallbackResult struct {
 	TokensFreed   int
 	DroppedRounds int
 	SlotsFreed    int
-}
-
-// freed reports whether anything at all came back.
-func (r mechanicalFallbackResult) freed() bool {
-	return r.TokensFreed > 0 || r.SlotsFreed > 0
 }
 
 // runMechanicalFallback is the deterministic, LLM-free reclamation used whenever
@@ -126,12 +124,7 @@ func addFallbackArgs(args map[string]any, res mechanicalFallbackResult) {
 	args["tokens_freed"] = res.TokensFreed
 	args["dropped_rounds"] = res.DroppedRounds
 	args["slots_freed"] = res.SlotsFreed
-	if !res.freed() {
-		// Do not go silent when the fallback itself came up empty: the event is
-		// still emitted and says so (AC3). Best-effort semantics are preserved —
-		// the process is not terminated on this path.
-		args["fallback_freed"] = 0
-	}
+	args["fallback_freed"] = res.TokensFreed + res.SlotsFreed
 }
 
 // resumeFallbackHeadroom is the number of message slots a revived process needs
@@ -277,8 +270,8 @@ func (k *KernelImpl) autoCompactIfNeeded(proc *Process, step int) {
 		// pre_tokens must be sourced locally here: on the failure path `result`
 		// is nil, so result.PreTokens (used by the success path below) would
 		// panic. usage.Used was captured before the attempt.
-		postUsage, _ := k.ctxMgr.TokenUsage(proc.CtxID)
-		postSlotUsed, _, _ := k.ctxMgr.SlotUsage(proc.CtxID)
+		postUsage, postUsageErr := k.ctxMgr.TokenUsage(proc.CtxID)
+		postSlotUsed, _, postSlotErr := k.ctxMgr.SlotUsage(proc.CtxID)
 
 		args := map[string]any{
 			"step":          step,
@@ -286,9 +279,17 @@ func (k *KernelImpl) autoCompactIfNeeded(proc *Process, step int) {
 			"error":         err.Error(),
 			"compact_error": err.Error(),
 			"pre_tokens":    usage.Used,
-			"post_tokens":   postUsage.Used,
 			"pre_slots":     slotUsed,
-			"post_slots":    postSlotUsed,
+		}
+		if postUsageErr != nil {
+			args["post_tokens_err"] = postUsageErr.Error()
+		} else {
+			args["post_tokens"] = postUsage.Used
+		}
+		if postSlotErr != nil {
+			args["post_slots_err"] = postSlotErr.Error()
+		} else {
+			args["post_slots"] = postSlotUsed
 		}
 		addFallbackArgs(args, fallback)
 		k.emitEvent(proc, "Compact", args, nil, err, time.Since(compactStart))

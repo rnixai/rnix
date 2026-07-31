@@ -401,8 +401,13 @@ func TestDropOldestRounds_KeepRoundsHonoured(t *testing.T) {
 		t.Errorf("DroppedRounds = %d, want 7 (11 groups, keep 4)", res.DroppedRounds)
 	}
 	after := snapshotMessages(t, m, cid)
-	if len(after) != 11 {
-		t.Errorf("remaining messages = %d, want 11 (4 groups: 2+3+3+3)", len(after))
+	// 4 surviving groups (2+3+3+3 = 11 messages) plus the P1 user marker
+	// prepended because the first surviving group starts with RoleAssistant.
+	if len(after) != 12 {
+		t.Errorf("remaining messages = %d, want 12 (4 groups + user marker)", len(after))
+	}
+	if after[0].Role != RoleUser {
+		t.Errorf("first message role = %q, want user (provider-safety marker)", after[0].Role)
 	}
 	assertToolCallPairing(t, after)
 }
@@ -450,8 +455,8 @@ func TestDropOldestRounds_EmptyAndSingleRound(t *testing.T) {
 	if len(after) < minMessagesForCompact {
 		t.Errorf("remaining messages = %d, must not fall below minMessagesForCompact (%d)", len(after), minMessagesForCompact)
 	}
-	if after[len(after)-1].Role != RoleTool || after[0].Role != RoleAssistant {
-		t.Errorf("newest group must survive intact, got roles %q…%q", after[0].Role, after[len(after)-1].Role)
+	if after[len(after)-1].Role != RoleTool || after[1].Role != RoleAssistant {
+		t.Errorf("newest group must survive intact after user marker, got roles %q…%q", after[1].Role, after[len(after)-1].Role)
 	}
 	assertToolCallPairing(t, after)
 }
