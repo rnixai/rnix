@@ -646,6 +646,14 @@ func (k *KernelImpl) resumeFromCheckpoint(uuid string, opts ResumeOpts, start ti
 	k.resolveContextBudget(proc)
 	k.applyCtxTokenLimit(proc)
 
+	// Story 69.3 AC6 — preventive unload, checkpoint-path twin of the call in
+	// rehydrate.go. This path does NOT go through rehydrate (it CtxAllocs and
+	// Deserializes on its own, just above), so covering only the funnel would
+	// leave `rnix resume`'s checkpoint branch with no headroom — the same path
+	// split Story 69.2 discovered. Runs before the launch goroutine's
+	// proc.Start(), so the first reasonStep already sees the reclaimed context.
+	k.unloadForResume(proc, resumeCtxSize, "resume(checkpoint)")
+
 	// apex 10-11: checkpoint-path NewInput. Checkpoints are written on the step's
 	// INPUT side (last_step anchors before that round's final assistant output),
 	// so the snapshot usually lacks the previous round's final output — same
@@ -746,8 +754,33 @@ func (k *KernelImpl) resumeFromCheckpoint(uuid string, opts ResumeOpts, start ti
 			_, compactErr := k.ctxMgr.Compact(proc.CtxID, compactOpts)
 			proc.compactMu.Unlock()
 			if compactErr != nil {
-				log.Printf("[kernel] pid=%d resume compact failed: %v", proc.PID, compactErr)
-				k.finishProcess(proc, ExitStatus{Code: ExitContextFull, Reason: "context_full: resume compact failed", Err: compactErr})
+				// Story 69.3 F1 — this used to kill the process outright, which
+				// is what made "resume → compact → 30s timeout → dead" repeat
+				// four times in the incident. Try the deterministic reclamation
+				// before giving up; only a genuinely unrecoverable context ends
+				// the process now.
+				fallback, ok := k.reclaimForResume(proc)
+				postSlotUsed, _, _ := k.ctxMgr.SlotUsage(proc.CtxID)
+				args := map[string]any{
+					"step":       startStep,
+					"trigger":    "context_full_resume",
+					"error":      compactErr.Error(),
+					"post_slots": postSlotUsed,
+				}
+				addFallbackArgs(args, fallback)
+				k.emitEvent(proc, "Compact", args, nil, compactErr, 0)
+
+				if !ok {
+					log.Printf("[kernel] pid=%d resume compact failed and mechanical fallback could not free room: %v", proc.PID, compactErr)
+					k.finishProcess(proc, ExitStatus{Code: ExitContextFull, Reason: "context_full: resume compact failed", Err: compactErr})
+					return
+				}
+				log.Printf("[kernel] pid=%d resume compact failed (%v); mechanical fallback freed pruned=%d dropped_rounds=%d — continuing",
+					proc.PID, compactErr, fallback.Pruned, fallback.DroppedRounds)
+				proc.mu.Lock()
+				proc.SuspendReason = ""
+				proc.mu.Unlock()
+				k.reasonStep(proc, llmFD, spawnOpts)
 				return
 			}
 			k.ClearReadFileState(proc)
@@ -1091,13 +1124,31 @@ func (k *KernelImpl) resumeFromHistory(uuid string, opts ResumeOpts, start time.
 			compactResult, compactErr := k.ctxMgr.Compact(proc.CtxID, compactOpts)
 			proc.compactMu.Unlock()
 			if compactErr != nil {
-				log.Printf("[kernel] pid=%d resume(history) compact failed: %v", proc.PID, compactErr)
-				k.emitEvent(proc, "Compact", map[string]any{
-					"step":    startStep,
-					"trigger": "context_full_resume",
-					"error":   compactErr.Error(),
-				}, nil, compactErr, time.Since(compactStart))
-				k.finishProcess(proc, ExitStatus{Code: ExitContextFull, Reason: "context_full: resume compact failed", Err: compactErr})
+				// Story 69.3 F1 — second, independent kill point (disk resume).
+				// Same treatment as the checkpoint path: reclaim mechanically
+				// first, terminate only if that leaves no room either.
+				fallback, ok := k.reclaimForResume(proc)
+				postSlotUsed, _, _ := k.ctxMgr.SlotUsage(proc.CtxID)
+				args := map[string]any{
+					"step":       startStep,
+					"trigger":    "context_full_resume",
+					"error":      compactErr.Error(),
+					"post_slots": postSlotUsed,
+				}
+				addFallbackArgs(args, fallback)
+				k.emitEvent(proc, "Compact", args, nil, compactErr, time.Since(compactStart))
+
+				if !ok {
+					log.Printf("[kernel] pid=%d resume(history) compact failed and mechanical fallback could not free room: %v", proc.PID, compactErr)
+					k.finishProcess(proc, ExitStatus{Code: ExitContextFull, Reason: "context_full: resume compact failed", Err: compactErr})
+					return
+				}
+				log.Printf("[kernel] pid=%d resume(history) compact failed (%v); mechanical fallback freed pruned=%d dropped_rounds=%d — continuing",
+					proc.PID, compactErr, fallback.Pruned, fallback.DroppedRounds)
+				proc.mu.Lock()
+				proc.SuspendReason = ""
+				proc.mu.Unlock()
+				k.reasonStep(proc, llmFD, spawnOpts)
 				return
 			}
 			k.emitEvent(proc, "Compact", map[string]any{

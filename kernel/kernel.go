@@ -95,6 +95,7 @@ type SpawnOpts struct {
 	FallbackModel    string        // CLI --fallback-model override; "" = use agent manifest fallback (or auto-disable on cross-provider)
 	FallbackProvider string        // CLI --fallback-provider override; "" = same-provider fallback
 	StepTimeout      time.Duration // per-step heartbeat timeout; 0 = use agent manifest or default 5m
+	CompactTimeout   time.Duration // Story 69.3: bounds the compaction LLM call; 0 = use agent manifest compact_timeout or DefaultCompactTimeout (30s). Note 0 means "default", NOT "disabled" (unlike StepTimeout).
 	StartStep        int           // Resume: start reasoning loop from this step (0 = normal start from 1)
 
 	PreallocatedCtxID types.CtxID           // non-zero = skip CtxAlloc, use this pre-setup context

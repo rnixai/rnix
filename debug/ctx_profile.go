@@ -11,28 +11,15 @@ import (
 	"github.com/rnixai/rnix/internal/types"
 )
 
-const (
-	minActiveWindow = 4
-	minWarmWindow   = 6
-	leakedThreshold = 1000
-	topConsumersN   = 5
-)
+const topConsumersN = 5
 
-func activeWindowSize(n int) int {
-	adaptive := n / 5 // 20% of messages
-	if adaptive > minActiveWindow {
-		return adaptive
-	}
-	return minActiveWindow
-}
-
-func warmWindowSize(n int) int {
-	adaptive := n * 3 / 10 // 30% of messages
-	if adaptive > minWarmWindow {
-		return adaptive
-	}
-	return minWarmWindow
-}
+// Story 69.3 Task 1 — the classification criteria (leaked threshold, active /
+// warm window sizes, cold-zone boundary) moved to the context package so the
+// mechanical pruning primitives there (PruneToolResults / DropOldestRounds)
+// and this analyzer cannot drift apart. The direction is forced: this package
+// already imports context, so context must NOT import debug (compile-time
+// cycle). The migrated algorithm is byte-equivalent — see
+// TestCtxProfile_MigratedCriteria* for the equivalence guard.
 
 // CtxProfileResult holds the analysis results for a process context.
 type CtxProfileResult struct {
@@ -116,6 +103,16 @@ func estimateTokens(s string) int {
 	return rnixctx.EstimateTokens(s)
 }
 
+// isLeaked bridges debug's CtxMessage (a narrow JSON mirror) onto the
+// authoritative predicate in the context package. Role and Content are the only
+// fields the criteria look at, so the projection is lossless.
+func isLeaked(msg CtxMessage) bool {
+	return rnixctx.IsLeakedToolResult(rnixctx.Message{
+		Role:    rnixctx.Role(msg.Role),
+		Content: msg.Content,
+	})
+}
+
 func roundPct(value float64) float64 {
 	return math.Round(value*10) / 10
 }
@@ -124,8 +121,8 @@ func classifyMessages(data *ContextData, sysTokens, totalTokens int) Classificat
 	n := len(data.Messages)
 	var result ClassificationResult
 
-	activeStart := max(0, n-activeWindowSize(n))
-	warmStart := max(0, activeStart-warmWindowSize(n))
+	activeStart := max(0, n-rnixctx.ActiveWindowSize(n))
+	warmStart := rnixctx.ColdZoneEnd(n)
 
 	// Active: system prompt + last activeWindowSize messages
 	activeTokens := sysTokens
@@ -150,7 +147,7 @@ func classifyMessages(data *ContextData, sysTokens, totalTokens int) Classificat
 	result.Warm = ClassBucket{Tokens: warmTokens, Messages: warmMsgs}
 
 	// Cold: messages in [0, warmStart), excluding leaked
-	// Leaked: tool results with len(content) > leakedThreshold in cold zone
+	// Leaked: tool results with len(content) > context.LeakedThreshold in cold zone
 	coldTokens := 0
 	coldMsgs := 0
 	leakedTokens := 0
@@ -158,7 +155,7 @@ func classifyMessages(data *ContextData, sysTokens, totalTokens int) Classificat
 	for i := range warmStart {
 		msg := data.Messages[i]
 		tok := estimateTokens(msg.Content)
-		if msg.Role == "tool" && len(msg.Content) > leakedThreshold {
+		if isLeaked(msg) {
 			leakedTokens += tok
 			leakedMsgs++
 		} else {

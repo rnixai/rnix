@@ -231,6 +231,22 @@ func (k *KernelImpl) rehydrateRuntimeStateFromDisk(proc *Process, stepsDir strin
 	k.resolveContextBudget(proc)
 	k.applyCtxTokenLimit(proc)
 
+	// 7b. Story 69.3 AC6 — preventive unload. The snapshot just deserialized can
+	//     sit at or above the slot ceiling, in which case the revived process
+	//     hits preCompactForToolCalls on its very first step: it replays exactly
+	//     the failure it was suspended for. Reclaim mechanically now so there is
+	//     headroom to run.
+	//
+	//     Placed here because this function is the shared funnel for BOTH
+	//     disk-backed paths (resumeFromHistory and LoadSuspendedFromDisk), so a
+	//     single call covers two callers (same reasoning as the token-scale
+	//     hookup above). Order relative to applyCtxTokenLimit is irrelevant
+	//     (unloading edits Messages, the scale edits TokenLimit), but it MUST
+	//     precede proc.Start() / reasonStep — which it does: rehydrate runs
+	//     inside the resume setup, while Start() happens later in the launch
+	//     goroutine.
+	k.unloadForResume(proc, resumeCtxSize, "rehydrate")
+
 	// 8. Bookkeeping: record the highest replayed step so subtree.go's
 	//    resumeOneForSubtree fallback (LastCompletedStep+1) lands on a sane
 	//    startStep without re-parsing steps.jsonl. Use the atomic setter

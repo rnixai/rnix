@@ -33,6 +33,19 @@ type AgentManifest struct {
 	MaxTokens      int64       `yaml:"max_tokens,omitempty"`      // per-process token budget; 0 = unlimited
 	MaxCost        float64     `yaml:"max_cost,omitempty"`        // per-process cost budget (USD); 0 = unlimited
 	StepTimeout    string      `yaml:"step_timeout,omitempty"`    // duration string e.g. "10m"; default "5m"; "0" = disabled
+	// CompactTimeout bounds the compaction LLM call (Story 69.3 AC5). Duration
+	// string e.g. "60s"; empty = default 30s.
+	//
+	// ⚠️ Semantics differ from StepTimeout on purpose: "0" here is NOT
+	// "disabled". kernel's effectiveCompactTimeout() treats 0 as "fall back to
+	// DefaultCompactTimeout (30s)". Making it symmetric with StepTimeout would
+	// hand gocontext.WithTimeout(ctx, 0) to the compaction path, which expires
+	// immediately — compaction would be permanently unavailable.
+	//
+	// This is an operator escape hatch for diagnosing a slow provider, not a
+	// routine knob: raising it trades a fast failure for a slow one. The real
+	// answer when the LLM is unavailable is the mechanical fallback.
+	CompactTimeout string `yaml:"compact_timeout,omitempty"`
 	SLA            *AgentSLA   `yaml:"sla,omitempty"`             // SLA constraints (Story 21.2)
 	Alternatives   []string    `yaml:"alternatives,omitempty"`    // alternative agent names for auto-selection (Story 21.3)
 	Language       string      `yaml:"language,omitempty"`        // preferred response language (e.g. "Chinese", "English"); empty = no preference
