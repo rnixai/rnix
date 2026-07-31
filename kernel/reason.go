@@ -998,7 +998,7 @@ func (k *KernelImpl) reasonStep(proc *Process, llmFD types.FD, opts SpawnOpts) {
 			loopHash := ActionHash("tool_call", tc.Name, inputStr)
 			coarseHash := CoarseActionHash("tool_call", tc.Name)
 			if loopResult := loopDetector.CheckDual(loopHash, coarseHash, lastToolResultHash); loopResult != LoopNone {
-				if stopped := k.handleLoopDetection(proc, loopResult, loopDetector.LastTriggeredThreshold, step, stepStart); stopped {
+				if stopped := k.handleLoopDetection(proc, loopResult, loopDetector.LastTriggeredThreshold, loopDetector.LastTriggeredTrack, step, stepStart); stopped {
 					return
 				}
 			}
@@ -1246,14 +1246,14 @@ func (k *KernelImpl) getCostPerToken(provider string) float64 {
 }
 
 // handleLoopDetection processes a loop detection result. Returns true if the process was terminated.
-func (k *KernelImpl) handleLoopDetection(proc *Process, status LoopStatus, threshold int, step int, stepStart time.Time) bool {
+func (k *KernelImpl) handleLoopDetection(proc *Process, status LoopStatus, threshold int, track string, step int, stepStart time.Time) bool {
 	switch status {
 	case LoopWarning:
 		k.emitEvent(proc, "LoopDetected", map[string]any{
 			"step":      step,
 			"threshold": threshold,
 		}, nil, nil, time.Since(stepStart))
-		log.Printf("[kernel] pid=%d loop detected at step %d: same action repeated %d times", proc.PID, step, threshold)
+		log.Printf("[kernel] pid=%d loop detected at step %d: same action repeated %d times (track=%s)", proc.PID, step, threshold, track)
 		msg := LoopWarningMessage(threshold)
 		if err := k.ctxMgr.AppendMessage(proc.CtxID, rnixctx.RoleUser, msg); err != nil {
 			log.Printf("[kernel] pid=%d failed to inject loop warning: %v", proc.PID, err)
@@ -1263,7 +1263,7 @@ func (k *KernelImpl) handleLoopDetection(proc *Process, status LoopStatus, thres
 			"step":      step,
 			"threshold": 2 * threshold,
 		}, nil, nil, time.Since(stepStart))
-		log.Printf("[kernel] pid=%d loop suspend at step %d: same action repeated %d times", proc.PID, step, 2*threshold)
+		log.Printf("[kernel] pid=%d loop suspend at step %d: same action repeated %d times (track=%s)", proc.PID, step, 2*threshold, track)
 		if err := k.selfSuspend(proc, "loop_detected", ExitSuspended); err != nil {
 			log.Printf("[kernel] pid=%d suspend failed: %v, falling back to terminate", proc.PID, err)
 			k.finishProcess(proc, ExitStatus{Code: ExitError, Reason: "loop detected + suspend failed"})

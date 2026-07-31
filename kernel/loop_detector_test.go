@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"testing"
 
+	"github.com/rnixai/rnix/agents"
 	"github.com/rnixai/rnix/internal/types"
 )
 
@@ -422,3 +423,77 @@ func TestToolResultHash_IncorporatesError(t *testing.T) {
 	}
 }
 
+// TestApplyLoopThresholds_ThreeTierResolution verifies AC5 / 陷阱四: the
+// SpawnOpts > manifest > default priority, and critically that the resolution
+// uses `!= 0` (NOT `> 0`). Under `> 0`, a -1 ("disable this track") at the opts
+// or manifest tier would be misread as "unset" and silently fall through to the
+// next tier, re-enabling detection with no error. These cases pin that behaviour.
+func TestApplyLoopThresholds_ThreeTierResolution(t *testing.T) {
+	agentWith := func(loop, coarse int) *agents.AgentInfo {
+		return &agents.AgentInfo{Manifest: agents.AgentManifest{
+			LoopThreshold:       loop,
+			CoarseLoopThreshold: coarse,
+		}}
+	}
+
+	cases := []struct {
+		name                 string
+		optsLoop, optsCoarse int
+		agent                *agents.AgentInfo
+		wantLoop, wantCoarse int
+	}{
+		{"opts wins over manifest", 7, 9, agentWith(3, 5), 7, 9},
+		{"manifest wins when opts zero", 0, 0, agentWith(3, 5), 3, 5},
+		{"zero everywhere stays zero (default resolved at read time)", 0, 0, agentWith(0, 0), 0, 0},
+		{"negative opts passthrough — the != 0 trap", -1, -1, agentWith(3, 5), -1, -1},
+		{"negative manifest passthrough", 0, 0, agentWith(-1, -1), -1, -1},
+		{"nil agent, opts set", 7, 9, nil, 7, 9},
+		{"nil agent, opts zero stays zero", 0, 0, nil, 0, 0},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			proc := &Process{}
+			applyLoopThresholds(proc, tc.agent, SpawnOpts{
+				LoopThreshold:       tc.optsLoop,
+				CoarseLoopThreshold: tc.optsCoarse,
+			})
+			if proc.LoopThreshold != tc.wantLoop {
+				t.Errorf("LoopThreshold = %d, want %d", proc.LoopThreshold, tc.wantLoop)
+			}
+			if proc.CoarseLoopThreshold != tc.wantCoarse {
+				t.Errorf("CoarseLoopThreshold = %d, want %d", proc.CoarseLoopThreshold, tc.wantCoarse)
+			}
+		})
+	}
+}
+
+// TestEffectiveLoopThreshold_NegativePassthrough verifies the Process-level
+// helpers: 0 maps to the default, but a negative value is returned AS-IS (it is
+// the "disable" signal NewLoopDetector owns). A `> 0` gate here would swallow -1
+// and return the default, silently re-enabling the track — the last line of
+// defense for the disable semantics.
+func TestEffectiveLoopThreshold_NegativePassthrough(t *testing.T) {
+	cases := []struct {
+		name         string
+		loop, coarse int
+		wantLoop     int
+		wantCoarse   int
+	}{
+		{"zero falls back to defaults", 0, 0, DefaultLoopThreshold, DefaultCoarseLoopThreshold},
+		{"positive passes through", 7, 9, 7, 9},
+		{"negative passes through (disable signal)", -1, -1, -1, -1},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			p := &Process{LoopThreshold: tc.loop, CoarseLoopThreshold: tc.coarse}
+			if got := p.effectiveLoopThreshold(); got != tc.wantLoop {
+				t.Errorf("effectiveLoopThreshold() = %d, want %d", got, tc.wantLoop)
+			}
+			if got := p.effectiveCoarseLoopThreshold(); got != tc.wantCoarse {
+				t.Errorf("effectiveCoarseLoopThreshold() = %d, want %d", got, tc.wantCoarse)
+			}
+		})
+	}
+}
