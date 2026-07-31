@@ -665,3 +665,49 @@ func TestATDD_69_4_AC1_WatermarkRatioIsProportional(t *testing.T) {
 	}
 }
 
+// TestATDD_69_4_AC1_YieldGateConstantsArePinned locks the two yield-gate
+// constants as literals rather than via the constants themselves. Every gate
+// test above computes its expected threshold FROM minReclaimTokens /
+// minReclaimRatioPct, which is tautological: editing either constant would still
+// pass. These literals pin the behavioral intent — a ~one-leaked-result floor
+// and a 20%-of-the-reclaimable-pool ratio — so an accidental edit fails here.
+func TestATDD_69_4_AC1_YieldGateConstantsArePinned(t *testing.T) {
+	if minReclaimTokens != 1000 {
+		t.Errorf("minReclaimTokens = %d, want 1000 (the ~one-leaked-result floor)", minReclaimTokens)
+	}
+	if minReclaimRatioPct != 20 {
+		t.Errorf("minReclaimRatioPct = %d, want 20 (the defer-a-compaction-by-several-steps point)", minReclaimRatioPct)
+	}
+}
+
+// TestATDD_69_4_AC6_BothAxesTrigger covers the third trigger classification,
+// "both", which the token-only (AC6) and slot-only (AC1_SlotWatermarkAlone)
+// tests leave unexecuted. Both axes cross the watermark in the same step, so the
+// classifier must report "both" rather than either single-axis label.
+func TestATDD_69_4_AC6_BothAxesTrigger(t *testing.T) {
+	// MaxSize 100 for 82 messages → 82% slots, over the 60% watermark, while the
+	// token limit is lowered so the token axis crosses too.
+	k, ctxMgr, proc, cid := setupReclaimKernel(t, 100)
+	buildIncidentFixture(t, ctxMgr, cid)
+	raiseTokenWatermark(t, ctxMgr, cid, 70) // token axis → 70%, over the watermark
+
+	usage, _ := ctxMgr.TokenUsage(cid)
+	if usage.Percentage <= proc.effectiveCompactThreshold()*proactiveReclaimWatermarkRatio {
+		t.Fatalf("precondition: token axis must cross the watermark, got %.1f%%", usage.Percentage)
+	}
+	if usage.SlotPercentage <= proc.effectiveSlotCompactThreshold()*proactiveReclaimWatermarkRatio {
+		t.Fatalf("precondition: slot axis must cross the watermark, got %.1f%%", usage.SlotPercentage)
+	}
+
+	k.reclaimLeakedIfNeeded(proc, 13)
+
+	events := drainReclaimEvents(t, proc)
+	if len(events) != 1 {
+		t.Fatalf("emitted %d CtxReclaim events, want 1", len(events))
+	}
+	if got := events[0].Args["trigger"]; got != "both" {
+		t.Errorf("trigger = %v, want both", got)
+	}
+	assertKernelPairing(t, ctxMgr, cid)
+}
+

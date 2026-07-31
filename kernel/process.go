@@ -1212,9 +1212,11 @@ const minReclaimTokens = 1000
 
 // minReclaimRatioPct scales that floor with the context: on a large context a
 // 1000-token batch is noise, so require the candidates to be worth at least 20%
-// of current usage. 20% is the point where one reclamation plausibly defers a
-// compaction by several steps, which is what pays for the single cache
-// invalidation it causes.
+// of the RECLAIMABLE pool (usage minus the system prompt, which can never be
+// reclaimed — counting it would raise the gate above what the message history
+// can supply on a system-prompt-heavy agent). 20% is the point where one
+// reclamation plausibly defers a compaction by several steps, which is what pays
+// for the single cache invalidation it causes.
 const minReclaimRatioPct = 20
 
 const DefaultSlotCompactThreshold = 80.0

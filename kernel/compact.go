@@ -234,6 +234,15 @@ func (k *KernelImpl) reclaimLeakedIfNeeded(proc *Process, step int) {
 		return
 	}
 
+	// The yield gate scales with the RECLAIMABLE pool, not total usage. The system
+	// prompt can never be reclaimed (it is not a cold-zone tool result), so
+	// counting it in the denominator would raise the gate above what the entire
+	// message history can supply on a system-prompt-heavy agent — silently
+	// disabling reclamation for exactly the large-prefix agents this story
+	// protects. Read it with no lock held: GetFinalSystemPrompt takes proc.mu, and
+	// we deliberately avoid introducing a compactMu → proc.mu ordering.
+	sysPromptTokens := rnixctx.EstimateTokens(proc.GetFinalSystemPrompt())
+
 	// Same mutual exclusion as autoCompactIfNeeded: a manual IPC compact must not
 	// interleave with an in-place rewrite of the same message slice.
 	if !proc.compactMu.TryLock() {
@@ -274,20 +283,25 @@ func (k *KernelImpl) reclaimLeakedIfNeeded(proc *Process, step int) {
 		trigger = "both"
 	}
 
-	// Yield gate: an absolute floor for small contexts, scaled by usage for large
-	// ones. Evaluated inside the primitive so the decision is atomic with the
-	// scan that informs it.
-	minTokens := max(minReclaimTokens, usage.Used*minReclaimRatioPct/100)
+	// Yield gate: an absolute floor for small contexts, scaled by the reclaimable
+	// pool for large ones. usage.Used includes the system prompt, which can never
+	// be reclaimed, so subtract it before scaling — otherwise a large system
+	// prompt raises the gate above what the message history can ever supply.
+	// Evaluated inside the primitive so the decision is atomic with the scan that
+	// informs it.
+	reclaimable := max(usage.Used-sysPromptTokens, 0)
+	minTokens := max(minReclaimTokens, reclaimable*minReclaimRatioPct/100)
 
 	res, err := k.ctxMgr.PruneToolResults(proc.CtxID, rnixctx.PruneOpts{MinTokens: minTokens})
 	if err != nil {
 		log.Printf("[kernel] pid=%d step=%d proactive reclaim failed: %v", proc.PID, step, err)
 		return
 	}
-	if res == nil || res.Pruned == 0 {
-		// Nothing worth a cache invalidation. Stay silent rather than emitting an
-		// event on every step above the watermark — AC6 keeps this at debug level
-		// precisely so the event stream does not become unreadable.
+	if res.Pruned == 0 {
+		// Nothing worth a cache invalidation. Emit no EVENT rather than spamming
+		// the event stream on every step above the watermark — AC6 keeps this at
+		// debug level precisely so the event stream does not become unreadable.
+		// (A daemon-log line is still written; that is expected, not silence.)
 		log.Printf("[kernel] pid=%d step=%d proactive reclaim declined (%s): %s min_tokens=%d",
 			proc.PID, step, trigger, res, minTokens)
 		return
@@ -316,9 +330,18 @@ func (k *KernelImpl) reclaimLeakedIfNeeded(proc *Process, step int) {
 
 	k.emitEvent(proc, "CtxReclaim", args, nil, nil, time.Since(start))
 
-	log.Printf("[kernel] pid=%d step=%d proactive reclaim (%s): pruned=%d tokens %d→%d (%.1f%%→%.1f%%) candidates=%d",
-		proc.PID, step, trigger, res.Pruned, usage.Used, postUsage.Used,
-		usage.Percentage, postUsage.Percentage, res.CandidateTokens)
+	// Log the same figures the event carries. On a post-read failure, report the
+	// error instead of the zero-value TokenStats — printing "N→0" would make it
+	// look like the context was emptied, contradicting the post_tokens_err marker
+	// an operator correlates against (observability provenance).
+	if postErr != nil {
+		log.Printf("[kernel] pid=%d step=%d proactive reclaim (%s): pruned=%d tokens %d→? (post-read failed: %v) candidates=%d",
+			proc.PID, step, trigger, res.Pruned, usage.Used, postErr, res.CandidateTokens)
+	} else {
+		log.Printf("[kernel] pid=%d step=%d proactive reclaim (%s): pruned=%d tokens %d→%d (%.1f%%→%.1f%%) candidates=%d",
+			proc.PID, step, trigger, res.Pruned, usage.Used, postUsage.Used,
+			usage.Percentage, postUsage.Percentage, res.CandidateTokens)
+	}
 }
 
 // autoCompactIfNeeded checks if context token usage or slot usage exceeds the
