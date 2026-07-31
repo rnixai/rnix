@@ -292,6 +292,17 @@ See `internal/dashboard/inspector/meta_lens.go:ComputeCacheHitRate` for branchin
 | `CompactTimeout` | duration 字符串 | 回落默认 30s（**无**禁用语义） | — | 不可禁用 |
 | `loop_threshold` / `coarse_loop_threshold` | **int 步数** | 回落默认 30 / 60 | **禁用该轨道** | 设负数（如 `-1`） |
 
+## 循环检测警告机制 (Story 70.2)
+
+**警告不再注入上下文，仅发 `LoopDetected` 事件。** `kernel/reason.go` 的 `handleLoopDetection` 在 `LoopWarning` 分支只 emit 事件 + 记日志，**不**向 context 追加消息。旧实现把 `LoopWarningMessage` 以 `RoleUser` 身份 `AppendMessage` 进上下文，事故实证三重代价而零收益：
+
+- **无效已实证**：误判场景下警告注入后编排器正确地未改变行为，粗粒度计数继续累积 16 步后仍撞 2N 挂起线——警告既未阻止误判挂起，也未引导出任何有益行为调整。
+- **持久污染**：注入的消息在后续**每次** BuildPrompt 中重放（实测同一会话重放 16 次），且伪装 `RoleUser` 身份。
+- **缓存前缀失效**：对话中段插入动态消息使插入点之后的缓存前缀全部失效——与 Epic 69.1 修的 backpressure 缺陷是**同一反模式的另一实例**（把动态内容写进被缓存的序列；69.1 治 system prompt 侧，70.2 治 message 序列侧，两者独立存在）。教训：**不把动态内容写进被缓存的序列**。
+- **误导文案**：旧文案「Please try a different approach」对编排器是错误建议——它应继续按既定流程执行。
+
+⚠️ **想恢复注入的读者先读这条**：收益（LLM 感知警告）在唯一实测场景中为零，代价（污染 + 缓存失效 + 误导）已实证。运维侧可观测性由 `LoopDetected` 事件保留（dashboard timeline / strace 消费，payload `step`/`threshold` 为 wire 兼容红线）；真循环场景 LLM 会在 2N 步看到 `LoopSuspend` 与挂起原因。`LoopWarningMessage` 函数已随注入一并删除。
+
 ## Wiki Knowledge Base（跨项目研究资料）
 
 Path: /mnt/disk0/project/note/claude-obsidian

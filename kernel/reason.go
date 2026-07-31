@@ -1254,10 +1254,15 @@ func (k *KernelImpl) handleLoopDetection(proc *Process, status LoopStatus, thres
 			"threshold": threshold,
 		}, nil, nil, time.Since(stepStart))
 		log.Printf("[kernel] pid=%d loop detected at step %d: same action repeated %d times (track=%s)", proc.PID, step, threshold, track)
-		msg := LoopWarningMessage(threshold)
-		if err := k.ctxMgr.AppendMessage(proc.CtxID, rnixctx.RoleUser, msg); err != nil {
-			log.Printf("[kernel] pid=%d failed to inject loop warning: %v", proc.PID, err)
-		}
+		// Story 70.2: warning injection removed. The injected RoleUser message was
+		// proven ineffective (the orchestrator correctly ignored it in the incident
+		// that motivated this story) while carrying three real costs: persistent
+		// context pollution (replayed in every subsequent BuildPrompt), cache-prefix
+		// invalidation (dynamic content inserted mid-sequence — same anti-pattern as
+		// Epic 69.1 fixed on the system-prompt side), and a misleading imperative
+		// ("try a different approach") that is wrong advice for an orchestrator that
+		// should continue its planned flow. The LoopDetected event above preserves
+		// observability for dashboard/strace consumers.
 	case LoopSuspend:
 		k.emitEvent(proc, "LoopSuspend", map[string]any{
 			"step":      step,

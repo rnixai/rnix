@@ -2,7 +2,6 @@ package kernel
 
 import (
 	"encoding/binary"
-	"fmt"
 	"hash/fnv"
 
 	"github.com/rnixai/rnix/agents"
@@ -14,7 +13,7 @@ type LoopStatus int
 
 const (
 	LoopNone    LoopStatus = iota
-	LoopWarning            // N consecutive identical steps → inject warning
+	LoopWarning            // N consecutive identical steps → emit LoopDetected event (Story 70.2: no longer injects a context message)
 	LoopSuspend            // 2N consecutive identical steps → terminate
 )
 
@@ -336,11 +335,6 @@ func CoarseActionHash(actionType, toolPath string) uint64 {
 	h.Write([]byte{0})
 	h.Write([]byte(toolPath))
 	return h.Sum64()
-}
-
-// LoopWarningMessage returns the system warning message injected into context.
-func LoopWarningMessage(threshold int) string {
-	return fmt.Sprintf("[System Warning] Detected repetitive loop: same action repeated %d times. Please try a different approach.", threshold)
 }
 
 // applyLoopThresholds resolves the two loop detection thresholds onto the

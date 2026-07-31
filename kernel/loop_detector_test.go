@@ -248,13 +248,6 @@ func TestCoarseActionHash_IgnoresInput(t *testing.T) {
 	}
 }
 
-func TestLoopWarningMessage(t *testing.T) {
-	msg := LoopWarningMessage(10)
-	if msg == "" {
-		t.Error("expected non-empty warning message")
-	}
-}
-
 // ============================================================================
 // Story 70.1 New Test Cases — Five Groups
 // ============================================================================
