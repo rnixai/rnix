@@ -294,14 +294,20 @@ See `internal/dashboard/inspector/meta_lens.go:ComputeCacheHitRate` for branchin
 
 ## 循环检测警告机制 (Story 70.2)
 
-**警告不再注入上下文，仅发 `LoopDetected` 事件。** `kernel/reason.go` 的 `handleLoopDetection` 在 `LoopWarning` 分支只 emit 事件 + 记日志，**不**向 context 追加消息。旧实现把 `LoopWarningMessage` 以 `RoleUser` 身份 `AppendMessage` 进上下文，事故实证三重代价而零收益：
+**警告不再注入上下文，仅发 `LoopDetected` 事件。** `kernel/reason.go` 的 `handleLoopDetection` 在 `LoopWarning` 分支只 emit 事件 + 记日志，**不**向 context 追加消息。旧实现把 `LoopWarningMessage` 以 `RoleUser` 身份 `AppendMessage` 进上下文，删除理由是两条实证代价加一条未证实的收益：
 
-- **无效已实证**：误判场景下警告注入后编排器正确地未改变行为，粗粒度计数继续累积 16 步后仍撞 2N 挂起线——警告既未阻止误判挂起，也未引导出任何有益行为调整。
-- **持久污染**：注入的消息在后续**每次** BuildPrompt 中重放（实测同一会话重放 16 次），且伪装 `RoleUser` 身份。
-- **缓存前缀失效**：对话中段插入动态消息使插入点之后的缓存前缀全部失效——与 Epic 69.1 修的 backpressure 缺陷是**同一反模式的另一实例**（把动态内容写进被缓存的序列；69.1 治 system prompt 侧，70.2 治 message 序列侧，两者独立存在）。教训：**不把动态内容写进被缓存的序列**。
+- **持久污染**：注入的消息此后在**每次** BuildPrompt 中重放，且伪装 `RoleUser` 身份。事故会话 4 条轨道均被污染，重放 2 / 11 / 16 / **61** 次（`meetup-30a8ac79`）。
 - **误导文案**：旧文案「Please try a different approach」对编排器是错误建议——它应继续按既定流程执行。
+- **收益未证实**：唯一可观测的样本是**误判**场景，其中编排器正确地忽略了警告、继续完成既定流程直至 16 步后撞 2N 挂起线。这证明警告在误判时无害（LLM 能甄别），但对「真循环时是否有用」**零信息量**——而真循环才是该机制的目的。不要把这条读成「警告已被证明无用」。
 
-⚠️ **想恢复注入的读者先读这条**：收益（LLM 感知警告）在唯一实测场景中为零，代价（污染 + 缓存失效 + 误导）已实证。运维侧可观测性由 `LoopDetected` 事件保留（dashboard timeline / strace 消费，payload `step`/`threshold` 为 wire 兼容红线）；真循环场景 LLM 会在 2N 步看到 `LoopSuspend` 与挂起原因。`LoopWarningMessage` 函数已随注入一并删除。
+⚠️ **两条曾被写进本节的论据已被实测推翻（Story 70.2 code-review 2026-08-01），勿再引用**：
+
+1. **注入并不破坏 prompt 缓存前缀。** `context.AppendMessage` 是 `ctx.Messages = append(...)`——**纯尾部追加，不是「对话中段插入」**，其后无已缓存内容可失效；注入文本内容在注入时即定（`repeated N times` 不随步数变），此后作为稳定前缀持续命中。实测事故轨道注入点前后命中率：step 34 = 97.8% → step 35（emit）= 99.0% → step 36（首个含警告的请求）= 98.9% → step 37-51 稳定 98.3-99.7%，**零塌陷**。
+2. **本例与 Epic 69.1 不是同一反模式。** 69.1 是 system prompt 侧的**不变前缀**里嵌**每步都变**的槽位计数，内容一变整段作废，那才是 99.5%→8.9% 的机制；本例是往可变尾部追加一条此后不再改变的静态消息，正是缓存预期的增长方式。**决定性反证**：同会话 `019fb08a` 的警告注入在 step 50，命中率一路 99% 无损到 step 75，真正的塌陷在 **step 76**——即 69.1 的 backpressure 注入点。警告曾被误归因了本属 backpressure 的罪责。
+
+「**不把动态内容写进被缓存的序列**」这条教训（源自 69.1）依然成立且值得守，但它不适用于尾部追加静态内容——判断新改动时请落到「写入位置是否在已缓存前缀之内」和「内容是否逐步变化」两个实际判据上，而非套用本例。
+
+**已知缺口，如实记录**：删除注入后 **LLM 对循环检测完全零感知**。`selfSuspend` → `suspendProcess` 只写 `proc.SuspendReason` + emit `Suspend` 事件，全在内核观测侧；resume 路径唯一因 SuspendReason 改上下文的分支是 `cp.SuspendReason == "context_full"`（`kernel/resume.go:745`），`"loop_detected"` 不匹配。故进程是被**静默**挂起的，「LLM 会在 2N 步看到 LoopSuspend」不成立。这是本次取舍接受的代价，不是补偿渠道。运维侧可观测性由 `LoopDetected` 事件保留（dashboard timeline / strace 按 syscall 名泛化消费；payload `step`/`threshold` 视为兼容约定，但注意目前无代码读这两个字段，故改动无即时破坏面）。`LoopWarningMessage` 函数已随注入一并删除。
 
 ## Wiki Knowledge Base（跨项目研究资料）
 

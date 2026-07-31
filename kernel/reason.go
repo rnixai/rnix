@@ -1254,15 +1254,23 @@ func (k *KernelImpl) handleLoopDetection(proc *Process, status LoopStatus, thres
 			"threshold": threshold,
 		}, nil, nil, time.Since(stepStart))
 		log.Printf("[kernel] pid=%d loop detected at step %d: same action repeated %d times (track=%s)", proc.PID, step, threshold, track)
-		// Story 70.2: warning injection removed. The injected RoleUser message was
-		// proven ineffective (the orchestrator correctly ignored it in the incident
-		// that motivated this story) while carrying three real costs: persistent
-		// context pollution (replayed in every subsequent BuildPrompt), cache-prefix
-		// invalidation (dynamic content inserted mid-sequence — same anti-pattern as
-		// Epic 69.1 fixed on the system-prompt side), and a misleading imperative
-		// ("try a different approach") that is wrong advice for an orchestrator that
-		// should continue its planned flow. The LoopDetected event above preserves
-		// observability for dashboard/strace consumers.
+		// Story 70.2: the warning is emitted as an event only — it is deliberately
+		// NOT appended to the process context. The old implementation injected a
+		// RoleUser message ("try a different approach"), which carried two proven
+		// costs: it was replayed in every subsequent BuildPrompt for the rest of the
+		// run (up to 61 times in the incident session), and its imperative is wrong
+		// advice for an orchestrator that should continue its planned flow. Its
+		// benefit was never observed: the only sample is a FALSE-POSITIVE detection
+		// in which the orchestrator correctly ignored it, which says nothing about
+		// whether a warning helps during a genuine loop.
+		//
+		// Do not "restore" the injection on the theory that it protected the prompt
+		// cache: it did not. AppendMessage is a tail append, not a mid-sequence
+		// insert, so the cached prefix survives it (measured: hit rate held at
+		// 98-99% across the injection point). See the "循环检测警告机制" section in
+		// CLAUDE.md for the measurements and for the accepted trade-off — with the
+		// injection gone, the LLM has no visibility into loop detection at all,
+		// including the eventual suspend.
 	case LoopSuspend:
 		k.emitEvent(proc, "LoopSuspend", map[string]any{
 			"step":      step,
