@@ -612,17 +612,25 @@ func runRoot(cmd *cobra.Command, args []string) error {
 		}
 		select {
 		case <-sigCh:
+			// 强退绕过所有常规输出路径,先闭合动效行,否则 shell 提示符会画在
+			// 「thinking..」后面。首次 SIGINT 无需处理——上面的 KernelMessage
+			// 已经过 emitLine 清行。
+			progress.Finish()
 			forceExitFunc(130)
 		case <-time.After(2 * time.Second):
 		}
 		// Keep draining signals after timeout so subsequent Ctrl+C still force-exits
 		<-sigCh
+		progress.Finish()
 		forceExitFunc(130)
 	}()
 
 	pid, final, spawnErr := client.SpawnAndWatch(req, func(ev ipc.StreamEvent) {
 		switch ev.Type {
 		case ipc.StreamAskUser:
+			// 提问要独占终端并读 stdin,先闭合动效行:否则提问文本会接在动效帧后,
+			// 且此后任一次清行会擦掉用户的问答内容而非残留的动效行。
+			progress.Finish()
 			handleAskUserEvent(ev.Payload, ipc.SocketPath())
 			return
 		case ipc.StreamProgress:
@@ -690,6 +698,11 @@ func runRoot(cmd *cobra.Command, args []string) error {
 		}
 	})
 	spawnedPID.Store(uint64(pid))
+
+	// 闭合可能仍未终止的 thinking 动效行。其后的 outputError / outputSuccess /
+	// RenderSummary 都绕过 ProgressReporter 直写 stdout,不显式收尾会让结果框与
+	// 动效帧粘在同一物理行。此处是所有终态分支的共同汇聚点,故单点收尾即可。
+	progress.Finish()
 
 	if spawnErr != nil {
 		outputError(renderer, mode, "/dev/llm", spawnErr.Error(), "agent failed to start", spawnHint(spawnErr.Error()))
