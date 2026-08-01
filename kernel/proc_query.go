@@ -455,6 +455,12 @@ func (k *KernelImpl) GetProcInfo(pid types.PID) (*vfs.ProcInfo, error) {
 		DriverMeta:      proc.DriverMeta,
 		FeatureProfile:  proc.FeatureFlags.ProfileName,
 	}
+	// Story 71.3 AC5 — expose the compact timeout to the disk layer ONLY when it
+	// was explicitly configured (opts/manifest). Derived values stay 0 here so
+	// procInfoToDisk omits them and resume re-derives from current providers.yaml.
+	if proc.compactTimeoutExplicit {
+		info.CompactTimeout = proc.CompactTimeout
+	}
 	if proc.ProjectConfig != nil {
 		info.ProjectDir = proc.ProjectConfig.ProjectDir
 	}
@@ -539,6 +545,10 @@ func (k *KernelImpl) ListProcs() []vfs.ProcInfo {
 			MCPMounts:       buildMCPMountSnapshots(proc),
 			DriverMeta:      proc.DriverMeta,
 		})
+		// Story 71.3 AC5 — explicit-only compact timeout (see GetProcInfo).
+		if proc.compactTimeoutExplicit {
+			infos[len(infos)-1].CompactTimeout = proc.CompactTimeout
+		}
 		// Stamp ProjectDir on the just-appended entry. proc.ProjectConfig is
 		// pointer-safe to read under proc.mu (set once at Spawn, immutable
 		// afterwards — see kernel/spawn.go:71). Empty when the process was

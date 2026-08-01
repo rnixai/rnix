@@ -1868,6 +1868,21 @@ func runDaemon(cmd *cobra.Command, args []string) error {
 		}
 		return 0
 	})
+	// Story 71.3 — inject the global-snapshot driver timeout lookup, adjacent
+	// to SetContextWindowFunc and capturing the same providersCfg snapshot.
+	// TimeoutSec is a ProviderConfig instance-level field (not per-model), hence
+	// the provider-only signature. Project-level providers are covered separately
+	// by lookupProjectDriverTimeoutSec (kernel/driver_timeout.go) reading
+	// proc.ProjectConfig — this closure alone would repeat the 71.1 R5 defect
+	// (project-only providers deriving from a zero base).
+	k.SetDriverTimeoutFunc(func(provider string) time.Duration {
+		for _, p := range providersCfg.Providers {
+			if p.Name == provider && p.TimeoutSec > 0 {
+				return time.Duration(p.TimeoutSec) * time.Second
+			}
+		}
+		return 0
+	})
 	k.SetAgentLoader(agentLoader.Load)
 
 	// Feature profile resolution (Story 52.2) — resolve before subsystem

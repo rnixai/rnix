@@ -658,6 +658,11 @@ func (k *KernelImpl) resumeFromCheckpoint(uuid string, opts ResumeOpts, start ti
 	k.resolveContextBudget(proc)
 	k.applyCtxTokenLimit(proc)
 
+	// Story 71.3 AC5 — re-derive the compact timeout on the checkpoint path.
+	// The checkpoint schema carries no CompactTimeout (only CtxSize), so this
+	// path always derives from the current providers.yaml — the field is 0 here.
+	k.resolveCompactTimeout(proc)
+
 	// Story 69.3 AC6 — preventive unload, checkpoint-path twin of the call in
 	// rehydrate.go. This path does NOT go through rehydrate (it CtxAllocs and
 	// Deserializes on its own, just above), so covering only the funnel would
@@ -951,6 +956,16 @@ func (k *KernelImpl) resumeFromHistory(uuid string, opts ResumeOpts, start time.
 	k.restoreParentLinkage(proc, diskInfo.ParentUUID)
 	proc.ContextBudget = diskInfo.ContextBudget
 	proc.ContextWindow = diskInfo.ContextWindow
+	// Story 71.3 AC5 — replay the EXPLICIT compact timeout from proc-info.json.
+	// CompactTimeoutMs is non-zero only when the original process had an
+	// opts/manifest value (GetProcInfo fills it explicitly-only). Setting the
+	// explicit flag makes rehydrate's resolveCompactTimeout skip derivation and
+	// only check for inversion. A zero (legacy or derived-only snapshot) leaves
+	// both unset so rehydrate re-derives from the current providers.yaml.
+	if diskInfo.CompactTimeoutMs > 0 {
+		proc.CompactTimeout = time.Duration(diskInfo.CompactTimeoutMs) * time.Millisecond
+		proc.compactTimeoutExplicit = true
+	}
 	proc.ComposeNode = diskInfo.ComposeNode
 	proc.ComposeDeps = append([]string(nil), diskInfo.ComposeDeps...)
 	proc.PipelineIndex = diskInfo.PipelineIndex

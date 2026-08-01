@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/rnixai/rnix/agents"
+	"github.com/rnixai/rnix/drivers/llm"
 )
 
 // Story 69.3 AC5 — CompactTimeout config entry: opts > agent manifest > 30s.
@@ -18,14 +19,28 @@ func TestCompactTimeout_DefaultWhenUnset(t *testing.T) {
 	if got := proc.effectiveCompactTimeout(); got != DefaultCompactTimeout {
 		t.Errorf("effectiveCompactTimeout() = %v, want %v", got, DefaultCompactTimeout)
 	}
+	// Story 71.3 AC4 / F5 — the 69.3 ruling "the default is deliberately
+	// unchanged" is OVERRULED by post-69.1/69.4 data (cache warm yet 308/342 =
+	// 90.1% of compactions still saturated the 30s ceiling). The production
+	// default is now derived (driverTimeout × compactTimeoutMultiplier);
+	// DefaultCompactTimeout survives as the FLOOR for when every lookup misses,
+	// and that floor value stays pinned.
 	if DefaultCompactTimeout != 30*time.Second {
-		t.Errorf("DefaultCompactTimeout = %v, want 30s (AC5: the default is deliberately unchanged)", DefaultCompactTimeout)
+		t.Errorf("DefaultCompactTimeout floor = %v, want 30s (floor pinned; production default is derived)", DefaultCompactTimeout)
+	}
+	// Derivation relationship: driver family default × 4 = 20 minutes.
+	if want := llm.DefaultTimeout * compactTimeoutMultiplier; want != 20*time.Minute {
+		t.Errorf("derived default = %v, want 20m (llm.DefaultTimeout %v × %d)", want, llm.DefaultTimeout, compactTimeoutMultiplier)
 	}
 }
 
 // TestCompactTimeout_ZeroFallsBackToDefault pins the deliberate asymmetry with
 // StepTimeout: 0 means "default", never "disabled". Flipping this would hand
 // gocontext.WithTimeout a zero deadline and permanently break compaction.
+// Story 71.3: "default" at this getter is the FLOOR (DefaultCompactTimeout);
+// the production default is derived upstream by resolveCompactTimeout, which
+// this bare-process path never reaches — so the getter must still return the
+// floor for a zero field.
 func TestCompactTimeout_ZeroFallsBackToDefault(t *testing.T) {
 	proc := NewProcess(0, "explicit zero", nil)
 	proc.CompactTimeout = 0

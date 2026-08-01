@@ -100,6 +100,8 @@ compact **只由 token 轴触发**（Story 71.1 AC3 废弃了 `autoCompactIfNeed
 
 **compact 请求体削减**（Story 71.2 AC4）：`context/compact.go` 在浅拷贝之后、append compactPrompt 之前，把 `Role == RoleTool` 的 `Content` 截到 `compactToolResultTokenLimit`(600 tokens)——摘要不需要工具输出全文。与 Story 69.4 就地擦除**正交分层**：69.4 改 `ctx.Messages[i].Content`（持久生效），本层只改**本次请求的副本**；已是 `DefaultPrunePlaceholder` 的条目直接跳过防双重截断（持久层优先，同 opencode）。🔴 **只削 `Content`**：该快照是浅拷贝，`ToolCalls` / `ReasoningBlocks` 是**共享 backing array 的切片头**，写它们会在 RUnlock 之后跨 goroutine 静默污染真实上下文（`context/context.go:644-645` 的 never-mutated 红线）。**剥离媒体不适用**（`Message.Content` 是扁平 string、driver 层同形、全仓 image/inline_data 零命中），刻意不写恒 no-op 的 strip 函数。
 
+**compact 超时派生**（Story 71.3）：compact 超时不再是独立硬编码 30s，而是由 driver 层超时**派生**：`compactTimeout = driverTimeout × compactTimeoutMultiplier`（倍数 = 4，codex `COMPACT_REQUEST_TIMEOUT_IDLE_MULTIPLIER` 同行依据 + idle→wall-clock 语义换算）。×4 的理由：compact 是单次 unary 请求，外层 `gocontext.WithTimeout` 覆盖**完整响应**而非事件间的一个 idle 周期（内层 `NewIdleTimer` 由 8 个 driver 共用，不动）。**四级优先**：`opts.CompactTimeout` > `agent.Manifest.CompactTimeout` > 派生值 > `DefaultCompactTimeout`（30s 地板）。前两级由自由函数 `applyCompactTimeout`（签名不变，AC6-① 红线）处理，派生由 kernel 方法 `resolveCompactTimeout`（`kernel/driver_timeout.go`）在字段仍为 0 时填。**driverTimeout 三级解析**（与 `context_window` 同源同形）：①项目级 `.rnix/providers.yaml` 的 `timeout_sec`（`lookupProjectDriverTimeoutSec`，照抄 `lookupProjectContextWindow` 形状）②全局 `SetDriverTimeoutFunc` 闭包（`cmd/rnix/main.go`，签名只取 provider——`TimeoutSec` 是实例级字段）③`llm.DefaultTimeout`（5min，driver 家族公共默认，直接引用不自定义常量）。🔴 **溢出防御**：`time.Duration × 4` 在极大 `timeout_sec` 时溢出为负 → `WithTimeout(ctx, 负)` 立即超时 = compact 永久不可用；Go 无 `saturating_mul`，须显式钳到 `llm.DefaultTimeout × 4`（20min），**不钳 MaxInt64**（292 年 ≡ 永不超时）。🔴 **`CompactTimeout == 0` 绝不等于禁用**（`effectiveCompactTimeout` 映射 0 → 地板）。**AC5 resume**：两条 resume路径在 `resolveContextBudget` 之后调 `resolveCompactTimeout` 重新派生；显式值经 `procInfoDisk.CompactTimeoutMs`（毫秒，omitempty）落盘 + 重放，**只落显式值**（派生值不落盘，providers.yaml 改了 `timeout_sec` 后 resume 用新值）。⚠️ **agtest 零保护**：Tier1 用 replay driver，**replay 完全无超时机制**（`factory.go` 不处理 `TimeoutSec`），派生基数恒为地板——验证全部落单测。
+
 
 **backpressure 提示词注入挂 token 轴**（Story 71.1 AC2）：`kernel/sections.go` 的 `backpressure` section 分子取 `proc.LastInputTokens`（provider 上报的真实 prompt tokens，provenance 最高），分母取 `proc.effectiveContextTokenLimit()`——与 `applyCtxTokenLimit` **同源**，闸门同为 `ContextWindow > 0 && ContextBudget > 0`，否则回落 `DefaultTokenLimit`(200k)。🔴 该 ComputeFn **绝不能调 `ctxMgr.TokenUsage()`**：`TokenUsage` 内部调 `sections.Build()`，`Build()` 又调该 ComputeFn → 无限递归 stack overflow；方案全取 kernel 侧 `proc` 字段正是为了不碰 ctx 锁、零重入（`GetLastInputTokens` 仍取 `proc.mu`——`LastInputTokens` 在 `reason.go` 每步于 `proc.mu` 下写，该锁必要且与 ctx 锁无关）。`backpressureTier` / `backpressureText` 的签名与文案逐字未变（69.1 的两条约束——tier 内 byte-identical、qualitative never quantitative——天然保住）。附带收益：slot 轴在 36k tokens 即报警，故 backpressure 此前**一直在误报**。
 
@@ -310,7 +312,7 @@ See `internal/dashboard/inspector/meta_lens.go:ComputeCacheHitRate` for branchin
 | 旋钮 | 类型 | `0` 的含义 | 负数 | 禁用方式 |
 |---|---|---|---|---|
 | `StepTimeout` | duration 字符串 | **禁用**超时检测 | — | 设 `0` |
-| `CompactTimeout` | duration 字符串 | 回落默认 30s（**无**禁用语义） | — | 不可禁用 |
+| `CompactTimeout` | duration 字符串 | 回落**派生值**（driver 超时 ×4），地板 30s（**无**禁用语义） | — | 不可禁用 |
 | `loop_threshold` / `coarse_loop_threshold` | **int 步数** | 回落默认 30 / 60 | **禁用该轨道** | 设负数（如 `-1`） |
 
 ## 循环检测警告机制 (Story 70.2)

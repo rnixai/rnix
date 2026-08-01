@@ -290,6 +290,7 @@ type Process struct {
 	CompactThreshold      float64                          // 0 = use default (80.0); >0 = trigger compact when TokenUsage > threshold
 	BackpressureThreshold float64                          // 0 = use default (70.0); >0 = inject backpressure section when context TOKEN usage% > threshold (Story 71.1 moved this axis off slots)
 	CompactTimeout        time.Duration                    // 0 = use default (30s); >0 = timeout for compact LLM call
+	compactTimeoutExplicit bool                             // true when CompactTimeout came from opts/manifest (not derivation); gates AC5 disk persistence + AC2-② inversion warning
 	ReadFileState         map[string]rnixctx.ReadFileEntry // tracks recently read files for post-compact restore
 	compactMu             sync.Mutex                       // prevents concurrent compact operations (auto + manual IPC)
 
@@ -1272,8 +1273,38 @@ func (p *Process) effectiveCompactLandingPct() float64 {
 // reclaimLeakedIfNeeded's yield gate already documents.
 const minCompactionFractionPct = 5
 
+// DefaultCompactTimeout is the FLOOR for the compact LLM call timeout — the
+// value used only when no source (project providers.yaml, global providers.yaml,
+// driver default) yields a derivation base. Story 71.3 derives the production
+// value as driverTimeout × compactTimeoutMultiplier (5min × 4 = 20min with the
+// driver family default); this 30s constant remains as the last-resort floor
+// when every lookup misses.
+//
+// ⚠️ 0 ≠ disabled: effectiveCompactTimeout() maps 0 → this floor. A zero field
+// is the only way to reach the default, so gocontext.WithTimeout(ctx, 0) —
+// which would expire immediately and permanently break compaction — is
+// unreachable through the config surface.
 const DefaultCompactTimeout = 30 * time.Second
 
+// compactTimeoutMultiplier converts the driver's per-request (idle) timeout
+// into compact's overall wall-clock budget (Story 71.3). The ×4 is a semantic
+// conversion, not a safety margin — codex's authoritative comment
+// (COMPACT_REQUEST_TIMEOUT_IDLE_MULTIPLIER, client.rs:156-157):
+// "/responses/compact is unary, so the timeout covers the full response rather
+// than one idle period between stream events." With the driver family default
+// of 5min this yields 20min; against the incident's p90=120.1s that is a 10×
+// margin, and one successful 20-min compact beats forty failed 30s ones
+// (308/342 = 90.1% timed out pre-fix).
+const compactTimeoutMultiplier = 4
+
+// effectiveCompactTimeout returns the outer wall-clock budget for a compact LLM
+// call (Story 71.3 AC3). It is the OUTER layer of a nested pair: the driver's
+// per-request timeout acts as the INNER idle timeout (NewIdleTimer) inside the
+// streaming driver. 0 maps to DefaultCompactTimeout (the floor) — never to a
+// zero deadline, which would expire instantly and permanently disable
+// compaction. Production values are derived upstream (resolveCompactTimeout:
+// driverTimeout × compactTimeoutMultiplier); this getter only resolves the
+// field-or-floor choice at read time.
 func (p *Process) effectiveCompactTimeout() time.Duration {
 	if p.CompactTimeout > 0 {
 		return p.CompactTimeout

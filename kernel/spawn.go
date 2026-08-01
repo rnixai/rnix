@@ -885,6 +885,14 @@ func (k *KernelImpl) Spawn(intent string, agent *agents.AgentInfo, opts SpawnOpt
 		k.resolveContextBudget(proc)
 		k.applyCtxTokenLimit(proc)
 
+		// Story 71.3 — fill the derived compact timeout when neither opts nor
+		// manifest set one (field still 0). Placed here (not next to
+		// applyCompactTimeout at :606) because proc.Provider is only known after
+		// the LLM device is opened above (:771); resolveDriverTimeout needs it.
+		// Kept a separate method so applyCompactTimeout's signature — and the 5
+		// test call sites that drive it directly — stay untouched (AC6-①).
+		k.resolveCompactTimeout(proc)
+
 		// Determine model source: CLI --model > agent manifest preferred > driver default
 		modelSource := "driver"
 		if cliModel != "" {

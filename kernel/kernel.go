@@ -269,7 +269,12 @@ type KernelImpl struct {
 	hasProvider       func(name string) bool
 	costPerToken      func(provider string) float64    // returns cost per token for a provider; 0 = unknown
 	contextWindowFunc func(provider, model string) int // returns context window for a provider+model; 0 = unknown
-	defaultProvider   string                           // injected default provider name; "" = fall back to "claude"
+	// driverTimeoutFunc returns the configured per-request timeout for a
+	// provider (Story 71.3). Instance-level field (not per-model), hence the
+	// provider-only signature. nil = no global snapshot injected (test
+	// fixtures); resolveDriverTimeout falls through to llm.DefaultTimeout.
+	driverTimeoutFunc func(provider string) time.Duration
+	defaultProvider   string // injected default provider name; "" = fall back to "claude"
 
 	// projectConfigLoader rebuilds a full ProjectConfig (LLMFileOpener,
 	// AgentLoader, SkillLoader, EnvSnapshot, ...) from a stored project
@@ -528,6 +533,14 @@ func (k *KernelImpl) SetCostPerToken(fn func(provider string) float64) {
 // for a given provider+model pair. Returns 0 when no explicit config exists.
 func (k *KernelImpl) SetContextWindowFunc(fn func(provider, model string) int) {
 	k.contextWindowFunc = fn
+}
+
+// SetDriverTimeoutFunc injects a function that returns the configured
+// per-request timeout for a provider (Story 71.3). Returns 0 when no explicit
+// config exists. Signature takes provider only (no model): TimeoutSec is a
+// ProviderConfig instance-level field, not per-model.
+func (k *KernelImpl) SetDriverTimeoutFunc(fn func(provider string) time.Duration) {
+	k.driverTimeoutFunc = fn
 }
 
 // StartRecording starts execution recording for the given PID.

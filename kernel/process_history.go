@@ -263,6 +263,10 @@ type procInfoDisk struct {
 	// regression.
 	ProjectDir    string   `json:"project_dir,omitempty"`
 	ContextWindow int      `json:"context_window,omitempty"`
+	// Story 71.3 AC5 — explicit compact timeout in milliseconds. Only explicit
+	// (opts/manifest) values are persisted; derived values re-derive on resume.
+	// omitempty keeps legacy proc-info.json clean (absent → 0 → re-derive).
+	CompactTimeoutMs int64  `json:"compact_timeout_ms,omitempty"`
 	ComposeNode   string   `json:"compose_node,omitempty"`
 	ComposeDeps   []string `json:"compose_deps,omitempty"`
 	PipelineIndex int      `json:"pipeline_index"`
@@ -361,6 +365,14 @@ func procInfoToDisk(info vfs.ProcInfo) procInfoDisk {
 	if info.PausedTotal > 0 {
 		d.PausedTotalMs = info.PausedTotal.Milliseconds()
 	}
+	// Story 71.3 AC5 — persist only the EXPLICIT compact timeout. GetProcInfo
+	// fills info.CompactTimeout solely when the process's value was explicitly
+	// configured (opts/manifest); derived values leave it 0 and re-derive on
+	// resume. Milliseconds (not time.Duration's nanoseconds) for human-readable
+	// JSON, matching paused_total_ms / the wire-side StepTimeoutMs convention.
+	if info.CompactTimeout > 0 {
+		d.CompactTimeoutMs = info.CompactTimeout.Milliseconds()
+	}
 	// Story 48.1 — translate vfs.MCPMountSnapshot ↔ mcpMountDisk. nil / empty
 	// slices stay nil so `omitempty` keeps the JSON field absent on legacy or
 	// non-MCP processes.
@@ -430,6 +442,11 @@ func procInfoFromDisk(d procInfoDisk) vfs.ProcInfo {
 	}
 	if d.PausedTotalMs > 0 {
 		info.PausedTotal = time.Duration(d.PausedTotalMs) * time.Millisecond
+	}
+	// Story 71.3 AC5 — restore the explicit compact timeout; 0 (legacy or
+	// derived-only snapshot) leaves the field zero so resume re-derives.
+	if d.CompactTimeoutMs > 0 {
+		info.CompactTimeout = time.Duration(d.CompactTimeoutMs) * time.Millisecond
 	}
 	// Story 48.1 — translate mcpMountDisk back into vfs.MCPMountSnapshot.
 	// Legacy snapshots without the field arrive as nil here; the loop is

@@ -241,6 +241,17 @@ func (k *KernelImpl) rehydrateRuntimeStateFromDisk(proc *Process, stepsDir strin
 	k.resolveContextBudget(proc)
 	k.applyCtxTokenLimit(proc)
 
+	// Story 71.3 AC5 — re-derive the compact timeout on the disk-backed resume
+	// funnel (resumeFromHistory + LoadSuspendedFromDisk both reach here). When
+	// the process had an explicit compact_timeout (opts/manifest), the caller
+	// already restored it from proc-info.json into proc.CompactTimeout (+ the
+	// explicit flag) before invoking rehydrate, so resolveCompactTimeout sees a
+	// non-zero field and only checks for inversion. When nothing was explicit,
+	// the field is 0 and derivation fills it from the current providers.yaml —
+	// picking up a timeout_sec edited since the snapshot was written, matching
+	// resolveContextBudget's "providers.yaml is the current truth" principle.
+	k.resolveCompactTimeout(proc)
+
 	// 7b. Story 69.3 AC6 — preventive unload. The snapshot just deserialized can
 	//     sit at or above the slot ceiling, in which case the revived process
 	//     hits preCompactForToolCalls on its very first step: it replays exactly

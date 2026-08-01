@@ -16,26 +16,44 @@ import (
 	"github.com/rnixai/rnix/vfs"
 )
 
-// applyCompactTimeout resolves the compaction timeout for a freshly spawned
-// process (Story 69.3 AC5): opts > agent manifest compact_timeout > leave the
-// field zero so effectiveCompactTimeout() falls back to DefaultCompactTimeout
-// (30s). Shape deliberately mirrors the StepTimeout block in spawn.go,
-// including "a ParseDuration failure is ignored rather than fatal".
+// applyCompactTimeout resolves the EXPLICIT compaction timeout for a freshly
+// spawned process (Story 69.3 AC5): opts > agent manifest compact_timeout >
+// leave the field zero so resolveCompactTimeout (kernel/driver_timeout.go)
+// fills the derived value, or — if every lookup misses — effectiveCompactTimeout()
+// falls back to DefaultCompactTimeout (the 30s floor). Shape deliberately
+// mirrors the StepTimeout block in spawn.go, including "a ParseDuration
+// failure is ignored rather than fatal".
 //
 // ⚠️ Unlike StepTimeout, a configured 0 does NOT disable anything:
-// effectiveCompactTimeout() maps 0 → 30s. A zero field is the only way to reach
-// the default, so a manifest "0" is intentionally a no-op instead of an
+// effectiveCompactTimeout() maps 0 → floor. A zero field is the only way to
+// reach the default, so a manifest "0" is intentionally a no-op instead of an
 // instant-expiry timeout (which would make compaction permanently unavailable).
 //
-// The 30s default is unchanged on purpose. The incident's 27/27 compaction
-// timeouts were caused by cache-prefix invalidation (fixed in Story 69.1, which
-// brought the call back to ~7.4s); raising the ceiling only converts a fast
-// failure into a slow one. The answer to "the LLM is unavailable" is the
-// mechanical fallback below, not a longer wait. This knob is an operator escape
-// hatch.
+// Semantic layering (Story 71.3 AC3): compactTimeout is the OUTER wall-clock
+// budget (gocontext.WithTimeout around the whole compact call, compact.go:841).
+// The driver's per-request timeout (timeout_sec / llm.DefaultTimeout) serves as
+// the INNER idle timeout inside the driver (NewIdleTimer, 8 drivers share it).
+// The two are nested, not competing: removing the outer bound would let a
+// response that keeps emitting bytes but never ends run forever (IdleTimer
+// resets on every event); removing the inner is a whole-driver-surface change
+// far beyond this story. The ×compactTimeoutMultiplier (= 4) is the conversion
+// between the two layers — codex's authoritative rationale
+// (COMPACT_REQUEST_TIMEOUT_IDLE_MULTIPLIER, client.rs:156-157): "/responses/
+// compact is unary, so the timeout covers the full response rather than one
+// idle period between stream events."
+//
+// Story 71.3 AC4 — the 69.3 ruling "the 30s default is deliberately unchanged"
+// is OVERRULED by post-69.1/69.4 data: with the cache prefix fixed (CtxReclaim
+// events present, hit rate holding 99%+ in long stretches), compact STILL
+// saturated the 30s ceiling — p90 = 120.1s, 308/342 = 90.1% of all compactions
+// timed out. The payload-heaviest call class (pre_tokens p50 = 53,301, max =
+// 160,202) was configured with the globally SHORTEST timeout, 1/10 of the
+// driver family default. The default is now derived (driverTimeout × 4); this
+// function handles only the explicit-config half.
 func applyCompactTimeout(proc *Process, agent *agents.AgentInfo, opts SpawnOpts) {
 	if opts.CompactTimeout > 0 {
 		proc.CompactTimeout = opts.CompactTimeout
+		proc.compactTimeoutExplicit = true
 		return
 	}
 	if agent == nil || agent.Manifest.CompactTimeout == "" {
@@ -49,6 +67,7 @@ func applyCompactTimeout(proc *Process, agent *agents.AgentInfo, opts SpawnOpts)
 	}
 	if d > 0 {
 		proc.CompactTimeout = d
+		proc.compactTimeoutExplicit = true
 	} else {
 		log.Printf("[kernel] agent %q has non-positive compact_timeout %q: %v (using default %v)",
 			agent.Manifest.Name, agent.Manifest.CompactTimeout, d, DefaultCompactTimeout)

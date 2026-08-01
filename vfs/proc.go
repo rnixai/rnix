@@ -110,6 +110,14 @@ type ProcInfo struct {
 	ContextWindow int
 	LastHeartbeat time.Time
 	StepTimeout   time.Duration
+	// CompactTimeout is the EXPLICIT (opts/manifest) compact LLM call timeout,
+	// persisted to proc-info.json so resume can replay the operator's value
+	// (Story 71.3 AC5). Zero on legacy snapshots and on processes whose timeout
+	// was DERIVED rather than explicitly configured — derived values are
+	// re-computed from the current providers.yaml on resume, never replayed from
+	// disk ("providers.yaml is the current truth", same principle as
+	// ContextWindow in kernel/ctx_token_limit.go).
+	CompactTimeout time.Duration
 	SuspendReason string
 	IsPaused      bool          // true when SIGPAUSE is active (reasoning loop blocked)
 	PausedAt      time.Time     // when pause started; zero if not paused
