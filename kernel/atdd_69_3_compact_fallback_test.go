@@ -197,6 +197,9 @@ func TestATDD_69_3_AC7_SuccessPathHasNoFallbackKey(t *testing.T) {
 		t.Fatal("no Compact event emitted")
 	}
 	for i, ev := range events {
+		if ev.Args["phase"] == "started" {
+			continue // Story 71.4 AC1: the started half of the pair carries no outcome fields
+		}
 		if _, present := ev.Args["fallback"]; present {
 			t.Errorf("event[%d]: success path must not carry a fallback key, got %v", i, ev.Args["fallback"])
 		}

@@ -785,6 +785,11 @@ func (k *KernelImpl) resumeFromCheckpoint(uuid string, opts ResumeOpts, start ti
 					"post_slots": postSlotUsed,
 				}
 				addFallbackArgs(args, fallback)
+				// Story 71.4 AC2 — same classification as autoCompactIfNeeded:
+				// this error also traverses BuildCompactLLMCall, so the sentinels
+				// are on its chain (review decision 2026-08-01: AC2 covers ALL
+				// Compact failure events, not just the automatic loop).
+				args["failure_kind"] = classifyCompactFailure(compactErr)
 				k.emitEvent(proc, "Compact", args, nil, compactErr, 0)
 
 				if !ok {
@@ -1169,6 +1174,10 @@ func (k *KernelImpl) resumeFromHistory(uuid string, opts ResumeOpts, start time.
 					"post_slots": postSlotUsed,
 				}
 				addFallbackArgs(args, fallback)
+				// Story 71.4 AC2 — same classification as the checkpoint resume
+				// path above (review decision 2026-08-01: AC2 covers ALL Compact
+				// failure events).
+				args["failure_kind"] = classifyCompactFailure(compactErr)
 				k.emitEvent(proc, "Compact", args, nil, compactErr, time.Since(compactStart))
 
 				if !ok {

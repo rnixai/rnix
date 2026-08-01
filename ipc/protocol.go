@@ -276,6 +276,11 @@ type ProcInfoWire struct {
 	LastHeartbeatMs int64              `json:"last_heartbeat_ms,omitempty"`
 	StepTimeoutMs   int64              `json:"step_timeout_ms,omitempty"`
 	SuspendReason   string             `json:"suspend_reason,omitempty"`
+	// Story 71.4 AC4-② — the compact latch made process-visible on the wire so
+	// `rnix ps` / IPC consumers can see that automatic compaction is disabled for
+	// this process. omitempty keeps it off the wire for the overwhelmingly common
+	// unlatched case. Not persisted to disk (AC3-③: resume starts unlatched).
+	CompactLatched bool               `json:"compact_latched,omitempty"`
 	IsPaused        bool               `json:"is_paused,omitempty"`
 	PausedAtMs      int64              `json:"paused_at_ms,omitempty"`
 	PausedTotalMs   int64              `json:"paused_total_ms,omitempty"`
@@ -359,6 +364,7 @@ func ProcInfoToWire(p vfs.ProcInfo) ProcInfoWire {
 		ReasoningEffort: p.ReasoningEffort,
 		StepTimeoutMs:   p.StepTimeout.Milliseconds(),
 		SuspendReason:   p.SuspendReason,
+		CompactLatched:  p.CompactLatched,
 		IsPaused:        p.IsPaused,
 		ComposeNode:     p.ComposeNode,
 		ComposeDeps:     append([]string(nil), p.ComposeDeps...),
@@ -416,6 +422,7 @@ func WireToProcInfo(w ProcInfoWire) vfs.ProcInfo {
 		ReasoningEffort: w.ReasoningEffort,
 		StepTimeout:     time.Duration(w.StepTimeoutMs) * time.Millisecond,
 		SuspendReason:   w.SuspendReason,
+		CompactLatched:  w.CompactLatched,
 		IsPaused:        w.IsPaused,
 		ComposeNode:     w.ComposeNode,
 		ComposeDeps:     w.ComposeDeps,

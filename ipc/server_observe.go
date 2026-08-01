@@ -572,6 +572,14 @@ func (s *Server) handleCompact(conn net.Conn, rawPayload json.RawMessage) {
 	// Clear ReadFileState after successful compact
 	s.kern.ClearReadFileState(proc)
 
+	// Story 71.4 AC3 — a successful manual compaction proves the operation works
+	// again, so clear the latch. The manual path bypasses the latch (it never
+	// goes through autoCompactIfNeeded), but leaving it set afterwards would keep
+	// automatic compaction permanently disabled — welding shut the escape hatch
+	// the operator just used. Mirrors qwen's startChat() reset, which the manual
+	// /compress success path also travels through.
+	s.kern.ClearCompactLatch(proc)
+
 	compactResp := CompactResponse{
 		PreTokens:  result.PreTokens,
 		PostTokens: result.PostTokens,

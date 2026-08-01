@@ -268,6 +268,16 @@ type Process struct {
 	suspendRequested atomic.Bool // set by Suspend(), checked by reasonStep
 	SuspendReason    string      // reason for suspension (mu protected)
 
+	// Compact latch (Story 71.4) — set after an automatic compaction failure;
+	// while true, autoCompactIfNeeded short-circuits (qwen's one-shot
+	// hasFailedCompressionAttempt). Deliberately NOT SuspendReason:
+	// kernel/invariant.go forbids a Running process carrying one (Story 44.5
+	// AC6 guards it). Cleared by a successful compaction — in practice the
+	// manual IPC path, since a latched process never reaches the auto success
+	// branch. Never persisted to procInfoDisk, so resume starts unlatched
+	// (AC3-③). mu protected.
+	CompactLatched bool
+
 	// Resume notification (Story 44.2) — mu protected. resumedCh is closed by
 	// Unsuspend() so a parked script-runner ScriptExecutor (waiting at a
 	// statement boundary) wakes up. Each Suspend cycle hands out a fresh chan:
@@ -395,6 +405,21 @@ func (p *Process) SetSuspendReason(reason string) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	p.SuspendReason = reason
+}
+
+// GetCompactLatched returns whether automatic compaction is latched off
+// (thread-safe). Story 71.4.
+func (p *Process) GetCompactLatched() bool {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return p.CompactLatched
+}
+
+// SetCompactLatched updates the compact latch (thread-safe). Story 71.4.
+func (p *Process) SetCompactLatched(latched bool) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.CompactLatched = latched
 }
 
 // GetNativeToolDefs returns the native tool definitions (immutable after Spawn).

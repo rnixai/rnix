@@ -411,6 +411,9 @@ func TestAutoCompactIfNeeded_EmitEvent_ContainsSlotFields(t *testing.T) {
 		select {
 		case evt := <-proc.DebugChan:
 			if evt.Syscall == "Compact" {
+				if evt.Args["phase"] == "started" {
+					continue // Story 71.4 AC1: the started half carries no post_* fields
+				}
 				if _, ok := evt.Args["pre_slots"]; !ok {
 					t.Error("emitEvent missing pre_slots field")
 				}

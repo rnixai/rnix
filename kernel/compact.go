@@ -3,6 +3,7 @@ package kernel
 import (
 	gocontext "context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log"
 	"maps"
@@ -15,6 +16,42 @@ import (
 	"github.com/rnixai/rnix/internal/types"
 	"github.com/rnixai/rnix/vfs"
 )
+
+// ErrCompactTimeout / ErrCompactCancelled classify a failed compact LLM call at
+// its POINT OF ORIGIN (Story 71.4 AC2). The classification must be stamped here,
+// inside BuildCompactLLMCall, rather than guessed at the consumer with
+// errors.Is(err, gocontext.DeadlineExceeded): the timeout branch below used to
+// wrap its error WITHOUT %w, so DeadlineExceeded was never on the Unwrap chain —
+// a consumer-side errors.Is would judge timeout false and silently route the
+// incident's 308/342 = 90.1% timeout samples into the `other` bucket, the very
+// misattribution this story exists to fix. Wrapping the sentinels keeps the
+// human-readable message intact (AC6-③: compact_test.go still asserts it
+// CONTAINS "timed out" / "100ms") while giving classifyCompactFailure a
+// structural signal to read.
+var (
+	ErrCompactTimeout   = errors.New("compact timeout")
+	ErrCompactCancelled = errors.New("compact cancelled")
+)
+
+// classifyCompactFailure maps a compact LLM call error onto the three mutually
+// exclusive, exhaustive failure kinds reported as the `failure_kind` event field
+// (Story 71.4 AC2): "timeout" / "cancelled" / "other". It reads the sentinels
+// stamped at the error's origin, never the message text — string matching would
+// re-introduce the fragility the sentinels remove (a reworded error would
+// silently reclassify). "other" is the honest bucket for everything else,
+// INCLUDING the fake-timeout errors injected by test harnesses such as
+// setupFallbackKernel: those carry no sentinel because they never traverse
+// BuildCompactLLMCall, and labelling them "timeout" would be a lie.
+func classifyCompactFailure(err error) string {
+	switch {
+	case errors.Is(err, ErrCompactTimeout):
+		return "timeout"
+	case errors.Is(err, ErrCompactCancelled):
+		return "cancelled"
+	default:
+		return "other"
+	}
+}
 
 // applyCompactTimeout resolves the EXPLICIT compaction timeout for a freshly
 // spawned process (Story 69.3 AC5): opts > agent manifest compact_timeout >
@@ -507,6 +544,21 @@ func (k *KernelImpl) autoCompactIfNeeded(proc *Process, step int) {
 	if proc.CompactionDisabled {
 		return
 	}
+	// Story 71.4 AC3 — qwen-style one-shot latch. An earlier automatic
+	// compaction failed, so stop retrying: every retry is a full-history request
+	// body and a timeout risk spent on a call that already proved it cannot
+	// succeed (the incident accumulated 308 such failures). Same family as
+	// CompactionDisabled ("this process no longer auto-compacts"), hence the
+	// adjacent placement — and like qwen's check it short-circuits BEFORE any
+	// token computation or LLM call. Clearing requires a successful compaction;
+	// in practice that is the manual IPC path, since a latched process never
+	// reaches the auto success branch below. AC4 makes the latched state visible
+	// through its own event, the CompactLatched process field (up on the IPC
+	// wire) and a daemon-log line — the silence qwen's version ships with is
+	// exactly the failure mode this story exists to prevent.
+	if proc.GetCompactLatched() {
+		return
+	}
 	// Prevent concurrent compact (auto + manual IPC)
 	if !proc.compactMu.TryLock() {
 		return
@@ -620,6 +672,24 @@ func (k *KernelImpl) autoCompactIfNeeded(proc *Process, step int) {
 	log.Printf("[kernel] pid=%d step=%d auto-compact triggered (%s): token=%.1f%%, slots=%d/%d, compressible=%d/%d",
 		proc.PID, step, trigger, usage.Percentage, slotUsed, slotMax, compressible, reclaimable)
 
+	// Story 71.4 AC1 — started/completed pairing. Emitted AFTER the pre-flight
+	// gate (a NOOP early-exit must not leave an orphan started event, AC1 末) and
+	// BEFORE the LLM call, so "started but never completed" — a killed process, a
+	// daemon crash, a timeout that never reaches an emit — is naturally visible as
+	// a started event with no matching completed. Correlates with the completed
+	// events below by `step` (monotonic per process, already carried by them). The
+	// completed half is the three existing emits (failure / success / precompact),
+	// which already cover all outcomes unconditionally — so adding started here
+	// yields a true pair with no new unconditional merge point (codex main's
+	// analytics track, F6; NOT the zero-field unit-struct branch the epic named).
+	k.emitEvent(proc, "Compact", map[string]any{
+		"step":       step,
+		"trigger":    trigger,
+		"phase":      "started",
+		"pre_tokens": usage.Used,
+		"pre_slots":  slotUsed,
+	}, nil, nil, 0)
+
 	result, err := k.ctxMgr.Compact(proc.CtxID, opts)
 	if err != nil {
 		// Story 69.3 AC3 — the LLM compaction failed, so fall back to the
@@ -682,12 +752,40 @@ func (k *KernelImpl) autoCompactIfNeeded(proc *Process, step int) {
 			args["post_pct"] = postUsage.Percentage
 			args["landing_reached"] = postUsage.Percentage <= proc.effectiveCompactLandingPct()
 		}
+		// Story 71.4 AC2 — failure classification, read off the sentinels stamped
+		// at the error's origin (classifyCompactFailure). Supplements compact_error
+		// (the full text, kept for provenance), never replaces it. Computed once
+		// and shared by the Compact and CompactLatch events below so the two can
+		// never report different kinds for the same failure.
+		failureKind := classifyCompactFailure(err)
+		args["failure_kind"] = failureKind
 		k.emitEvent(proc, "Compact", args, nil, err, time.Since(compactStart))
 
 		log.Printf("[kernel] pid=%d compact failed (%v); mechanical fallback: pruned=%d tokens %d→%d, dropped_rounds=%d slots %d→%d, clear_at_least=%d releasable=%d landing_target=%.1f%%",
 			proc.PID, err, fallback.Pruned, usage.Used, postUsage.Used,
 			fallback.DroppedRounds, slotUsed, postSlotUsed,
 			clearAtLeast, fallback.ReleasableTokens, proc.effectiveCompactLandingPct())
+
+		// Story 71.4 AC3 — latch: one automatic failure stops this process's
+		// further automatic attempts (qwen's one-shot semantics). ONLY the
+		// automatic path latches — the manual IPC and resume paths never reach
+		// here, and a failed manual repair must not weld the escape hatch shut.
+		//
+		// AC4 — the latch is a state transition, so it gets all three observability
+		// channels at once. This is the deliberate deviation from qwen, whose
+		// latch is a private bool with zero signal: a daemon + long-running
+		// orchestrator cannot afford the silence that let 308 failures accumulate
+		// unseen. The latch state itself lives on CompactLatched, NOT
+		// SuspendReason — invariant.go forbids a Running process carrying one.
+		if !proc.GetCompactLatched() {
+			proc.SetCompactLatched(true)
+			k.emitEvent(proc, "CompactLatch", map[string]any{
+				"step":         step,
+				"failure_kind": failureKind,
+			}, nil, nil, 0)
+			log.Printf("[kernel] pid=%d step=%d compact latch set: automatic compaction disabled for this process after failure (%v); manual compact can clear it",
+				proc.PID, step, err)
+		}
 
 		// Best-effort by contract: never terminate the process from here, even
 		// when the fallback reclaimed nothing.
@@ -696,6 +794,14 @@ func (k *KernelImpl) autoCompactIfNeeded(proc *Process, step int) {
 
 	// Clear ReadFileState after successful compact
 	k.ClearReadFileState(proc)
+
+	// Story 71.4 AC3-② — a success proves compaction works again, so clear the
+	// latch. Defensively dead on the auto path (a latched process short-circuits
+	// before reaching here); the clearing that actually runs is the manual IPC
+	// path's ClearCompactLatch (ipc/server_observe.go), which mirrors qwen's
+	// startChat() reset. Kept here so a future code path that reaches auto
+	// success with a stale latch does not stay wedged.
+	proc.SetCompactLatched(false)
 
 	postSlotUsed, postSlotMax, _ := k.ctxMgr.SlotUsage(proc.CtxID)
 	k.emitEvent(proc, "Compact", map[string]any{
@@ -790,6 +896,11 @@ func (k *KernelImpl) preCompactForToolCalls(proc *Process, toolCallCount int, st
 			"post_slots":    postSlotUsed,
 		}
 		addFallbackArgs(args, fallback)
+		// Story 71.4 AC2 — schema consistency with the other Compact failure
+		// events (review decision 2026-08-01: AC2 covers ALL Compact failure
+		// events). Structurally NO-OP since Story 71.1, but if the slot ceiling
+		// ever returns, the event must already carry the classification.
+		args["failure_kind"] = classifyCompactFailure(err)
 		k.emitEvent(proc, "Compact", args, nil, err, time.Since(compactStart))
 
 		if postAvail >= required {
@@ -896,13 +1007,18 @@ func (k *KernelImpl) BuildCompactLLMCall(proc *Process) func(string, []rnixctx.M
 			return "", fmt.Errorf("compact: marshal request failed: %w", err)
 		}
 
-		// Write request — use compactCtx for timeout propagation
+		// Write request — use compactCtx for timeout propagation. Story 71.4 AC2:
+		// each branch wraps a sentinel so classifyCompactFailure can read the
+		// failure kind structurally. The timeout branch previously carried NO %w
+		// at all (DeadlineExceeded absent from the Unwrap chain); the cancelled
+		// branch keeps compactCtx.Err() on the chain via multiple %w (Go 1.20+).
+		// Message text is unchanged — AC6-③ red line.
 		if err := k.vfs.Write(compactCtx, proc.PID, fd, reqJSON); err != nil {
 			if compactCtx.Err() != nil {
 				if compactCtx.Err() == gocontext.DeadlineExceeded {
-					return "", fmt.Errorf("compact: LLM call timed out after %v", timeout)
+					return "", fmt.Errorf("compact: LLM call timed out after %v: %w", timeout, ErrCompactTimeout)
 				}
-				return "", fmt.Errorf("compact: LLM call cancelled: %w", compactCtx.Err())
+				return "", fmt.Errorf("compact: LLM call cancelled: %w: %w", compactCtx.Err(), ErrCompactCancelled)
 			}
 			return "", fmt.Errorf("compact: LLM write failed: %w", err)
 		}
@@ -912,9 +1028,9 @@ func (k *KernelImpl) BuildCompactLLMCall(proc *Process) func(string, []rnixctx.M
 		if err != nil {
 			if compactCtx.Err() != nil {
 				if compactCtx.Err() == gocontext.DeadlineExceeded {
-					return "", fmt.Errorf("compact: LLM call timed out after %v", timeout)
+					return "", fmt.Errorf("compact: LLM call timed out after %v: %w", timeout, ErrCompactTimeout)
 				}
-				return "", fmt.Errorf("compact: LLM call cancelled: %w", compactCtx.Err())
+				return "", fmt.Errorf("compact: LLM call cancelled: %w: %w", compactCtx.Err(), ErrCompactCancelled)
 			}
 			return "", fmt.Errorf("compact: LLM read failed: %w", err)
 		}
@@ -969,6 +1085,18 @@ func (k *KernelImpl) ClearReadFileState(proc *Process) {
 	proc.mu.Lock()
 	proc.ReadFileState = nil
 	proc.mu.Unlock()
+}
+
+// ClearCompactLatch clears the compact latch after a successful compaction
+// (Story 71.4 AC3-②). Exported for the manual IPC path (ipc/server_observe.go
+// handleCompact), which bypasses the latch yet proves compaction works again
+// when it succeeds — leaving the latch set afterwards would weld the escape
+// hatch shut. A no-op (beyond the log) when not latched.
+func (k *KernelImpl) ClearCompactLatch(proc *Process) {
+	if proc.GetCompactLatched() {
+		proc.SetCompactLatched(false)
+		log.Printf("[kernel] pid=%d compact latch cleared after successful manual compaction", proc.PID)
+	}
 }
 
 // BuildActiveSkills constructs SkillEntry list from the process's loaded skills.

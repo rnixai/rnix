@@ -119,6 +119,12 @@ type ProcInfo struct {
 	// ContextWindow in kernel/ctx_token_limit.go).
 	CompactTimeout time.Duration
 	SuspendReason  string
+	// CompactLatched reports that automatic compaction has been latched off for
+	// this process after a failure (Story 71.4 AC4-②). Process-level visible
+	// state for the latch — deliberately NOT SuspendReason, which invariant.go
+	// forbids on a Running process. On the IPC wire so `rnix ps` / consumers can
+	// see it; NOT on procInfoDisk, so resume starts unlatched (AC3-③).
+	CompactLatched bool
 	IsPaused       bool          // true when SIGPAUSE is active (reasoning loop blocked)
 	PausedAt       time.Time     // when pause started; zero if not paused
 	PausedTotal    time.Duration // accumulated paused duration across all pause/resume cycles
