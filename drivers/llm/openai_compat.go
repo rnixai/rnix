@@ -90,6 +90,12 @@ func NewOpenAICompatDriver(name, baseURL string, opts ...CompatOption) *OpenAICo
 		baseURL:        strings.TrimRight(baseURL, "/"),
 		defaultTimeout: DefaultTimeout,
 		httpClient:     &http.Client{},
+		// Ask for usage on streamed responses by default, matching the official
+		// OpenAI driver (openai_official.go). Without stream_options.include_usage
+		// a spec-strict endpoint emits no usage chunk at all, leaving TokensUsed /
+		// InputTokens at 0 for every streamed step. Endpoints that predate the
+		// option ignore the field; WithStreamUsage(false) opts out.
+		streamUsage: true,
 	}
 	for _, opt := range opts {
 		opt(d)
@@ -622,6 +628,34 @@ func (d *OpenAICompatDriver) streamInternal(ctx context.Context, req LLMRequest,
 
 		pendingToolCalls := make(map[int]*toolCallAccumulator)
 		var lastUsage *oaiUsage
+		// terminal records that a chunk carried a finish_reason. sawChunk records
+		// that at least one well-formed chunk was parsed. Both feed the single
+		// deferred `done` emission below — see the emitDone godoc.
+		var terminal, sawChunk bool
+
+		// emitDone sends the one-and-only terminal `done` event. It is deliberately
+		// NOT called from the finish_reason branch: OpenAI-compatible endpoints put
+		// the usage payload in a trailing `{"choices":[],"usage":{...}}` chunk that
+		// arrives AFTER finish_reason, so returning at finish_reason loses usage for
+		// every tool-calling step (qwen: prompt_tokens never reached the kernel →
+		// proc.TokensUsed/LastInputTokens stuck at 0 → ctx%/budget% rendered 0%).
+		// Emission is deferred to `[DONE]` or stream EOF, whichever comes first.
+		emitDone := func() {
+			evt := StreamEvent{Type: "done"}
+			if lastUsage != nil {
+				evt.TokensUsed = lastUsage.TotalTokens
+				evt.InputTokens = lastUsage.PromptTokens
+				evt.OutputTokens = lastUsage.CompletionTokens
+				evt.CachedInputTokens = lastUsage.PromptTokensDetails.CachedTokens
+			}
+			if len(pendingToolCalls) > 0 {
+				evt.ToolCalls = flushToolCalls(pendingToolCalls)
+			}
+			select {
+			case ch <- evt:
+			case <-ctx.Done():
+			}
+		}
 
 		for scanner.Scan() {
 			idle.Reset()
@@ -632,20 +666,7 @@ func (d *OpenAICompatDriver) streamInternal(ctx context.Context, req LLMRequest,
 			data := strings.TrimPrefix(line, "data: ")
 
 			if data == "[DONE]" {
-				evt := StreamEvent{Type: "done"}
-				if lastUsage != nil {
-					evt.TokensUsed = lastUsage.TotalTokens
-					evt.InputTokens = lastUsage.PromptTokens
-					evt.OutputTokens = lastUsage.CompletionTokens
-					evt.CachedInputTokens = lastUsage.PromptTokensDetails.CachedTokens
-				}
-				if len(pendingToolCalls) > 0 {
-					evt.ToolCalls = flushToolCalls(pendingToolCalls)
-				}
-				select {
-				case ch <- evt:
-				case <-ctx.Done():
-				}
+				emitDone()
 				return
 			}
 
@@ -661,6 +682,7 @@ func (d *OpenAICompatDriver) streamInternal(ctx context.Context, req LLMRequest,
 			if chunk.Usage != nil {
 				lastUsage = chunk.Usage
 			}
+			sawChunk = true
 
 			if len(chunk.Choices) == 0 {
 				continue
@@ -700,21 +722,12 @@ func (d *OpenAICompatDriver) streamInternal(ctx context.Context, req LLMRequest,
 				acc.arguments.WriteString(tc.Function.Arguments)
 			}
 
-			// finish_reason == "tool_calls" triggers flush
-			if choice.FinishReason != nil && *choice.FinishReason == "tool_calls" {
-				evt := StreamEvent{Type: "done"}
-				if lastUsage != nil {
-					evt.TokensUsed = lastUsage.TotalTokens
-					evt.InputTokens = lastUsage.PromptTokens
-					evt.OutputTokens = lastUsage.CompletionTokens
-					evt.CachedInputTokens = lastUsage.PromptTokensDetails.CachedTokens
-				}
-				evt.ToolCalls = flushToolCalls(pendingToolCalls)
-				select {
-				case ch <- evt:
-				case <-ctx.Done():
-				}
-				return
+			// A finish_reason marks the end of the model's turn, but NOT the end of
+			// the stream: the usage chunk still trails it. Record the terminal state
+			// and keep scanning so lastUsage can be picked up; emitDone runs at
+			// `[DONE]` or EOF.
+			if choice.FinishReason != nil && *choice.FinishReason != "" {
+				terminal = true
 			}
 		}
 
@@ -723,6 +736,17 @@ func (d *OpenAICompatDriver) streamInternal(ctx context.Context, req LLMRequest,
 			case ch <- StreamEvent{Type: "error", Err: NewLLMError(d.name, 0, fmt.Errorf("stream read error: %w", err))}:
 			case <-ctx.Done():
 			}
+			return
+		}
+
+		// EOF without `[DONE]`: many OpenAI-compatible endpoints (qwen among them)
+		// simply close the connection after the trailing usage chunk. Emit the
+		// terminal event here so usage and any accumulated tool calls still reach
+		// the caller. Guarded on having seen a real chunk so a genuinely empty or
+		// malformed stream keeps surfacing as ErrStreamIncomplete upstream rather
+		// than as a hollow success.
+		if terminal || sawChunk {
+			emitDone()
 		}
 	}()
 

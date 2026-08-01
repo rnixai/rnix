@@ -945,6 +945,155 @@ func TestOpenAICompatDriver_StreamWithTools_FinishReason(t *testing.T) {
 	}
 }
 
+// TestOpenAICompatDriver_Stream_UsageAfterFinishReason reproduces the qwen
+// (DashScope) stream shape: the usage payload rides a trailing
+// {"choices":[],"usage":{...}} chunk emitted AFTER the finish_reason chunk.
+// The driver used to return the moment it saw finish_reason=="tool_calls", so
+// that trailing chunk was never read and every tool-calling step reported zero
+// tokens — which is what pinned the dashboard's ctx%/budget% at 0.
+func TestOpenAICompatDriver_Stream_UsageAfterFinishReason(t *testing.T) {
+	d, _, cleanup := newTestDriver(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		writeSSE(w, `{"choices":[{"delta":{"tool_calls":[{"index":0,"id":"c1","type":"function","function":{"name":"run","arguments":"{}"}}]}}]}`)
+		writeSSE(w, `{"choices":[{"index":0,"delta":{},"finish_reason":"tool_calls"}],"usage":null}`)
+		// Usage-only chunk, exactly as qwen emits it.
+		writeSSE(w, `{"choices":[],"usage":{"prompt_tokens":178634,"completion_tokens":1007,"total_tokens":179641,"prompt_tokens_details":{"cached_tokens":178176}}}`)
+		writeSSE(w, "[DONE]")
+	})
+	defer cleanup()
+
+	ch, err := d.StreamWithTools(context.Background(), LLMRequest{Intent: "run"}, []ToolDef{{Name: "run"}})
+	if err != nil {
+		t.Fatalf("StreamWithTools: %v", err)
+	}
+
+	var doneEvt StreamEvent
+	doneCount := 0
+	for evt := range ch {
+		switch evt.Type {
+		case "done":
+			doneCount++
+			doneEvt = evt
+		case "error":
+			t.Fatalf("unexpected error: %v", evt.Err)
+		}
+	}
+	if doneCount != 1 {
+		t.Fatalf("done events = %d, want exactly 1", doneCount)
+	}
+	if doneEvt.InputTokens != 178634 {
+		t.Errorf("InputTokens = %d, want 178634", doneEvt.InputTokens)
+	}
+	if doneEvt.TokensUsed != 179641 {
+		t.Errorf("TokensUsed = %d, want 179641", doneEvt.TokensUsed)
+	}
+	if doneEvt.OutputTokens != 1007 {
+		t.Errorf("OutputTokens = %d, want 1007", doneEvt.OutputTokens)
+	}
+	if doneEvt.CachedInputTokens != 178176 {
+		t.Errorf("CachedInputTokens = %d, want 178176", doneEvt.CachedInputTokens)
+	}
+	// Tool calls must survive the deferred flush.
+	if len(doneEvt.ToolCalls) != 1 || doneEvt.ToolCalls[0].Name != "run" {
+		t.Errorf("ToolCalls = %+v, want [{Name:run}]", doneEvt.ToolCalls)
+	}
+}
+
+// TestOpenAICompatDriver_Stream_NoDoneSentinel covers endpoints that close the
+// connection after the trailing usage chunk without ever sending "[DONE]" —
+// observed on roughly 60% of qwen responses. The scanner previously fell out of
+// its loop and emitted no terminal event at all, so both usage and the
+// accumulated tool calls were dropped.
+func TestOpenAICompatDriver_Stream_NoDoneSentinel(t *testing.T) {
+	d, _, cleanup := newTestDriver(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		writeSSE(w, `{"choices":[{"delta":{"tool_calls":[{"index":0,"id":"c1","type":"function","function":{"name":"run","arguments":"{}"}}]}}]}`)
+		writeSSE(w, `{"choices":[{"index":0,"delta":{},"finish_reason":"tool_calls"}],"usage":null}`)
+		writeSSE(w, `{"choices":[],"usage":{"prompt_tokens":900,"completion_tokens":100,"total_tokens":1000}}`)
+		// No [DONE]; the handler simply returns and the body closes.
+	})
+	defer cleanup()
+
+	ch, err := d.StreamWithTools(context.Background(), LLMRequest{Intent: "run"}, []ToolDef{{Name: "run"}})
+	if err != nil {
+		t.Fatalf("StreamWithTools: %v", err)
+	}
+
+	var doneEvt StreamEvent
+	doneCount := 0
+	for evt := range ch {
+		switch evt.Type {
+		case "done":
+			doneCount++
+			doneEvt = evt
+		case "error":
+			t.Fatalf("unexpected error: %v", evt.Err)
+		}
+	}
+	if doneCount != 1 {
+		t.Fatalf("done events = %d, want exactly 1 (EOF must still terminate)", doneCount)
+	}
+	if doneEvt.InputTokens != 900 || doneEvt.TokensUsed != 1000 {
+		t.Errorf("usage = in:%d total:%d, want in:900 total:1000", doneEvt.InputTokens, doneEvt.TokensUsed)
+	}
+	if len(doneEvt.ToolCalls) != 1 || doneEvt.ToolCalls[0].Name != "run" {
+		t.Errorf("ToolCalls = %+v, want [{Name:run}]", doneEvt.ToolCalls)
+	}
+}
+
+// TestOpenAICompatDriver_Stream_EmptyStreamNoDone asserts the EOF backstop stays
+// narrow: a stream that carried no parseable chunk must NOT be dressed up as a
+// successful terminal event, so vfsfile keeps reporting ErrStreamIncomplete.
+func TestOpenAICompatDriver_Stream_EmptyStreamNoDone(t *testing.T) {
+	d, _, cleanup := newTestDriver(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		// Connection opens and closes with no SSE payload at all.
+	})
+	defer cleanup()
+
+	ch, err := d.Stream(context.Background(), LLMRequest{Intent: "hi"})
+	if err != nil {
+		t.Fatalf("Stream: %v", err)
+	}
+	for evt := range ch {
+		if evt.Type == "done" {
+			t.Errorf("empty stream must not emit done, got %+v", evt)
+		}
+	}
+}
+
+// TestOpenAICompatDriver_StreamUsage_DefaultOn locks the constructor default:
+// stream_options.include_usage must be requested without any explicit option,
+// mirroring the official OpenAI driver. A spec-strict endpoint sends no usage
+// chunk unless asked.
+func TestOpenAICompatDriver_StreamUsage_DefaultOn(t *testing.T) {
+	var gotBody oaiRequest
+	d, _, cleanup := newTestDriver(func(w http.ResponseWriter, r *http.Request) {
+		body, _ := io.ReadAll(r.Body)
+		json.Unmarshal(body, &gotBody)
+		w.Header().Set("Content-Type", "text/event-stream")
+		writeSSE(w, `{"choices":[{"delta":{"content":"ok"}}]}`)
+		writeSSE(w, "[DONE]")
+	})
+	defer cleanup()
+
+	ch, err := d.Stream(context.Background(), LLMRequest{Intent: "hi"})
+	if err != nil {
+		t.Fatalf("Stream: %v", err)
+	}
+	for range ch {
+	}
+	if gotBody.StreamOptions == nil || !gotBody.StreamOptions.IncludeUsage {
+		t.Error("stream_options.include_usage should default to true")
+	}
+
+	// And the opt-out must still work.
+	d2 := NewOpenAICompatDriver("test", "http://example/v1", WithStreamUsage(false))
+	if d2.streamUsage {
+		t.Error("WithStreamUsage(false) should disable include_usage")
+	}
+}
+
 // TestOpenAICompatDriver_BuildMessages_EchoesAssistantReasoning verifies that
 // when an assistant message carries thinking-mode reasoning text (DeepSeek's
 // reasoning_content / OpenRouter's reasoning), buildMessages echoes it under
