@@ -368,28 +368,94 @@ func TestATDD_71_2_AC3_GateAdmitsPlainTextContext(t *testing.T) {
 }
 
 // TestATDD_71_2_AC3_GateDenominatorExcludesSystemPrompt pins the易错点. Copying
-// qwen's "share of the whole history" verbatim would count the system prompt,
-// which can never be compacted away — silently disabling compaction on exactly
-// the large-prompt agents that need it.
+// qwen's "share of the whole history" verbatim would count the system prompt in
+// the denominator. The prompt can never be compacted away, so counting it
+// inflates `reclaimable` and MASKS the restore dominance this gate exists to
+// catch: a context whose message pool is mostly an untruncated plan would then
+// look "mostly compressible" (the huge prompt dwarfs the restore), the gate
+// would admit, and the process would oscillate — compact, land back on the same
+// plan, compact again — exactly the failure the gate prevents.
+//
+// The fixture is GateDeclinesWhenRestoreDominates plus a system prompt that
+// dwarfs the history, injected into BOTH the context (so usage.Used carries it)
+// and the proc field (so the gate's sysPromptTokens subtracts the same amount).
+// The denominator must subtract it, leaving reclaimable = the message pool, so
+// the restore dominance stays visible and the gate still declines.
+//
+// Mutation teeth: if the denominator counted total usage, reclaimable would
+// balloon to sysPrompt+pool, compressible/reclaimable would climb past 5%, and
+// the gate would ADMIT. The precondition below asserts the prompt is large
+// enough for exactly that, so the decline assertion goes red under the mutation.
+// (The earlier version of this test set the prompt only on the proc field, never
+// in the context, so usage.Used stayed small, reclaimable hit 0, and the gate
+// failed OPEN to an admit — the denominator branch never ran under reclaimable>0
+// and the test passed even with the denominator mutated to total usage.)
 func TestATDD_71_2_AC3_GateDenominatorExcludesSystemPrompt(t *testing.T) {
-	k, ctxMgr, proc, cid := setupCompactKernel(t, 0)
+	k, ctxMgr, proc, cid := setupCompactKernel(t, 0) // healthy LLM: only the gate can stop it
 	proc.DebugChan = make(chan types.SyscallEvent, 64)
 
 	// A system prompt dwarfing the history — the shape that breaks a total-usage
-	// denominator.
-	proc.FinalSystemPrompt = strings.Repeat("system prompt bulk ", 4000)
-	fillLeakyContext(t, ctxMgr, cid, 14)
+	// denominator. Injected into the context so usage.Used carries it, and into
+	// the proc field so the gate's sysPromptTokens subtracts the same amount.
+	bigPrompt := strings.Repeat("system prompt bulk ", 4000)
+	if err := ctxMgr.SetSystemPrompt(cid, bigPrompt); err != nil {
+		t.Fatalf("SetSystemPrompt: %v", err)
+	}
+	proc.FinalSystemPrompt = bigPrompt
+
+	// Restore-dominated message pool: an untruncated plan is the bulk.
+	for range 6 {
+		if err := ctxMgr.AppendMessage(cid, rnixctx.RoleUser, "short"); err != nil {
+			t.Fatalf("AppendMessage: %v", err)
+		}
+	}
+	// extractActivePlan picks this up, and Compact restores plans untruncated.
+	plan := "[Plan]\n" + strings.Repeat("plan step detail ", 2000)
+	if err := ctxMgr.AppendMessage(cid, rnixctx.RoleAssistant, plan); err != nil {
+		t.Fatalf("AppendMessage plan: %v", err)
+	}
 	raiseTokenWatermark(t, ctxMgr, cid, 90)
 
-	before, _, _ := ctxMgr.SlotUsage(cid)
-	k.autoCompactIfNeeded(proc, 1)
-	after, _, _ := ctxMgr.SlotUsage(cid)
+	usage, _ := ctxMgr.TokenUsage(cid)
+	if usage.Percentage <= proc.effectiveCompactThreshold() {
+		t.Fatalf("precondition: usage %.1f%% must exceed the threshold, or the gate is not what "+
+			"stopped the compaction", usage.Percentage)
+	}
 
-	if after >= before {
-		t.Errorf("messages %d → %d: compaction was blocked on a system-prompt-heavy agent. The gate's "+
-			"denominator must be the RECLAIMABLE pool (usage minus the system prompt); counting an "+
-			"uncompactable prefix raises the bar above what the history can ever supply",
-			before, after)
+	// Discriminative precondition: the prompt must be large enough that, were it
+	// counted in the denominator, compressible/reclaimable would clear the 5% bar
+	// and the gate would ADMIT. sysPrompt >= pool/19 puts the total-usage fraction
+	// above 5% (admit) while the reclaimable-pool fraction stays ~0 (decline).
+	// Without this margin the test cannot tell the two denominators apart.
+	sysTokens := rnixctx.EstimateTokens(bigPrompt)
+	pool := max(usage.Used-sysTokens, 0)
+	if pool <= 0 {
+		t.Fatalf("precondition: reclaimable pool must be > 0 so the gate's fraction branch actually "+
+			"runs (usage.Used=%d, sysTokens=%d)", usage.Used, sysTokens)
+	}
+	if sysTokens < pool/19 {
+		t.Fatalf("precondition: system prompt (%d tokens) must be >= pool/19 (%d) so a total-usage "+
+			"denominator would admit — otherwise this test cannot discriminate the denominator",
+			sysTokens, pool/19)
+	}
+
+	before := snapshotKernelMessages(t, ctxMgr, cid)
+	k.autoCompactIfNeeded(proc, 1)
+	after := snapshotKernelMessages(t, ctxMgr, cid)
+
+	if len(after) != len(before) {
+		t.Errorf("message count changed %d → %d: counting the system prompt in the denominator would "+
+			"inflate reclaimable, mask the restore dominance, and admit this useless compaction. The "+
+			"denominator must be the RECLAIMABLE pool (usage minus the system prompt)", len(before), len(after))
+	}
+	for i := range before {
+		if before[i].Content != after[i].Content {
+			t.Fatalf("msg[%d] rewritten: the gate must decline a restore-dominated context even under a "+
+				"large system prompt", i)
+		}
+	}
+	if trigger := readCompactTrigger(t, proc); trigger != "" {
+		t.Errorf("Compact event emitted with trigger=%q, want none — the gate must decline", trigger)
 	}
 }
 

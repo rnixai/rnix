@@ -224,7 +224,7 @@ func TestATDD_71_2_AC4_CompactRequestTrimsToolResults(t *testing.T) {
 			continue
 		}
 		if EstimateTokens(msg.Content) > compactToolResultTokenLimit+EstimateTokens(
-			FormatTruncationNotice(0, compactToolResultTokenLimit, "")) {
+			FormatTruncationNotice(EstimateTokens(bigPayload), compactToolResultTokenLimit, "")) {
 			t.Errorf("request msg[%d]: %d tokens exceeds the %d-token cap plus its notice",
 				i, EstimateTokens(msg.Content), compactToolResultTokenLimit)
 		}

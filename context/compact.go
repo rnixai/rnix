@@ -100,10 +100,8 @@ func EstimateRestoreTokens(opts CompactOpts) int {
 	for _, msg := range restoreSkills(opts.ActiveSkills) {
 		total += EstimateMessageTokens(msg)
 	}
-	if opts.ActivePlan != "" {
-		// Mirrors Compact's plan restore, which applies NO truncation — the
-		// reason the post-compact token floor can be arbitrarily high.
-		total += EstimateTokens(opts.ActivePlan)
+	if msg := restorePlan(opts.ActivePlan); msg != nil {
+		total += EstimateMessageTokens(*msg)
 	}
 	return total
 }
@@ -276,11 +274,8 @@ func (m *Manager) Compact(cid types.CtxID, opts CompactOpts) (*CompactResult, er
 	}
 
 	// Restore plan
-	if opts.ActivePlan != "" {
-		newMessages = append(newMessages, Message{
-			Role:    RoleUser,
-			Content: fmt.Sprintf("[Post-compact restore: plan]\n%s", opts.ActivePlan),
-		})
+	if msg := restorePlan(opts.ActivePlan); msg != nil {
+		newMessages = append(newMessages, *msg)
 		restored = append(restored, "plan")
 	}
 
@@ -428,6 +423,21 @@ func stripAnalysis(raw string) string {
 
 // restoreFiles builds restore messages from ReadFileState, sorted by timestamp descending.
 // Applies per-file (5K tokens) and total (50K tokens) budget limits.
+// restorePlan builds the plan restore message, or nil for an empty plan. Shared
+// by Compact and EstimateRestoreTokens so the "[Post-compact restore: plan]"
+// prefix is counted exactly once, here — the same single-builder discipline the
+// file and skill legs already follow. The plan is restored with NO truncation,
+// the reason the post-compact token floor can be arbitrarily high.
+func restorePlan(plan string) *Message {
+	if plan == "" {
+		return nil
+	}
+	return &Message{
+		Role:    RoleUser,
+		Content: fmt.Sprintf("[Post-compact restore: plan]\n%s", plan),
+	}
+}
+
 func restoreFiles(state map[string]ReadFileEntry) []Message {
 	// Sort by timestamp descending (most recent first)
 	type fileItem struct {

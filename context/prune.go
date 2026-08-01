@@ -258,6 +258,15 @@ func (m *Manager) PruneToolResults(cid types.CtxID, opts PruneOpts) (*PruneResul
 		return result, nil
 	}
 
+	// The floor is a GUARANTEE, so it must dominate TargetTokens: a Pass 2 early
+	// stop at a target below the floor would admit on ReleasableTokens yet
+	// under-deliver — the F4 defect in a new place. No production caller combines
+	// the two (the mechanical fallback sets only ClearAtLeast), but the contract
+	// must hold for any future one.
+	if opts.ClearAtLeast > 0 && opts.TargetTokens > 0 && opts.TargetTokens < opts.ClearAtLeast {
+		opts.TargetTokens = opts.ClearAtLeast
+	}
+
 	// Pass 2 — rewrite.
 	for _, i := range candidates {
 		before := EstimateMessageTokens(ctx.Messages[i])
