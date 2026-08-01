@@ -43,9 +43,12 @@ const (
 // 85 so a custom BackpressureThreshold splits the remaining headroom evenly
 // (default 70 → 85; custom 50 → 75; custom 90 → 95). For any threshold in
 // (0, 100) the critical boundary never inverts against the threshold.
-// Threshold ≥ 100 silently disables every warning: the first branch is always
-// true for any pct ≤ 100, exactly as the pre-69.1 `slotPct > threshold` test
-// behaved — a misconfiguration degrades as before, not in some new way.
+// Threshold ≥ 100 silently disables every warning for pct ≤ 100, exactly as
+// the pre-69.1 `slotPct > threshold` test behaved — a misconfiguration degrades
+// as before, not in some new way. On the token axis pct CAN exceed 100 (the
+// denominator is ContextBudget = window×9/10, so real usage near the window
+// crosses 100%); pct > 100 lands in critical, which is correct — the
+// "Threshold ≥ 100 disables" claim is only about the pct ≤ 100 range.
 // Spawn-time validation of the threshold is tracked in deferred-work.md.
 func backpressureTier(usagePct, threshold float64) string {
 	if usagePct <= threshold {
@@ -345,8 +348,14 @@ Best practices:
 	// axis crossed 70% at roughly 36k real tokens, so this section had been
 	// warning the model about exhaustion while it sat at a fraction of capacity.
 	//
-	// 分子 = proc.LastInputTokens: the provider's own reported prompt tokens
-	// (observability provenance — a native number beats an estimate).
+	// 分子 = proc.LastInputTokens: the provider's own reported prompt tokens from
+	// the PREVIOUS step (observability provenance — a native number beats an
+	// estimate). NOT the same numerator the compaction axis uses: TokenUsage()
+	// estimates tokens in-process (including the just-built system prompt), while
+	// LastInputTokens is the provider's report, which excludes the current system
+	// prompt and carries per-driver accounting semantics. The two can diverge by
+	// the system-prompt size. Deliberate: backpressure is advisory guidance, not a
+	// gate, and the provenance principle favours the provider's number.
 	// 分母 = proc.effectiveContextTokenLimit(): the SAME scale applyCtxTokenLimit
 	// pushes into ctx.TokenLimit, so the prompt-side and compaction-side
 	// denominators cannot drift.

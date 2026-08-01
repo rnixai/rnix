@@ -609,6 +609,9 @@ func (k *KernelImpl) resumeFromCheckpoint(uuid string, opts ResumeOpts, start ti
 	proc.ResumedFromStep = startStep
 	proc.mu.Lock()
 	proc.TokensUsed = cp.UsedTokens
+	// LastInputTokens is NOT in the checkpoint schema (only UsedTokens is), so
+	// backpressure stays silent until the first post-resume LLM response reports
+	// it. The disk path (resumeFromHistory) restores it from proc-info.json.
 	proc.Budget = ProcessBudget{MaxTokens: cp.MaxTokens, MaxCost: cp.MaxCost, UsedCost: cp.UsedCost}
 	proc.mu.Unlock()
 
@@ -954,6 +957,12 @@ func (k *KernelImpl) resumeFromHistory(uuid string, opts ResumeOpts, start time.
 	proc.PipelineTotal = diskInfo.PipelineTotal
 	proc.mu.Lock()
 	proc.TokensUsed = diskInfo.TokensUsed
+	// Story 71.1 code-review P1: restore the provider-reported prompt tokens so
+	// the backpressure section is live from step one of a resumed process — the
+	// old slot numerator (len(Messages)) was always available post-deserialize,
+	// but LastInputTokens is a provider report that would otherwise stay 0
+	// (silent backpressure) until the first LLM response.
+	proc.LastInputTokens = diskInfo.LastInputTokens
 	// Story 48.1 — pre-populate MCPMounts / mcpConfigs from disk so
 	// downstream consumers that may run inside rehydrate's
 	// SystemPrompt-synthesis fallback path (sections registry → mcp_instructions

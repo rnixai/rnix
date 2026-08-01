@@ -376,10 +376,12 @@ func TestATDD_69_2_AC5_BothThresholdTriggerLabel(t *testing.T) {
 	if usage.Percentage <= 80.0 {
 		t.Fatalf("token%% = %.1f, want > 80", usage.Percentage)
 	}
-	slotUsed, slotMax, _ := ctxMgr.SlotUsage(cid)
-	if slotPct := float64(slotUsed) / float64(slotMax) * 100; slotPct <= 70.0 {
-		t.Fatalf("slot%% = %.1f, want > 70 (the fixture that used to produce \"both\")", slotPct)
-	}
+	// The fixture above fills 10/10 slots (>70% slot usage) — the exact shape
+	// that pre-71.1 produced trigger "both". The slot axis is deleted, so this
+	// high message count must NOT change the label: token_threshold only.
+	// (Code-review 2026-08-01: the former hard slotPct>70 precondition was
+	// inert — the trigger assertion below is independent of slot count, and the
+	// fixture's high message count IS the variation under test.)
 
 	k.autoCompactIfNeeded(proc, 1)
 

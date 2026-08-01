@@ -311,8 +311,15 @@ func TestATDD_71_1_AC2_PerStepLeashIsNotACapacityDenominator(t *testing.T) {
 // TestATDD_71_1_AC2_BackpressureNeverReentersTokenUsage guards the 🔴 trap: the
 // ComputeFn must read kernel-side proc fields only. TokenUsage() calls
 // Sections.Build(), which calls this ComputeFn — a TokenUsage() call from inside
-// would recurse until the stack blows. A plain TokenUsage() call must therefore
-// return normally even with the backpressure tier active.
+// would recurse until the stack blows.
+//
+// What this test actually verifies: TokenUsage() returns normally (no error)
+// with the backpressure tier active. A true re-entry regression would crash the
+// test binary with a stack overflow before the timeout below could fire — the
+// goroutine+timeout structure is a smoke-test harness, not a precise detector.
+// The structural guarantee (ComputeFn reads proc fields, never ctxMgr — verified
+// by grep: sections.go has zero k.ctxMgr calls) is what actually prevents the
+// regression; this test confirms the wiring is intact end to end.
 func TestATDD_71_1_AC2_BackpressureNeverReentersTokenUsage(t *testing.T) {
 	reg := vfs.NewDeviceRegistry()
 	ctxMgr := rnixctx.NewManager()

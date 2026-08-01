@@ -191,11 +191,13 @@ const slotCeilingUnloadThreshold = 80.0
 // ⚠️ STRUCTURALLY NO-OP IN PRODUCTION since Story 71.1 (AC4): the pressure it
 // measures is slot pressure, and there is no slot ceiling any more — both resume
 // paths therefore pass ctxSize 0 and return at the first line. It is kept, rather
-// than deleted, because the ceiling survives as an operator escape hatch
-// (SpawnOpts.CtxSize / agent.yaml ctx_size) and this is the only thing protecting
-// such a process on revival. Do NOT read its existence as evidence that resumes
-// are being trimmed today; the equivalent token-axis protection is
-// reclaimLeakedIfNeeded plus autoCompactIfNeeded on step one.
+// than deleted, because the ceiling survives as an operator escape hatch at FRESH
+// SPAWN (SpawnOpts.CtxSize / agent.yaml ctx_size). It does NOT protect such a
+// process on revival: Context.Deserialize forces MaxSize to 0 unconditionally
+// (AC6-④), so a configured ceiling vanishes on the first resume (recorded in
+// deferred-work). Do NOT read its existence as evidence that resumes are being
+// trimmed today; the equivalent token-axis protection is reclaimLeakedIfNeeded
+// plus autoCompactIfNeeded on step one.
 //
 // Deliberately NOT gated on proc.CompactionDisabled: disabling routine
 // compaction must not mean "prefer to hang". This is fault handling, not

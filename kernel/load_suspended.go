@@ -113,6 +113,10 @@ func (k *KernelImpl) LoadSuspendedFromDisk() (int, error) {
 		proc.pausedAt = info.PausedAt
 		proc.pausedTotal = info.PausedTotal
 		proc.TokensUsed = info.TokensUsed
+		// Story 71.1 code-review P1: same rationale as resumeFromHistory — the
+		// backpressure numerator must be live from step one, not 0 until the
+		// first post-resume LLM response.
+		proc.LastInputTokens = info.LastInputTokens
 		proc.CreatedAt = info.CreatedAt
 		proc.LastHeartbeat = info.LastHeartbeat
 		// Story 48.1 — pre-populate MCPMounts / mcpConfigs from disk so

@@ -162,8 +162,11 @@ func (c *Context) Serialize() ([]byte, error) {
 // snapshot written before Story 71.1 carries max_size: 256, which was the old
 // default rather than an operator choice; honouring it would put the 256-slot
 // ceiling straight back onto every resumed process, re-creating the very failure
-// this story removes. The field stays in contextSnapshot so old and new daemons
-// can still read each other's files.
+// this story removes. The field stays in contextSnapshot so a NEW daemon can
+// still read OLD snapshots (json.Unmarshal ignores it). The reverse direction
+// is NOT compatible: an OLD daemon reading a new snapshot sees max_size: 0,
+// which pre-71.1 CtxAlloc rejected — mixed-version daemon handoff requires all
+// daemons on 71.1+.
 //
 // The caller must hold no lock on the Context; this method acquires a write lock
 // internally.
@@ -535,12 +538,16 @@ func (m *Manager) BuildPrompt(cid types.CtxID) (*PromptResult, error) {
 	}
 
 	// Lock ordering (Story 69.1 AC4): snapshot under RLock, then release it
-	// BEFORE calling Sections.Build(). Section ComputeFns call back into this
-	// Manager — kernel's backpressure section reads SlotUsage(), which takes a
-	// second RLock on this same ctx.mu from this same goroutine. Under
-	// sync.RWMutex semantics a recursive RLock deadlocks as soon as any writer is
-	// queued (Compact, IPC handleCompact, gdb AppendMessage, fork_continue all
-	// take ctx.mu.Lock() from other goroutines). Deliberately no `defer RUnlock`.
+	// BEFORE calling Sections.Build(). Pre-71.1, the kernel's backpressure
+	// ComputeFn called back into this Manager via SlotUsage(), which took a
+	// second RLock on this same ctx.mu from this same goroutine — under
+	// sync.RWMutex semantics a recursive RLock deadlocks as soon as any writer
+	// is queued (Compact, IPC handleCompact, gdb AppendMessage, fork_continue
+	// all take ctx.mu.Lock() from other goroutines). Since Story 71.1 the
+	// backpressure ComputeFn reads kernel-side proc fields only and no longer
+	// re-enters this Manager, but the snapshot-then-Build pattern is retained:
+	// it keeps Build() outside any ctx lock, the safer invariant.
+	// Deliberately no `defer RUnlock`.
 	// Same de-coupling section.go's Build() already does for r.mu.
 	ctx.mu.RLock()
 	sysPrompt := ctx.SystemPrompt
@@ -564,9 +571,9 @@ func (m *Manager) BuildPrompt(cid types.CtxID) (*PromptResult, error) {
 // With no ceiling (MaxSize == 0, the production default since Story 71.1) it
 // returns the unlimitedSlots sentinel instead of the arithmetic result
 // `0 - len(Messages)`, which would be NEGATIVE and would flip every
-// "do I have room?" test into its opposite. The sentinel makes all twelve call
+// "do I have room?" test into its opposite. The sentinel makes all seven call
 // sites short-circuit into their "plenty of room" branch untouched, so the slot
-// ceiling could be retired without editing a dozen unrelated call sites.
+// ceiling could be retired without editing unrelated call sites.
 //
 // Consequence to be honest about: the code below those call sites
 // (preCompactForToolCalls' body, tool_exec.go's specialize rollback,
@@ -608,9 +615,10 @@ func (m *Manager) TokenUsage(cid types.CtxID) (TokenStats, error) {
 	}
 
 	// Lock ordering (Story 69.1 AC4): snapshot under RLock, Build() after release.
-	// See BuildPrompt for the full rationale — Sections.Build() re-enters this
-	// Manager via the backpressure ComputeFn's SlotUsage() call, so holding the
-	// read lock across it deadlocks whenever a writer is queued.
+	// See BuildPrompt for the full rationale. Pre-71.1 the backpressure ComputeFn
+	// re-entered this Manager via SlotUsage(); since 71.1 it reads kernel-side
+	// proc fields only, but the snapshot-then-Build pattern is retained as the
+	// safer invariant (Build() outside any ctx lock).
 	ctx.mu.RLock()
 	sysPrompt := ctx.SystemPrompt
 	sections := ctx.Sections
@@ -629,8 +637,10 @@ func (m *Manager) TokenUsage(cid types.CtxID) (TokenStats, error) {
 	// EstimateMessageTokens口径 so ToolCalls / ReasoningBlocks / Reasoning stop
 	// being invisible to the token axis. It stays OUTSIDE the read lock and
 	// reads only the snapshot copied above — moving this loop back under
-	// ctx.mu.RLock to reach ToolCalls would revive the Story 69.1 deadlock
-	// (Sections.Build → backpressure ComputeFn → SlotUsage → recursive RLock).
+	// ctx.mu.RLock would hold the lock across EstimateMessageTokens for large
+	// histories, blocking concurrent writers. (Pre-71.1 this also avoided the
+	// Story 69.1 recursive-RLock deadlock via the backpressure ComputeFn's
+	// SlotUsage() callback; that re-entry path no longer exists since 71.1.)
 	// The snapshot is shallow: ToolCalls / ReasoningBlocks share backing arrays
 	// with ctx.Messages, so they may be read here but never mutated.
 	for _, msg := range msgs {
