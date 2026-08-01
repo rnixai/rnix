@@ -542,7 +542,9 @@ func TestATDD_69_4_AC5_CompactionDisabledStillAllowsFallback(t *testing.T) {
 	buildIncidentFixture(t, ctxMgr, cid)
 
 	beforeUsage, _ := ctxMgr.TokenUsage(cid)
-	res := k.runMechanicalFallback(proc, 0)
+	// Story 71.2: an empty target is "no slot need, no release floor", i.e. the
+	// pre-71.2 call shape. The floor is a separate axis from the flag under test.
+	res := k.runMechanicalFallback(proc, fallbackTarget{})
 	afterUsage, _ := ctxMgr.TokenUsage(cid)
 
 	if res.Pruned == 0 {

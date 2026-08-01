@@ -79,6 +79,93 @@ const (
 // compactSystemPrompt is the simplified system prompt used for the compact LLM call.
 const compactSystemPrompt = "You are a helpful AI assistant tasked with summarizing conversations."
 
+// EstimateRestoreTokens reports how many tokens the post-compact restore would
+// put BACK into the context for these opts — the files, skills and plan that
+// Compact re-appends after replacing the history.
+//
+// It runs the real restore builders rather than re-adding up the raw inputs, so
+// the per-file / per-skill / total budget caps (and their truncation) are
+// applied exactly once, here and in Compact. Re-deriving them would be a second
+// place for the budget arithmetic to drift.
+//
+// Its consumer is the kernel's pre-flight gate (Story 71.2 AC3): a compaction
+// whose output would be dominated by what it immediately restores cannot shrink
+// the context, and the request is not worth a 30s timeout risk. Cheap — no
+// locks, no LLM, just token estimation over data the caller already assembled.
+func EstimateRestoreTokens(opts CompactOpts) int {
+	total := 0
+	for _, msg := range restoreFiles(opts.ReadFileState) {
+		total += EstimateMessageTokens(msg)
+	}
+	for _, msg := range restoreSkills(opts.ActiveSkills) {
+		total += EstimateMessageTokens(msg)
+	}
+	if opts.ActivePlan != "" {
+		// Mirrors Compact's plan restore, which applies NO truncation — the
+		// reason the post-compact token floor can be arbitrarily high.
+		total += EstimateTokens(opts.ActivePlan)
+	}
+	return total
+}
+
+// compactToolResultTokenLimit caps how much of a single tool result travels in a
+// compaction request (Story 71.2 AC4). Pinned like the Story 69.4 gate
+// constants: it is a behavioural threshold, so it gets a name, a rationale and a
+// test rather than being a literal at the call site.
+//
+// 600 tokens ≈ 2100 ASCII bytes, the token-axis equivalent of opencode's
+// toolOutputMaxChars: 2000 (packages/opencode/src/session/compaction.ts). rnix
+// works in tokens throughout this subsystem, so the character budget is
+// converted rather than importing a second量纲.
+//
+// It sits above LeakedThreshold (1000 bytes) on purpose: an entry small enough
+// to escape the leaked classification is small enough to send whole, so the trim
+// and the prune primitive cannot disagree about which payloads are "large".
+const compactToolResultTokenLimit = 600
+
+// shrinkToolResultsForCompact trims oversized tool outputs out of a compaction
+// request. It mutates the caller's SNAPSHOT — never ctx.Messages — so the
+// persisted context is untouched and only this one request body shrinks.
+//
+// 🔴 Content only. The snapshot is a shallow copy (Compact's copy() above): Role,
+// Content and ToolCallID are value-semantics fields that are safe to overwrite
+// on the copy, but ToolCalls and ReasoningBlocks are slice headers SHARING a
+// backing array with ctx.Messages. Writing through either would silently corrupt
+// the live context — after RUnlock, from another goroutine — which is the red
+// line context.go:644 already draws for the identical shallow snapshot there.
+// Trimming ToolCalls[].Input would first require deep-copying that slice.
+//
+// Entries already holding DefaultPrunePlaceholder are skipped. Story 69.4's
+// in-place erasure is the PERSISTENT layer and this is the per-request one; the
+// persistent layer wins, and re-truncating its 37-byte marker would only add a
+// misleading "original N tokens" notice about content this layer never saw.
+// opencode splits the same two layers the same way (message-v2.ts:888-891).
+//
+// Not implemented, deliberately: stripping media. cc-src's stripImagesFromMessages
+// has no object to act on here — Message.Content is a flat string, the driver
+// structs mirror that shape, and no image/inline-data block type exists anywhere
+// in the tree. A strip function would be permanently no-op code, i.e. a second
+// preCompactForToolCalls (Story 71.2 F3).
+func shrinkToolResultsForCompact(messages []Message) {
+	for i := range messages {
+		if messages[i].Role != RoleTool {
+			continue
+		}
+		if messages[i].Content == DefaultPrunePlaceholder {
+			continue
+		}
+		originalTokens := EstimateTokens(messages[i].Content)
+		trimmed, didTrim := TruncateResult(messages[i].Content, compactToolResultTokenLimit)
+		if !didTrim {
+			continue
+		}
+		// Carry the original size so an incident investigator reading a captured
+		// compaction request can tell a trimmed payload from a genuinely short
+		// one (same shape as kernel/observe.go truncateDriverToolResult).
+		messages[i].Content = trimmed + FormatTruncationNotice(originalTokens, compactToolResultTokenLimit, "")
+	}
+}
+
 // Compact compresses the conversation history for the given context.
 // It sends the full message history plus a compact prompt to the LLM,
 // replaces all messages with a boundary marker and the resulting summary,
@@ -115,6 +202,16 @@ func (m *Manager) Compact(cid types.CtxID, opts CompactOpts) (*CompactResult, er
 	copy(messages, ctx.Messages)
 	preTokens := m.estimateMessagesTokens(ctx)
 	ctx.mu.RUnlock()
+
+	// Story 71.2 AC4 — the summariser does not need full tool payloads, so the
+	// REQUEST is trimmed before it goes out. Placed here so all five callers
+	// (autoCompact / precompact / manual IPC / the two resume paths) are covered
+	// by one edit; doing it in kernel's BuildCompactLLMCall would cover the
+	// kernel side only, five times over.
+	//
+	// preTokens is read above, off ctx, so it keeps reporting the REAL
+	// pre-compaction size — the trim must never be able to flatter the result.
+	shrinkToolResultsForCompact(messages)
 
 	trigger := opts.Trigger
 	if trigger == "" {

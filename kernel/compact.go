@@ -67,6 +67,74 @@ type mechanicalFallbackResult struct {
 	TokensFreed   int
 	DroppedRounds int
 	SlotsFreed    int
+	// ReleasableTokens is what the cold-zone scan found it could actually free,
+	// reported whether or not the floor admitted the rewrite. Paired with
+	// ClearAtLeast it is the difference between "nothing was leaked" and "plenty
+	// was leaked but it could not reach the landing point" (Story 71.2 AC2's
+	// honest-insufficiency requirement).
+	ReleasableTokens int
+	// ClearAtLeast echoes the floor this run was given, so an event consumer can
+	// read the decision without re-deriving it.
+	ClearAtLeast int
+}
+
+// fallbackTarget carries what a mechanical reclamation is aiming for. The two
+// fields are on DIFFERENT axes and neither substitutes for the other — which is
+// precisely why the old `needSlots int` parameter had nowhere to put a token
+// target (Story 71.1 left a TODO here rather than invent one).
+//
+//	NeedSlots    → slot axis, consumed by DropOldestRounds. Only a caller under
+//	               genuine slot pressure sets it, and since Story 71.1 removed the
+//	               slot ceiling that means the resume/precompact paths alone.
+//	ClearAtLeast → token axis, consumed by PruneToolResults as a minimum-release
+//	               floor. Derived from the landing point (Story 71.2 AC1/AC2).
+type fallbackTarget struct {
+	NeedSlots    int
+	ClearAtLeast int
+}
+
+// clearAtLeastForLanding converts a usage snapshot into the token floor that
+// would put this process at its landing point (Story 71.2 AC1/AC2 — the same
+// arithmetic seen from its two ends).
+//
+//	landingPct   = threshold / compactHysteresisRatio      // 80 / 1.5 = 53.3%
+//	targetTokens = limit × landingPct / 100
+//	clearAtLeast = max(used − targetTokens, 0)
+//
+// This is cc-src's `clear_at_least = trigger − keep` shape (apiMicrocompact.ts).
+// That field itself is not portable — it is an Anthropic SERVER-side
+// context_management parameter with no local consumer — but the arithmetic
+// behind it is, and it is why AC1's floor and AC2's landing point are one
+// computation rather than two gates that would shadow each other.
+//
+// Returns 0 (= no floor) when usage is already at or below the landing point:
+// there is nothing to demand, and a caller must not be blocked from a prune it
+// happens to want anyway.
+func (p *Process) clearAtLeastForLanding(usage rnixctx.TokenStats) int {
+	limit := usage.Limit
+	if limit <= 0 {
+		// No capacity scale to land against. Demanding a floor off a fabricated
+		// denominator would be the third un-validated threshold in this
+		// subsystem; decline to set one instead.
+		return 0
+	}
+	targetTokens := int(float64(limit) * p.effectiveCompactLandingPct() / 100)
+	return max(usage.Used-targetTokens, 0)
+}
+
+// clearAtLeastNow reads current usage and derives the landing floor from it. Used
+// by the call sites that do not already hold a usage snapshot.
+//
+// 🔴 Called from the kernel side, OUTSIDE the reclamation primitives: TokenUsage
+// takes ctx.mu and runs Sections.Build(), both forbidden inside
+// PruneToolResults' write lock (prune.go lock contract). A failed read yields 0,
+// i.e. no floor — degrade toward reclaiming, never toward refusing.
+func (k *KernelImpl) clearAtLeastNow(proc *Process) int {
+	usage, err := k.ctxMgr.TokenUsage(proc.CtxID)
+	if err != nil {
+		return 0
+	}
+	return proc.clearAtLeastForLanding(usage)
 }
 
 // runMechanicalFallback is the deterministic, LLM-free reclamation used whenever
@@ -79,8 +147,18 @@ type mechanicalFallbackResult struct {
 //   - PruneToolResults reclaims TOKENS by rewriting cold leaked tool results in
 //     place. It cannot free slots: slot usage is literally len(ctx.Messages).
 //   - DropOldestRounds reclaims SLOTS by dropping whole API rounds. Only called
-//     when the caller is actually short on slots (needSlots > 0), because
+//     when the caller is actually short on slots (NeedSlots > 0), because
 //     dropping history costs more than clearing stale payloads.
+//
+// Story 71.2 AC1/AC2 gave the token half a TARGET: target.ClearAtLeast is a
+// minimum-release floor, so the prune is all-or-nothing against the landing
+// point instead of dribbling out whatever it finds. Reclaiming a little, every
+// step, is strictly worse than reclaiming nothing — each rewrite invalidates the
+// provider's cached prompt prefix while leaving usage above the trigger, which
+// is the measured 88%-vs-3% cache collapse this story exists to stop.
+//
+// A floor of 0 means "reclaim whatever you find", which is what the resume path
+// wants (see reclaimForResume).
 //
 // Both preserve the tool_use ↔ tool_result pairing invariant; violating it makes
 // anthropic reject the next request outright (its driver builds tool_result
@@ -89,18 +167,20 @@ type mechanicalFallbackResult struct {
 // Errors from either primitive are logged, not propagated: this is a
 // best-effort last line of defence and the caller decides what to do with the
 // (possibly zero) reclamation reported back.
-func (k *KernelImpl) runMechanicalFallback(proc *Process, needSlots int) mechanicalFallbackResult {
-	var out mechanicalFallbackResult
+func (k *KernelImpl) runMechanicalFallback(proc *Process, target fallbackTarget) mechanicalFallbackResult {
+	out := mechanicalFallbackResult{ClearAtLeast: target.ClearAtLeast}
 
-	if pruneRes, err := k.ctxMgr.PruneToolResults(proc.CtxID, rnixctx.PruneOpts{}); err != nil {
+	pruneOpts := rnixctx.PruneOpts{ClearAtLeast: target.ClearAtLeast}
+	if pruneRes, err := k.ctxMgr.PruneToolResults(proc.CtxID, pruneOpts); err != nil {
 		log.Printf("[kernel] pid=%d mechanical prune failed: %v", proc.PID, err)
 	} else if pruneRes != nil {
 		out.Pruned = pruneRes.Pruned
 		out.TokensFreed = pruneRes.TokensFreed
+		out.ReleasableTokens = pruneRes.ReleasableTokens
 	}
 
-	if needSlots > 0 {
-		if dropRes, err := k.ctxMgr.DropOldestRounds(proc.CtxID, rnixctx.DropOpts{NeedSlots: needSlots}); err != nil {
+	if target.NeedSlots > 0 {
+		if dropRes, err := k.ctxMgr.DropOldestRounds(proc.CtxID, rnixctx.DropOpts{NeedSlots: target.NeedSlots}); err != nil {
 			log.Printf("[kernel] pid=%d mechanical round drop failed: %v", proc.PID, err)
 		} else if dropRes != nil {
 			out.DroppedRounds = dropRes.DroppedRounds
@@ -125,6 +205,12 @@ func addFallbackArgs(args map[string]any, res mechanicalFallbackResult) {
 	args["dropped_rounds"] = res.DroppedRounds
 	args["slots_freed"] = res.SlotsFreed
 	args["fallback_freed"] = res.TokensFreed + res.SlotsFreed
+	// Story 71.2 AC1/AC2: the floor asked for and what the scan could actually
+	// have released. Together they separate "there was nothing to reclaim" from
+	// "there was plenty, but not enough to reach the landing point, so the batch
+	// was declined rather than spent on a cache invalidation".
+	args["clear_at_least"] = res.ClearAtLeast
+	args["releasable_tokens"] = res.ReleasableTokens
 }
 
 // resumeFallbackHeadroom is the number of message slots a revived process needs
@@ -153,6 +239,13 @@ const resumeFallbackHeadroom = 3
 // the kill-on-resume behaviour does not come back, and whoever reads that dead
 // branch later needs this note to know its unreachability came from removing the
 // slot ceiling here, not from anything 71.4 did.
+//
+// 🔴 EXEMPT from Story 71.2's minimum-release floor (AC1 / F5), and the only
+// exemption in the tree. Everywhere else "reclaim in bulk or not at all" is the
+// right trade because the alternative is another cache-prefix invalidation for a
+// couple of tokens. Here the alternative is killing the process: both callers
+// terminate it outright when this comes back short. A floor is a refusal to act,
+// and the last line of defence does not get to refuse.
 func (k *KernelImpl) reclaimForResume(proc *Process) (mechanicalFallbackResult, bool) {
 	needSlots := resumeFallbackHeadroom
 	if avail, err := k.ctxMgr.AvailableSlots(proc.CtxID); err == nil && avail < resumeFallbackHeadroom {
@@ -162,7 +255,7 @@ func (k *KernelImpl) reclaimForResume(proc *Process) (mechanicalFallbackResult, 
 		needSlots = 0
 	}
 
-	res := k.runMechanicalFallback(proc, needSlots)
+	res := k.runMechanicalFallback(proc, fallbackTarget{NeedSlots: needSlots})
 
 	avail, err := k.ctxMgr.AvailableSlots(proc.CtxID)
 	if err != nil {
@@ -216,7 +309,14 @@ func (k *KernelImpl) unloadForResume(proc *Process, ctxSize int, label string) {
 	}
 
 	target := int(float64(ctxSize) * threshold / 100)
-	res := k.runMechanicalFallback(proc, max(used-target, resumeFallbackHeadroom))
+	res := k.runMechanicalFallback(proc, fallbackTarget{
+		NeedSlots: max(used-target, resumeFallbackHeadroom),
+		// Preventive, not last-resort: the process has not started yet and
+		// nothing kills it if this reclaims nothing, so it takes the same
+		// bulk-or-nothing floor as every other call site. (Contrast
+		// reclaimForResume, which is exempt because its callers terminate.)
+		ClearAtLeast: k.clearAtLeastNow(proc),
+	})
 	postUsed, _, _ := k.ctxMgr.SlotUsage(proc.CtxID)
 	log.Printf("[kernel] %s uuid=%s: pre-start unload at %d/%d slots (>%.0f%%): pruned=%d dropped_rounds=%d tokens_freed=%d → %d/%d slots",
 		label, proc.UUID, used, ctxSize, threshold, res.Pruned, res.DroppedRounds, res.TokensFreed, postUsed, ctxSize)
@@ -414,8 +514,6 @@ func (k *KernelImpl) autoCompactIfNeeded(proc *Process, step int) {
 	trigger := "token_threshold"
 
 	compactStart := time.Now()
-	log.Printf("[kernel] pid=%d step=%d auto-compact triggered (%s): token=%.1f%%, slots=%d/%d",
-		proc.PID, step, trigger, usage.Percentage, slotUsed, slotMax)
 
 	// Build CompactOpts using shared helpers
 	readFileState := k.SnapshotReadFileState(proc)
@@ -432,6 +530,77 @@ func (k *KernelImpl) autoCompactIfNeeded(proc *Process, step int) {
 		ActivePlan:    activePlan,
 	}
 
+	// --- Story 71.2 AC3: pre-flight gate, BEFORE the LLM request goes out ---
+	//
+	// Ported from qwen's MIN_COMPRESSION_FRACTION (chatCompressionService.ts),
+	// with its "preserved portion" mapped onto rnix's structure. qwen keeps the
+	// newest 30% of history and compresses the rest, so it can ask "is the part
+	// I would compress at least 5% of the whole?". rnix compresses ALL messages
+	// and then RESTORES files / skills / plan, so the restore payload is what
+	// plays the part of the preserved portion:
+	//
+	//	compressible = reclaimable − what the restore puts straight back
+	//
+	// The failure this stops is the one that actually happens: a process whose
+	// context is mostly restore payload sits above the threshold, compacts,
+	// lands back on the same restore payload, and compacts again next step —
+	// each attempt a 30s timeout risk and a full-history request body, for a
+	// context that cannot get smaller. AC2's landing-point arithmetic has the
+	// same physical floor (files 50k + skills 25k + an untruncated plan), so
+	// this gate is where that floor is detected rather than repeatedly paid for.
+	//
+	// 🔴 The denominator is the reclaimable pool, not usage.Used: the system
+	// prompt can never be compacted away, so counting it would raise the bar
+	// above what the message history can ever supply on a large-prompt agent —
+	// the same trap reclaimLeakedIfNeeded's yield gate documents.
+	//
+	// Read the system prompt with no context lock held (GetFinalSystemPrompt
+	// takes proc.mu) — same ordering rule as reclaimLeakedIfNeeded.
+	//
+	// Deliberately conservative: the summary the LLM will produce is NOT counted
+	// as surviving, because its size cannot be known before the call. That
+	// overstates `compressible`, i.e. it biases toward attempting the compaction.
+	// A gate that guesses high and blocks a useful compaction would trade a
+	// recoverable 30s failure for an unrecoverable context overflow.
+	sysPromptTokens := rnixctx.EstimateTokens(proc.GetFinalSystemPrompt())
+	reclaimable := max(usage.Used-sysPromptTokens, 0)
+	restoreTokens := rnixctx.EstimateRestoreTokens(opts)
+	compressible := max(reclaimable-restoreTokens, 0)
+
+	// 🔴 FAIL OPEN, never closed. `reclaimable` is a subtraction across two
+	// sources — usage.Used counts the context's own system prompt, while
+	// sysPromptTokens reads the kernel-side proc field — and production keeps
+	// them equal only because spawn writes both. Any divergence drives the
+	// difference to 0, and treating that as "nothing to compact" would silently
+	// disable compaction for the life of the process: a permanently wedged
+	// context, reached without a single error being raised.
+	//
+	// So a non-positive pool means "cannot judge", and the compaction proceeds.
+	// The gate exists to avoid a recoverable 30s timeout; blocking a needed
+	// compaction risks an unrecoverable overflow. Those are not symmetric, and
+	// the tie goes to attempting.
+	if reclaimable > 0 && compressible*100 < reclaimable*minCompactionFractionPct {
+		// NOOP, and specifically NOT an error (Story 71.2 AC3): the five
+		// Compact() callers each handle errors differently, and
+		// autoCompactIfNeeded's handler is the mechanical fallback — so
+		// signalling "not worth compacting" as a failure would trigger the very
+		// reclamation this gate just declined. qwen's counterpart is likewise a
+		// CompressionStatus.NOOP enum, not a thrown error.
+		//
+		// No event either: this is a routine early exit like the threshold check
+		// above, and emitting one per step above the threshold would flood the
+		// event stream (the reason Story 69.4's declined reclamation logs at
+		// daemon level only). The Compact event contract is reserved for
+		// attempts. Story 71.4 may promote this to a first-class observable when
+		// it builds the started/completed event pairing.
+		log.Printf("[kernel] pid=%d step=%d auto-compact declined (%s): compressible=%d of reclaimable=%d (<%d%%), restore_floor=%d, token=%.1f%%",
+			proc.PID, step, trigger, compressible, reclaimable, minCompactionFractionPct, restoreTokens, usage.Percentage)
+		return
+	}
+
+	log.Printf("[kernel] pid=%d step=%d auto-compact triggered (%s): token=%.1f%%, slots=%d/%d, compressible=%d/%d",
+		proc.PID, step, trigger, usage.Percentage, slotUsed, slotMax, compressible, reclaimable)
+
 	result, err := k.ctxMgr.Compact(proc.CtxID, opts)
 	if err != nil {
 		// Story 69.3 AC3 — the LLM compaction failed, so fall back to the
@@ -440,18 +609,21 @@ func (k *KernelImpl) autoCompactIfNeeded(proc *Process, step int) {
 		// left the context untouched every single time, so the very next step
 		// hit the same wall.
 		//
-		// needSlots is 0, i.e. the fallback runs the in-place token prune only and
-		// never calls DropOldestRounds.
+		// Story 71.2 AC1/AC2 replaced the retired slot target (slotMax ×
+		// SlotCompactThreshold, dead since Story 71.1 removed the ceiling) with
+		// the TOKEN-axis one: a floor equal to the release needed to land at
+		// threshold/compactHysteresisRatio. `usage` is still valid here — a
+		// failed Compact() mutates nothing — so no second read is needed.
 		//
-		// TODO(Story 71.2): this leaves the mechanical fallback on one leg. The
-		// retired arithmetic here derived a slot target from slotMax ×
-		// SlotCompactThreshold, which cannot survive Story 71.1's removal of the
-		// slot ceiling (slotMax is now 0). Rebuilding the reclamation TARGET on the
-		// token axis — a minimum release floor (`clear_at_least`) plus a landing
-		// point below the trigger with a ≥1.5:1 hysteresis ratio — is Story 71.2
-		// AC1/AC2's job. Deliberately NOT invented here: a made-up token-axis
-		// target would be the third un-validated threshold in this subsystem.
-		fallback := k.runMechanicalFallback(proc, 0)
+		// NeedSlots stays 0: DropOldestRounds is the SLOT-axis primitive and
+		// there is no slot ceiling to be short of. Converting a token shortfall
+		// into a slot count would need a tokens-per-message rate, and Story 71.1
+		// measured that at a 4.0x spread — inventing one here would re-introduce
+		// exactly the量纲 error this epic removed. When the prune alone cannot
+		// reach the landing point, the shortfall is REPORTED (see
+		// landing_reached below), not padded out by dropping history.
+		clearAtLeast := proc.clearAtLeastForLanding(usage)
+		fallback := k.runMechanicalFallback(proc, fallbackTarget{ClearAtLeast: clearAtLeast})
 
 		// pre_tokens must be sourced locally here: on the failure path `result`
 		// is nil, so result.PreTokens (used by the success path below) would
@@ -478,11 +650,25 @@ func (k *KernelImpl) autoCompactIfNeeded(proc *Process, step int) {
 			args["post_slots"] = postSlotUsed
 		}
 		addFallbackArgs(args, fallback)
+
+		// Story 71.2 AC2 — report the landing point honestly. The restore budget
+		// (files 50k + skills 25k + an UNTRUNCATED plan) puts a hard floor under
+		// how low a context can go, so a large plan can make the target
+		// physically unreachable. When that happens the event says so; it must
+		// never be papered over, and the reclamation must never break round
+		// boundaries to manufacture a number ("insufficiency is reported, not
+		// raised", context/prune.go).
+		args["landing_target_pct"] = proc.effectiveCompactLandingPct()
+		if postUsageErr == nil {
+			args["post_pct"] = postUsage.Percentage
+			args["landing_reached"] = postUsage.Percentage <= proc.effectiveCompactLandingPct()
+		}
 		k.emitEvent(proc, "Compact", args, nil, err, time.Since(compactStart))
 
-		log.Printf("[kernel] pid=%d compact failed (%v); mechanical fallback: pruned=%d tokens %d→%d, dropped_rounds=%d slots %d→%d",
+		log.Printf("[kernel] pid=%d compact failed (%v); mechanical fallback: pruned=%d tokens %d→%d, dropped_rounds=%d slots %d→%d, clear_at_least=%d releasable=%d landing_target=%.1f%%",
 			proc.PID, err, fallback.Pruned, usage.Used, postUsage.Used,
-			fallback.DroppedRounds, slotUsed, postSlotUsed)
+			fallback.DroppedRounds, slotUsed, postSlotUsed,
+			clearAtLeast, fallback.ReleasableTokens, proc.effectiveCompactLandingPct())
 
 		// Best-effort by contract: never terminate the process from here, even
 		// when the fallback reclaimed nothing.
@@ -566,7 +752,13 @@ func (k *KernelImpl) preCompactForToolCalls(proc *Process, toolCallCount int, st
 		// AppendAssistantWithToolCalls then returns ErrContextFull and the
 		// process self-suspends. Reclaiming mechanically first turns that into a
 		// continuable step.
-		fallback := k.runMechanicalFallback(proc, required-available)
+		// AC4 pressure is PURELY about slots, so NeedSlots carries the target;
+		// the token floor rides along because a slot-starved context is usually
+		// token-heavy too, and Story 71.2 exempts only reclaimForResume from it.
+		fallback := k.runMechanicalFallback(proc, fallbackTarget{
+			NeedSlots:    required - available,
+			ClearAtLeast: k.clearAtLeastNow(proc),
+		})
 		postAvail, _ := k.ctxMgr.AvailableSlots(proc.CtxID)
 		postSlotUsed, _, _ := k.ctxMgr.SlotUsage(proc.CtxID)
 
@@ -614,7 +806,10 @@ func (k *KernelImpl) preCompactForToolCalls(proc *Process, toolCallCount int, st
 		// small context can compact down to boundary+summary and still not fit
 		// 1 assistant + N tool results). Top up mechanically before declaring
 		// insufficiency, same reasoning as the failure branch above.
-		fallback := k.runMechanicalFallback(proc, required-available)
+		fallback := k.runMechanicalFallback(proc, fallbackTarget{
+			NeedSlots:    required - available,
+			ClearAtLeast: k.clearAtLeastNow(proc),
+		})
 		postAvail, _ := k.ctxMgr.AvailableSlots(proc.CtxID)
 		postSlotUsed2, _, _ := k.ctxMgr.SlotUsage(proc.CtxID)
 

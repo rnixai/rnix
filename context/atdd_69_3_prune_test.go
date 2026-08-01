@@ -319,6 +319,22 @@ func TestDropOldestRounds_DropsWholeGroupsOnly(t *testing.T) {
 		t.Errorf("DroppedRounds = %d, want 1", res.DroppedRounds)
 	}
 
+	// Story 71.2 AC6-②: this exact input is the net-negative shape. group 0 is a
+	// lone leading user message, so dropping it frees one slot — and the marker
+	// prepended to keep messages[0].role == "user" immediately takes it back.
+	// SlotsFreed must therefore be 0, not 1. Reporting "1 round dropped" without
+	// this assertion let the case look like a reclamation while the context had
+	// actually grown by the marker's 16 tokens.
+	if res.SlotsFreed != 0 {
+		t.Errorf("SlotsFreed = %d, want 0: the one slot freed by dropping group 0 is spent again on "+
+			"the leading-user marker, so this drop nets nothing", res.SlotsFreed)
+	}
+	if res.TokensFreed >= 0 {
+		t.Errorf("TokensFreed = %d, want negative: the marker (%d tokens) costs more than the short "+
+			"user message it replaced, and the report must not hide that",
+			res.TokensFreed, EstimateTokens(droppedHistoryMarker))
+	}
+
 	after := snapshotMessages(t, m, cid)
 	assertToolCallPairing(t, after)
 

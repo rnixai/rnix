@@ -80,6 +80,12 @@ func IsLeakedToolResult(msg Message) bool {
 // context to free up space").
 const DefaultPrunePlaceholder = "[tool output cleared to free context]"
 
+// droppedHistoryMarker heads a context whose leading group was dropped, so the
+// provider still sees messages[0].role == "user". Named rather than inlined
+// because DropOldestRounds now has to charge its token cost against the
+// reclamation it reports (Story 71.2 AC6-②).
+const droppedHistoryMarker = "[earlier conversation history dropped to free context]"
+
 // PruneOpts configures PruneToolResults.
 type PruneOpts struct {
 	// TargetTokens stops the sweep once at least this many tokens have been
@@ -90,6 +96,28 @@ type PruneOpts struct {
 	// Pruned comes back 0. 0 = no gate = Story 69.3 behaviour, which every
 	// mechanical-fallback call site relies on (they all pass PruneOpts{}).
 	MinTokens int
+	// ClearAtLeast is Story 71.2's minimum-release floor ("clear_at_least"
+	// semantics): unless this batch can ACTUALLY free at least this many tokens,
+	// not a single byte is rewritten. 0 = no floor, same zero-value convention as
+	// MinTokens.
+	//
+	// It is a SEPARATE field from MinTokens on purpose, and the two measure
+	// different things:
+	//
+	//	MinTokens    → CandidateTokens, i.e. what the candidate messages WEIGH.
+	//	ClearAtLeast → ReleasableTokens, i.e. what replacing them actually FREES.
+	//
+	// The gap between them is not noise: every pruned entry keeps its placeholder
+	// (11 tokens) and its ToolCallID, so the release always undershoots the
+	// candidate weight by roughly 11×Pruned + Σtok(ToolCallID). A caller that
+	// needs a guaranteed release — which is exactly what a landing-point target
+	// is — cannot express it through MinTokens.
+	//
+	// Reusing MinTokens for this would also have been a one-line production
+	// incident: atdd_69_4_prune_gate_test.go pins PruneOpts{} ≡
+	// PruneOpts{MinTokens: 0} byte-for-byte, and all three Story 69.3 fallback
+	// paths depend on that zero meaning "no gate".
+	ClearAtLeast int
 	// Placeholder overrides the replacement content. Empty = DefaultPrunePlaceholder.
 	Placeholder string
 }
@@ -105,6 +133,18 @@ type PruneResult struct {
 	// "nothing was leaked" apart from "plenty was leaked but it did not clear
 	// MinTokens" — two outcomes that both report Pruned == 0.
 	CandidateTokens int
+	// ReleasableTokens is what rewriting those candidates would ACTUALLY free,
+	// i.e. Σ(before − after) computed against the very placeholder this call
+	// would install. Always ≤ CandidateTokens, because a pruned entry still
+	// carries the placeholder and its ToolCallID.
+	//
+	// It is reported whether or not the rewrite went ahead, and it is the
+	// quantity ClearAtLeast is judged against — reporting only CandidateTokens
+	// would let an operator read a declined batch as "5000 tokens were on the
+	// table" when the recoverable amount was materially lower (Story 71.2 F4).
+	// On an admitted batch it equals TokensFreed unless TargetTokens cut the
+	// sweep short.
+	ReleasableTokens int
 	// SlotsFreed is ALWAYS 0. This is a design fact, not a defect: pruning
 	// rewrites Content in place, so len(ctx.Messages) — which is exactly what
 	// SlotUsage / AvailableSlots report — cannot change. Slot reclamation is
@@ -145,11 +185,19 @@ type PruneResult struct {
 // an admission gate on the batch, the latter an early stop once enough has been
 // freed.
 //
+// ClearAtLeast (Story 71.2 AC1) is a THIRD, independent gate: a floor on what
+// the batch will actually release rather than on what its candidates weigh. It
+// exists because a landing-point target has to be expressed as a guaranteed
+// release, and MinTokens systematically overstates that by the per-entry
+// placeholder and ToolCallID residue. See PruneOpts for the full contrast.
+//
 // Lock contract (Story 69.1 red line): the whole rewrite happens under
 // ctx.mu.Lock() and this function MUST NOT call Sections.Build() or any Manager
 // method that re-acquires ctx.mu (TokenUsage / SlotUsage / BuildPrompt).
 // Recursive acquisition with a writer queued is a deterministic deadlock.
-// Token accounting uses the pure EstimateMessageTokens, which takes no locks.
+// Token accounting uses the pure EstimateMessageTokens, which takes no locks —
+// including the ClearAtLeast decision, which is why the caller must compute any
+// usage-derived floor BEFORE entering (kernel/compact.go does exactly that).
 // Both passes below stay inside the one write lock on purpose — scanning under
 // one acquisition and rewriting under another is a TOCTOU window against the
 // real concurrent writers (IPC handleCompact / gdb AppendMessage /
@@ -171,7 +219,8 @@ func (m *Manager) PruneToolResults(cid types.CtxID, opts PruneOpts) (*PruneResul
 	defer ctx.mu.Unlock()
 
 	// Pass 1 — collect candidates and total what they are worth. Runs even when
-	// MinTokens is 0 so CandidateTokens is always reported honestly.
+	// the gates are 0 so CandidateTokens / ReleasableTokens are always reported
+	// honestly.
 	coldEnd := ColdZoneEnd(len(ctx.Messages))
 	var candidates []int
 	for i := range coldEnd {
@@ -185,12 +234,27 @@ func (m *Manager) PruneToolResults(cid types.CtxID, opts PruneOpts) (*PruneResul
 			continue
 		}
 		candidates = append(candidates, i)
-		result.CandidateTokens += EstimateMessageTokens(msg)
+		before := EstimateMessageTokens(msg)
+		result.CandidateTokens += before
+
+		// What the rewrite would ACTUALLY free (Story 71.2 AC1). `msg` is a
+		// struct copy and Content is a string, so assigning to it here cannot
+		// reach ctx.Messages[i] — the shallow ToolCalls / ReasoningBlocks slices
+		// are only read, never written (the context.go:644 red line).
+		msg.Content = placeholder
+		result.ReleasableTokens += max(before-EstimateMessageTokens(msg), 0)
 	}
 
 	// Admission gate: not worth a cache-prefix invalidation, so do not touch a
 	// single byte. CandidateTokens still reports what was on the table.
 	if opts.MinTokens > 0 && result.CandidateTokens < opts.MinTokens {
+		return result, nil
+	}
+
+	// Story 71.2 AC1 — minimum-release floor. Judged against ReleasableTokens,
+	// never CandidateTokens: the caller asked for a guaranteed release, and the
+	// two quantities differ by the per-entry placeholder + ToolCallID residue.
+	if opts.ClearAtLeast > 0 && result.ReleasableTokens < opts.ClearAtLeast {
 		return result, nil
 	}
 
@@ -232,7 +296,14 @@ type DropResult struct {
 	DroppedMessages int
 	DroppedRounds   int
 	SlotsFreed      int
-	TokensFreed     int
+	// TokensFreed is the net reclamation: the dropped groups' tokens MINUS the
+	// leading-user marker when one had to be prepended. It may therefore be
+	// NEGATIVE — dropping a lone short user message and replacing it with the
+	// marker genuinely grows the context — and that is deliberately not clamped
+	// to 0. A caller comparing it against a target must handle the sign; a
+	// clamped 0 would read as "reclaimed nothing" when the truth is "made it
+	// worse", and the two call for different decisions.
+	TokensFreed int
 }
 
 // DropOldestRounds mechanically reclaims message SLOTS by discarding the oldest
@@ -323,10 +394,19 @@ func (m *Manager) DropOldestRounds(cid types.CtxID, opts DropOpts) (*DropResult,
 	// group 0 (the user prefix before the first assistant) leaves the context
 	// headed by RoleAssistant → HTTP 400. Prepend a minimal user marker so the
 	// invariant holds regardless of which groups were dropped. The marker costs
-	// one slot, so adjust the reported reclamation accordingly.
+	// one slot AND its own tokens, so adjust BOTH reported figures accordingly.
+	//
+	// Story 71.2 AC6-②: the token cost used to go unaccounted, so the worst case
+	// — groups[0] is a lone leading user message and NeedSlots is 1, which is
+	// rnix's most common shape — reported "freed 5 tokens, 1 round" while the
+	// context had actually GROWN by the marker minus that one short message.
+	// A reclamation report whose sign disagrees with reality is worse than no
+	// report ([[observability-data-provenance-principle]]).
 	if len(ctx.Messages) > 0 && ctx.Messages[0].Role != RoleUser {
-		ctx.Messages = append([]Message{{Role: RoleUser, Content: "[earlier conversation history dropped to free context]"}}, ctx.Messages...)
+		marker := Message{Role: RoleUser, Content: droppedHistoryMarker}
+		ctx.Messages = append([]Message{marker}, ctx.Messages...)
 		freed--
+		tokensFreed -= EstimateMessageTokens(marker)
 	}
 
 	if ctx.Sections != nil {
@@ -342,7 +422,8 @@ func (m *Manager) DropOldestRounds(cid types.CtxID, opts DropOpts) (*DropResult,
 
 // String renders a PruneResult for log lines.
 func (r *PruneResult) String() string {
-	return fmt.Sprintf("pruned=%d tokens_freed=%d candidates=%d", r.Pruned, r.TokensFreed, r.CandidateTokens)
+	return fmt.Sprintf("pruned=%d tokens_freed=%d candidates=%d releasable=%d",
+		r.Pruned, r.TokensFreed, r.CandidateTokens, r.ReleasableTokens)
 }
 
 // String renders a DropResult for log lines.

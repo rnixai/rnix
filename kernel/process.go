@@ -1226,6 +1226,52 @@ const minReclaimTokens = 1000
 // for the single cache invalidation it causes.
 const minReclaimRatioPct = 20
 
+// --- Story 71.2: reclamation landing point and pre-flight gate ---
+//
+// compactHysteresisRatio divides the compact threshold to derive where a
+// reclamation must LAND: 80% / 1.5 = 53.3% under the defaults. The retired
+// arithmetic targeted the threshold line itself, i.e. a 1:1 ratio, so the very
+// next step's append put usage back over it — measured across 310 mechanical
+// fallbacks, 164 released exactly 2 slots and 49 released none, and each of
+// those rewrites cost a full provider cache-prefix invalidation.
+//
+// A RATIO, never a subtraction, for the same reason
+// proactiveReclaimWatermarkRatio is one: `threshold - 26.7` goes negative once
+// an operator configures a threshold of 26 or less, which inverts the landing
+// point below zero and asks the reclamation for an impossible target on every
+// step.
+//
+// 1.5 is also the验收 judgement: after a mechanical reclamation, usage must sit
+// at or below threshold/1.5. It is deliberately NOT a cooldown state machine —
+// no "last compacted step" field exists and none may be added (Story 71.2 F1).
+// Landing far below the trigger is the REPLACEMENT for hysteresis-by-timer, not
+// a companion to it.
+const compactHysteresisRatio = 1.5
+
+// effectiveCompactLandingPct returns the usage percentage a mechanical
+// reclamation aims to land at: the compact threshold divided by the hysteresis
+// ratio.
+func (p *Process) effectiveCompactLandingPct() float64 {
+	return p.effectiveCompactThreshold() / compactHysteresisRatio
+}
+
+// minCompactionFractionPct is the pre-flight gate on compaction (Story 71.2
+// AC3): unless the reclaimable pool offers at least this share of context usage,
+// the LLM compaction request is not sent at all. Modelled on qwen's
+// MIN_COMPRESSION_FRACTION = 0.05 (chatCompressionService.ts), converted to a
+// percentage to match every other threshold in this file.
+//
+// rnix has more to gain from the gate than qwen does: a failed compaction here
+// costs a 30s timeout plus a full-history request body, and the incident's 27
+// consecutive failures paid that price 27 times over.
+//
+// 🔴 The denominator is the RECLAIMABLE pool (usage minus the system prompt),
+// never total usage. qwen measures against全部 history because it has no
+// comparable system-prompt bulk; copying that shape verbatim would silently
+// disable compaction on large-system-prompt agents, exactly the trap
+// reclaimLeakedIfNeeded's yield gate already documents.
+const minCompactionFractionPct = 5
+
 const DefaultCompactTimeout = 30 * time.Second
 
 func (p *Process) effectiveCompactTimeout() time.Duration {
