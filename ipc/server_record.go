@@ -176,7 +176,9 @@ func (s *Server) handleForkContinue(conn net.Conn, rawPayload json.RawMessage) {
 	var cid types.CtxID
 	if s.ctxMgr != nil {
 		var err error
-		cid, err = s.ctxMgr.CtxAlloc(kernel.DefaultCtxSize)
+		// 0 = no slot ceiling (Story 71.1). A replayed recording gets the same
+		// unlimited context a fresh spawn does.
+		cid, err = s.ctxMgr.CtxAlloc(0)
 		if err != nil {
 			writeResponse(conn, Response{OK: false, Error: &ErrorPayload{Code: "INTERNAL", Message: fmt.Sprintf("CtxAlloc failed: %v", err)}})
 			return

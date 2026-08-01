@@ -121,29 +121,32 @@ func fillTo(t *testing.T, ctxMgr *rnixctx.Manager, proc *Process, total int) {
 }
 
 func TestATDD_69_1_AC6_SystemPromptByteIdenticalWithinTier(t *testing.T) {
-	k, ctxMgr, proc := setupBackpressureKernel(t, 256)
+	k, _, proc := setupBackpressureKernel(t, 256)
 	sections := registerSections(proc, k, "")
 
+	// Story 71.1 AC2 moved the pressure axis from slots to tokens. The property
+	// under test is unchanged: within one tier the system prompt must not change
+	// by a single byte, because that byte invalidates the provider's cache prefix.
 	// Three points, all inside the elevated tier (70% < pct <= 85%).
-	fillTo(t, ctxMgr, proc, 181) // 70.7%
+	setBackpressurePct(proc, 70.7)
 	first := sections.Build()
-	fillTo(t, ctxMgr, proc, 183) // 71.5%
+	setBackpressurePct(proc, 71.5)
 	second := sections.Build()
-	fillTo(t, ctxMgr, proc, 200) // 78.1%
+	setBackpressurePct(proc, 78.1)
 	third := sections.Build()
 
 	if !strings.Contains(first, "Context Resource Warning") {
-		t.Fatalf("expected backpressure section at 181/256, got:\n%s", first)
+		t.Fatalf("expected backpressure section at 70.7%% token usage, got:\n%s", first)
 	}
 	if first != second {
-		t.Errorf("system prompt changed between 181/256 and 183/256 within the same tier\n--- first ---\n%s\n--- second ---\n%s", first, second)
+		t.Errorf("system prompt changed between 70.7%% and 71.5%% within the same tier\n--- first ---\n%s\n--- second ---\n%s", first, second)
 	}
 	if second != third {
-		t.Errorf("system prompt changed between 183/256 and 200/256 within the same tier\n--- second ---\n%s\n--- third ---\n%s", second, third)
+		t.Errorf("system prompt changed between 71.5%% and 78.1%% within the same tier\n--- second ---\n%s\n--- third ---\n%s", second, third)
 	}
 
 	// AC6-②: crossing into critical must change the body (tiers still carry meaning).
-	fillTo(t, ctxMgr, proc, 220) // 85.9%
+	setBackpressurePct(proc, 85.9)
 	critical := sections.Build()
 	if critical == third {
 		t.Error("system prompt did not change when crossing from elevated into critical tier")
@@ -185,14 +188,17 @@ func TestATDD_69_1_AC6_BackpressureTextHasNoSlotNumbers(t *testing.T) {
 }
 
 func TestATDD_69_1_AC6_BuiltPromptHasNoSlotNumbers(t *testing.T) {
-	k, ctxMgr, proc := setupBackpressureKernel(t, 256)
+	k, _, proc := setupBackpressureKernel(t, 256)
 	sections := registerSections(proc, k, "")
-	fillTo(t, ctxMgr, proc, 181)
+	setBackpressurePct(proc, 70.7)
 
 	result := sections.Build()
-	for _, f := range []string{"181", "256", "181/256", "71%", "70.7"} {
+	// Story 71.1: the axis moved to tokens, so the literals to guard against are
+	// the token figures (LastInputTokens 63630 of a 90000 budget) alongside the
+	// legacy slot ones — a re-introduction on either axis must fail here.
+	for _, f := range []string{"181", "256", "181/256", "71%", "70.7", "63630", "90000"} {
 		if strings.Contains(result, f) {
-			t.Errorf("built system prompt leaks dynamic slot literal %q:\n%s", f, result)
+			t.Errorf("built system prompt leaks dynamic usage literal %q:\n%s", f, result)
 		}
 	}
 }

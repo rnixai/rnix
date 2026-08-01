@@ -30,8 +30,12 @@ func TestContext_Serialize_EmptyRoundTrip(t *testing.T) {
 	if len(restored.Messages) != 0 {
 		t.Errorf("Messages len = %d, want 0", len(restored.Messages))
 	}
-	if restored.MaxSize != 100 {
-		t.Errorf("MaxSize = %d, want 100", restored.MaxSize)
+	// Story 71.1 AC6-④: MaxSize is deliberately NOT restored. Every pre-71.1
+	// snapshot carries max_size: 256 (the old default, not an operator choice), so
+	// honouring it would put the retired slot ceiling back on every resumed
+	// process. The field is still written for cross-version readability.
+	if restored.MaxSize != 0 {
+		t.Errorf("MaxSize = %d, want 0 (Deserialize must ignore the snapshot's ceiling)", restored.MaxSize)
 	}
 }
 
@@ -162,8 +166,11 @@ func TestContext_Serialize_FullBufferRoundTrip(t *testing.T) {
 		t.Fatalf("Deserialize() error: %v", err)
 	}
 
-	if restored.MaxSize != maxSize {
-		t.Errorf("MaxSize = %d, want %d", restored.MaxSize, maxSize)
+	// Story 71.1 AC6-④: the ceiling is intentionally dropped on read. The MESSAGES
+	// still all come back, which is what this case is really about — a "full
+	// buffer" snapshot must not be truncated.
+	if restored.MaxSize != 0 {
+		t.Errorf("MaxSize = %d, want 0 (Deserialize must ignore the snapshot's ceiling)", restored.MaxSize)
 	}
 	if len(restored.Messages) != maxSize {
 		t.Fatalf("Messages len = %d, want %d", len(restored.Messages), maxSize)
@@ -196,6 +203,13 @@ func TestContext_Deserialize_EmptyBytes(t *testing.T) {
 
 // --- 30.2-UNIT-006: Byte-level round-trip equivalence ---
 
+// Story 71.1 AC6-④ narrowed the guarantee: the CONTENT (system prompt +
+// messages, including ToolCalls) still round-trips byte-for-byte, but max_size
+// does NOT — Deserialize forces it to 0 so a pre-71.1 snapshot's `max_size: 256`
+// cannot resurrect the retired slot ceiling. That asymmetry is asserted
+// explicitly below rather than papered over, because content fidelity is what
+// this case guards (a dropped ToolCall breaks the provider round-trip) while the
+// ceiling being dropped is the whole point of the story.
 func TestContext_Serialize_ByteEquivalence(t *testing.T) {
 	ctx := &Context{
 		ID:           1,
@@ -219,23 +233,29 @@ func TestContext_Serialize_ByteEquivalence(t *testing.T) {
 		t.Fatalf("Deserialize() error: %v", err)
 	}
 
+	if restored.MaxSize != 0 {
+		t.Errorf("MaxSize = %d, want 0 (the ceiling must not survive a round-trip)", restored.MaxSize)
+	}
+
 	data2, err := restored.Serialize()
 	if err != nil {
 		t.Fatalf("second Serialize() error: %v", err)
 	}
 
-	// Compare via JSON normalization (map key order may vary)
-	var v1, v2 any
-	if err := json.Unmarshal(data1, &v1); err != nil {
-		t.Fatalf("unmarshal data1: %v", err)
+	// Compare via JSON normalization (map key order may vary), with max_size
+	// excluded — it is the one field deliberately not preserved.
+	norm := func(t *testing.T, data []byte) string {
+		t.Helper()
+		var v map[string]any
+		if err := json.Unmarshal(data, &v); err != nil {
+			t.Fatalf("unmarshal: %v", err)
+		}
+		delete(v, "max_size")
+		out, _ := json.Marshal(v)
+		return string(out)
 	}
-	if err := json.Unmarshal(data2, &v2); err != nil {
-		t.Fatalf("unmarshal data2: %v", err)
-	}
-	norm1, _ := json.Marshal(v1)
-	norm2, _ := json.Marshal(v2)
-	if string(norm1) != string(norm2) {
-		t.Errorf("round-trip not equivalent:\n  first:  %s\n  second: %s", norm1, norm2)
+	if norm(t, data1) != norm(t, data2) {
+		t.Errorf("content did not round-trip:\n  first:  %s\n  second: %s", norm(t, data1), norm(t, data2))
 	}
 }
 

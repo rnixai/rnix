@@ -125,7 +125,10 @@ func TestATDD_69_3_AC3_CompactFailureFallsBackMechanically(t *testing.T) {
 	if err := proc.Start(); err != nil {
 		t.Fatalf("Start: %v", err)
 	}
-	fillLeakyContext(t, ctxMgr, cid, 12) // 36 messages of 40 slots → slot trigger
+	fillLeakyContext(t, ctxMgr, cid, 12)
+	// Story 71.1 AC3: the slot trigger is gone, so the compaction must be driven
+	// over the TOKEN threshold instead (this fixture used to rely on 36/40 slots).
+	raiseTokenWatermark(t, ctxMgr, cid, 90)
 
 	beforeTokens, _ := ctxMgr.TokenUsage(cid)
 	_ = drainCompactEvents(t, proc) // clear anything prior
@@ -185,6 +188,7 @@ func TestATDD_69_3_AC7_SuccessPathHasNoFallbackKey(t *testing.T) {
 		t.Fatalf("Start: %v", err)
 	}
 	fillContext(t, ctxMgr, cid, 11)
+	raiseTokenWatermark(t, ctxMgr, cid, 90) // Story 71.1 AC3: token axis is the only trigger
 
 	k.autoCompactIfNeeded(proc, 3)
 
@@ -217,6 +221,7 @@ func TestATDD_69_3_AC3_FallbackWithNothingToReclaimStillEmits(t *testing.T) {
 			t.Fatalf("AppendMessage: %v", err)
 		}
 	}
+	raiseTokenWatermark(t, ctxMgr, cid, 90) // Story 71.1 AC3: token axis is the only trigger
 	_ = drainCompactEvents(t, proc)
 
 	k.autoCompactIfNeeded(proc, 4)

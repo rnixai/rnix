@@ -29,8 +29,13 @@ const (
 	backpressureTierCritical = "critical"
 )
 
-// backpressureTier classifies slot pressure into a discrete tier.
+// backpressureTier classifies context pressure into a discrete tier.
 // Returns "" (no warning), "elevated", or "critical".
+//
+// The argument is a PERCENTAGE, deliberately axis-agnostic: it carried slot
+// usage% up to Story 69.1 and carries token usage% from Story 71.1 on. Signature
+// and boundary arithmetic are unchanged across that move — only the caller's data
+// source changed.
 //
 // Boundaries use strict `>`: exactly at the threshold does NOT trigger, matching
 // the pre-existing behaviour (TestBackpressureSection_AtExactThreshold).
@@ -39,14 +44,14 @@ const (
 // (default 70 → 85; custom 50 → 75; custom 90 → 95). For any threshold in
 // (0, 100) the critical boundary never inverts against the threshold.
 // Threshold ≥ 100 silently disables every warning: the first branch is always
-// true (slotPct is bounded at 100), exactly as the pre-69.1 `slotPct > threshold`
-// test behaved — a misconfiguration degrades as before, not in some new way.
+// true for any pct ≤ 100, exactly as the pre-69.1 `slotPct > threshold` test
+// behaved — a misconfiguration degrades as before, not in some new way.
 // Spawn-time validation of the threshold is tracked in deferred-work.md.
-func backpressureTier(slotPct, threshold float64) string {
-	if slotPct <= threshold {
+func backpressureTier(usagePct, threshold float64) string {
+	if usagePct <= threshold {
 		return ""
 	}
-	if slotPct > threshold+(100-threshold)/2 {
+	if usagePct > threshold+(100-threshold)/2 {
 		return backpressureTierCritical
 	}
 	return backpressureTierElevated
@@ -57,9 +62,15 @@ func backpressureTier(slotPct, threshold float64) string {
 //
 // Deliberately qualitative, never quantitative (Story 69.1 / Decision 33): the
 // LLM only needs a behavioural direction, and the exact numbers are for the
-// operator — who still gets them through the untouched IPC SlotUsed/SlotMax/
-// SlotPercentage fields rendered by the dashboard. Putting them in the prompt
-// bought nothing and cost the whole prompt cache prefix on every single step.
+// operator — who still gets them through the untouched IPC ContextStats fields
+// rendered by the dashboard. Putting them in the prompt bought nothing and cost
+// the whole prompt cache prefix on every single step.
+//
+// Bodies are byte-frozen across Story 71.1's axis move (slot% → token%) on
+// purpose: the guidance ("prefer sequential tool calls", "write down what you
+// need") is about how the model should behave under pressure, which does not
+// depend on how the kernel measures that pressure. Rewording would churn the
+// cache prefix for zero behavioural gain.
 func backpressureText(tier string) string {
 	switch tier {
 	case backpressureTierElevated:
@@ -323,7 +334,30 @@ Best practices:
 		return b.String()
 	}, false)
 
-	// backpressure: qualitative context-pressure guidance (Story 69.1).
+	// backpressure: qualitative context-pressure guidance (Story 69.1),
+	// measured on the TOKEN axis since Story 71.1 (AC2).
+	//
+	// The data source used to be slot usage (len(Messages)/MaxSize). Story 71.1
+	// removes the slot ceiling entirely, which would have made slotMax==0 and
+	// silently deleted this section forever — the exact "mechanism removed with
+	// nobody noticing" failure Story 70.2 had just walked into. Moving the axis
+	// keeps the mechanism alive AND fixes a long-standing false alarm: the slot
+	// axis crossed 70% at roughly 36k real tokens, so this section had been
+	// warning the model about exhaustion while it sat at a fraction of capacity.
+	//
+	// 分子 = proc.LastInputTokens: the provider's own reported prompt tokens
+	// (observability provenance — a native number beats an estimate).
+	// 分母 = proc.effectiveContextTokenLimit(): the SAME scale applyCtxTokenLimit
+	// pushes into ctx.TokenLimit, so the prompt-side and compaction-side
+	// denominators cannot drift.
+	//
+	// 🔴 This ComputeFn must NEVER call k.ctxMgr.TokenUsage(): TokenUsage calls
+	// Sections.Build(), Build() calls this ComputeFn — unbounded recursion into a
+	// stack overflow. Every value read here comes from kernel-side proc fields,
+	// which is precisely why this shape was chosen: no ctx lock, no re-entry.
+	//
+	// LastInputTokens == 0 (first step, no response yet) → pct 0 → tier "" → no
+	// injection. Correct degradation: the context is at its smallest then.
 	//
 	// The body is a per-tier constant so the system prompt stays byte-identical
 	// across every step within a tier — a single changed byte invalidates the
@@ -334,15 +368,16 @@ Best practices:
 	//
 	// Do NOT "fix" this by flipping Cached to true: Cached only holds until the
 	// next Invalidate(), and compact *does* Invalidate() — worse, caching a stale
-	// slot count feeds the LLM wrong capacity information, which is strictly worse
-	// than not injecting at all. The content itself has to be step-invariant.
+	// usage figure feeds the LLM wrong capacity information, which is strictly
+	// worse than not injecting at all. The content itself has to be
+	// step-invariant.
 	reg.Register("backpressure", func() string {
-		slotUsed, slotMax, err := k.ctxMgr.SlotUsage(proc.CtxID)
-		if err != nil || slotMax == 0 {
+		limit := proc.effectiveContextTokenLimit()
+		if limit <= 0 {
 			return ""
 		}
-		slotPct := float64(slotUsed) / float64(slotMax) * 100
-		return backpressureText(backpressureTier(slotPct, proc.effectiveBackpressureThreshold()))
+		pct := float64(proc.GetLastInputTokens()) / float64(limit) * 100
+		return backpressureText(backpressureTier(pct, proc.effectiveBackpressureThreshold()))
 	}, false)
 
 	// action_protocol: no longer used (text protocol removed); section returns empty.

@@ -1649,11 +1649,12 @@ func TestSpawn_ContextEvents_CtxAllocCtxWriteCtxRead(t *testing.T) {
 		t.Errorf("missing CtxRead event; got events: %v", eventNames(events))
 	}
 
-	// Verify CtxAlloc event
+	// Verify CtxAlloc event. Story 71.1: the production default is 0 = no slot
+	// ceiling.
 	for _, ev := range events {
 		if ev.Syscall == "CtxAlloc" {
-			if ev.Args["size"] != DefaultCtxSize {
-				t.Errorf("CtxAlloc size: got %v, want %d", ev.Args["size"], DefaultCtxSize)
+			if ev.Args["size"] != 0 {
+				t.Errorf("CtxAlloc size: got %v, want 0 (no slot ceiling)", ev.Args["size"])
 			}
 			if ev.PID != pid {
 				t.Errorf("CtxAlloc PID: got %d, want %d", ev.PID, pid)
@@ -3035,8 +3036,9 @@ func TestSpawn_CtxSize_Default(t *testing.T) {
 		t.Fatal("timeout")
 	}
 
-	if proc.CtxSize != DefaultCtxSize {
-		t.Errorf("CtxSize: got %d, want %d", proc.CtxSize, DefaultCtxSize)
+	// Story 71.1 AC4: no opts.CtxSize / manifest ctx_size → no slot ceiling.
+	if proc.CtxSize != 0 {
+		t.Errorf("CtxSize: got %d, want 0 (no slot ceiling by default)", proc.CtxSize)
 	}
 }
 

@@ -169,7 +169,7 @@ func (k *KernelImpl) LoadSuspendedFromDisk() (int, error) {
 		// branch until a re-resume rewrites their proc-info.json.
 		if baseDir := FindBaseDirByUUID(k.dataDir, info.UUID); baseDir != "" {
 			stepsDir := filepath.Join(baseDir, "steps", info.UUID)
-			if _, _, rehErr := k.rehydrateRuntimeStateFromDisk(proc, stepsDir, info.CtxSize, 0); rehErr != nil {
+			if _, _, rehErr := k.rehydrateRuntimeStateFromDisk(proc, stepsDir, 0, 0); rehErr != nil {
 				log.Printf("[load_suspended] rehydrate uuid=%s failed: %v — skipping placeholder", info.UUID, rehErr)
 				continue
 			}

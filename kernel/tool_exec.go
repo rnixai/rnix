@@ -1124,6 +1124,12 @@ func (k *KernelImpl) executeMetaAction(proc *Process, tc llmToolCall, mapping to
 
 		// reasonStep 是单线程,这里的 slot 预检相对于后续两次 append 是可靠的。
 		// 需要 1 个 tool 槽位 + (可选) 1 个 user 槽位。
+		//
+		// ⚠️ Story 71.1 (AC4): 无槽位上限时 AvailableSlots 返回 unlimitedSlots 哨兵,
+		// `slots < 2` 恒假 —— 以下整段 specialize 回滚逻辑(SkillBodies/AllowedDevices/
+		// AllowedTools 三路回滚 + SpecializeRollback 事件)在生产路径下**结构性不可达**。
+		// 保留而非删除: 显式配置 ctx_size 逃生阀的进程仍会走到, 且 Story 71.2 重写回收
+		// 算术时会一并评估去留(已登记 deferred-work)。勿因它还在就以为它还在工作。
 		if needsUserMessage {
 			slots, _ := k.ctxMgr.AvailableSlots(proc.CtxID)
 			if slots < 2 {

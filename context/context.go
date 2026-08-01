@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"math"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -63,16 +64,44 @@ type Context struct {
 	SystemPrompt string
 	Sections     *SectionRegistry // When non-nil, Build() produces the system prompt
 	Messages     []Message
-	MaxSize      int // Max message slots; default 256 (configurable via SpawnOpts.CtxSize)
-	TokenLimit   int // Max token budget for this context; 0 = DefaultTokenLimit
-	mu           sync.RWMutex
+	// MaxSize caps the number of message slots. 0 = NO LIMIT, which is the
+	// production default since Story 71.1; >0 keeps the admission checks alive as
+	// an operator escape hatch (SpawnOpts.CtxSize / agent.yaml ctx_size).
+	//
+	// A slot count measures STRUCTURE (how many messages), while capacity is a
+	// question of VOLUME (how many tokens). Measured over 822 samples the two have
+	// no stable conversion rate — 205 slots spanned 36.7k…146.2k real tokens — so
+	// a slot ceiling is a量纲 error rather than a mis-calibrated number. Capacity
+	// management lives entirely on the token axis (TokenLimit, below).
+	//
+	// Negative values are equivalent to 0. "No limit" has no second meaning, so
+	// unlike StepTimeout / loop_threshold there is no negative=disable convention
+	// here.
+	MaxSize    int
+	TokenLimit int // Max token budget for this context; 0 = DefaultTokenLimit
+	mu         sync.RWMutex
 }
+
+// unlimitedSlots is the AvailableSlots sentinel for a context with no ceiling.
+//
+// MaxInt32 rather than MaxInt on purpose: four call sites subtract from this
+// value (kernel/compact.go's resumeFallbackHeadroom-avail and the two
+// required-available forms). All four sit INSIDE an `avail < headroom` /
+// `available < required` guard and are therefore unreachable at sentinel
+// magnitude — verified call site by call site — but MaxInt32+MaxInt32 still fits
+// in an int64, so the headroom is free insurance against a future consumer that
+// forgets the guard. A new AvailableSlots consumer doing unguarded arithmetic
+// must still check its own overflow.
+const unlimitedSlots = math.MaxInt32
 
 // contextSnapshot is the wire format for Context serialization.
 type contextSnapshot struct {
 	SystemPrompt string    `json:"system_prompt"`
 	Messages     []Message `json:"messages"`
-	MaxSize      int       `json:"max_size"`
+	// MaxSize is retained for backward/forward compatibility with snapshots
+	// written before Story 71.1. It is WRITTEN from the live context but
+	// deliberately IGNORED on read — see Deserialize.
+	MaxSize int `json:"max_size"`
 }
 
 // effectiveTokenLimit returns the context's token limit, defaulting to DefaultTokenLimit if unset.
@@ -127,8 +156,17 @@ func (c *Context) Serialize() ([]byte, error) {
 }
 
 // Deserialize restores a Context from JSON produced by Serialize.
-// Overwrites all state fields (SystemPrompt, Messages, MaxSize).
-// The caller must hold no lock on the Context; this method acquires a write lock internally.
+// Overwrites SystemPrompt and Messages.
+//
+// MaxSize is deliberately NOT restored — it is forced to 0 (no limit). Every
+// snapshot written before Story 71.1 carries max_size: 256, which was the old
+// default rather than an operator choice; honouring it would put the 256-slot
+// ceiling straight back onto every resumed process, re-creating the very failure
+// this story removes. The field stays in contextSnapshot so old and new daemons
+// can still read each other's files.
+//
+// The caller must hold no lock on the Context; this method acquires a write lock
+// internally.
 func (c *Context) Deserialize(data []byte) error {
 	var snap contextSnapshot
 	if err := json.Unmarshal(data, &snap); err != nil {
@@ -144,7 +182,7 @@ func (c *Context) Deserialize(data []byte) error {
 	} else {
 		c.Messages = snap.Messages
 	}
-	c.MaxSize = snap.MaxSize
+	c.MaxSize = 0
 	return nil
 }
 
@@ -197,15 +235,16 @@ func NewManager() *Manager {
 	}
 }
 
-// CtxAlloc allocates a new context with the given size limit and returns its unique CtxID.
+// CtxAlloc allocates a new context and returns its unique CtxID.
+//
+// size is the message-slot ceiling: `size <= 0` means NO LIMIT (the production
+// default since Story 71.1) and is NOT an error. A positive size keeps the
+// admission checks active as an operator escape hatch. 0 and negative values are
+// synonymous — "no limit" has no second meaning, so there is no negative=disable
+// convention here (contrast StepTimeout / loop_threshold).
 func (m *Manager) CtxAlloc(size int) (types.CtxID, error) {
-	if size <= 0 {
-		return 0, &ContextError{
-			Op:   "CtxAlloc",
-			CID:  0,
-			Err:  fmt.Errorf("invalid size: %d", size),
-			Code: types.ErrInternal,
-		}
+	if size < 0 {
+		size = 0
 	}
 	id := types.CtxID(m.nextID.Add(1))
 	ctx := &Context{
@@ -276,7 +315,7 @@ func (m *Manager) CtxWrite(cid types.CtxID, offset int, data []byte) error {
 	defer ctx.mu.Unlock()
 
 	if offset == 0 {
-		if len(ctx.Messages) >= ctx.MaxSize {
+		if ctx.MaxSize > 0 && len(ctx.Messages) >= ctx.MaxSize {
 			return &ContextError{
 				Op:   "CtxWrite",
 				CID:  cid,
@@ -397,7 +436,7 @@ func (m *Manager) AppendMessage(cid types.CtxID, role Role, content string) erro
 	ctx.mu.Lock()
 	defer ctx.mu.Unlock()
 
-	if len(ctx.Messages) >= ctx.MaxSize {
+	if ctx.MaxSize > 0 && len(ctx.Messages) >= ctx.MaxSize {
 		return &ContextError{
 			Op:   "AppendMessage",
 			CID:  cid,
@@ -423,7 +462,7 @@ func (m *Manager) AppendToolResult(cid types.CtxID, toolCallID string, content s
 	ctx.mu.Lock()
 	defer ctx.mu.Unlock()
 
-	if len(ctx.Messages) >= ctx.MaxSize {
+	if ctx.MaxSize > 0 && len(ctx.Messages) >= ctx.MaxSize {
 		return &ContextError{
 			Op:   "AppendToolResult",
 			CID:  cid,
@@ -458,7 +497,14 @@ func (m *Manager) AppendAssistantWithToolCalls(cid types.CtxID, content string, 
 	defer ctx.mu.Unlock()
 
 	required := 1 + len(toolCalls)
-	if len(ctx.Messages)+required > ctx.MaxSize {
+	// Story 71.1 AC5: the ATOMICITY guarantee below is untouched; only the
+	// CAPACITY question moved off this function. With MaxSize == 0 (no ceiling)
+	// the guarantee holds in its strongest form — there is always room — so the
+	// check is skipped rather than weakened. With an explicit ceiling the logic is
+	// byte-for-byte what it was, which keeps ErrContextFull →
+	// selfSuspend("context_full") reachable and testable instead of degrading a
+	// regression red line into an unverifiable comment.
+	if ctx.MaxSize > 0 && len(ctx.Messages)+required > ctx.MaxSize {
 		return &ContextError{
 			Op:  "AppendAssistantWithToolCalls",
 			CID: cid,
@@ -514,6 +560,19 @@ func (m *Manager) BuildPrompt(cid types.CtxID) (*PromptResult, error) {
 }
 
 // AvailableSlots returns the number of remaining message slots in the context.
+//
+// With no ceiling (MaxSize == 0, the production default since Story 71.1) it
+// returns the unlimitedSlots sentinel instead of the arithmetic result
+// `0 - len(Messages)`, which would be NEGATIVE and would flip every
+// "do I have room?" test into its opposite. The sentinel makes all twelve call
+// sites short-circuit into their "plenty of room" branch untouched, so the slot
+// ceiling could be retired without editing a dozen unrelated call sites.
+//
+// Consequence to be honest about: the code below those call sites
+// (preCompactForToolCalls' body, tool_exec.go's specialize rollback,
+// compact.go's resume/fallback rechecks) is STRUCTURALLY UNREACHABLE while no
+// ceiling is configured. Each of them carries a docstring saying so; do not read
+// their existence as evidence that they still run.
 func (m *Manager) AvailableSlots(cid types.CtxID) (int, error) {
 	ctx, err := m.getContext("AvailableSlots", cid)
 	if err != nil {
@@ -521,10 +580,15 @@ func (m *Manager) AvailableSlots(cid types.CtxID) (int, error) {
 	}
 	ctx.mu.RLock()
 	defer ctx.mu.RUnlock()
+	if ctx.MaxSize <= 0 {
+		return unlimitedSlots, nil
+	}
 	return ctx.MaxSize - len(ctx.Messages), nil
 }
 
-// SlotUsage returns the number of used and maximum message slots for the given context.
+// SlotUsage returns the number of used and maximum message slots for the given
+// context. `used` is always the real history length (len(Messages)) and stays a
+// meaningful observability figure; `max` is 0 when no ceiling is configured.
 func (m *Manager) SlotUsage(cid types.CtxID) (used int, max int, err error) {
 	ctx, err := m.getContext("SlotUsage", cid)
 	if err != nil {

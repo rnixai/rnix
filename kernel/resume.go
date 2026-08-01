@@ -612,10 +612,19 @@ func (k *KernelImpl) resumeFromCheckpoint(uuid string, opts ResumeOpts, start ti
 	proc.Budget = ProcessBudget{MaxTokens: cp.MaxTokens, MaxCost: cp.MaxCost, UsedCost: cp.UsedCost}
 	proc.mu.Unlock()
 
-	resumeCtxSize := DefaultCtxSize
-	if cp.CtxSize > 0 {
-		resumeCtxSize = cp.CtxSize
-	}
+	// Story 71.1 AC4/AC6: resumed processes run with NO slot ceiling.
+	//
+	// This is forced rather than chosen: the Deserialize call below sets
+	// ctx.MaxSize to 0 unconditionally (AC6-④, so a pre-71.1 snapshot's
+	// `max_size: 256` cannot resurrect the ceiling), so whatever we allocate with
+	// here is overwritten moments later. Passing cp.CtxSize would therefore only
+	// make proc.CtxSize advertise a ceiling the context does not actually enforce.
+	//
+	// Honest consequence, recorded in deferred-work: an explicitly configured
+	// ctx_size escape hatch does NOT survive a resume. cp.CtxSize is still
+	// persisted, so re-honouring it is a one-line change if that turns out to
+	// matter.
+	resumeCtxSize := 0
 	proc.CtxSize = resumeCtxSize
 	cid, err := k.ctxMgr.CtxAlloc(resumeCtxSize)
 	if err != nil {
@@ -970,7 +979,7 @@ func (k *KernelImpl) resumeFromHistory(uuid string, opts ResumeOpts, start time.
 	// placeholders — keeping both paths funneled through one function
 	// prevents the "daemon-restart placeholder misroutes through script
 	// runner branch" silent-divergence bug.
-	lastStep, totalSteps, rehydrateErr := k.rehydrateRuntimeStateFromDisk(proc, stepsDir, diskInfo.CtxSize, opts.FromStep)
+	lastStep, totalSteps, rehydrateErr := k.rehydrateRuntimeStateFromDisk(proc, stepsDir, 0, opts.FromStep)
 	if rehydrateErr != nil {
 		// rehydrate already freed any partial ctx it allocated; relabel the
 		// SyscallError's Syscall field as "Resume" so IPC consumers see the

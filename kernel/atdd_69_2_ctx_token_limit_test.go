@@ -351,8 +351,13 @@ func TestATDD_69_2_AC5_TokenThresholdTriggerLabel(t *testing.T) {
 	}
 }
 
+// TestATDD_69_2_AC5_BothThresholdTriggerLabel used to assert trigger == "both"
+// when the slot and token axes crossed together. Story 71.1 AC3 retired the slot
+// axis, so "both" is unreachable and the label collapses to token_threshold. The
+// case is kept — with its fixture intact and only the expectation moved — because
+// "high message count no longer changes the label" is exactly the耦合 the newer
+// story fixes; a deleted test would leave that silent.
 func TestATDD_69_2_AC5_BothThresholdTriggerLabel(t *testing.T) {
-	// 槽位与 token 同时越阈 → trigger 必为 "both"。
 	// maxSize=10，填 5 轮工具调用 = 10 槽位满；token limit 设小值同时越阈。
 	k, ctxMgr, proc, cid := setupCompactKernel(t, 10)
 	proc.DebugChan = make(chan types.SyscallEvent, 64)
@@ -373,12 +378,12 @@ func TestATDD_69_2_AC5_BothThresholdTriggerLabel(t *testing.T) {
 	}
 	slotUsed, slotMax, _ := ctxMgr.SlotUsage(cid)
 	if slotPct := float64(slotUsed) / float64(slotMax) * 100; slotPct <= 70.0 {
-		t.Fatalf("slot%% = %.1f, want > 70 so both axes fire", slotPct)
+		t.Fatalf("slot%% = %.1f, want > 70 (the fixture that used to produce \"both\")", slotPct)
 	}
 
 	k.autoCompactIfNeeded(proc, 1)
 
-	if got := readCompactTrigger(t, proc); got != "both" {
-		t.Errorf("trigger = %q, want both", got)
+	if got := readCompactTrigger(t, proc); got != "token_threshold" {
+		t.Errorf("trigger = %q, want token_threshold — the slot axis must contribute nothing to the label", got)
 	}
 }

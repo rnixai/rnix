@@ -60,9 +60,6 @@ func PIDFromContext(ctx gocontext.Context) types.PID {
 // 0 means infinite (no step limit).
 const DefaultMaxSteps = 0
 
-// DefaultCtxSize is the default context size (message count) for new contexts.
-const DefaultCtxSize = 256
-
 // MaxSpawnDepth caps the process-tree depth for spawned processes. It guards
 // against two recursion patterns: (1) permission-denied loops where the LLM
 // spawns children to "acquire" a device it lacks (child AllowedDevices ≤
@@ -86,7 +83,7 @@ type SpawnOpts struct {
 	ParentPID        types.PID     // parent process PID; 0 = top-level/CLI spawn
 	Depth            int           // process-tree depth for the spawn-recursion guard; 0 = top-level. ActionSpawn and IPC handleSpawn (Story 63.2) set this (parent.Depth+1); other spawn paths leave 0.
 	ContextBudget    int           // 0 = no limit; >0 = terminate when TokensUsed >= ContextBudget
-	CtxSize          int           // 0 = use DefaultCtxSize; >0 = context message slot limit
+	CtxSize          int           // 0 = no slot ceiling (default since Story 71.1); >0 = operator escape-hatch message slot limit
 	MaxTokens        int64         // per-process token budget; 0 = unlimited; >0 = suspend when exhausted
 	MaxCost          float64       // per-process cost budget (USD); 0 = unlimited; >0 = suspend when exhausted
 	TraceID          types.TraceID // inherited trace ID; empty = no tracing

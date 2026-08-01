@@ -30,7 +30,9 @@ import (
 //                      already set. proc.PrimaryDevice must be set by the
 //                      caller (rehydrate does NOT open the LLM FD).
 //   - stepsDir       — absolute path to <baseDir>/data/steps/<uuid>.
-//   - ctxSizeHint    — preferred ctx slot count; 0 falls back to DefaultCtxSize.
+//   - ctxSizeHint    — requested ctx slot ceiling; 0 (production default since
+//                      Story 71.1) = no ceiling. See step 6 for why the old
+//                      "fall back to the snapshot's CtxSize" defence was dropped.
 //   - maxStep        — Story 42.3 history-replay truncation. 0 = no truncation
 //                      (LoadSuspendedFromDisk default). > 0 = consider only
 //                      records with step <= maxStep when picking lastStep /
@@ -158,14 +160,22 @@ func (k *KernelImpl) rehydrateRuntimeStateFromDisk(proc *Process, stepsDir strin
 	}
 
 	// 6. Allocate a fresh context and deserialize the on-disk messages +
-	//    system prompt into it. Prefer the caller-supplied ctxSizeHint
-	//    (originally from the disk snapshot's CtxSize) so N-step processes
-	//    revived into a 256-slot context do not silently lose messages past
-	//    slot 256. Zero or negative hint falls back to DefaultCtxSize.
-	resumeCtxSize := ctxSizeHint
-	if resumeCtxSize <= 0 {
-		resumeCtxSize = DefaultCtxSize
-	}
+	//    system prompt into it.
+	//
+	//    Story 71.1 AC6-④: the ctxSizeHint defence — "prefer the snapshot's
+	//    CtxSize so an N-step process revived into a 256-slot context does not
+	//    silently lose messages past slot 256" — is obsolete, because there is no
+	//    256-slot context to be revived into any more. A hint from a pre-71.1
+	//    snapshot is the old default rather than an operator choice, so honouring
+	//    it would reimpose exactly the ceiling that made the defence necessary.
+	//    Both remaining callers therefore pass 0 and the parameter is accepted only
+	//    so an explicitly-configured ceiling can still be exercised (tests, and any
+	//    future caller that wants the escape hatch).
+	//
+	//    Either way this argument does not decide the final ceiling: the
+	//    Deserialize call below forces ctx.MaxSize to 0 so a snapshot's
+	//    `max_size: 256` cannot resurrect it.
+	resumeCtxSize := max(ctxSizeHint, 0)
 	proc.CtxSize = resumeCtxSize
 	cid, allocErr := k.ctxMgr.CtxAlloc(resumeCtxSize)
 	if allocErr != nil {

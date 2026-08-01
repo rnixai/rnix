@@ -32,7 +32,15 @@ type CompactOpts struct {
 	// CustomInstructions is optional additional instructions appended to the compact prompt.
 	CustomInstructions string
 
-	// Trigger records how this compact was initiated ("token_threshold", "slot_threshold", "both", "precompact", or "manual").
+	// Trigger records how this compact was initiated. Value域 (Story 71.1 AC3
+	// retired the two slot-axis labels `slot_threshold` / `slot_watermark`, and
+	// with them the `both` degeneracy):
+	//   "token_threshold"      — autoCompactIfNeeded, token usage over threshold
+	//   "precompact"           — preCompactForToolCalls, pre-write prevention
+	//   "context_full_resume"  — resume-time reclamation after ErrContextFull
+	//   "manual"               — IPC handleCompact
+	// Proactive reclamation (kernel reclaimLeakedIfNeeded) emits CtxReclaim rather
+	// than a compact, with its own "token_watermark" label.
 	Trigger string
 
 	// --- Post-compact restore data ---

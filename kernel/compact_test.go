@@ -56,28 +56,12 @@ func fillContext(t *testing.T, ctxMgr *rnixctx.Manager, cid types.CtxID, n int) 
 	}
 }
 
-func TestAutoCompactIfNeeded_SlotThresholdTrigger(t *testing.T) {
-	// MaxSize=10, fill 9 messages (90% slots) with minimal token content.
-	// Token% well below 80%, but slot% > 80% → should trigger compact.
-	k, ctxMgr, proc, cid := setupCompactKernel(t, 10)
-	fillContext(t, ctxMgr, cid, 9)
-
-	used, max, _ := ctxMgr.SlotUsage(cid)
-	if used != 9 || max != 10 {
-		t.Fatalf("precondition: used=%d max=%d, want 9/10", used, max)
-	}
-	usage, _ := ctxMgr.TokenUsage(cid)
-	if usage.Percentage > 80.0 {
-		t.Fatalf("precondition: token%% %.1f > 80, expected low", usage.Percentage)
-	}
-
-	k.autoCompactIfNeeded(proc, 1)
-
-	usedAfter, _, _ := ctxMgr.SlotUsage(cid)
-	if usedAfter >= 9 {
-		t.Errorf("slot-triggered compact did not reduce messages: still %d", usedAfter)
-	}
-}
+// Story 71.1 AC3 deleted TestAutoCompactIfNeeded_SlotThresholdTrigger
+// ("90% slots, low tokens → compact fires"). The slot trigger no longer exists,
+// and the inverted assertion — the same fixture must NOT compact — now lives in
+// atdd_71_1_token_axis_slot_decoupling_test.go
+// (TestATDD_71_1_AC7_HighMessageCountLowTokensDoesNotCompact), where it doubles
+// as a permanent guard against the axis being re-added.
 
 func TestAutoCompactIfNeeded_BothBelowThreshold_NoCompact(t *testing.T) {
 	// MaxSize=100, fill 5 messages (5% slots), minimal tokens → no compact.
@@ -119,41 +103,9 @@ func TestAutoCompactIfNeeded_TokenThresholdStillWorks(t *testing.T) {
 	}
 }
 
-func TestAutoCompactIfNeeded_SlotThresholdTriggerLabel(t *testing.T) {
-	k, ctxMgr, proc, cid := setupCompactKernel(t, 10)
-	proc.DebugChan = make(chan types.SyscallEvent, 64)
-	fillContext(t, ctxMgr, cid, 9) // 90% slots, low tokens
-
-	usage, _ := ctxMgr.TokenUsage(cid)
-	if usage.Percentage > 80.0 {
-		t.Skipf("token%% %.1f > 80, cannot isolate slot trigger", usage.Percentage)
-	}
-
-	k.autoCompactIfNeeded(proc, 1)
-
-	found := false
-	for {
-		select {
-		case evt := <-proc.DebugChan:
-			if evt.Syscall == "Compact" {
-				trigger, ok := evt.Args["trigger"].(string)
-				if !ok {
-					t.Fatalf("trigger field missing or not string: %v", evt.Args["trigger"])
-				}
-				if trigger != "slot_threshold" {
-					t.Errorf("trigger = %q, want slot_threshold", trigger)
-				}
-				found = true
-			}
-		default:
-			goto done
-		}
-	}
-done:
-	if !found {
-		t.Fatal("no Compact event emitted for slot_threshold trigger")
-	}
-}
+// TestAutoCompactIfNeeded_SlotThresholdTriggerLabel is deleted alongside the
+// trigger it named (Story 71.1 AC3). `slot_threshold` is no longer a member of
+// the trigger value域; see context/compact.go CompactOpts.Trigger.
 
 func TestPreCompactForToolCalls_SlotsSufficient(t *testing.T) {
 	k, ctxMgr, proc, cid := setupCompactKernel(t, 10)
@@ -442,15 +394,15 @@ func TestBuildCompactLLMCall_CustomTimeout(t *testing.T) {
 	}
 }
 
+// Story 71.1 AC6-①: the pre_slots / post_slots event fields survive the slot
+// axis's retirement as pure observability — they carry real history length. Only
+// the trigger moved to the token axis, so this fixture now drives the compaction
+// over the token threshold instead of the (deleted) slot one.
 func TestAutoCompactIfNeeded_EmitEvent_ContainsSlotFields(t *testing.T) {
 	k, ctxMgr, proc, cid := setupCompactKernel(t, 10)
 	proc.DebugChan = make(chan types.SyscallEvent, 64)
-	fillContext(t, ctxMgr, cid, 9) // 90% slots, low tokens
-
-	usage, _ := ctxMgr.TokenUsage(cid)
-	if usage.Percentage > 80.0 {
-		t.Skipf("token%% %.1f > 80, cannot isolate slot trigger", usage.Percentage)
-	}
+	fillContext(t, ctxMgr, cid, 9)
+	raiseTokenWatermark(t, ctxMgr, cid, 90)
 
 	k.autoCompactIfNeeded(proc, 1)
 

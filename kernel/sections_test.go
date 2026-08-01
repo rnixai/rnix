@@ -83,60 +83,53 @@ func setupBackpressureKernel(t *testing.T, maxSize int) (*KernelImpl, *rnixctx.M
 	return k, ctxMgr, proc
 }
 
+// setBackpressurePct drives the process to a given context TOKEN usage
+// percentage (Story 71.1 AC2 moved the backpressure axis off slots). The
+// denominator is proc.effectiveContextTokenLimit(), which needs a real
+// ContextWindow behind ContextBudget — without one, ContextBudget is a per-step
+// leash and must NOT act as a capacity scale.
+func setBackpressurePct(proc *Process, pct float64) {
+	const window = 100_000
+	proc.ContextWindow = window
+	proc.ContextBudget = window * 9 / 10
+	proc.LastInputTokens = int(float64(proc.ContextBudget) * pct / 100)
+}
+
 func TestBackpressureSection_AboveThreshold(t *testing.T) {
-	k, ctxMgr, proc := setupBackpressureKernel(t, 10)
-	for i := range 8 {
-		role := rnixctx.RoleUser
-		if i%2 == 1 {
-			role = rnixctx.RoleAssistant
-		}
-		_ = ctxMgr.AppendMessage(proc.CtxID, role, "x")
-	}
+	k, _, proc := setupBackpressureKernel(t, 10)
+	setBackpressurePct(proc, 80) // > 70 threshold, <= 85 critical boundary
 
 	sections := registerSections(proc, k, "")
 	result := sections.Build()
 
 	if !strings.Contains(result, "Context Resource Warning") {
-		t.Error("expected backpressure section when slot usage > 70%, got none")
+		t.Error("expected backpressure section when context usage > 70%, got none")
 	}
-	// Story 69.1: the body is now a per-tier constant, so assert on the tier's
-	// qualitative wording instead of a slot percentage. 8/10 = 80% → elevated
-	// (default threshold 70, critical boundary 85).
+	// Story 69.1: the body is a per-tier constant, so assert on the tier's
+	// qualitative wording instead of a percentage.
 	if !strings.Contains(result, "Context message slots are running low.") {
 		t.Errorf("expected elevated-tier wording in backpressure text, got:\n%s", result)
 	}
 	if strings.Contains(result, "80%") {
-		t.Error("backpressure text must not carry the slot percentage (breaks the prompt cache prefix)")
+		t.Error("backpressure text must not carry the usage percentage (breaks the prompt cache prefix)")
 	}
 }
 
 func TestBackpressureSection_BelowThreshold(t *testing.T) {
-	k, ctxMgr, proc := setupBackpressureKernel(t, 10)
-	for i := range 5 {
-		role := rnixctx.RoleUser
-		if i%2 == 1 {
-			role = rnixctx.RoleAssistant
-		}
-		_ = ctxMgr.AppendMessage(proc.CtxID, role, "x")
-	}
+	k, _, proc := setupBackpressureKernel(t, 10)
+	setBackpressurePct(proc, 50)
 
 	sections := registerSections(proc, k, "")
 	result := sections.Build()
 
 	if strings.Contains(result, "Context Resource Warning") {
-		t.Error("backpressure section should NOT appear when slot usage <= 70%")
+		t.Error("backpressure section should NOT appear when context usage <= 70%")
 	}
 }
 
 func TestBackpressureSection_AtExactThreshold(t *testing.T) {
-	k, ctxMgr, proc := setupBackpressureKernel(t, 10)
-	for i := range 7 {
-		role := rnixctx.RoleUser
-		if i%2 == 1 {
-			role = rnixctx.RoleAssistant
-		}
-		_ = ctxMgr.AppendMessage(proc.CtxID, role, "x")
-	}
+	k, _, proc := setupBackpressureKernel(t, 10)
+	setBackpressurePct(proc, 70)
 
 	sections := registerSections(proc, k, "")
 	result := sections.Build()
@@ -147,16 +140,9 @@ func TestBackpressureSection_AtExactThreshold(t *testing.T) {
 }
 
 func TestBackpressureSection_CustomThreshold(t *testing.T) {
-	k, ctxMgr, proc := setupBackpressureKernel(t, 10)
+	k, _, proc := setupBackpressureKernel(t, 10)
 	proc.BackpressureThreshold = 50.0
-
-	for i := range 6 {
-		role := rnixctx.RoleUser
-		if i%2 == 1 {
-			role = rnixctx.RoleAssistant
-		}
-		_ = ctxMgr.AppendMessage(proc.CtxID, role, "x")
-	}
+	setBackpressurePct(proc, 60)
 
 	sections := registerSections(proc, k, "")
 	result := sections.Build()

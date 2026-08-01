@@ -346,6 +346,8 @@ deferred_skills:
 
 3. **slot 不足回滚**（`tool_exec.go:880`）：specialize 加载一个 skill 至少需要 2 个 ctx slot（tool result + user message），不够则**完整回滚**：从 `proc.Skills` / `SkillBodies` / `SkillDirs` 删除，并从 `AllowedDevices` 移除该 skill 引入的设备——保持事务一致性
 
+   ⚠️ **Story 71.1 起该回滚在生产路径下结构性不可达**：槽位上限已取消（`MaxSize == 0` 是生产默认），`AvailableSlots` 返回 `unlimitedSlots` 哨兵，故 `slots < 2` 恒假。仅当运维显式配置 `ctx_size` 逃生阀（`SpawnOpts.CtxSize` / `agent.yaml ctx_size` > 0）时才可达。代码保留、已加注释，Story 71.2 重写回收算术时一并评估去留。
+
 ### 路径与 trust 防护
 
 - **path traversal 拦截**（`loader.go:88`）：skill name 含 `/`、`\`、`..` 直接拒绝

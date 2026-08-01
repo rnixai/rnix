@@ -398,7 +398,7 @@ func (k *KernelImpl) Spawn(intent string, agent *agents.AgentInfo, opts SpawnOpt
 			opts.ContextBudget = agent.Manifest.ContextBudget
 		}
 
-		// CtxSize priority: opts (CLI/Compose) > agent manifest > DefaultCtxSize
+		// CtxSize priority: opts (CLI/Compose) > agent manifest > 0 (no ceiling)
 		if opts.CtxSize == 0 && agent.Manifest.CtxSize > 0 {
 			opts.CtxSize = agent.Manifest.CtxSize
 		}
@@ -642,13 +642,16 @@ func (k *KernelImpl) Spawn(intent string, agent *agents.AgentInfo, opts SpawnOpt
 		// Use pre-allocated context (fork-continue path)
 		cid = opts.PreallocatedCtxID
 		proc.CtxID = cid
-		proc.CtxSize = DefaultCtxSize
+		proc.CtxSize = 0
 	} else {
-		// Allocate context
-		effectiveCtxSize := DefaultCtxSize
-		if opts.CtxSize > 0 {
-			effectiveCtxSize = opts.CtxSize
-		}
+		// Allocate context. Story 71.1 AC4: the production default is NO slot
+		// ceiling. Slots measure structure (message count), capacity is measured in
+		// tokens, and the two have no stable conversion rate — the 256-slot default
+		// was a量纲 error that fired at roughly 36k tokens and pre-empted the token
+		// axis on every single compaction. A positive opts.CtxSize
+		// (CLI/Compose/agent.yaml ctx_size) still imposes a ceiling: the escape
+		// hatch survives, only the default changed.
+		effectiveCtxSize := max(opts.CtxSize, 0)
 		proc.CtxSize = effectiveCtxSize
 		ctxAllocStart := time.Now()
 		var err error

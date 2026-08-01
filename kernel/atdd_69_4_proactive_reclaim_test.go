@@ -337,7 +337,8 @@ func TestATDD_69_4_AC7_LowWatermarkLeavesBytesIdentical(t *testing.T) {
 	buildIncidentFixture(t, ctxMgr, cid)
 
 	// Leave TokenLimit at its default (200k): the fixture's ~28k usage is ~14%,
-	// far below the 60% watermark. Slot usage is 82/4096 ≈ 2%, also below.
+	// far below the 60% watermark. (Story 71.1 retired the slot watermark, so the
+	// token axis is the only gate left to stay below.)
 	usage, err := ctxMgr.TokenUsage(cid)
 	if err != nil {
 		t.Fatalf("TokenUsage: %v", err)
@@ -345,9 +346,6 @@ func TestATDD_69_4_AC7_LowWatermarkLeavesBytesIdentical(t *testing.T) {
 	watermark := proc.effectiveCompactThreshold() * proactiveReclaimWatermarkRatio
 	if usage.Percentage > watermark {
 		t.Fatalf("precondition: token usage %.1f%% must sit below the %.1f%% watermark", usage.Percentage, watermark)
-	}
-	if usage.SlotPercentage > proc.effectiveSlotCompactThreshold()*proactiveReclaimWatermarkRatio {
-		t.Fatalf("precondition: slot usage %.1f%% must sit below the watermark", usage.SlotPercentage)
 	}
 	// And there IS something reclaimable — otherwise the assertion is vacuous.
 	if countLeakedInColdZone(snapshotKernelMessages(t, ctxMgr, cid)) == 0 {
@@ -436,33 +434,13 @@ func TestATDD_69_4_AC1_YieldGateDeclinesSmallBatches(t *testing.T) {
 	}
 }
 
-// TestATDD_69_4_AC1_SlotWatermarkAloneTriggers pins that either axis can open
-// the watermark gate. Token usage stays low; slot usage alone crosses.
-func TestATDD_69_4_AC1_SlotWatermarkAloneTriggers(t *testing.T) {
-	// MaxSize 84 for 82 messages → 97.6% slots, well over the 60% watermark,
-	// while TokenLimit stays at the 200k default → ~14% tokens.
-	k, ctxMgr, proc, cid := setupReclaimKernel(t, 84)
-	buildIncidentFixture(t, ctxMgr, cid)
-
-	usage, _ := ctxMgr.TokenUsage(cid)
-	if usage.Percentage > proc.effectiveCompactThreshold()*proactiveReclaimWatermarkRatio {
-		t.Fatalf("precondition: token axis must stay below the watermark, got %.1f%%", usage.Percentage)
-	}
-	if usage.SlotPercentage <= proc.effectiveSlotCompactThreshold()*proactiveReclaimWatermarkRatio {
-		t.Fatalf("precondition: slot axis must cross the watermark, got %.1f%%", usage.SlotPercentage)
-	}
-
-	k.reclaimLeakedIfNeeded(proc, 9)
-
-	events := drainReclaimEvents(t, proc)
-	if len(events) != 1 {
-		t.Fatalf("emitted %d CtxReclaim events, want 1", len(events))
-	}
-	if got := events[0].Args["trigger"]; got != "slot_watermark" {
-		t.Errorf("trigger = %v, want slot_watermark", got)
-	}
-	assertKernelPairing(t, ctxMgr, cid)
-}
+// Story 71.1 AC3 retired the slot watermark, so the former
+// TestATDD_69_4_AC1_SlotWatermarkAloneTriggers ("token low, slots high → fires
+// with trigger=slot_watermark") no longer describes intended behaviour. Its
+// replacement asserts the OPPOSITE and lives in
+// atdd_71_1_token_axis_slot_decoupling_test.go
+// (TestATDD_71_1_AC7_HighMessageCountLowTokensDoesNotReclaim), so the scenario
+// stays covered rather than silently disappearing.
 
 // TestATDD_69_4_AC6_EventShape pins the observability contract. The event name
 // is deliberately NOT "Compact": mixing proactive reclamation into the compact
@@ -680,34 +658,9 @@ func TestATDD_69_4_AC1_YieldGateConstantsArePinned(t *testing.T) {
 	}
 }
 
-// TestATDD_69_4_AC6_BothAxesTrigger covers the third trigger classification,
-// "both", which the token-only (AC6) and slot-only (AC1_SlotWatermarkAlone)
-// tests leave unexecuted. Both axes cross the watermark in the same step, so the
-// classifier must report "both" rather than either single-axis label.
-func TestATDD_69_4_AC6_BothAxesTrigger(t *testing.T) {
-	// MaxSize 100 for 82 messages → 82% slots, over the 60% watermark, while the
-	// token limit is lowered so the token axis crosses too.
-	k, ctxMgr, proc, cid := setupReclaimKernel(t, 100)
-	buildIncidentFixture(t, ctxMgr, cid)
-	raiseTokenWatermark(t, ctxMgr, cid, 70) // token axis → 70%, over the watermark
-
-	usage, _ := ctxMgr.TokenUsage(cid)
-	if usage.Percentage <= proc.effectiveCompactThreshold()*proactiveReclaimWatermarkRatio {
-		t.Fatalf("precondition: token axis must cross the watermark, got %.1f%%", usage.Percentage)
-	}
-	if usage.SlotPercentage <= proc.effectiveSlotCompactThreshold()*proactiveReclaimWatermarkRatio {
-		t.Fatalf("precondition: slot axis must cross the watermark, got %.1f%%", usage.SlotPercentage)
-	}
-
-	k.reclaimLeakedIfNeeded(proc, 13)
-
-	events := drainReclaimEvents(t, proc)
-	if len(events) != 1 {
-		t.Fatalf("emitted %d CtxReclaim events, want 1", len(events))
-	}
-	if got := events[0].Args["trigger"]; got != "both" {
-		t.Errorf("trigger = %v, want both", got)
-	}
-	assertKernelPairing(t, ctxMgr, cid)
-}
+// The former TestATDD_69_4_AC6_BothAxesTrigger covered the "both" trigger
+// classification. Story 71.1 AC3 removed the slot watermark, so "both" is no
+// longer reachable in either classifier (kernel/compact.go) — a test asserting it
+// would pin behaviour that cannot occur. The surviving single-axis label is
+// covered by TestATDD_69_4_AC6_EventShape.
 

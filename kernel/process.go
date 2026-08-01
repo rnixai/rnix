@@ -288,8 +288,7 @@ type Process struct {
 
 	// Context compact (Story 31.2) — mu protected
 	CompactThreshold      float64                          // 0 = use default (80.0); >0 = trigger compact when TokenUsage > threshold
-	SlotCompactThreshold  float64                          // 0 = use default (80.0); >0 = trigger compact when slot usage% > threshold
-	BackpressureThreshold float64                          // 0 = use default (70.0); >0 = inject backpressure section when slot usage% > threshold
+	BackpressureThreshold float64                          // 0 = use default (70.0); >0 = inject backpressure section when context TOKEN usage% > threshold (Story 71.1 moved this axis off slots)
 	CompactTimeout        time.Duration                    // 0 = use default (30s); >0 = timeout for compact LLM call
 	ReadFileState         map[string]rnixctx.ReadFileEntry // tracks recently read files for post-compact restore
 	compactMu             sync.Mutex                       // prevents concurrent compact operations (auto + manual IPC)
@@ -1227,16 +1226,6 @@ const minReclaimTokens = 1000
 // for the single cache invalidation it causes.
 const minReclaimRatioPct = 20
 
-const DefaultSlotCompactThreshold = 80.0
-
-// effectiveSlotCompactThreshold returns the configured slot compact threshold, defaulting to 80%.
-func (p *Process) effectiveSlotCompactThreshold() float64 {
-	if p.SlotCompactThreshold > 0 {
-		return p.SlotCompactThreshold
-	}
-	return DefaultSlotCompactThreshold
-}
-
 const DefaultCompactTimeout = 30 * time.Second
 
 func (p *Process) effectiveCompactTimeout() time.Duration {
@@ -1253,6 +1242,53 @@ func (p *Process) effectiveBackpressureThreshold() float64 {
 		return p.BackpressureThreshold
 	}
 	return DefaultBackpressureThreshold
+}
+
+// contextCapacityConfigured reports whether a real provider context_window backs
+// proc.ContextBudget, i.e. whether ContextBudget may be read as a CAPACITY scale
+// at all.
+//
+// The gate is ContextWindow > 0, NOT merely a non-zero budget, because
+// ContextBudget is an overloaded field: besides being derived from the window
+// (window*9/10, kernel/ctx_token_limit.go) it is also an explicit PER-STEP
+// input-token leash set through agent.yaml's context_budget / init.yaml /
+// SpawnOpts / a supervisor ChildSpec, which reason.go compares against a single
+// step's InputTokens. Those values are deliberately small (4096 is a realistic
+// manifest value) and carry no claim about the model's total window. Treating
+// one as a capacity denominator pins every consumer at 100%.
+func (p *Process) contextCapacityConfigured() bool {
+	return p.ContextWindow > 0 && p.ContextBudget > 0
+}
+
+// effectiveContextTokenLimit returns the token capacity denominator for this
+// process: the configured ContextBudget when a real context_window backs it,
+// otherwise rnixctx.DefaultTokenLimit (200k) — the exact value
+// Context.effectiveTokenLimit() falls back to, so the kernel-side and
+// context-side denominators cannot drift.
+//
+// Shared by applyCtxTokenLimit (which owns the ctx.TokenLimit hand-off) and the
+// backpressure section (Story 71.1 AC2), so the "is this a capacity scale?"
+// question has exactly one implementation.
+//
+// No lock: ContextWindow / ContextBudget are written only during spawn / resume
+// (kernel/ctx_token_limit.go, load_suspended.go, resume.go), all strictly before
+// proc.Start(), and never mutated by the running process. applyCtxTokenLimit
+// already read them unlocked for the same reason.
+func (p *Process) effectiveContextTokenLimit() int {
+	if p.contextCapacityConfigured() {
+		return p.ContextBudget
+	}
+	return rnixctx.DefaultTokenLimit
+}
+
+// GetLastInputTokens returns the most recent LLM call's prompt input tokens
+// under proc.mu (reason.go writes the field on every step). Section ComputeFns
+// take this lock the same way loaded_skills does — Sections.Build() is never
+// called with proc.mu held.
+func (p *Process) GetLastInputTokens() int {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return p.LastInputTokens
 }
 
 // effectiveLoopThreshold returns the fine-grain loop detection threshold.

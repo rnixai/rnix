@@ -142,6 +142,17 @@ const resumeFallbackHeadroom = 3
 // 2391→2392→2393→2394 chain: every revival immediately compacted, timed out
 // after 30s, and died. Killing is now the LAST resort, reached only when the
 // deterministic reclamation also came up empty.
+//
+// ⚠️ Since Story 71.1 (AC4) this returns true unconditionally when no slot
+// ceiling is configured: AvailableSlots yields the unlimitedSlots sentinel, so
+// both the needSlots computation and the final `avail >= resumeFallbackHeadroom`
+// comparison are decided in advance. The two callers' finishProcess(
+// ExitContextFull) fallbacks are consequently UNREACHABLE.
+//
+// Those fallbacks must stay exactly as they are. Story 71.4 AC6 requires that
+// the kill-on-resume behaviour does not come back, and whoever reads that dead
+// branch later needs this note to know its unreachability came from removing the
+// slot ceiling here, not from anything 71.4 did.
 func (k *KernelImpl) reclaimForResume(proc *Process) (mechanicalFallbackResult, bool) {
 	needSlots := resumeFallbackHeadroom
 	if avail, err := k.ctxMgr.AvailableSlots(proc.CtxID); err == nil && avail < resumeFallbackHeadroom {
@@ -160,10 +171,31 @@ func (k *KernelImpl) reclaimForResume(proc *Process) (mechanicalFallbackResult, 
 	return res, avail >= resumeFallbackHeadroom
 }
 
+// slotCeilingUnloadThreshold is the slot-usage percentage above which
+// unloadForResume reclaims. It is a plain constant because the process field it
+// used to read (SlotCompactThreshold) had NO writer anywhere in the tree — the
+// field and its "0 = use default" accessor advertised a knob that was in fact
+// hardcoded 80.0, so Story 71.1 deleted the pretence and kept the number (Epic 67
+// "命名诚实化" precedent).
+//
+// Only reachable when a caller passes a positive ctxSize, i.e. when an operator
+// explicitly configured a slot ceiling. Both production resume paths pass 0 since
+// Story 71.1.
+const slotCeilingUnloadThreshold = 80.0
+
 // unloadForResume proactively reclaims context BEFORE a revived process starts
 // reasoning (Story 69.3 AC5/AC6 preventive half). A snapshot restored right at
 // its slot ceiling hits preCompactForToolCalls on step one, which is how a
 // resumed process replays the very failure it was suspended for.
+//
+// ⚠️ STRUCTURALLY NO-OP IN PRODUCTION since Story 71.1 (AC4): the pressure it
+// measures is slot pressure, and there is no slot ceiling any more — both resume
+// paths therefore pass ctxSize 0 and return at the first line. It is kept, rather
+// than deleted, because the ceiling survives as an operator escape hatch
+// (SpawnOpts.CtxSize / agent.yaml ctx_size) and this is the only thing protecting
+// such a process on revival. Do NOT read its existence as evidence that resumes
+// are being trimmed today; the equivalent token-axis protection is
+// reclaimLeakedIfNeeded plus autoCompactIfNeeded on step one.
 //
 // Deliberately NOT gated on proc.CompactionDisabled: disabling routine
 // compaction must not mean "prefer to hang". This is fault handling, not
@@ -176,7 +208,7 @@ func (k *KernelImpl) unloadForResume(proc *Process, ctxSize int, label string) {
 	if err != nil {
 		return
 	}
-	threshold := proc.effectiveSlotCompactThreshold()
+	threshold := slotCeilingUnloadThreshold
 	if float64(used)/float64(ctxSize)*100 <= threshold {
 		return
 	}
@@ -252,36 +284,30 @@ func (k *KernelImpl) reclaimLeakedIfNeeded(proc *Process, step int) {
 
 	start := time.Now()
 
-	// One TokenUsage call covers both axes: since Story 69.2 TokenStats carries
-	// SlotUsed / SlotMax / SlotPercentage read under the SAME read lock as the
-	// token total. Calling SlotUsage separately (as autoCompactIfNeeded does)
-	// would take a second lock and could mix two different context states into
-	// one gate decision.
+	// One TokenUsage call covers both the token total and (since Story 69.2) the
+	// slot fields, read under the SAME read lock. Story 71.1 retired the slot
+	// TRIGGER, so only usage.Percentage gates this now; the slot fields survive
+	// purely as observability (ipc/protocol.go ContextStatsWire).
 	usage, err := k.ctxMgr.TokenUsage(proc.CtxID)
 	if err != nil {
 		return
 	}
 
 	tokenWatermark := proc.effectiveCompactThreshold() * proactiveReclaimWatermarkRatio
-	slotWatermark := proc.effectiveSlotCompactThreshold() * proactiveReclaimWatermarkRatio
 
-	tokenTriggered := usage.Percentage > tokenWatermark
-	slotTriggered := usage.SlotMax > 0 && usage.SlotPercentage > slotWatermark
-
-	if !tokenTriggered && !slotTriggered {
+	if usage.Percentage <= tokenWatermark {
 		return
 	}
 
-	// Trigger classification mirrors autoCompactIfNeeded's shape, with
-	// _watermark suffixes so an event consumer can never confuse a proactive
-	// reclamation trigger with a compaction one.
+	// Trigger classification keeps the _watermark suffix so an event consumer can
+	// never confuse a proactive reclamation trigger with a compaction one.
+	//
+	// Story 71.1 AC3: the value域 lost `slot_watermark` (and with it the `both`
+	// degeneracy) along with the slot trigger axis. Token pressure is now the only
+	// way to reach this line, so the label is a constant rather than a
+	// classification — kept as a named variable because the event contract has
+	// always carried a `trigger` key and consumers read it.
 	trigger := "token_watermark"
-	if slotTriggered && !tokenTriggered {
-		trigger = "slot_watermark"
-	}
-	if slotTriggered && tokenTriggered {
-		trigger = "both"
-	}
 
 	// Yield gate: an absolute floor for small contexts, scaled by the reclaimable
 	// pool for large ones. usage.Used includes the system prompt, which can never
@@ -344,9 +370,18 @@ func (k *KernelImpl) reclaimLeakedIfNeeded(proc *Process, step int) {
 	}
 }
 
-// autoCompactIfNeeded checks if context token usage or slot usage exceeds the
-// compact threshold and triggers automatic compaction if so. Best-effort:
-// failures are logged but do not terminate the process.
+// autoCompactIfNeeded checks if context token usage exceeds the compact
+// threshold and triggers automatic compaction if so. Best-effort: failures are
+// logged but do not terminate the process.
+//
+// Story 71.1 AC3 retired the second, slot-based trigger. Slots量的是 STRUCTURE
+// (message count); tokens量的是 CAPACITY (volume). The two have no stable
+// conversion rate — 205 slots measured anywhere from 36.7k to 146.2k real tokens
+// (4.0x spread) — so a slot threshold is a量纲 error, not a mis-calibration, and
+// no threshold value could fix it. Because the slot axis fired at ~36k tokens it
+// always preceded the token axis, which is why the incident's 47 compactions were
+// ALL labelled slot_threshold and the freshly-connected token scale (Story 69.2)
+// never once got to speak.
 func (k *KernelImpl) autoCompactIfNeeded(proc *Process, step int) {
 	if proc.CompactionDisabled {
 		return
@@ -357,33 +392,24 @@ func (k *KernelImpl) autoCompactIfNeeded(proc *Process, step int) {
 	}
 	defer proc.compactMu.Unlock()
 
+	// Slot figures come from this SAME TokenUsage snapshot rather than a second
+	// SlotUsage() call: two calls take two locks and could mix two different
+	// context states into one event (the reason reclaimLeakedIfNeeded named this
+	// function as its counter-example). They are observability only now.
 	usage, err := k.ctxMgr.TokenUsage(proc.CtxID)
 	if err != nil {
 		return
 	}
+	slotUsed, slotMax := usage.SlotUsed, usage.SlotMax
 
-	tokenThreshold := proc.effectiveCompactThreshold()
-	tokenTriggered := usage.Percentage > tokenThreshold
-
-	slotTriggered := false
-	slotUsed, slotMax, slotErr := k.ctxMgr.SlotUsage(proc.CtxID)
-	if slotErr == nil && slotMax > 0 {
-		slotPct := float64(slotUsed) / float64(slotMax) * 100
-		slotThreshold := proc.effectiveSlotCompactThreshold()
-		slotTriggered = slotPct > slotThreshold
-	}
-
-	if !tokenTriggered && !slotTriggered {
+	if usage.Percentage <= proc.effectiveCompactThreshold() {
 		return
 	}
 
+	// Token pressure is the only remaining path to this line, so `trigger` is a
+	// constant. It stays a named variable because the Compact event contract has
+	// always carried the key and CompactOpts propagates it into context/compact.go.
 	trigger := "token_threshold"
-	if slotTriggered && !tokenTriggered {
-		trigger = "slot_threshold"
-	}
-	if slotTriggered && tokenTriggered {
-		trigger = "both"
-	}
 
 	compactStart := time.Now()
 	log.Printf("[kernel] pid=%d step=%d auto-compact triggered (%s): token=%.1f%%, slots=%d/%d",
@@ -412,16 +438,18 @@ func (k *KernelImpl) autoCompactIfNeeded(proc *Process, step int) {
 		// left the context untouched every single time, so the very next step
 		// hit the same wall.
 		//
-		// Slot reclamation is requested only when this trigger actually
-		// involved the slot axis; a pure token-threshold trigger is served by
-		// the in-place prune alone (dropping history is the costlier remedy).
-		needSlots := 0
-		if slotTriggered && slotMax > 0 {
-			// Bring usage back under the slot threshold.
-			target := int(float64(slotMax) * proc.effectiveSlotCompactThreshold() / 100)
-			needSlots = max(slotUsed-target, 1)
-		}
-		fallback := k.runMechanicalFallback(proc, needSlots)
+		// needSlots is 0, i.e. the fallback runs the in-place token prune only and
+		// never calls DropOldestRounds.
+		//
+		// TODO(Story 71.2): this leaves the mechanical fallback on one leg. The
+		// retired arithmetic here derived a slot target from slotMax ×
+		// SlotCompactThreshold, which cannot survive Story 71.1's removal of the
+		// slot ceiling (slotMax is now 0). Rebuilding the reclamation TARGET on the
+		// token axis — a minimum release floor (`clear_at_least`) plus a landing
+		// point below the trigger with a ≥1.5:1 hysteresis ratio — is Story 71.2
+		// AC1/AC2's job. Deliberately NOT invented here: a made-up token-axis
+		// target would be the third un-validated threshold in this subsystem.
+		fallback := k.runMechanicalFallback(proc, 0)
 
 		// pre_tokens must be sourced locally here: on the failure path `result`
 		// is nil, so result.PreTokens (used by the success path below) would
@@ -485,6 +513,19 @@ func (k *KernelImpl) autoCompactIfNeeded(proc *Process, step int) {
 // upcoming AppendAssistantWithToolCalls (1 assistant + N tool results) and
 // triggers a compact if not. Best-effort: TryLock failure means another compact
 // is running so we skip and let the caller try the append directly.
+//
+// ⚠️ STRUCTURALLY NO-OP IN PRODUCTION since Story 71.1 (AC4/F3). With no slot
+// ceiling AvailableSlots returns the unlimitedSlots sentinel, so
+// `available >= required` is always true and this function returns nil on its
+// second line — everything below (the compaction, the mechanical fallback, the
+// post-compact top-up) is unreachable. The whole function is a SLOT-pressure
+// remedy; the atomic-admission guarantee it was protecting lives in
+// context.AppendAssistantWithToolCalls and is untouched.
+//
+// Kept rather than deleted for two reasons: an explicit ctx_size escape hatch
+// still reaches it, and Story 71.2 rewrites the reclamation arithmetic on the
+// token axis and will decide then whether any of this survives. Registered in
+// deferred-work.md — do not read its existence as evidence that it still runs.
 func (k *KernelImpl) preCompactForToolCalls(proc *Process, toolCallCount int, step int) error {
 	required := 1 + toolCallCount
 	available, err := k.ctxMgr.AvailableSlots(proc.CtxID)

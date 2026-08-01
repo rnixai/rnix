@@ -56,23 +56,32 @@ func TestManager_CtxAlloc(t *testing.T) {
 		}
 	})
 
-	t.Run("rejects invalid size", func(t *testing.T) {
-		m := NewManager()
-		_, err := m.CtxAlloc(0)
-		if err == nil {
-			t.Fatal("expected error for size 0")
-		}
-		var ctxErr *ContextError
-		if !errors.As(err, &ctxErr) {
-			t.Fatalf("expected *ContextError, got %T", err)
-		}
-		if ctxErr.Code != types.ErrInternal {
-			t.Fatalf("expected ErrInternal, got %s", ctxErr.Code)
-		}
-
-		_, err = m.CtxAlloc(-1)
-		if err == nil {
-			t.Fatal("expected error for negative size")
+	// Story 71.1 AC4: `size <= 0` is no longer an error — it means NO LIMIT, which
+	// is the production default. 0 and negative are synonymous: "no limit" has no
+	// second meaning, so there is no negative=disable convention here (contrast
+	// StepTimeout / loop_threshold).
+	t.Run("non-positive size means no limit", func(t *testing.T) {
+		for _, size := range []int{0, -1} {
+			m := NewManager()
+			cid, err := m.CtxAlloc(size)
+			if err != nil {
+				t.Fatalf("CtxAlloc(%d) failed: %v", size, err)
+			}
+			ctx, err := m.getContext("test", cid)
+			if err != nil {
+				t.Fatalf("getContext failed: %v", err)
+			}
+			if ctx.MaxSize != 0 {
+				t.Errorf("CtxAlloc(%d): MaxSize = %d, want 0", size, ctx.MaxSize)
+			}
+			avail, err := m.AvailableSlots(cid)
+			if err != nil {
+				t.Fatalf("AvailableSlots: %v", err)
+			}
+			if avail != unlimitedSlots {
+				t.Errorf("CtxAlloc(%d): AvailableSlots = %d, want the unlimitedSlots sentinel %d",
+					size, avail, unlimitedSlots)
+			}
 		}
 	})
 }
