@@ -27,16 +27,16 @@ import (
 //
 // Inputs:
 //   - proc           — process whose identity / Skills / AllowedDevices are
-//                      already set. proc.PrimaryDevice must be set by the
-//                      caller (rehydrate does NOT open the LLM FD).
+//     already set. proc.PrimaryDevice must be set by the
+//     caller (rehydrate does NOT open the LLM FD).
 //   - stepsDir       — absolute path to <baseDir>/data/steps/<uuid>.
 //   - ctxSizeHint    — requested ctx slot ceiling; 0 (production default since
-//                      Story 71.1) = no ceiling. See step 6 for why the old
-//                      "fall back to the snapshot's CtxSize" defence was dropped.
+//     Story 71.1) = no ceiling. See step 6 for why the old
+//     "fall back to the snapshot's CtxSize" defence was dropped.
 //   - maxStep        — Story 42.3 history-replay truncation. 0 = no truncation
-//                      (LoadSuspendedFromDisk default). > 0 = consider only
-//                      records with step <= maxStep when picking lastStep /
-//                      messages; the file is still scanned for totalSteps.
+//     (LoadSuspendedFromDisk default). > 0 = consider only
+//     records with step <= maxStep when picking lastStep /
+//     messages; the file is still scanned for totalSteps.
 //
 // Returns (lastStep, totalSteps, err). totalSteps is the highest step number
 // observed in steps.jsonl regardless of any caller-side truncation; callers

@@ -73,6 +73,14 @@ func (k *KernelImpl) resolveDriverTimeout(proc *Process) time.Duration {
 	// ① Project-level (the merged global∪project view — a project miss
 	//    cannot hide a global declaration, a project hit is more specific).
 	if sec := lookupProjectDriverTimeoutSec(proc.ProjectConfig, proc.Provider); sec > 0 {
+		// Guard: sec × 1e9 overflows int64 for sec > ~9.2e9 (≈292 years).
+		// Clamp to the driver family default rather than wrapping negative —
+		// a negative Duration would bypass the ×4 overflow guard in
+		// resolveCompactTimeout and could wrap back to a ~100-year positive
+		// value (the exact "never times out" outcome AC2-③ forbids).
+		if sec > int(math.MaxInt64/int64(time.Second)) {
+			return llm.DefaultTimeout
+		}
 		return time.Duration(sec) * time.Second
 	}
 	// ② Global snapshot via injected closure.
@@ -116,9 +124,13 @@ func (k *KernelImpl) resolveCompactTimeout(proc *Process) {
 	driverTimeout := k.resolveDriverTimeout(proc)
 
 	if proc.CompactTimeout == 0 {
-		// Derive: driverTimeout × 4, clamped on overflow.
+		// Derive: driverTimeout × 4, clamped on overflow. The <= 0 check is
+		// belt-and-suspenders: resolveDriverTimeout guarantees a positive
+		// result, but a negative value slipping through (e.g. from a future
+		// closure path) would bypass the > MaxInt64/4 guard and wrap back to
+		// a large positive — the "never times out" outcome AC2-③ forbids.
 		var derived time.Duration
-		if driverTimeout > time.Duration(math.MaxInt64/compactTimeoutMultiplier) {
+		if driverTimeout <= 0 || driverTimeout > time.Duration(math.MaxInt64/compactTimeoutMultiplier) {
 			derived = llm.DefaultTimeout * compactTimeoutMultiplier // 20 min ceiling
 			log.Printf("[kernel] pid=%d driver timeout %v overflows ×%d; compact timeout clamped to %v",
 				proc.PID, driverTimeout, compactTimeoutMultiplier, derived)

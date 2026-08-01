@@ -190,7 +190,11 @@ func TestATDD_71_3_AC2_SmallTimeoutSecStillDerives(t *testing.T) {
 		t.Fatalf("Spawn: %v", err)
 	}
 	proc, _ := k.GetProcess(pid)
-	<-proc.Done
+	select {
+	case <-proc.Done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("timed out")
+	}
 
 	driverTimeout := 10 * time.Second
 	if proc.CompactTimeout < driverTimeout {
@@ -213,7 +217,11 @@ func TestATDD_71_3_AC2_LargeTimeoutSecDerives(t *testing.T) {
 		t.Fatalf("Spawn: %v", err)
 	}
 	proc, _ := k.GetProcess(pid)
-	<-proc.Done
+	select {
+	case <-proc.Done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("timed out")
+	}
 
 	want := 600 * time.Second * compactTimeoutMultiplier // 40min
 	if proc.CompactTimeout != want {
@@ -236,7 +244,11 @@ func TestATDD_71_3_AC2_ExplicitBelowDriverNotClamped(t *testing.T) {
 		t.Fatalf("Spawn: %v", err)
 	}
 	proc, _ := k.GetProcess(pid)
-	<-proc.Done
+	select {
+	case <-proc.Done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("timed out")
+	}
 
 	// 值生效，不被 clamp（警告走 log.Printf，不在返回值中）。
 	if proc.CompactTimeout != 5*time.Second {
@@ -261,7 +273,11 @@ func TestATDD_71_3_AC2_OverflowClampedToPositive(t *testing.T) {
 		t.Fatalf("Spawn: %v", err)
 	}
 	proc, _ := k.GetProcess(pid)
-	<-proc.Done
+	select {
+	case <-proc.Done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("timed out")
+	}
 
 	if proc.CompactTimeout <= 0 {
 		t.Fatalf("CompactTimeout = %v, must be positive (overflow must clamp, not wrap negative)", proc.CompactTimeout)
@@ -274,6 +290,40 @@ func TestATDD_71_3_AC2_OverflowClampedToPositive(t *testing.T) {
 	// 但钳位值 20min 仍是一个合理的正数上界）。
 	if proc.CompactTimeout < llm.DefaultTimeout {
 		t.Errorf("CompactTimeout %v < llm.DefaultTimeout %v", proc.CompactTimeout, llm.DefaultTimeout)
+	}
+}
+
+func TestATDD_71_3_AC2_FirstLevelOverflowClamped(t *testing.T) {
+	// timeout_sec so large that the FIRST multiplication (sec × 1e9 → Duration)
+	// overflows int64. resolveDriverTimeout must clamp to llm.DefaultTimeout
+	// before the value reaches resolveCompactTimeout's ×4 guard.
+	llmFile := &mockLLMFile{readData: makeLLMResponse("done", 10)}
+	k, _ := newProjectWindowKernel(t, "prov", llmFile)
+
+	// MaxInt64/1e9 + 1 ≈ 9.2e9 — the first multiplication wraps negative.
+	firstLevelOverflow := int(math.MaxInt64/int64(time.Second)) + 1
+	pid, err := k.Spawn("first-level-overflow", nil, SpawnOpts{
+		Provider:      "prov",
+		ProjectConfig: projectConfigWithTimeout("prov", firstLevelOverflow),
+	})
+	if err != nil {
+		t.Fatalf("Spawn: %v", err)
+	}
+	proc, _ := k.GetProcess(pid)
+	select {
+	case <-proc.Done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("timed out")
+	}
+
+	// resolveDriverTimeout clamps to llm.DefaultTimeout (5min), so derivation
+	// produces 5min × 4 = 20min — NOT a wrapped ~100-year positive.
+	want := llm.DefaultTimeout * compactTimeoutMultiplier // 20min
+	if proc.CompactTimeout != want {
+		t.Errorf("CompactTimeout = %v, want %v (first-level overflow must clamp to DefaultTimeout before ×4)", proc.CompactTimeout, want)
+	}
+	if proc.CompactTimeout <= 0 {
+		t.Fatalf("CompactTimeout = %v, must be positive", proc.CompactTimeout)
 	}
 }
 

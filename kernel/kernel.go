@@ -104,7 +104,7 @@ type SpawnOpts struct {
 	// request would vanish with no error.
 	LoopThreshold       int
 	CoarseLoopThreshold int
-	StartStep        int           // Resume: start reasoning loop from this step (0 = normal start from 1)
+	StartStep           int // Resume: start reasoning loop from this step (0 = normal start from 1)
 
 	PreallocatedCtxID types.CtxID           // non-zero = skip CtxAlloc, use this pre-setup context
 	SkipReasonLoop    bool                  // true = don't open LLM device or start reasonStep goroutine

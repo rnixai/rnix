@@ -79,13 +79,13 @@ type Process struct {
 	LogChan         chan types.LogEntry
 	Done            chan ExitStatus
 	CreatedAt       time.Time
-	DeadAt          time.Time     // set by reapProcess, used for TTL cleanup
-	Exit            *ExitStatus   // non-nil in Zombie/Dead
-	CtxID           types.CtxID   // context allocated by Spawn
-	Result          string        // final output from reasoning
-	ResultPartial   bool          // true when Result contains incomplete stream content (signal kill)
-	TokensUsed      int           // cumulative token consumption
-	LastInputTokens int           // most recent LLM call's prompt input tokens (for context_budget check)
+	DeadAt          time.Time   // set by reapProcess, used for TTL cleanup
+	Exit            *ExitStatus // non-nil in Zombie/Dead
+	CtxID           types.CtxID // context allocated by Spawn
+	Result          string      // final output from reasoning
+	ResultPartial   bool        // true when Result contains incomplete stream content (signal kill)
+	TokensUsed      int         // cumulative token consumption
+	LastInputTokens int         // most recent LLM call's prompt input tokens (for context_budget check)
 	// Story 66.6 — mid-stream usage ledger (all mu protected). A single CLI
 	// ReasonStep is an entire CLI session (hundreds of API round-trips inside
 	// the CLI process), so TokensUsed stays 0 until `done`. StreamTokensUsed
@@ -107,10 +107,10 @@ type Process struct {
 	// it per native VFS tool dispatch (tool_exec.go). A ps ACTIVE-column liveness
 	// signal that keeps moving during a long step regardless of usage availability.
 	ToolCallCount int
-	ContextBudget   int           // 0 = no limit; >0 = suspend when single-step InputTokens >= ContextBudget
-	CtxSize         int           // context message slot limit used at allocation (for checkpoint)
-	Budget          ProcessBudget // per-process resource budget (mu protected); suspend when exhausted
-	MaxSteps        int           // max reasoning steps for this process (from SpawnOpts.MaxTurns or DefaultMaxSteps)
+	ContextBudget int           // 0 = no limit; >0 = suspend when single-step InputTokens >= ContextBudget
+	CtxSize       int           // context message slot limit used at allocation (for checkpoint)
+	Budget        ProcessBudget // per-process resource budget (mu protected); suspend when exhausted
+	MaxSteps      int           // max reasoning steps for this process (from SpawnOpts.MaxTurns or DefaultMaxSteps)
 
 	// Loop detection (Story 70.1). STEP COUNTS, not durations.
 	// 0 = use the kernel default (30 fine / 60 coarse); NEGATIVE = disable that
@@ -119,8 +119,8 @@ type Process struct {
 	// the disable request.
 	LoopThreshold       int
 	CoarseLoopThreshold int
-	AllowedDevices  []string      // nil/empty = all devices allowed; non-empty = whitelist only
-	DeniedDevices   []string      // device blacklist; checked before AllowedDevices; blocks access regardless of whitelist
+	AllowedDevices      []string // nil/empty = all devices allowed; non-empty = whitelist only
+	DeniedDevices       []string // device blacklist; checked before AllowedDevices; blocks access regardless of whitelist
 	// AllowedTools is the process-level AUTHORITATIVE tool-name whitelist (Story 54.1).
 	// nil/empty = no tool-level constraint; non-empty = only these base-device tools
 	// (by tc.Name, e.g. "Read") may run — so allowed-tools:Read permits Read but denies
@@ -204,26 +204,26 @@ type Process struct {
 	gdbExtraSkills   []string
 
 	// Fallback configuration (Story 23.5)
-	FallbackModel       string            // fallback model name
-	FallbackProvider    string            // fallback provider name; "" = same as primary
-	FallbackDevice      string            // resolved fallback VFS device path; "" = no fallback
+	FallbackModel    string // fallback model name
+	FallbackProvider string // fallback provider name; "" = same as primary
+	FallbackDevice   string // resolved fallback VFS device path; "" = no fallback
 	// FallbackResolveError carries the reason fallback device resolution failed
 	// at spawn (Story 66.4). NOT persisted — a pure spawn-time carrier consumed
 	// by the IPC spawn payload (→ ProgressPayload.Warning) and a delayed
 	// events.jsonl event. Empty when resolution succeeded or no fallback config.
-	FallbackResolveError string           // spawn-time fallback resolve failure reason; "" = ok
-	PrimaryDevice       string            // primary VFS device path (e.g. "/dev/llm/claude")
-	Provider            string            // resolved provider name (immutable after spawn)
-	Model               string            // resolved model name (immutable after spawn)
-	ReasoningEffort     string            // resolved reasoning-effort/level snapshotted from driver (immutable after spawn; Story 55.2); "" = unset
-	DriverMeta          map[string]string // runtime metadata from DriverMetaProvider (immutable after spawn)
-	AgentTemplate       string            // agent manifest name (immutable after spawn; Story 51.4)
-	ContextWindow       int               // per-model context window size (immutable after spawn); 0 = use fallback
-	PlanningEnabled     bool              // deprecated: use FeatureFlags.Planning; kept for agent manifest override compat
-	FeatureFlags        FeatureFlags      // per-process feature flags; copied from kernel at spawn time
-	CompactionDisabled  bool              // true = skip autoCompactIfNeeded (derived from FeatureFlags.Compaction==false)
-	Language            string            // preferred response language (from agent manifest); empty = no preference
-	ProjectDocInjection bool              // inject project-root AGENTS.md into system prompt (Story 35.7); default true, agent.yaml project_doc:false disables
+	FallbackResolveError string            // spawn-time fallback resolve failure reason; "" = ok
+	PrimaryDevice        string            // primary VFS device path (e.g. "/dev/llm/claude")
+	Provider             string            // resolved provider name (immutable after spawn)
+	Model                string            // resolved model name (immutable after spawn)
+	ReasoningEffort      string            // resolved reasoning-effort/level snapshotted from driver (immutable after spawn; Story 55.2); "" = unset
+	DriverMeta           map[string]string // runtime metadata from DriverMetaProvider (immutable after spawn)
+	AgentTemplate        string            // agent manifest name (immutable after spawn; Story 51.4)
+	ContextWindow        int               // per-model context window size (immutable after spawn); 0 = use fallback
+	PlanningEnabled      bool              // deprecated: use FeatureFlags.Planning; kept for agent manifest override compat
+	FeatureFlags         FeatureFlags      // per-process feature flags; copied from kernel at spawn time
+	CompactionDisabled   bool              // true = skip autoCompactIfNeeded (derived from FeatureFlags.Compaction==false)
+	Language             string            // preferred response language (from agent manifest); empty = no preference
+	ProjectDocInjection  bool              // inject project-root AGENTS.md into system prompt (Story 35.7); default true, agent.yaml project_doc:false disables
 
 	// Observation system (Story 27.1)
 	FinalSystemPrompt string       // Full system prompt captured on first reasonStep (mu protected)
@@ -287,12 +287,12 @@ type Process struct {
 	LastCompletedStep atomic.Int64
 
 	// Context compact (Story 31.2) — mu protected
-	CompactThreshold      float64                          // 0 = use default (80.0); >0 = trigger compact when TokenUsage > threshold
-	BackpressureThreshold float64                          // 0 = use default (70.0); >0 = inject backpressure section when context TOKEN usage% > threshold (Story 71.1 moved this axis off slots)
-	CompactTimeout        time.Duration                    // 0 = use default (30s); >0 = timeout for compact LLM call
+	CompactThreshold       float64                          // 0 = use default (80.0); >0 = trigger compact when TokenUsage > threshold
+	BackpressureThreshold  float64                          // 0 = use default (70.0); >0 = inject backpressure section when context TOKEN usage% > threshold (Story 71.1 moved this axis off slots)
+	CompactTimeout         time.Duration                    // 0 = use default (30s); >0 = timeout for compact LLM call
 	compactTimeoutExplicit bool                             // true when CompactTimeout came from opts/manifest (not derivation); gates AC5 disk persistence + AC2-② inversion warning
-	ReadFileState         map[string]rnixctx.ReadFileEntry // tracks recently read files for post-compact restore
-	compactMu             sync.Mutex                       // prevents concurrent compact operations (auto + manual IPC)
+	ReadFileState          map[string]rnixctx.ReadFileEntry // tracks recently read files for post-compact restore
+	compactMu              sync.Mutex                       // prevents concurrent compact operations (auto + manual IPC)
 
 	// Step-level cancel (Story 30.6) — cancel current LLM call without killing process
 	stepCancel context.CancelFunc // mu protected; cancel for current step's LLM call

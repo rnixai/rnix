@@ -261,16 +261,16 @@ type procInfoDisk struct {
 	// provider (e.g. opencodego) cannot reopen their LLM device after a
 	// daemon restart — see EchoMatrix `device not found: /dev/llm/opencodego`
 	// regression.
-	ProjectDir    string   `json:"project_dir,omitempty"`
-	ContextWindow int      `json:"context_window,omitempty"`
+	ProjectDir    string `json:"project_dir,omitempty"`
+	ContextWindow int    `json:"context_window,omitempty"`
 	// Story 71.3 AC5 — explicit compact timeout in milliseconds. Only explicit
 	// (opts/manifest) values are persisted; derived values re-derive on resume.
 	// omitempty keeps legacy proc-info.json clean (absent → 0 → re-derive).
-	CompactTimeoutMs int64  `json:"compact_timeout_ms,omitempty"`
-	ComposeNode   string   `json:"compose_node,omitempty"`
-	ComposeDeps   []string `json:"compose_deps,omitempty"`
-	PipelineIndex int      `json:"pipeline_index"`
-	PipelineTotal int      `json:"pipeline_total"`
+	CompactTimeoutMs int64    `json:"compact_timeout_ms,omitempty"`
+	ComposeNode      string   `json:"compose_node,omitempty"`
+	ComposeDeps      []string `json:"compose_deps,omitempty"`
+	PipelineIndex    int      `json:"pipeline_index"`
+	PipelineTotal    int      `json:"pipeline_total"`
 	// Authoritative exit signal: 0 = success, non-zero = failure.
 	// ExitCodeSet=false (zero value, e.g. legacy snapshots without these fields)
 	// means dashboard must fall back to result-text heuristic.
@@ -346,8 +346,8 @@ func procInfoToDisk(info vfs.ProcInfo) procInfoDisk {
 		PipelineTotal:   info.PipelineTotal,
 		// Story 44.3 AC#1 — persist suspend metadata so daemon restart can
 		// reload Suspended placeholders into procTable.
-		SuspendReason:  info.SuspendReason,
-		IsPaused:       info.IsPaused,
+		SuspendReason:   info.SuspendReason,
+		IsPaused:        info.IsPaused,
 		ExitCode:        info.ExitCode,
 		ExitCodeSet:     info.ExitCodeSet,
 		DriverMeta:      info.DriverMeta,
@@ -421,8 +421,8 @@ func procInfoFromDisk(d procInfoDisk) vfs.ProcInfo {
 		// Story 44.3 AC#1 — restore suspend metadata. SuspendReason is a
 		// transparent string passthrough; PausedAt parses best-effort and
 		// stays zero on parse failure.
-		SuspendReason:  d.SuspendReason,
-		IsPaused:       d.IsPaused,
+		SuspendReason:   d.SuspendReason,
+		IsPaused:        d.IsPaused,
 		ExitCode:        d.ExitCode,
 		ExitCodeSet:     d.ExitCodeSet,
 		DriverMeta:      d.DriverMeta,

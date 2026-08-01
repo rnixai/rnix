@@ -107,6 +107,15 @@ func (k *KernelImpl) LoadSuspendedFromDisk() (int, error) {
 		proc.PipelineIndex = info.PipelineIndex
 		proc.PipelineTotal = info.PipelineTotal
 		proc.ResumedFromStep = info.ResumedFromStep
+		// Story 71.3 AC5 — restore the explicit compact timeout so rehydrate's
+		// resolveCompactTimeout sees a non-zero field and skips derivation.
+		// Without this, daemon restart silently replaces the operator's explicit
+		// value with a derived one, and the next SaveProcInfo (flag=false)
+		// permanently erases it from disk. Shape copied from resume.go:965-967.
+		if info.CompactTimeout > 0 {
+			proc.CompactTimeout = info.CompactTimeout
+			proc.compactTimeoutExplicit = true
+		}
 
 		proc.mu.Lock()
 		proc.SuspendReason = info.SuspendReason
