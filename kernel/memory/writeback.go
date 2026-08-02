@@ -1,7 +1,6 @@
 package memory
 
 import (
-	"bufio"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -12,6 +11,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/rnixai/rnix/internal/jsonl"
 )
 
 // writebackChCap is the buffer size for the writeback job channel.
@@ -77,7 +78,7 @@ type WritebackWorker struct {
 	wg              sync.WaitGroup
 	startOnce       sync.Once
 	stopOnce        sync.Once
-	callerMu        sync.Mutex // protects caller replacement (for testing)
+	callerMu        sync.Mutex   // protects caller replacement (for testing)
 	recallIndex     *RecallIndex // optional, for incremental index updates (Story 35.4)
 	skillWriter     SkillWriter  // optional, for skill suggestions (Story 35.5)
 }
@@ -317,6 +318,12 @@ func ShouldExtract(cfg WritebackConfig, exitCode int, exitReason string, stepsDi
 }
 
 // countToolCalls scans steps.jsonl and counts entries with action == "tool_call".
+//
+// Story 72.1 AC2: the count feeds ShouldExtract's `toolCalls >= TriggerThreshold`
+// gate, so an undercount does not merely lose a log line — knowledge extraction
+// silently fails to trigger when it should. The former 1 MB scanner limit caused
+// exactly that, and the read error was not even checked. The count remains
+// best-effort (signature unchanged), but a read failure now leaves a breadcrumb.
 func countToolCalls(path string) int {
 	f, err := os.Open(path)
 	if err != nil {
@@ -325,16 +332,18 @@ func countToolCalls(path string) int {
 	defer f.Close()
 
 	count := 0
-	scanner := bufio.NewScanner(f)
-	scanner.Buffer(make([]byte, 64*1024), 1024*1024)
-	for scanner.Scan() {
+	scanErr := jsonl.Scan(f, path, func(line []byte) error {
 		// Lightweight extraction: only parse the "action" field
 		var partial struct {
 			Action string `json:"action"`
 		}
-		if json.Unmarshal(scanner.Bytes(), &partial) == nil && partial.Action == "tool_call" {
+		if json.Unmarshal(line, &partial) == nil && partial.Action == "tool_call" {
 			count++
 		}
+		return nil
+	})
+	if scanErr != nil {
+		log.Printf("[writeback] countToolCalls read error for %s: %v (count may be low: %d)", path, scanErr, count)
 	}
 	return count
 }

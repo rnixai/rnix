@@ -1,7 +1,6 @@
 package memory
 
 import (
-	"bufio"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -15,6 +14,8 @@ import (
 	"sync/atomic"
 	"time"
 	"unicode"
+
+	"github.com/rnixai/rnix/internal/jsonl"
 )
 
 // RecallResult is a search result returned to callers of Search and SummarizeRecallResults.
@@ -96,13 +97,13 @@ type memorySource struct {
 //
 // Thread-safe: all mutations and queries are protected by mu.
 type RecallIndex struct {
-	mu      sync.RWMutex
-	index   map[string][]posting  // term → postings
-	docs    map[string][]docEntry // uuid → doc entries
-	indexed map[string]bool       // uuid → already indexed (idempotency)
-	ready   atomic.Bool
+	mu        sync.RWMutex
+	index     map[string][]posting  // term → postings
+	docs      map[string][]docEntry // uuid → doc entries
+	indexed   map[string]bool       // uuid → already indexed (idempotency)
+	ready     atomic.Bool
 	readyCh   chan struct{} // closed when initial build completes
-	readyOnce sync.Once    // protects readyCh from double-close
+	readyOnce sync.Once     // protects readyCh from double-close
 
 	memSources map[string]*memorySource // key → MEMORY.md source (parallel to session index)
 }
@@ -285,20 +286,23 @@ func (ri *RecallIndex) indexProcessDir(uuid string, processDir string) {
 	// Collect all entries and postings without holding the lock
 	var entries []docEntry
 	localPostings := make(map[string][]posting)
-	scanner := bufio.NewScanner(f)
-	scanner.Buffer(make([]byte, 64*1024), 1024*1024)
 
-	for scanner.Scan() {
+	// Story 72.1: unbounded line reads. The former 1 MB limit meant a single
+	// oversized step truncated the index at that point — this is the source of
+	// the user-visible "[recall] scanner error ... token too long" logs. The
+	// error branch below is retained for genuine I/O failures (a parse problem
+	// still deserves a breadcrumb); it just no longer fires on line length.
+	scanErr := jsonl.Scan(f, stepsPath, func(line []byte) error {
 		var partial struct {
 			Step    int    `json:"step"`
 			Summary string `json:"summary"`
 			Action  string `json:"action"`
 		}
-		if json.Unmarshal(scanner.Bytes(), &partial) != nil {
-			continue
+		if json.Unmarshal(line, &partial) != nil {
+			return nil
 		}
 		if partial.Summary == "" && partial.Action == "" {
-			continue
+			return nil
 		}
 
 		entry := docEntry{
@@ -317,9 +321,10 @@ func (ri *RecallIndex) indexProcessDir(uuid string, processDir string) {
 		for _, tok := range tokens {
 			localPostings[tok] = append(localPostings[tok], p)
 		}
-	}
-	if err := scanner.Err(); err != nil {
-		log.Printf("[recall] scanner error for %s: %v", stepsPath, err)
+		return nil
+	})
+	if scanErr != nil {
+		log.Printf("[recall] scanner error for %s: %v", stepsPath, scanErr)
 	}
 
 	if len(entries) == 0 {

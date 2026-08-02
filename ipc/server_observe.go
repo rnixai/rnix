@@ -292,7 +292,14 @@ func (s *Server) handleGetStepDetail(conn net.Conn, rawPayload json.RawMessage) 
 	// Phase B: read StepRecord
 	rec, err := kernel.ReadStep(stepsPath, req.Step)
 	if err != nil {
-		writeResponse(conn, Response{OK: false, Error: &ErrorPayload{Code: "not_found", Message: fmt.Sprintf("step %d not yet recorded", req.Step)}})
+		if errors.Is(err, kernel.ErrStepNotFound) {
+			// The step genuinely does not exist — preserve the original wording.
+			writeResponse(conn, Response{OK: false, Error: &ErrorPayload{Code: "not_found", Message: fmt.Sprintf("step %d not yet recorded", req.Step)}})
+			return
+		}
+		// Story 72.1 AC3: a real read failure must not be reported as
+		// "step not yet recorded" — surface it as an internal error.
+		writeResponse(conn, Response{OK: false, Error: &ErrorPayload{Code: string(types.ErrInternal), Message: fmt.Sprintf("read step %d: %v", req.Step, err)}})
 		return
 	}
 
@@ -368,9 +375,11 @@ func (s *Server) handleListSteps(conn net.Conn, rawPayload json.RawMessage) {
 		return
 	}
 
-	records, total, err := kernel.ReadAllSteps(stepsPath, req.AfterStep)
+	records, total, parseErrors, err := kernel.ReadAllStepsWithErrors(stepsPath, req.AfterStep)
 	if err != nil {
-		writeResponse(conn, Response{OK: false, Error: &ErrorPayload{Code: "NOT_FOUND", Message: "process not found"}})
+		// Story 72.1 AC3: the path was already resolved above, so a failure here
+		// is a genuine read/parse problem — not "process not found".
+		writeResponse(conn, Response{OK: false, Error: &ErrorPayload{Code: string(types.ErrInternal), Message: fmt.Sprintf("read steps: %v", err)}})
 		return
 	}
 
@@ -388,7 +397,7 @@ func (s *Server) handleListSteps(conn net.Conn, rawPayload json.RawMessage) {
 		}
 	}
 
-	respPayload, _ := json.Marshal(ListStepsResponse{Steps: wires, Total: total})
+	respPayload, _ := json.Marshal(ListStepsResponse{Steps: wires, Total: total, ParseErrors: parseErrors})
 	writeResponse(conn, Response{OK: true, Payload: respPayload})
 }
 
@@ -415,9 +424,13 @@ func (s *Server) handleListEvents(conn net.Conn, rawPayload json.RawMessage) {
 		return
 	}
 
-	diskEvents, err := kernel.ReadAllEvents(eventsPath)
+	diskEvents, parseErrors, err := kernel.ReadAllEventsWithErrors(eventsPath)
 	if err != nil {
-		writeResponse(conn, Response{OK: true, Payload: mustMarshal(ListEventsResponse{Events: []SyscallEventWire{}})})
+		// Story 72.1 AC3/F3: the former behavior swallowed the error into an
+		// OK=true empty list, so a read failure looked like "no syscall events".
+		// The empty-path branch above (events file may legitimately not exist)
+		// is untouched — only a real read failure is reported here.
+		writeResponse(conn, Response{OK: false, Error: &ErrorPayload{Code: string(types.ErrInternal), Message: fmt.Sprintf("read events: %v", err)}})
 		return
 	}
 
@@ -436,7 +449,7 @@ func (s *Server) handleListEvents(conn net.Conn, rawPayload json.RawMessage) {
 		}
 	}
 
-	respPayload, _ := json.Marshal(ListEventsResponse{Events: wires})
+	respPayload, _ := json.Marshal(ListEventsResponse{Events: wires, ParseErrors: parseErrors})
 	writeResponse(conn, Response{OK: true, Payload: respPayload})
 }
 

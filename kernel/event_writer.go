@@ -8,6 +8,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/rnixai/rnix/internal/jsonl"
 	"github.com/rnixai/rnix/internal/types"
 )
 
@@ -105,25 +106,36 @@ func (ew *EventWriter) Close() error {
 }
 
 // ReadAllEvents reads all syscall events from an events.jsonl file.
+//
+// Thin wrapper over ReadAllEventsWithErrors — existing callers keep the 2-value
+// signature; the parse-error count is discarded here (Story 72.1 AC4).
 func ReadAllEvents(path string) ([]SyscallEventDisk, error) {
+	events, _, err := ReadAllEventsWithErrors(path)
+	return events, err
+}
+
+// ReadAllEventsWithErrors is ReadAllEvents plus a count of lines that failed to
+// unmarshal (Story 72.1 AC4). Blank lines are skipped without counting.
+func ReadAllEventsWithErrors(path string) ([]SyscallEventDisk, int, error) {
 	f, err := os.Open(path)
 	if err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 	defer f.Close()
 
 	var events []SyscallEventDisk
-	scanner := bufio.NewScanner(f)
-	scanner.Buffer(make([]byte, 256*1024), 256*1024)
-	for scanner.Scan() {
+	parseErrors := 0
+	scanErr := jsonl.Scan(f, path, func(line []byte) error {
 		var ev SyscallEventDisk
-		if err := json.Unmarshal(scanner.Bytes(), &ev); err != nil {
-			continue
+		if err := json.Unmarshal(line, &ev); err != nil {
+			parseErrors++
+			return nil
 		}
 		events = append(events, ev)
+		return nil
+	})
+	if scanErr != nil {
+		return nil, parseErrors, scanErr
 	}
-	if err := scanner.Err(); err != nil {
-		return nil, err
-	}
-	return events, nil
+	return events, parseErrors, nil
 }

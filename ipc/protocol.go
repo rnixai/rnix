@@ -280,14 +280,14 @@ type ProcInfoWire struct {
 	// `rnix ps` / IPC consumers can see that automatic compaction is disabled for
 	// this process. omitempty keeps it off the wire for the overwhelmingly common
 	// unlatched case. Not persisted to disk (AC3-③: resume starts unlatched).
-	CompactLatched bool               `json:"compact_latched,omitempty"`
-	IsPaused        bool               `json:"is_paused,omitempty"`
-	PausedAtMs      int64              `json:"paused_at_ms,omitempty"`
-	PausedTotalMs   int64              `json:"paused_total_ms,omitempty"`
-	ComposeNode     string             `json:"compose_node,omitempty"`
-	ComposeDeps     []string           `json:"compose_deps,omitempty"`
-	PipelineIndex   int                `json:"pipeline_index"`
-	PipelineTotal   int                `json:"pipeline_total"`
+	CompactLatched bool     `json:"compact_latched,omitempty"`
+	IsPaused       bool     `json:"is_paused,omitempty"`
+	PausedAtMs     int64    `json:"paused_at_ms,omitempty"`
+	PausedTotalMs  int64    `json:"paused_total_ms,omitempty"`
+	ComposeNode    string   `json:"compose_node,omitempty"`
+	ComposeDeps    []string `json:"compose_deps,omitempty"`
+	PipelineIndex  int      `json:"pipeline_index"`
+	PipelineTotal  int      `json:"pipeline_total"`
 
 	// Authoritative exit signal mirrored from vfs.ProcInfo. Without these two
 	// fields the dashboard falls back to a result-text heuristic that misfires
@@ -1366,6 +1366,10 @@ type StepSummaryWire struct {
 type ListStepsResponse struct {
 	Steps []StepSummaryWire `json:"steps"`
 	Total int               `json:"total"`
+	// ParseErrors counts lines in steps.jsonl that failed to unmarshal and were
+	// skipped (Story 72.1 AC4, mirroring the raw-capture ParseErrors precedent).
+	// omitempty keeps the wire bytes identical when there are no bad lines.
+	ParseErrors int `json:"parse_errors,omitempty"`
 }
 
 // --- ListEvents ---
@@ -1379,6 +1383,9 @@ type ListEventsRequest struct {
 // ListEventsResponse is the response for MethodListEvents.
 type ListEventsResponse struct {
 	Events []SyscallEventWire `json:"events"`
+	// ParseErrors counts skipped malformed lines (Story 72.1 AC4).
+	// 🔴 Must stay in sync with wire.ListEventsResponse (TestWireDrift guards it).
+	ParseErrors int `json:"parse_errors,omitempty"`
 }
 
 // --- GetRawCapture (Story 56.4 · CAP-3 单一数据后端) ---

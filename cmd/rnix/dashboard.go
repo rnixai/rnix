@@ -432,7 +432,16 @@ func (m dashboardModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 	case compactEventsMsg:
 		m.fetchingCompact = false
-		if msg.err != nil || msg.pid != m.selectedPID || msg.uuid != m.selectedUUID {
+		if msg.pid != m.selectedPID || msg.uuid != m.selectedUUID {
+			return m, nil // stale response for a different process
+		}
+		if msg.err != nil {
+			// Story 72.1 AC3: list_events now reports read failures explicitly
+			// instead of swallowing them into an empty list. Surface a degraded
+			// status line rather than silently ignoring — presentation only,
+			// the events semantics are unchanged.
+			m.statusMsg = fmt.Sprintf("⚠ events: %v", msg.err)
+			m.statusMsgTTL = statusMsgDefaultTTL
 			return m, nil
 		}
 		for _, ev := range msg.events {

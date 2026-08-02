@@ -218,13 +218,23 @@ func (k *KernelImpl) writeStepRecord(proc *Process, step int, promptResult *rnix
 
 const maxDriverToolResultBytes = 64 * 1024
 
-func truncateDriverToolResult(s string) string {
-	if len(s) <= maxDriverToolResultBytes {
+// truncateToBytes caps s at maxBytes, appending a UTF-8-safe truncation marker
+// when it overflows. The marker text is the single canonical truncation marker
+// in the codebase — do not introduce a second wording.
+//
+// Idempotent: a string already at or below maxBytes is returned verbatim, so
+// truncating an already-truncated value never produces a double marker.
+func truncateToBytes(s string, maxBytes int) string {
+	if len(s) <= maxBytes {
 		return s
 	}
 	marker := fmt.Sprintf("\n[truncated: %d bytes total]", len(s))
-	limit := max(0, maxDriverToolResultBytes-len(marker))
+	limit := max(0, maxBytes-len(marker))
 	return truncateUTF8Bytes(s, limit) + marker
+}
+
+func truncateDriverToolResult(s string) string {
+	return truncateToBytes(s, maxDriverToolResultBytes)
 }
 
 // writeDriverStepRecordFull writes a StepRecord with accumulated tool data for CLI driver events.

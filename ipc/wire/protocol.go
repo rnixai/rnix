@@ -172,6 +172,10 @@ type ListEventsRequest struct {
 
 type ListEventsResponse struct {
 	Events []SyscallEventWire `json:"events"`
+	// ParseErrors counts skipped malformed lines (Story 72.1 AC4).
+	// 🔴 Mirror of ipc.ListEventsResponse — TestWireDrift_ListEventsResponse
+	// fails if the two field sets diverge.
+	ParseErrors int `json:"parse_errors,omitempty"`
 }
 
 type SyscallEventWire struct {

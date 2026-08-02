@@ -1,7 +1,6 @@
 package main
 
 import (
-	"bufio"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -11,6 +10,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/rnixai/rnix/internal/jsonl"
 	"github.com/rnixai/rnix/internal/types"
 	"github.com/rnixai/rnix/internal/ui"
 	"github.com/rnixai/rnix/ipc"
@@ -277,6 +277,12 @@ func printStepSessions(w interface{ Write([]byte) (int, error) }) {
 	}
 }
 
+// countJSONLLines counts non-blank lines in an NDJSON file.
+//
+// Story 72.1 AC2: the former 1 MB scanner limit made `rnix record list` show a
+// low step count with no indication anything was missed, and the read error was
+// not checked. The return semantic is unchanged (best-effort count); a read
+// failure now reports to stderr instead of passing silently.
 func countJSONLLines(path string) int {
 	f, err := os.Open(path)
 	if err != nil {
@@ -284,12 +290,12 @@ func countJSONLLines(path string) int {
 	}
 	defer f.Close()
 	count := 0
-	scanner := bufio.NewScanner(f)
-	scanner.Buffer(make([]byte, 64*1024), 1024*1024)
-	for scanner.Scan() {
-		if len(scanner.Bytes()) > 0 {
-			count++
-		}
+	scanErr := jsonl.Scan(f, path, func(line []byte) error {
+		count++
+		return nil
+	})
+	if scanErr != nil {
+		fmt.Fprintf(os.Stderr, "warning: %s: read failed after %d lines: %v\n", path, count, scanErr)
 	}
 	return count
 }

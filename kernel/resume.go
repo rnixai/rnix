@@ -1,9 +1,9 @@
 package kernel
 
 import (
-	"bufio"
 	gocontext "context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log"
 	"os"
@@ -14,6 +14,7 @@ import (
 
 	rnixctx "github.com/rnixai/rnix/context"
 	"github.com/rnixai/rnix/internal/config"
+	"github.com/rnixai/rnix/internal/jsonl"
 	"github.com/rnixai/rnix/internal/types"
 	"github.com/rnixai/rnix/vfs"
 )
@@ -1289,17 +1290,16 @@ func (k *KernelImpl) parseStepsJSONL(path string, maxStep int) (int, []rnixctx.M
 	var totalSteps int // highest step across the entire file (for range validation)
 	var lastMessagesRaw json.RawMessage
 	var seenInWindow bool // true once we encountered any record within [0..maxStep]
-	scanner := bufio.NewScanner(f)
-	scanner.Buffer(make([]byte, 1024*1024), 1024*1024)
 
-	for scanner.Scan() {
-		line := scanner.Bytes()
-		if len(line) == 0 {
-			continue
-		}
+	// Story 72.1: unbounded line reads. The former 1 MB scanner limit made any
+	// process with an oversized step permanently un-resumable (ErrInternal).
+	// The hard-fail-on-malformed-line semantic below is deliberate and retained:
+	// resuming with a wrong context is worse than not resuming, so fn returns
+	// the error and jsonl.Scan propagates it verbatim.
+	scanErr := jsonl.Scan(f, path, func(line []byte) error {
 		var record stepRecordPartial
 		if err := json.Unmarshal(line, &record); err != nil {
-			return 0, nil, 0, NewSyscallError("Resume", 0, "",
+			return NewSyscallError("Resume", 0, "",
 				fmt.Errorf("parse steps.jsonl line: %w", err), types.ErrInternal)
 		}
 		if record.Step > totalSteps {
@@ -1307,7 +1307,7 @@ func (k *KernelImpl) parseStepsJSONL(path string, maxStep int) (int, []rnixctx.M
 		}
 		// Apply maxStep truncation. maxStep == 0 means "no truncation".
 		if maxStep > 0 && record.Step > maxStep {
-			continue
+			return nil
 		}
 		// Track the highest record within the [0..maxStep] window.
 		// Use strict `>` (not `>=`) so a later duplicate record at the same step
@@ -1321,10 +1321,17 @@ func (k *KernelImpl) parseStepsJSONL(path string, maxStep int) (int, []rnixctx.M
 				lastMessagesRaw = append(lastMessagesRaw[:0], record.Messages...)
 			}
 		}
-	}
-	if err := scanner.Err(); err != nil {
+		return nil
+	})
+	if scanErr != nil {
+		// A parse failure is already a fully-formed SyscallError; only wrap
+		// genuine I/O errors.
+		var syscallErr *SyscallError
+		if errors.As(scanErr, &syscallErr) {
+			return 0, nil, 0, scanErr
+		}
 		return 0, nil, 0, NewSyscallError("Resume", 0, "",
-			fmt.Errorf("scan steps.jsonl: %w", err), types.ErrInternal)
+			fmt.Errorf("scan steps.jsonl: %w", scanErr), types.ErrInternal)
 	}
 
 	var messages []rnixctx.Message
