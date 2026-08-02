@@ -283,6 +283,16 @@ func (ri *RecallIndex) BuildAllFromDisksAsync(stepsDirs []string, concurrency in
 			go func() {
 				defer wg.Done()
 				defer func() { <-sem }()
+				// The recover lives in the worker, not just the coordinator:
+				// a recover in the outer goroutine cannot catch a panic in a
+				// child goroutine. BuildFromDiskAsync keeps its work and its
+				// recover in the same goroutine; this entry point must do the
+				// same per worker or a single bad dir would kill the daemon.
+				defer func() {
+					if r := recover(); r != nil {
+						log.Printf("[recall] panic during index build of %s: %v", dir, r)
+					}
+				}()
 				if err := ri.scanStepsDir(dir); err != nil {
 					log.Printf("[recall] index build failed: %v", err)
 				}
@@ -729,7 +739,21 @@ func (ri *RecallIndex) SaveIndex(path string) error {
 		return fmt.Errorf("mkdir for index: %w", err)
 	}
 
-	return os.WriteFile(path, b, 0o644)
+	// Atomic write (tmp + rename, same shape as internal/config/registry.go
+	// and internal/ui/state.go): a crash mid-save must not truncate the
+	// previous good index. A corrupt index.json is safe — LoadIndex falls
+	// back to a cold scan — but that fallback costs a full rescan on the
+	// next startup. Rename leaves either the old or the new file, never a
+	// partial one.
+	tmp := path + ".tmp"
+	if err := os.WriteFile(tmp, b, 0o644); err != nil {
+		return fmt.Errorf("write temp index: %w", err)
+	}
+	if err := os.Rename(tmp, path); err != nil {
+		_ = os.Remove(tmp)
+		return fmt.Errorf("rename index: %w", err)
+	}
+	return nil
 }
 
 // LoadIndex restores the index from a JSON file written by SaveIndex.
