@@ -7,6 +7,34 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.13.0] - 2026-08-03
+
+Theme: **Context Management Redesign & Long-Run Stability** — context pressure and compaction now operate on real token volume instead of message counts, compaction lands far enough below its trigger to stay there, loop protection no longer interrupts agents that are making steady progress, and the Dashboard stays responsive for processes with very long histories.
+
+### Added
+
+- **Configurable loop-protection thresholds**: loop detection thresholds can now be set per agent in the agent manifest, with defaults raised to suit long-running orchestrations. Setting a negative value disables the corresponding detection track entirely.
+- **Configurable compaction timeout**: agent manifests accept a compaction timeout override. When unset, the timeout is derived from the provider's request timeout — with a safety floor — so context compaction is never cut off sooner than a normal LLM call.
+- **`rnix immune forget`**: learned anomaly signatures can now be removed per agent template (or all at once), giving operators a corrective handle on the adaptive immune system.
+- **Calmer "thinking" indicator**: while a model is thinking, the CLI now shows a single in-place animated line instead of scrolling out repeated status lines; plain terminals fall back to a sparse heartbeat.
+
+### Changed
+
+- **Context management on a token basis**: context pressure, usage display, and compaction triggers now all operate on estimated token usage — which now also counts tool-call arguments and reasoning output — rather than on message counts. The default message-count ceiling has been removed, so long-running sessions are no longer cut off by count while token headroom remains; explicit limits stay available for operational control.
+- **Compaction that stays below the threshold**: compaction now targets a level well below its trigger threshold, and each run frees a meaningful minimum amount — or does nothing at all if it cannot — so it no longer re-triggers immediately after completing. Compaction requests also trim bulky tool outputs, and a pre-check skips compaction entirely when there is little to gain.
+- **Bounded compaction failure handling**: repeated compaction failures no longer retry silently forever — automatic compaction pauses after a failure, with the state visible in process listings, and a successful manual compaction re-enables it.
+- **Result-based loop protection**: loop detection now requires repeated identical results, not merely repeated use of the same tool — long-running agents making steady progress with general-purpose tools are no longer suspended mid-task. Loop warnings are also no longer injected into the conversation context, keeping prompts clean and stable.
+- **Prompt-cache-friendly pressure hints**: context pressure hints no longer alter the cached prompt prefix, keeping provider prompt-cache hit rates high across long sessions — a significant latency improvement for long-running processes.
+- **Context-window settings honored**: per-model context-window settings are now picked up from both global and project-level provider configuration, and consistently drive usage display, pressure warnings, and compaction.
+- **Dashboard scales to large histories**: process steps and events are now read page by page through an index, keeping the Dashboard responsive for very long-running processes. Daemon startup is also faster, as the memory-recall index is persisted and reused instead of being rebuilt from scratch.
+
+### Fixed
+
+- **Very large tool outputs**: oversized step records no longer hide steps in the Dashboard, block resume, or break memory indexing.
+- **Resume from a full context**: processes resumed after a context-full suspension now free up space before continuing instead of immediately running full again.
+- **OpenAI-compatible streaming**: streamed responses now report token usage reliably, including streams that end without an explicit terminator.
+- **Immune false positives**: anomaly detection no longer alerts on rare but normal behavior, and stale signatures are cleaned up automatically.
+
 ## [0.12.0] - 2026-07-12
 
 Theme: **Process Lifecycle Accuracy & Agent-Behavior Testing (Epics 64–68)** — the Dashboard now reports process state truthfully across daemon restarts and interruptions, terminated processes carry a clear reason for why they ended, and a new `rnix agtest` framework makes agent behavior regression-testable with scripted LLM responses.
