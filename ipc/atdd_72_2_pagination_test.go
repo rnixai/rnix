@@ -348,9 +348,9 @@ func TestHandleGetStepDetail_ViaIdx(t *testing.T) {
 	}
 	writeTestStepsUUID(t, projBase, proc.UUID, records)
 
-	// Build idx via RebuildIdx.
+	// Build idx via RebuildIdx (dead-process rebuild; live processes skip, P4).
 	stepsDir := filepath.Join(projBase, "steps", proc.UUID)
-	kernel.RebuildIdx(filepath.Join(stepsDir, "steps.jsonl"))
+	kernel.RebuildIdx(filepath.Join(stepsDir, "steps.jsonl"), false)
 
 	srv.kern.AddProcess(proc)
 

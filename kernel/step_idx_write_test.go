@@ -3,6 +3,7 @@ package kernel
 import (
 	"bufio"
 	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
 	"testing"
@@ -219,5 +220,62 @@ func TestStepWriter_WriteStep_HasError(t *testing.T) {
 	}
 	if entries[2].HasError {
 		t.Error("entry[2] (no error) should have has_error=false")
+	}
+}
+
+// failWriter always fails Write. A bufio.Writer.Flush flushes its buffered
+// bytes via the underlying Write, so once any data is buffered, Flush fails —
+// simulating a jsonl that cannot be flushed to disk (ENOSPC / I/O error).
+type failWriter struct{}
+
+func (failWriter) Write(p []byte) (int, error) { return 0, errors.New("injected write failure") }
+
+// Story 72.2 AC10-2 / F8 red light: when the jsonl Flush fails, NO idx entry may
+// be written — the idx must never run ahead of the jsonl. Without the guard in
+// WriteStep (jsonl Flush checked before any idx write), this test fails because
+// the idx would gain an entry for a record that never reached disk.
+func TestStepWriter_WriteStep_JSONLFlushFailure_NoIdxWrite(t *testing.T) {
+	dir := t.TempDir()
+	sw, err := NewStepWriter(dir, "flushfail-uuid")
+	if err != nil {
+		t.Fatalf("NewStepWriter: %v", err)
+	}
+	t.Cleanup(func() { sw.Close() })
+
+	// One good write first, so the idx has header + 1 entry as a baseline.
+	if err := sw.WriteStep(types.StepRecord{Step: 1, Action: "tool_call"}); err != nil {
+		t.Fatalf("baseline WriteStep: %v", err)
+	}
+
+	// Sabotage the jsonl writer: buffered Writes succeed, but Flush fails
+	// because the underlying Write rejects the buffered bytes.
+	sw.mu.Lock()
+	sw.writer = bufio.NewWriterSize(failWriter{}, 64*1024)
+	sw.mu.Unlock()
+
+	// This write must fail at the jsonl Flush and write no idx entry.
+	if err := sw.WriteStep(types.StepRecord{Step: 2, Action: "tool_call"}); err == nil {
+		t.Fatal("WriteStep with failing jsonl Flush returned nil, want error")
+	}
+
+	// The idx must still contain exactly header + 1 entry — the failed step 2
+	// must NOT have produced an idx entry (F8: idx never runs ahead of jsonl).
+	idxPath := filepath.Join(dir, "steps", "flushfail-uuid", "steps.idx")
+	f, err := os.Open(idxPath)
+	if err != nil {
+		t.Fatalf("open idx: %v", err)
+	}
+	defer f.Close()
+
+	var lines []string
+	scanner := bufio.NewScanner(f)
+	for scanner.Scan() {
+		lines = append(lines, scanner.Text())
+	}
+	if err := scanner.Err(); err != nil {
+		t.Fatalf("scan idx: %v", err)
+	}
+	if len(lines) != 2 {
+		t.Fatalf("idx lines = %d, want 2 (header + 1 baseline entry); a failed jsonl Flush must not write idx", len(lines))
 	}
 }

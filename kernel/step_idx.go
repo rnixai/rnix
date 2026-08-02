@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"strings"
 
 	"github.com/rnixai/rnix/internal/jsonl"
 	"github.com/rnixai/rnix/internal/types"
@@ -47,11 +48,14 @@ type idxHeader struct {
 //   - idx missing → ErrIdxUnavailable
 //   - header unmarshal failure → ErrIdxUnavailable
 //   - header jsonl_size > actual jsonl size → ErrIdxUnavailable (corrupt)
-//   - header jsonl_size <= actual size → valid (lag is normal for live procs)
+//   - header jsonl_size < actual + process DEAD → ErrIdxUnavailable (stale: no
+//     live writer will complete the idx, so a full scan is required) — AC5 row 3
+//   - header jsonl_size <= actual + process ALIVE → valid (lag is normal, F11)
 //
-// The alive/dead distinction for "jsonl grew but process is dead" is handled
-// by the caller (server-side cache logic), not here.
-func ReadStepsFromIdx(idxPath, jsonlPath string, afterStep int) ([]StepIdxEntry, int, int, error) {
+// procAlive reports whether the owning process can still append to the jsonl
+// (i.e. it is present in the kernel process table). The caller determines this
+// via GetProcess/GetProcessByUUID; ReadStepsFromIdx has no kernel access.
+func ReadStepsFromIdx(idxPath, jsonlPath string, afterStep int, procAlive bool) ([]StepIdxEntry, int, int, error) {
 	// Stat jsonl for consistency check.
 	jsonlFi, err := os.Stat(jsonlPath)
 	if err != nil {
@@ -86,6 +90,12 @@ func ReadStepsFromIdx(idxPath, jsonlPath string, afterStep int) ([]StepIdxEntry,
 			}
 			// Consistency: header jsonl_size > actual → corrupt (jsonl truncated?).
 			if header.JSONLSize > jsonlSize {
+				return ErrIdxUnavailable
+			}
+			// AC5 row 3: header < actual + process dead → stale. A dead process
+			// will never complete its idx, so the lag is permanent — a full scan
+			// is the only way to see the tail. Live processes lag normally (F11).
+			if header.JSONLSize < jsonlSize && !procAlive {
 				return ErrIdxUnavailable
 			}
 			return nil
@@ -238,8 +248,17 @@ func ReadStepAtOffset(jsonlPath string, offset int64) (*types.StepRecord, error)
 }
 
 // IdxPathForJSONL returns the idx path for a given steps.jsonl path.
+//
+// Story 72.2 P12: guards against a path that does not end in ".jsonl" — the old
+// unconditional slice would mis-trim such a path and panic on inputs shorter
+// than the suffix (an IPC handler has no recover, so a panic would crash the
+// daemon). Non-.jsonl inputs fall back to appending ".idx" to the whole path.
 func IdxPathForJSONL(jsonlPath string) string {
-	return jsonlPath[:len(jsonlPath)-len(".jsonl")] + ".idx"
+	const suffix = ".jsonl"
+	if strings.HasSuffix(jsonlPath, suffix) {
+		return jsonlPath[:len(jsonlPath)-len(suffix)] + ".idx"
+	}
+	return jsonlPath + ".idx"
 }
 
 // RebuildIdx scans the full jsonl and builds the idx file atomically.
@@ -248,13 +267,34 @@ func IdxPathForJSONL(jsonlPath string) string {
 //
 // Story 72.2 AC4: uses a temp file + os.Rename for atomic replacement,
 // preventing half-built idx from being read.
-func RebuildIdx(jsonlPath string) {
+//
+// Story 72.2 P4: rebuild is SKIPPED while the owning process is alive. A live
+// StepWriter holds an O_APPEND fd on steps.idx; os.Rename only swaps the
+// directory entry, so the writer's fd would keep pointing at the unlinked old
+// inode — every subsequent append would vanish from disk and the fresh idx
+// would freeze at the rename instant, silently missing later steps (and a
+// post-restart resume could splice a second header onto the file). Dead
+// processes have no live writer, so rename is safe for them — which is exactly
+// who needs the on-disk idx (the live path is served from the server cache's
+// incremental jsonl merge, F3/F11). The caller passes procAlive.
+func RebuildIdx(jsonlPath string, procAlive bool) {
+	if procAlive {
+		return // would orphan the live StepWriter's append fd — see P4 above
+	}
+
 	// Non-blocking semaphore acquire (F7).
 	select {
 	case idxRebuildSem <- struct{}{}:
 		defer func() { <-idxRebuildSem }()
 	default:
 		return // semaphore full, skip
+	}
+
+	if rebuildIdxStart != nil {
+		rebuildIdxStart()
+	}
+	if rebuildIdxDone != nil {
+		defer rebuildIdxDone()
 	}
 
 	idxPath := IdxPathForJSONL(jsonlPath)
@@ -290,6 +330,17 @@ func RebuildIdx(jsonlPath string) {
 	// Scan jsonl and write idx entries.
 	// 🔴 jsonl.Scan returns lines INCLUDING the trailing '\n', so offset
 	// advances by len(line) exactly — no +1.
+	//
+	// Story 72.2 P6 (known limitation): jsonl.Scan does NOT invoke fn for blank
+	// or whitespace-only lines, yet those lines still occupy bytes on disk. The
+	// offset accumulation below only runs inside fn, so a blank line's bytes are
+	// not counted and every subsequent idx offset drifts low by that amount.
+	// rnix never writes blank lines to steps.jsonl (WriteStep always emits
+	// exactly one '\n'-terminated record), so this is unreachable on rnix-written
+	// data — it could only bite a hand-edited or crash-torn file. Even then the
+	// consequence is bounded: a drifted offset makes ReadStepAtOffset land on a
+	// wrong/invalid line, and handleGetStepDetail's rec.Step check (P2) plus its
+	// full-scan fallback turn that into a correct result rather than wrong data.
 	var offset int64
 	scanErr := jsonl.Scan(f, jsonlPath, func(line []byte) error {
 		entry, err := ParseIdxEntryFromJSONL(line, offset)
@@ -329,3 +380,11 @@ func RebuildIdx(jsonlPath string) {
 // idxRebuildSem is the global concurrency gate for background idx rebuilds
 // (Story 72.2 F7, cap=2).
 var idxRebuildSem = make(chan struct{}, 2)
+
+// rebuildIdxStart / rebuildIdxDone are test-only hooks (nil in production) that
+// let TestRebuildIdx_ConcurrentMax2 observe the real RebuildIdx critical
+// section instead of re-implementing the semaphore logic in the test (P13).
+var (
+	rebuildIdxStart func()
+	rebuildIdxDone  func()
+)

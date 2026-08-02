@@ -140,6 +140,17 @@ func (sw *StepWriter) WriteStep(rec types.StepRecord) error {
 	}
 
 	// jsonl flushed successfully — now write the idx entry (F8).
+	//
+	// Story 72.2 P7: jsonlOffset is advanced BEFORE the idx write and is
+	// deliberately NOT rolled back if the idx write fails. jsonlOffset tracks
+	// the jsonl's physical reality (this record IS at `offset` in the jsonl, and
+	// the next record follows it), not the idx's completeness. A failed idx
+	// write simply leaves a gap in the idx — the record is still present in the
+	// jsonl, so ReadStepsFromIdx's consistency check sees header < actual and,
+	// for a dead process, falls back to a full scan (P1/AC5) that recovers the
+	// missing record; RebuildIdx regenerates the idx wholesale. Rolling back
+	// instead would make the NEXT record's offset wrong — corrupting a valid
+	// entry to paper over a missing one.
 	offset := sw.jsonlOffset
 	sw.jsonlOffset += int64(len(data)) + 1 // +1 for '\n'
 

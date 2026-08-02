@@ -298,8 +298,13 @@ func (s *Server) handleGetStepDetail(conn net.Conn, rawPayload json.RawMessage) 
 	idxPath := kernel.IdxPathForJSONL(stepsPath)
 	if offset, idxErr := kernel.ReadStepOffsetFromIdx(idxPath, stepsPath, req.Step); idxErr == nil && offset >= 0 {
 		rec, readErr = kernel.ReadStepAtOffset(stepsPath, offset)
-		if readErr != nil {
-			// idx pointed to a bad line — fall back to full scan.
+		// P2: the idx offset may be stale (jsonl truncated, concurrent rebuild,
+		// or blank-line drift — P6) and land on a DIFFERENT valid record. A
+		// successful read of the wrong step is worse than a read error: it would
+		// silently return another step's details under this step's number.
+		// Verify the record is the one requested; if not, fall back to the
+		// authoritative sequential scan.
+		if readErr != nil || rec == nil || rec.Step != req.Step {
 			rec, readErr = kernel.ReadStep(stepsPath, req.Step)
 		}
 	} else {
@@ -392,8 +397,21 @@ func (s *Server) handleListSteps(conn net.Conn, rawPayload json.RawMessage) {
 		return
 	}
 
+	// P1/AC5 + P4: whether the owning process can still append to the jsonl. A
+	// process present in the kernel process table is alive — Dead/reaped
+	// processes are removed from the table and only reachable via FindHistory*.
+	// This drives both the idx staleness check (a dead process's lagging idx is
+	// stale, AC5 row 3) and the rebuild gate (never rename under a live writer).
+	procAlive := false
+	if req.PID != 0 {
+		_, procAlive = s.kern.GetProcess(req.PID)
+	}
+	if !procAlive && uuid != "" {
+		_, procAlive = s.kern.GetProcessByUUID(uuid)
+	}
+
 	// Try idx cache path (AC6).
-	entries, total, parseErrors, cached := s.listStepsViaCache(stepsPath)
+	entries, total, parseErrors, cached := s.listStepsViaCache(stepsPath, procAlive)
 	if !cached {
 		// Fallback: full scan (existing path, verbatim preserved).
 		// Scan with afterStep=0 so the backfilled cache holds the full view.
@@ -420,9 +438,10 @@ func (s *Server) handleListSteps(conn net.Conn, rawPayload json.RawMessage) {
 			}
 		}
 		// F3: backfill memory cache so the next tick is O(1).
-		s.backfillIdxCache(stepsPath, entries, total)
-		// Background disk idx rebuild (AC4).
-		go kernel.RebuildIdx(stepsPath)
+		s.backfillIdxCache(stepsPath, entries, total, parseErrors)
+		// Background disk idx rebuild (AC4). Skipped for live processes (P4):
+		// rename would orphan the StepWriter's append fd.
+		go kernel.RebuildIdx(stepsPath, procAlive)
 	}
 
 	// Apply afterStep filter on the dedup view.
@@ -471,7 +490,11 @@ func (s *Server) handleListSteps(conn net.Conn, rawPayload json.RawMessage) {
 // listStepsViaCache tries to serve the full dedup step view from the idx cache.
 // Returns entries (unfiltered by afterStep), total, parseErrors, and whether
 // the cache path succeeded.
-func (s *Server) listStepsViaCache(stepsPath string) ([]kernel.StepIdxEntry, int, int, bool) {
+//
+// procAlive (P1/AC5, P3, P4) reports whether the owning process can still append
+// to the jsonl; it gates the staleness check, the partial-line watermark
+// rollback, and is passed through to ReadStepsFromIdx.
+func (s *Server) listStepsViaCache(stepsPath string, procAlive bool) ([]kernel.StepIdxEntry, int, int, bool) {
 	idxPath := kernel.IdxPathForJSONL(stepsPath)
 
 	s.idxMu.Lock()
@@ -479,47 +502,68 @@ func (s *Server) listStepsViaCache(stepsPath string) ([]kernel.StepIdxEntry, int
 
 	cs, hit := s.idxCache[stepsPath]
 	if hit {
+		cs.lastAccess = s.nextIdxClockLocked() // P10: refresh LRU stamp
 		if cs.idxSize >= 0 {
-			// Disk idx exists — check for growth.
+			// Disk idx mode — check for growth.
 			fi, err := os.Stat(idxPath)
 			if err != nil {
-				// idx deleted (concurrent rebuild?) — invalidate.
-				delete(s.idxCache, stepsPath)
+				delete(s.idxCache, stepsPath) // idx deleted — invalidate
 				return nil, 0, 0, false
 			}
 			if fi.Size() == cs.idxSize {
 				// O(1) hit.
-				return s.cacheToEntries(cs), cs.total, 0, true
+				return s.cacheToEntries(cs), cs.total, cs.parseErrors, true
 			}
 			if fi.Size() > cs.idxSize {
 				// Incremental: read only appended idx lines.
-				s.mergeIdxAppend(cs, idxPath, cs.idxSize)
-				cs.idxSize = fi.Size()
-				return s.cacheToEntries(cs), cs.total, 0, true
+				consumed, mErr := s.mergeIdxAppend(cs, idxPath, cs.idxSize, procAlive)
+				if mErr != nil {
+					// P3: torn/IO read — the merge is incomplete; do not advance
+					// the watermark past unread bytes. Invalidate and fall back
+					// to a full scan.
+					delete(s.idxCache, stepsPath)
+					return nil, 0, 0, false
+				}
+				cs.idxSize += consumed // advance ONLY by bytes actually consumed
+				return s.cacheToEntries(cs), cs.total, cs.parseErrors, true
 			}
 			// idx shrank (rebuilt) — invalidate and re-read.
 			delete(s.idxCache, stepsPath)
 		} else {
-			// Fallback backfill (no disk idx) — check jsonl growth.
-			fi, err := os.Stat(stepsPath)
-			if err != nil {
+			// Fallback backfill mode (no disk idx when this entry was cached).
+			// P11: a background RebuildIdx may have since written the disk idx
+			// (dead processes only — live processes skip rebuild, P4). If so,
+			// adopt it: drop this fallback entry and re-read the authoritative
+			// disk idx below instead of staying in the slower jsonl-merge mode.
+			if fi, statErr := os.Stat(idxPath); statErr == nil && fi.Size() > 0 {
 				delete(s.idxCache, stepsPath)
-				return nil, 0, 0, false
+				// fall through to the disk-idx read below
+			} else {
+				// No disk idx yet — track jsonl growth.
+				fi, err := os.Stat(stepsPath)
+				if err != nil {
+					delete(s.idxCache, stepsPath)
+					return nil, 0, 0, false
+				}
+				if fi.Size() == cs.jsonlSize {
+					return s.cacheToEntries(cs), cs.total, cs.parseErrors, true
+				}
+				if fi.Size() > cs.jsonlSize {
+					consumed, mErr := s.mergeJSONLAppend(cs, stepsPath, cs.jsonlSize, procAlive)
+					if mErr != nil {
+						delete(s.idxCache, stepsPath) // P3: torn read — full scan
+						return nil, 0, 0, false
+					}
+					cs.jsonlSize += consumed
+					return s.cacheToEntries(cs), cs.total, cs.parseErrors, true
+				}
+				delete(s.idxCache, stepsPath) // jsonl shrank — re-read
 			}
-			if fi.Size() == cs.jsonlSize {
-				return s.cacheToEntries(cs), cs.total, 0, true
-			}
-			if fi.Size() > cs.jsonlSize {
-				s.mergeJSONLAppend(cs, stepsPath, cs.jsonlSize)
-				cs.jsonlSize = fi.Size()
-				return s.cacheToEntries(cs), cs.total, 0, true
-			}
-			delete(s.idxCache, stepsPath)
 		}
 	}
 
-	// Cache miss — try reading disk idx.
-	idxEntries, total, _, err := kernel.ReadStepsFromIdx(idxPath, stepsPath, 0)
+	// Cache miss (or invalidated above) — try reading the disk idx.
+	idxEntries, total, parseErrors, err := kernel.ReadStepsFromIdx(idxPath, stepsPath, 0, procAlive)
 	if err == nil {
 		fi, _ := os.Stat(idxPath)
 		idxSize := int64(0)
@@ -527,10 +571,12 @@ func (s *Server) listStepsViaCache(stepsPath string) ([]kernel.StepIdxEntry, int
 			idxSize = fi.Size()
 		}
 		cs = &idxCacheState{
-			last:    make(map[int]kernel.StepIdxEntry, len(idxEntries)),
-			order:   make([]int, 0, len(idxEntries)),
-			total:   total,
-			idxSize: idxSize,
+			last:        make(map[int]kernel.StepIdxEntry, len(idxEntries)),
+			order:       make([]int, 0, len(idxEntries)),
+			total:       total,
+			parseErrors: parseErrors,
+			idxSize:     idxSize,
+			lastAccess:  s.nextIdxClockLocked(),
 		}
 		for _, e := range idxEntries {
 			if _, seen := cs.last[e.Step]; !seen {
@@ -540,7 +586,7 @@ func (s *Server) listStepsViaCache(stepsPath string) ([]kernel.StepIdxEntry, int
 		}
 		s.evictIdxCacheLocked()
 		s.idxCache[stepsPath] = cs
-		return s.cacheToEntries(cs), cs.total, 0, true
+		return s.cacheToEntries(cs), cs.total, cs.parseErrors, true
 	}
 
 	return nil, 0, 0, false
@@ -556,16 +602,29 @@ func (s *Server) cacheToEntries(cs *idxCacheState) []kernel.StepIdxEntry {
 }
 
 // mergeIdxAppend reads idx lines appended after fromSize and merges into cache.
-func (s *Server) mergeIdxAppend(cs *idxCacheState, idxPath string, fromSize int64) {
+//
+// Story 72.2 P3: returns (consumed, err). consumed is the number of bytes that
+// formed COMPLETE lines and were actually merged; the caller advances the
+// watermark by exactly this much — never by the file's current size. If the
+// writer is mid-flush, the trailing partial line is left unconsumed and is
+// re-read on the next tick once it is complete. A non-EOF I/O error (torn read)
+// returns err so the caller can invalidate rather than silently skip a window.
+func (s *Server) mergeIdxAppend(cs *idxCacheState, idxPath string, fromSize int64, procAlive bool) (int64, error) {
 	f, err := os.Open(idxPath)
 	if err != nil {
-		return
+		return 0, err
 	}
 	defer f.Close()
 	if _, err := f.Seek(fromSize, 0); err != nil {
-		return
+		return 0, err
 	}
-	_ = jsonl.Scan(f, idxPath, func(line []byte) error {
+	consumed := int64(0)
+	scanErr := jsonl.Scan(f, idxPath, func(line []byte) error {
+		// jsonl.Scan only delivers COMPLETE lines (terminated by '\n', or the
+		// final EOF fragment). A complete line's bytes are consumed regardless
+		// of whether it parses — a malformed complete line is skipped (counted
+		// as a parse error) but its bytes must not be re-read forever.
+		consumed += int64(len(line))
 		var raw struct {
 			O  int64   `json:"o"`
 			S  int     `json:"s"`
@@ -578,6 +637,7 @@ func (s *Server) mergeIdxAppend(cs *idxCacheState, idxPath string, fromSize int6
 			TS int64   `json:"ts"`
 		}
 		if err := json.Unmarshal(line, &raw); err != nil {
+			cs.parseErrors++ // P8: surface malformed idx lines
 			return nil
 		}
 		entry := kernel.StepIdxEntry{
@@ -592,24 +652,36 @@ func (s *Server) mergeIdxAppend(cs *idxCacheState, idxPath string, fromSize int6
 		cs.last[entry.Step] = entry
 		return nil
 	})
+	if scanErr != nil {
+		return 0, scanErr // torn read — caller invalidates
+	}
+	_ = procAlive // reserved for future liveness-aware merge policy
+	return consumed, nil
 }
 
 // mergeJSONLAppend reads jsonl lines appended after fromSize and merges into
-// cache (for fallback-backfilled caches with no disk idx).
-func (s *Server) mergeJSONLAppend(cs *idxCacheState, jsonlPath string, fromSize int64) {
+// cache (for fallback-backfilled caches with no disk idx). See mergeIdxAppend
+// for the P3 consumed-bytes / error contract.
+func (s *Server) mergeJSONLAppend(cs *idxCacheState, jsonlPath string, fromSize int64, procAlive bool) (int64, error) {
 	f, err := os.Open(jsonlPath)
 	if err != nil {
-		return
+		return 0, err
 	}
 	defer f.Close()
 	if _, err := f.Seek(fromSize, 0); err != nil {
-		return
+		return 0, err
 	}
+	// offset tracks the absolute jsonl byte position of the current line so each
+	// parsed entry carries a correct StepIdxEntry.Offset (for get_step_detail).
+	// consumed tracks only complete-line bytes for the watermark (P3).
 	offset := fromSize
-	_ = jsonl.Scan(f, jsonlPath, func(line []byte) error {
+	consumed := int64(0)
+	scanErr := jsonl.Scan(f, jsonlPath, func(line []byte) error {
+		consumed += int64(len(line))
 		entry, err := kernel.ParseIdxEntryFromJSONL(line, offset)
+		offset += int64(len(line)) // line includes trailing '\n'
 		if err != nil {
-			offset += int64(len(line)) // line includes trailing '\n'
+			cs.parseErrors++ // P8
 			return nil
 		}
 		cs.total++
@@ -617,14 +689,30 @@ func (s *Server) mergeJSONLAppend(cs *idxCacheState, jsonlPath string, fromSize 
 			cs.order = append(cs.order, entry.Step)
 		}
 		cs.last[entry.Step] = entry
-		offset += int64(len(line))
 		return nil
 	})
+	if scanErr != nil {
+		return 0, scanErr
+	}
+	_ = procAlive
+	return consumed, nil
 }
 
 // backfillIdxCache populates the cache from a full-scan result (F3).
 // idxSize = -1 marks this as a fallback backfill with no disk idx.
-func (s *Server) backfillIdxCache(stepsPath string, entries []kernel.StepIdxEntry, total int) {
+//
+// Story 72.2 P5: jsonlSize is set from a stat taken AFTER the full scan, so it
+// can be ahead of the scanned data if the writer appended mid-scan. This is a
+// deliberate, bounded trade-off:
+//   - DEAD process (the case this story optimizes): the jsonl is immutable, so
+//     the stat and the scan agree exactly — no window exists.
+//   - LIVE process: a mid-scan append lands in the (scanEnd, statSize] gap and
+//     is skipped by the incremental merge. The gap is bounded by one scan's
+//     duration and self-heals — the next RebuildIdx (after the process dies)
+//     regenerates the idx, and P11 adopts it. Chasing the alternative (stat
+//     before scan) instead double-counts the same window into `total`, breaking
+//     the F6 invariant that Total equals the file's record count.
+func (s *Server) backfillIdxCache(stepsPath string, entries []kernel.StepIdxEntry, total, parseErrors int) {
 	s.idxMu.Lock()
 	defer s.idxMu.Unlock()
 
@@ -639,11 +727,13 @@ func (s *Server) backfillIdxCache(stepsPath string, entries []kernel.StepIdxEntr
 	}
 
 	cs := &idxCacheState{
-		last:      make(map[int]kernel.StepIdxEntry, len(entries)),
-		order:     make([]int, 0, len(entries)),
-		total:     total,
-		idxSize:   -1,
-		jsonlSize: jsonlSize,
+		last:        make(map[int]kernel.StepIdxEntry, len(entries)),
+		order:       make([]int, 0, len(entries)),
+		total:       total,
+		parseErrors: parseErrors,
+		idxSize:     -1,
+		jsonlSize:   jsonlSize,
+		lastAccess:  s.nextIdxClockLocked(),
 	}
 	for _, e := range entries {
 		if _, seen := cs.last[e.Step]; !seen {
@@ -655,14 +745,35 @@ func (s *Server) backfillIdxCache(stepsPath string, entries []kernel.StepIdxEntr
 	s.idxCache[stepsPath] = cs
 }
 
-// evictIdxCacheLocked evicts an arbitrary entry when over capacity (cap 8).
-// Must be called with idxMu held.
+// nextIdxClockLocked returns a monotonically increasing access stamp (P10).
+// Must be called with idxMu held. int64 will not wrap in any daemon lifetime.
+func (s *Server) nextIdxClockLocked() int64 {
+	s.idxClock++
+	return s.idxClock
+}
+
+// evictIdxCacheLocked evicts the least-recently-accessed entry when over
+// capacity (cap 8). Must be called with idxMu held.
+//
+// Story 72.2 P10: the old implementation deleted an ARBITRARY entry (Go map
+// iteration order is randomized), so a hot process could be evicted by a cold
+// one and re-trigger a full scan + rebuild on its very next tick — the exact
+// steady-state thrash this cache exists to prevent. Evict the oldest lastAccess
+// instead, so hot entries survive.
 func (s *Server) evictIdxCacheLocked() {
 	for len(s.idxCache) >= 8 {
-		for k := range s.idxCache {
-			delete(s.idxCache, k)
+		var oldestKey string
+		var oldestStamp int64 = -1
+		for k, v := range s.idxCache {
+			if oldestStamp < 0 || v.lastAccess < oldestStamp {
+				oldestStamp = v.lastAccess
+				oldestKey = k
+			}
+		}
+		if oldestKey == "" {
 			break
 		}
+		delete(s.idxCache, oldestKey)
 	}
 }
 

@@ -123,17 +123,20 @@ type Server struct {
 	// Story 72.2 AC6: idx cache for O(1)/O(delta) step list reads.
 	idxMu    sync.Mutex
 	idxCache map[string]*idxCacheState // key = steps.jsonl absolute path
+	idxClock int64                     // monotonic counter for LRU eviction (P10)
 }
 
 // idxCacheState holds the in-memory dedup view of a steps.idx file (Story 72.2
 // F3/AC6). Populated either by reading the disk idx or by fallback full-scan
 // backfill (idxSize == -1 marks the latter).
 type idxCacheState struct {
-	last      map[int]kernel.StepIdxEntry // step → last entry (dedup)
-	order     []int                       // first-seen order
-	total     int                         // full-file record count (incl. duplicates)
-	idxSize   int64                       // last-read idx file size; -1 = no disk idx (fallback backfill)
-	jsonlSize int64                       // last-read jsonl file size (for fallback backfill incremental)
+	last        map[int]kernel.StepIdxEntry // step → last entry (dedup)
+	order       []int                       // first-seen order
+	total       int                         // full-file record count (incl. duplicates)
+	parseErrors int                         // malformed lines skipped (P8: surfaced on every hit)
+	idxSize     int64                       // last-read idx file size; -1 = no disk idx (fallback backfill)
+	jsonlSize   int64                       // last-read jsonl file size (for fallback backfill incremental)
+	lastAccess  int64                       // idxClock value at last hit (P10: LRU eviction)
 }
 
 // NewServer creates an IPC server backed by the given kernel.

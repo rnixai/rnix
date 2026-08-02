@@ -56,7 +56,7 @@ func TestReadStepsFromIdx_Dedup(t *testing.T) {
 	}
 	idxPath, jsonlPath := writeIdxFixture(t, dir, entries, 1000)
 
-	result, total, parseErrors, err := ReadStepsFromIdx(idxPath, jsonlPath, 0)
+	result, total, parseErrors, err := ReadStepsFromIdx(idxPath, jsonlPath, 0, false)
 	if err != nil {
 		t.Fatalf("ReadStepsFromIdx: %v", err)
 	}
@@ -86,7 +86,7 @@ func TestReadStepsFromIdx_Missing(t *testing.T) {
 	jsonlPath := filepath.Join(dir, "steps.jsonl")
 	os.WriteFile(jsonlPath, []byte("{}\n"), 0o644)
 
-	_, _, _, err := ReadStepsFromIdx(filepath.Join(dir, "nonexistent.idx"), jsonlPath, 0)
+	_, _, _, err := ReadStepsFromIdx(filepath.Join(dir, "nonexistent.idx"), jsonlPath, 0, false)
 	if err != ErrIdxUnavailable {
 		t.Errorf("err = %v, want ErrIdxUnavailable", err)
 	}
@@ -105,9 +105,38 @@ func TestReadStepsFromIdx_HeaderSizeMismatch(t *testing.T) {
 	f.Write(append(data, '\n'))
 	f.Close()
 
-	_, _, _, err := ReadStepsFromIdx(idxPath, jsonlPath, 0)
+	_, _, _, err := ReadStepsFromIdx(idxPath, jsonlPath, 0, false)
 	if err != ErrIdxUnavailable {
 		t.Errorf("err = %v, want ErrIdxUnavailable (header size > actual)", err)
+	}
+}
+
+// Story 72.2 P1/AC5 row 3: header jsonl_size < actual is stale when the process
+// is dead (no live writer will complete the idx) but valid lag when alive (F11).
+func TestReadStepsFromIdx_DeadProcessLagIsStale(t *testing.T) {
+	dir := t.TempDir()
+	// header claims jsonl_size=10 but the actual jsonl is 100 bytes → the idx
+	// only covers the first 10 bytes; the process is dead, so this lag will
+	// never be healed by a writer.
+	entries := []idxEntry{{Offset: 0, Step: 1, Action: "x"}}
+	idxPath, jsonlPath := writeIdxFixture(t, dir, entries, 10)
+	// Grow the jsonl past the header's recorded size.
+	if err := os.WriteFile(jsonlPath, make([]byte, 100), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	// Dead process → stale → ErrIdxUnavailable (must fall back to full scan).
+	if _, _, _, err := ReadStepsFromIdx(idxPath, jsonlPath, 0, false); err != ErrIdxUnavailable {
+		t.Errorf("dead process: err = %v, want ErrIdxUnavailable (AC5 row 3)", err)
+	}
+
+	// Alive process → normal lag (F11) → valid.
+	result, total, _, err := ReadStepsFromIdx(idxPath, jsonlPath, 0, true)
+	if err != nil {
+		t.Fatalf("alive process: err = %v, want nil (lag is normal, F11)", err)
+	}
+	if total != 1 || len(result) != 1 {
+		t.Errorf("alive process: total=%d len=%d, want 1/1", total, len(result))
 	}
 }
 
@@ -122,7 +151,7 @@ func TestReadStepsFromIdx_AfterStepFilter(t *testing.T) {
 	}
 	idxPath, jsonlPath := writeIdxFixture(t, dir, entries, 500)
 
-	result, total, _, err := ReadStepsFromIdx(idxPath, jsonlPath, 3)
+	result, total, _, err := ReadStepsFromIdx(idxPath, jsonlPath, 3, false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -150,7 +179,7 @@ func TestReadStepsFromIdx_ParseErrors(t *testing.T) {
 	f.WriteString(`{"o":50,"s":2,"a":"ok2"}` + "\n")
 	f.Close()
 
-	result, total, parseErrors, err := ReadStepsFromIdx(idxPath, jsonlPath, 0)
+	result, total, parseErrors, err := ReadStepsFromIdx(idxPath, jsonlPath, 0, false)
 	if err != nil {
 		t.Fatal(err)
 	}
