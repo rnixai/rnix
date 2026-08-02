@@ -1962,14 +1962,45 @@ func runDaemon(cmd *cobra.Command, args []string) error {
 	// LoadSuspendedFromDisk/AutoResumeDaemonShutdown so resumed processes
 	// can never commit memory ahead of memStore.SetRecallIndex (Story 35.8
 	// review: startup-window writes would silently skip indexing).
+	//
+	// Story 72.4 — declared out here (nil when recall is disabled) so the
+	// shutdown path below can persist the index. Never move the save into a
+	// defer: runDaemon's early-return error paths abort before the index is
+	// built, and saving a half-built index there would be both useless and slow.
+	var recallIdx *kernelmemory.RecallIndex
+	recallIndexPath := filepath.Join(dataDir, "recall", "index.json")
 	if memStore != nil && memoryCfg.Recall.Enabled {
-		recallIdx := kernelmemory.NewRecallIndex()
+		recallIdx = kernelmemory.NewRecallIndex()
 		k.SetRecallIndex(recallIdx)
 
-		// Start background index build from all project step directories
-		for _, projBaseDir := range kernel.AllBaseDirs(dataDir) {
-			recallIdx.BuildFromDiskAsync(filepath.Join(projBaseDir, "steps"))
+		// Story 72.4 — restore the persisted index instead of cold-scanning every
+		// steps.jsonl on disk (measured 8.32 s → 145.8 ms on an 11 GB corpus).
+		// Any load failure is a silent fall back to the full scan: a missing or
+		// corrupt index.json must never block daemon startup.
+		baseDirs := kernel.AllBaseDirs(dataDir)
+		stepsDirs := make([]string, 0, len(baseDirs))
+		for _, projBaseDir := range baseDirs {
+			stepsDirs = append(stepsDirs, filepath.Join(projBaseDir, "steps"))
 		}
+		switch err := recallIdx.LoadIndex(recallIndexPath); {
+		case err == nil:
+			// Entries whose steps.jsonl grew (a resumed process kept writing) or
+			// vanished (gc / manual rm) must be dropped here — otherwise the
+			// `indexed` map makes the skip permanent and their newer steps stay
+			// invisible for the rest of the index's life.
+			if purged := recallIdx.InvalidateStale(stepsDirs); purged > 0 {
+				fmt.Fprintf(os.Stderr, "[recall] invalidated %d stale/removed process(es) from persisted index\n", purged)
+			}
+		case errors.Is(err, os.ErrNotExist):
+			// First run, or the previous daemon was killed before it could save.
+		default:
+			fmt.Fprintf(os.Stderr, "[recall] warn: load persisted index (falling back to full scan): %v\n", err)
+		}
+
+		// Start background index build across all project step directories.
+		// Restored entries are skipped in microseconds; only new/invalidated ones
+		// are parsed. Ready() flips once, after every directory is done.
+		recallIdx.BuildAllFromDisksAsync(stepsDirs, kernelmemory.DefaultIndexBuildConcurrency)
 
 		// Story 35.8 — index MEMORY.md § entries (global + per-project)
 		recallIdx.IndexMemoryFile(kernelmemory.MemorySourceKeyGlobal, filepath.Join(globalDir, "memory", "MEMORY.md"))
@@ -2369,6 +2400,17 @@ func runDaemon(cmd *cobra.Command, args []string) error {
 	case <-srvDone:
 	case <-time.After(10 * time.Second):
 		log.Println("[daemon] srv.Wait timed out after 10s — forcing exit")
+	}
+
+	// Story 72.4 — persist the recall index so the next start skips the full
+	// cold scan. Runs after srv.Wait so no request can still be mutating the
+	// index. Best effort by design: a save failure must not change the exit code
+	// or hold up shutdown, and a daemon killed with SIGKILL simply cold-scans
+	// next time (the fingerprint check makes a stale index safe, never wrong).
+	if recallIdx != nil {
+		if err := recallIdx.SaveIndex(recallIndexPath); err != nil {
+			fmt.Fprintf(os.Stderr, "[recall] warn: save index: %v\n", err)
+		}
 	}
 	// Only remove the socket if we still own it (PID file matches our PID).
 	// A new daemon may have started during our shutdown window.

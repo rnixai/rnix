@@ -60,12 +60,43 @@ type SearchResult struct {
 	Score   int       `json:"score"`
 }
 
-// persistedIndex is the JSON representation for SaveIndex/LoadIndex.
-type persistedIndex struct {
-	Index   map[string][]posting  `json:"index"`
-	Docs    map[string][]docEntry `json:"docs"`
-	Indexed map[string]bool       `json:"indexed"`
+// indexFingerprint captures the steps.jsonl state observed *at index time* for
+// one process (Story 72.4). It is the sole judge of whether a persisted index
+// entry may still be trusted after a daemon restart.
+//
+// The values must come from the Stat performed before the file is parsed — never
+// from a fresh Stat at SaveIndex time. A file that grew during the scan would
+// otherwise be recorded as "indexed up to its current size" and the appended
+// tail would be skipped forever (same failure shape as the Story 72.2
+// watermark-ahead-of-data defect).
+type indexFingerprint struct {
+	Size    int64 `json:"size"`
+	MTimeMs int64 `json:"mtime_ms"`
 }
+
+// persistedIndex is the JSON representation for SaveIndex/LoadIndex.
+//
+// Fprints is omitempty so a pre-72.4 index.json unmarshals cleanly; every UUID
+// missing a fingerprint is treated as stale by InvalidateStale.
+type persistedIndex struct {
+	Index   map[string][]posting        `json:"index"`
+	Docs    map[string][]docEntry       `json:"docs"`
+	Indexed map[string]bool             `json:"indexed"`
+	Fprints map[string]indexFingerprint `json:"fprints,omitempty"`
+}
+
+// DefaultIndexBuildConcurrency caps how many step directories are scanned in
+// parallel by BuildAllFromDisksAsync (Story 72.4 AC2).
+//
+// Measured on a 11 GB / 120 base-dir / 1773-process corpus: cold cache 8.14 s at
+// 8 vs 8.97 s at 120 (unbounded) and 8.67 s at 4; warm cache 4/8/16/32/119 all
+// within noise (6.1-6.3 s). Serial is 2.3x slower, so concurrency itself is a
+// net win — the cap exists to bound goroutine and fd peaks, not to relieve lock
+// contention (indexProcessDir already parses outside the lock).
+//
+// Deliberately not runtime.NumCPU(): this is I/O bound, and 32 (this machine's
+// core count) measured marginally slower than 8.
+const DefaultIndexBuildConcurrency = 8
 
 // MemorySourceKeyGlobal is the recall-index source key for the global
 // MEMORY.md backing the global_memory target ({globalDir}/memory/MEMORY.md).
@@ -105,6 +136,11 @@ type RecallIndex struct {
 	readyCh   chan struct{} // closed when initial build completes
 	readyOnce sync.Once     // protects readyCh from double-close
 
+	// Story 72.4 — uuid → steps.jsonl size+mtime as observed at index time.
+	// Persisted alongside the postings; InvalidateStale compares it against the
+	// current on-disk state to decide whether a restored entry can be trusted.
+	fprints map[string]indexFingerprint
+
 	memSources map[string]*memorySource // key → MEMORY.md source (parallel to session index)
 }
 
@@ -114,6 +150,7 @@ func NewRecallIndex() *RecallIndex {
 		index:      make(map[string][]posting),
 		docs:       make(map[string][]docEntry),
 		indexed:    make(map[string]bool),
+		fprints:    make(map[string]indexFingerprint),
 		readyCh:    make(chan struct{}),
 		memSources: make(map[string]*memorySource),
 	}
@@ -209,13 +246,68 @@ func (ri *RecallIndex) BuildFromDiskAsync(stepsDir string) {
 	}()
 }
 
+// BuildAllFromDisksAsync scans every step root in stepsDirs under a
+// concurrency cap, then marks the index ready exactly once (Story 72.4 AC2/AC6).
+//
+// The single markReady is the point of this entry point: when the startup path
+// fans out per-base-dir BuildFromDiskAsync goroutines (120 on the reference
+// corpus), the first one to finish flips Ready() while 119/120 of the index is
+// still missing, and /dev/memory/recall starts answering searches from a
+// 1/120-complete index. A coordinated goroutine flips Ready only when the last
+// directory is done.
+//
+// The existing BuildFromDiskAsync / BuildFromDisk are intentionally unchanged —
+// per-directory callers (drivers/memory atdd_35_4) depend on their current
+// behavior. This is a separate startup-only entry point.
+//
+// A nil or empty stepsDirs is not an error (nothing to scan) — the goroutine
+// marks ready and exits. Per-directory errors are logged, not returned: a
+// missing project dir must not block the rest of the build.
+func (ri *RecallIndex) BuildAllFromDisksAsync(stepsDirs []string, concurrency int) {
+	if concurrency <= 0 {
+		concurrency = DefaultIndexBuildConcurrency
+	}
+	go func() {
+		defer func() {
+			if r := recover(); r != nil {
+				log.Printf("[recall] panic during index build: %v", r)
+			}
+			ri.markReady()
+		}()
+
+		sem := make(chan struct{}, concurrency)
+		var wg sync.WaitGroup
+		for _, dir := range stepsDirs {
+			wg.Add(1)
+			sem <- struct{}{}
+			go func() {
+				defer wg.Done()
+				defer func() { <-sem }()
+				if err := ri.scanStepsDir(dir); err != nil {
+					log.Printf("[recall] index build failed: %v", err)
+				}
+			}()
+		}
+		wg.Wait()
+	}()
+}
+
 // BuildFromDisk scans stepsDir/*/steps.jsonl and builds the full index.
 // stepsDir is the directory containing UUID subdirectories directly.
 // Marks the index as ready upon completion.
 func (ri *RecallIndex) BuildFromDisk(stepsDir string) error {
+	err := ri.scanStepsDir(stepsDir)
+	ri.markReady()
+	return err
+}
+
+// scanStepsDir is BuildFromDisk without the markReady side effect, so
+// BuildAllFromDisksAsync can defer readiness until every directory is done
+// (Story 72.4 AC6). BuildFromDisk keeps its original semantics by calling this
+// and marking ready itself.
+func (ri *RecallIndex) scanStepsDir(stepsDir string) error {
 	entries, err := os.ReadDir(stepsDir)
 	if err != nil {
-		ri.markReady()
 		return fmt.Errorf("read steps dir %s: %w", stepsDir, err)
 	}
 
@@ -234,7 +326,6 @@ func (ri *RecallIndex) BuildFromDisk(stepsDir string) error {
 	ri.mu.RUnlock()
 	log.Printf("[recall] index built: %d processes, %d terms", docCount, termCount)
 
-	ri.markReady()
 	return nil
 }
 
@@ -277,8 +368,15 @@ func (ri *RecallIndex) indexProcessDir(uuid string, processDir string) {
 	// Use file mod time as the base timestamp for this process
 	info, err := f.Stat()
 	var baseTime time.Time
+	// Story 72.4: capture the fingerprint from this same pre-parse Stat. haveFp
+	// stays false when Stat fails, so the UUID is treated as stale on the next
+	// startup rather than being trusted on a fabricated fingerprint.
+	var fp indexFingerprint
+	haveFp := false
 	if err == nil {
 		baseTime = info.ModTime()
+		fp = indexFingerprint{Size: info.Size(), MTimeMs: info.ModTime().UnixMilli()}
+		haveFp = true
 	} else {
 		baseTime = time.Now()
 	}
@@ -340,11 +438,138 @@ func (ri *RecallIndex) indexProcessDir(uuid string, processDir string) {
 		return
 	}
 	ri.indexed[uuid] = true
+	if haveFp {
+		ri.fprints[uuid] = fp
+	}
 
 	for tok, posts := range localPostings {
 		ri.index[tok] = append(ri.index[tok], posts...)
 	}
 	ri.docs[uuid] = entries
+}
+
+// purgeUUIDLocked removes every trace of one UUID from the index: the indexed
+// marker, its docs, its fingerprint, its dir record, and — critically — all of
+// its postings.
+//
+// Clearing postings is not optional. indexProcessDir commits with
+// `ri.index[tok] = append(ri.index[tok], posts...)`, so dropping only the
+// `indexed` marker and letting the UUID be rescanned would leave two copies of
+// every posting. Search's per-token `seen[p.UUID]` dedup happens to hide the
+// score effect, which is exactly why the leak would go unnoticed while memory
+// grows on every restart.
+//
+// Caller must hold ri.mu for writing.
+func (ri *RecallIndex) purgeUUIDLocked(uuid string) {
+	delete(ri.indexed, uuid)
+	delete(ri.docs, uuid)
+	delete(ri.fprints, uuid)
+
+	for tok, posts := range ri.index {
+		kept := posts[:0]
+		for _, p := range posts {
+			if p.UUID != uuid {
+				kept = append(kept, p)
+			}
+		}
+		if len(kept) == 0 {
+			delete(ri.index, tok)
+			continue
+		}
+		ri.index[tok] = kept
+	}
+}
+
+// InvalidateStale validates every persisted index entry against the current
+// on-disk state and purges the ones that can no longer be trusted (Story 72.4
+// AC3). Returns the number of UUIDs purged.
+//
+// Call it after LoadIndex and before the background rescan: purged UUIDs are
+// then re-indexed from scratch, while surviving ones are skipped in
+// microseconds via the `indexed` map — which is where the 57x startup win comes
+// from.
+//
+// Three outcomes per UUID:
+//
+//	steps.jsonl missing      → ghost (gc removed it, or a manual rm) → purge
+//	size/mtime differ, or no
+//	fingerprint at all       → stale (process kept writing; or a pre-72.4
+//	                           index.json with no fprints) → purge
+//	size/mtime match         → keep, rescan will skip it
+//
+// stepsDirs are the directories holding UUID subdirectories (one per project
+// base dir). A UUID found under none of them is a ghost.
+func (ri *RecallIndex) InvalidateStale(stepsDirs []string) int {
+	ri.mu.RLock()
+	uuids := make([]string, 0, len(ri.indexed))
+	for uuid := range ri.indexed {
+		uuids = append(uuids, uuid)
+	}
+	fpSnapshot := make(map[string]indexFingerprint, len(ri.fprints))
+	maps.Copy(fpSnapshot, ri.fprints)
+	ri.mu.RUnlock()
+
+	if len(uuids) == 0 {
+		return 0
+	}
+
+	// One ReadDir per step root instead of a stat per (uuid, root) pair: with
+	// 1773 processes across 120 roots the latter is ~200k syscalls on a path
+	// that runs before the daemon accepts its first request.
+	homes := make(map[string]string, len(uuids))
+	for _, root := range stepsDirs {
+		entries, err := os.ReadDir(root)
+		if err != nil {
+			continue // a project dir may legitimately not exist
+		}
+		for _, e := range entries {
+			if !e.IsDir() {
+				continue
+			}
+			if _, dup := homes[e.Name()]; !dup {
+				homes[e.Name()] = root
+			}
+		}
+	}
+
+	// Stat outside the lock — one per indexed process — so Search is never
+	// blocked behind the filesystem.
+	var stale []string
+	for _, uuid := range uuids {
+		fp, haveFp := fpSnapshot[uuid]
+		if !haveFp {
+			// No fingerprint: either a pre-72.4 index.json, or the Stat failed
+			// when the process was indexed. Both mean "cannot prove it is
+			// current" — rescan rather than serve possibly-truncated results.
+			stale = append(stale, uuid)
+			continue
+		}
+		root, found := homes[uuid]
+		if !found {
+			stale = append(stale, uuid) // ghost: gc removed it, or a manual rm
+			continue
+		}
+		info, err := os.Stat(filepath.Join(root, uuid, "steps.jsonl"))
+		if err != nil {
+			stale = append(stale, uuid)
+			continue
+		}
+		cur := indexFingerprint{Size: info.Size(), MTimeMs: info.ModTime().UnixMilli()}
+		if cur != fp {
+			stale = append(stale, uuid) // the process kept writing after the snapshot
+		}
+	}
+
+	if len(stale) == 0 {
+		return 0
+	}
+
+	ri.mu.Lock()
+	for _, uuid := range stale {
+		ri.purgeUUIDLocked(uuid)
+	}
+	ri.mu.Unlock()
+	return len(stale)
 }
 
 // Search performs keyword search across the inverted index.
@@ -479,12 +704,20 @@ func (ri *RecallIndex) SaveIndex(path string) error {
 	}
 	indexedCopy := make(map[string]bool, len(ri.indexed))
 	maps.Copy(indexedCopy, ri.indexed)
+	// Story 72.4: fingerprints are recorded at scan time (indexProcessDir), never
+	// re-stat'ed here — a file that grew after being indexed must be recorded at
+	// its indexed size so the next startup sees the mismatch and rescans.
+	// Entries restored by LoadIndex and skipped this run keep their old
+	// fingerprint, which still describes the state their postings reflect.
+	fprintsCopy := make(map[string]indexFingerprint, len(ri.fprints))
+	maps.Copy(fprintsCopy, ri.fprints)
 	ri.mu.RUnlock()
 
 	data := persistedIndex{
 		Index:   indexCopy,
 		Docs:    docsCopy,
 		Indexed: indexedCopy,
+		Fprints: fprintsCopy,
 	}
 
 	b, err := json.Marshal(data)
@@ -522,6 +755,12 @@ func (ri *RecallIndex) LoadIndex(path string) error {
 	}
 	if data.Indexed != nil {
 		ri.indexed = data.Indexed
+	}
+	// Story 72.4 — a pre-72.4 index.json has no "fprints"; leave the map empty
+	// (never nil, writers assume it exists) so InvalidateStale judges every
+	// restored UUID stale and rescans it.
+	if data.Fprints != nil {
+		ri.fprints = data.Fprints
 	}
 
 	return nil
