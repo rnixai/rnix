@@ -42,10 +42,10 @@ func TestStyleProviderName_EmptyProvider(t *testing.T) {
 // SGR codes vary by lipgloss profile so we just verify name is contained.
 func TestStyleProviderName_HealthyContainsName(t *testing.T) {
 	proc := &vfs.ProcInfo{
-		Provider:      "claude-sonnet",
-		State:         types.StateRunning,
-		TokensUsed:    100,
-		ContextBudget: 1000,
+		Provider:        "claude-sonnet",
+		State:           types.StateRunning,
+		LastInputTokens: 100,
+		ContextBudget:   1000,
 	}
 	s := StyleProviderName(true, proc)
 	if !strings.Contains(s, "claude-sonnet") {
@@ -58,10 +58,10 @@ func TestStyleProviderName_HealthyContainsName(t *testing.T) {
 // profiles SGR codes are stripped but provider name remains.
 func TestStyleProviderName_DisconnectedRedColor(t *testing.T) {
 	proc := &vfs.ProcInfo{
-		Provider:      "claude-sonnet",
-		State:         types.StateRunning,
-		TokensUsed:    100,
-		ContextBudget: 1000,
+		Provider:        "claude-sonnet",
+		State:           types.StateRunning,
+		LastInputTokens: 100,
+		ContextBudget:   1000,
 	}
 	s := StyleProviderName(false, proc)
 	if !strings.Contains(s, "claude-sonnet") {
@@ -151,10 +151,10 @@ func TestStyleProviderName_DeadSuccessGreen(t *testing.T) {
 // 颜色一致性原则).
 func TestStyleProviderName_HighCtxYellow(t *testing.T) {
 	proc := &vfs.ProcInfo{
-		Provider:      "claude-sonnet",
-		State:         types.StateRunning,
-		TokensUsed:    800, // 80% exactly
-		ContextBudget: 1000,
+		Provider:        "claude-sonnet",
+		State:           types.StateRunning,
+		LastInputTokens: 800, // 80% exactly（占用量，非累计）
+		ContextBudget:   1000,
 	}
 	s := StyleProviderName(true, proc)
 	if !strings.Contains(s, "claude-sonnet") {
@@ -166,10 +166,10 @@ func TestStyleProviderName_HighCtxYellow(t *testing.T) {
 // (default), confirming the >= 80 boundary is exclusive at 79%.
 func TestStyleProviderName_BoundaryAt79NotYellow(t *testing.T) {
 	proc := &vfs.ProcInfo{
-		Provider:      "claude-sonnet",
-		State:         types.StateRunning,
-		TokensUsed:    79,
-		ContextBudget: 100,
+		Provider:        "claude-sonnet",
+		State:           types.StateRunning,
+		LastInputTokens: 79,
+		ContextBudget:   100,
 	}
 	s := StyleProviderName(true, proc)
 	if !strings.Contains(s, "claude-sonnet") {
@@ -181,10 +181,10 @@ func TestStyleProviderName_BoundaryAt79NotYellow(t *testing.T) {
 // (cannot compute percentage so falls through to default).
 func TestStyleProviderName_ZeroBudgetGreen(t *testing.T) {
 	proc := &vfs.ProcInfo{
-		Provider:      "claude-sonnet",
-		State:         types.StateRunning,
-		TokensUsed:    100,
-		ContextBudget: 0, // not configured
+		Provider:        "claude-sonnet",
+		State:           types.StateRunning,
+		LastInputTokens: 100,
+		ContextBudget:   0, // not configured
 	}
 	s := StyleProviderName(true, proc)
 	if !strings.Contains(s, "claude-sonnet") {

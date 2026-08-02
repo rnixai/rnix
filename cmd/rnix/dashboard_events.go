@@ -141,14 +141,19 @@ func detectSpawnExitEvents(prev map[types.PID]vfs.ProcInfo, curr []vfs.ProcInfo)
 	return events
 }
 
-// detectBudgetEvents checks token budget usage and generates warning events.
+// detectBudgetEvents checks context usage and generates warning events.
+//
+// 🔴 分子是 LastInputTokens（上下文占用量，provider 上报的最近一请求 prompt
+// tokens），不是累计 TokensUsed——后者 ÷ ContextBudget（单请求容量）会让任何
+// 长跑进程恒越 80%/95% 阈值，产生永久虚假 BUDGET 告警（2026-08-03 meetup
+// epic-14 dashboard 事故同族缺陷）。
 func detectBudgetEvents(processes []vfs.ProcInfo, alertSeen map[types.PID]int) []UnifiedEvent {
 	var events []UnifiedEvent
 	for _, p := range processes {
-		if p.ContextBudget <= 0 || p.TokensUsed <= 0 {
+		if p.ContextBudget <= 0 || p.LastInputTokens <= 0 {
 			continue
 		}
-		usagePct := int(int64(p.TokensUsed) * 100 / int64(p.ContextBudget))
+		usagePct := int(int64(p.LastInputTokens) * 100 / int64(p.ContextBudget))
 		var sev int
 		switch {
 		case usagePct >= 95:
@@ -172,7 +177,7 @@ func detectBudgetEvents(processes []vfs.ProcInfo, alertSeen map[types.PID]int) [
 			PID:       p.PID,
 			UUID:      p.UUID,
 			Summary:   fmt.Sprintf("⚠ BUDGET PID %d %d%% threshold reached", p.PID, usagePct),
-			Detail:    fmt.Sprintf("tokens_used=%s context_budget=%s usage=%d%%", timeline.FormatTokenCount(p.TokensUsed), timeline.FormatTokenCount(p.ContextBudget), usagePct),
+			Detail:    fmt.Sprintf("last_input_tokens=%s context_budget=%s usage=%d%%", timeline.FormatTokenCount(p.LastInputTokens), timeline.FormatTokenCount(p.ContextBudget), usagePct),
 		})
 	}
 	return events

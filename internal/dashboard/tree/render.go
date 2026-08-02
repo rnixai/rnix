@@ -423,7 +423,10 @@ func Render(state TreeState, ctx RenderContext, innerW, innerH int) string {
 		if showCtxBar && (row.Proc.State == types.StateRunning || row.Proc.State == types.StateCreated) && linesRendered < visibleLines {
 			if row.Proc.ContextBudget > 0 {
 				barPrefix := strings.Repeat(" ", lipgloss.Width(cursor+collapsePrefix+row.Prefix))
-				ctxBar := RenderCtxBar(row.Proc.TokensUsed, row.Proc.ContextBudget, 10)
+				// 🔴 分子必须是 LastInputTokens（上下文占用量，与行内 ctx:N% 同源），
+				// 绝不能是 TokensUsed（全生命周期累计消耗）——累计量 ÷ 单请求容量
+				// 会让任何长跑进程恒显 100%（meetup epic-14 2026-08-03 事故现场）。
+				ctxBar := RenderCtxBar(row.Proc.LastInputTokens, row.Proc.ContextBudget, 10)
 				b.WriteString(barPrefix + ctxBar + "\n")
 				linesRendered++
 			}

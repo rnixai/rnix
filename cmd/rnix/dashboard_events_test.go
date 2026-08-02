@@ -345,7 +345,7 @@ func TestDetectSpawnExitEvents(t *testing.T) {
 func TestDetectBudgetEvents(t *testing.T) {
 	t.Run("above 80 pct", func(t *testing.T) {
 		procs := []vfs.ProcInfo{
-			{PID: 1, TokensUsed: 85000, ContextBudget: 100000},
+			{PID: 1, LastInputTokens: 85000, ContextBudget: 100000},
 		}
 		alertSeen := make(map[types.PID]int)
 		events := detectBudgetEvents(procs, alertSeen)
@@ -359,7 +359,7 @@ func TestDetectBudgetEvents(t *testing.T) {
 
 	t.Run("above 95 pct", func(t *testing.T) {
 		procs := []vfs.ProcInfo{
-			{PID: 1, TokensUsed: 96000, ContextBudget: 100000},
+			{PID: 1, LastInputTokens: 96000, ContextBudget: 100000},
 		}
 		alertSeen := make(map[types.PID]int)
 		events := detectBudgetEvents(procs, alertSeen)
@@ -373,7 +373,7 @@ func TestDetectBudgetEvents(t *testing.T) {
 
 	t.Run("below threshold", func(t *testing.T) {
 		procs := []vfs.ProcInfo{
-			{PID: 1, TokensUsed: 50000, ContextBudget: 100000},
+			{PID: 1, LastInputTokens: 50000, ContextBudget: 100000},
 		}
 		alertSeen := make(map[types.PID]int)
 		events := detectBudgetEvents(procs, alertSeen)
@@ -384,7 +384,7 @@ func TestDetectBudgetEvents(t *testing.T) {
 
 	t.Run("no duplicate at same severity", func(t *testing.T) {
 		procs := []vfs.ProcInfo{
-			{PID: 1, TokensUsed: 85000, ContextBudget: 100000},
+			{PID: 1, LastInputTokens: 85000, ContextBudget: 100000},
 		}
 		alertSeen := map[types.PID]int{1: SevWarn}
 		events := detectBudgetEvents(procs, alertSeen)
@@ -395,7 +395,7 @@ func TestDetectBudgetEvents(t *testing.T) {
 
 	t.Run("escalation emits new event", func(t *testing.T) {
 		procs := []vfs.ProcInfo{
-			{PID: 1, TokensUsed: 96000, ContextBudget: 100000},
+			{PID: 1, LastInputTokens: 96000, ContextBudget: 100000},
 		}
 		alertSeen := map[types.PID]int{1: SevWarn}
 		events := detectBudgetEvents(procs, alertSeen)
@@ -409,7 +409,7 @@ func TestDetectBudgetEvents(t *testing.T) {
 
 	t.Run("exactly 80 pct triggers warning", func(t *testing.T) {
 		procs := []vfs.ProcInfo{
-			{PID: 1, TokensUsed: 80000, ContextBudget: 100000},
+			{PID: 1, LastInputTokens: 80000, ContextBudget: 100000},
 		}
 		alertSeen := make(map[types.PID]int)
 		events := detectBudgetEvents(procs, alertSeen)
@@ -423,12 +423,37 @@ func TestDetectBudgetEvents(t *testing.T) {
 
 	t.Run("zero budget ignored", func(t *testing.T) {
 		procs := []vfs.ProcInfo{
-			{PID: 1, TokensUsed: 5000, ContextBudget: 0},
+			{PID: 1, LastInputTokens: 5000, ContextBudget: 0},
 		}
 		alertSeen := make(map[types.PID]int)
 		events := detectBudgetEvents(procs, alertSeen)
 		if len(events) != 0 {
 			t.Errorf("expected 0 events for zero budget, got %d", len(events))
+		}
+	})
+
+	// 🔴 回归守卫（2026-08-03 meetup epic-14 事故）：分子必须是上下文占用量
+	// LastInputTokens，不是累计 TokensUsed。累计 62M ÷ 单请求容量 885k 会让
+	// 任何长跑进程恒越阈值，产生永久虚假 BUDGET 告警。
+	t.Run("huge cumulative TokensUsed with low occupancy emits nothing", func(t *testing.T) {
+		procs := []vfs.ProcInfo{
+			{PID: 1, TokensUsed: 62_000_000, LastInputTokens: 5000, ContextBudget: 100000},
+		}
+		alertSeen := make(map[types.PID]int)
+		events := detectBudgetEvents(procs, alertSeen)
+		if len(events) != 0 {
+			t.Errorf("expected 0 events (occupancy 5%% despite 62M cumulative), got %d", len(events))
+		}
+	})
+
+	t.Run("zero LastInputTokens emits nothing", func(t *testing.T) {
+		procs := []vfs.ProcInfo{
+			{PID: 1, TokensUsed: 900_000, LastInputTokens: 0, ContextBudget: 100000},
+		}
+		alertSeen := make(map[types.PID]int)
+		events := detectBudgetEvents(procs, alertSeen)
+		if len(events) != 0 {
+			t.Errorf("expected 0 events before first provider usage report, got %d", len(events))
 		}
 	})
 }

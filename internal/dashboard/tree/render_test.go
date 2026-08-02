@@ -396,3 +396,37 @@ func TestRender_ASCIIMode_UUIDSuffixUsesTildePrefix(t *testing.T) {
 		t.Errorf("ASCII reused-PID row should contain \"42(~77cc99)\", got %q", line)
 	}
 }
+
+// TestRender_CtxBarUsesOccupancyNotCumulative 是 2026-08-03 meetup epic-14
+// dashboard 事故的回归守卫：ctx 进度条分子必须是上下文占用量
+// (LastInputTokens)，绝不能是进程全生命周期累计消耗 (TokensUsed)。
+// 累计量 ÷ 单请求容量会让任何长跑进程恒显 100%，并与行内 ctx:N% 文本
+// （LastInputTokens 同源）完全脱节——事故现场 62.24M 累计 vs 885k 预算
+// = 7031% → clamp 100%，而行内文本显示真实的 ctx:48%。
+func TestRender_CtxBarUsesOccupancyNotCumulative(t *testing.T) {
+	created := time.Date(2026, 8, 3, 6, 1, 16, 0, time.UTC)
+	row := FlatRow{
+		Proc: vfs.ProcInfo{
+			PID:             2670,
+			UUID:            "019fc47e-dde1-77d8-96b0-ba2d0ea0f7b6",
+			State:           types.StateRunning,
+			Intent:          "dev worker",
+			CreatedAt:       created,
+			LastInputTokens: 480, // 占用 48%
+			ContextBudget:   1000,
+			TokensUsed:      62_000_000, // 累计 62M：旧分子会恒 clamp 到 100%
+		},
+		Prefix: "",
+	}
+
+	out := Render(makeState([]FlatRow{row}), makeRenderCtx(created.Add(time.Minute)), 200, 10)
+
+	// 行内文本 "ctx:48%" 与进度条 "ctx … 48%" 同时出现 → "48%" 至少 2 次。
+	if got := strings.Count(out, "48%"); got < 2 {
+		t.Errorf("expected row text AND ctx bar to both show 48%% (>=2 occurrences), got %d in:\n%s", got, out)
+	}
+	// 旧分子（累计量）的回归指纹：任何位置都不应钉死在 100%。
+	if strings.Contains(out, "100%") {
+		t.Errorf("ctx bar must use LastInputTokens (48%%), not cumulative TokensUsed (clamps to 100%%):\n%s", out)
+	}
+}

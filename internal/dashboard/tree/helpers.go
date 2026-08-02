@@ -73,7 +73,10 @@ func ReusedPIDs(procs []vfs.ProcInfo) map[types.PID]int {
 // RenderCtxBar 渲染 context 使用率进度条："ctx ████████░░ 78%"。
 //
 // 参数：
-//   - tokensUsed:    当前已用 token 数
+//   - used:          **上下文占用量**分子。🔴 调用方必须传 LastInputTokens
+//     （provider 上报的最近一请求真实 prompt tokens），绝不能传
+//     ProcInfo.TokensUsed——后者是全生命周期累计消耗，累计量 ÷ 单请求容量
+//     会让任何长跑进程恒显 100%（2026-08-03 meetup epic-14 dashboard 事故）。
 //   - contextBudget: context 总预算（≤ 0 时返回空字符串）
 //   - barWidth:      条形字符数（典型值 10）
 //
@@ -86,11 +89,11 @@ func ReusedPIDs(procs []vfs.ProcInfo) map[types.PID]int {
 //   - 默认:      SuccessStyle（绿色）
 //
 // 返回：lipgloss 着色后的进度条字符串；contextBudget ≤ 0 时返回 ""。
-func RenderCtxBar(tokensUsed, contextBudget, barWidth int) string {
+func RenderCtxBar(used, contextBudget, barWidth int) string {
 	if contextBudget <= 0 {
 		return ""
 	}
-	pct := max(0, min(int(int64(tokensUsed)*100/int64(contextBudget)), 100))
+	pct := max(0, min(int(int64(used)*100/int64(contextBudget)), 100))
 	filled := max(0, barWidth*pct/100)
 
 	ascii := ui.IsASCIIMode()

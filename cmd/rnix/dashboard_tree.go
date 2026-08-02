@@ -170,8 +170,10 @@ func reusedPIDs(procs []vfs.ProcInfo) map[types.PID]int {
 // renderCtxBar — 兼容 wrapper（实现迁出至 internal/dashboard/tree.RenderCtxBar）。
 //
 // 被 cmd/rnix/dashboard_test.go 的 34.3-UNIT-003/004 直接 grep 调用，必须保留。
-func renderCtxBar(tokensUsed, contextBudget, barWidth int) string {
-	return tree.RenderCtxBar(tokensUsed, contextBudget, barWidth)
+// 🔴 分子语义见 tree.RenderCtxBar godoc：传上下文占用量（LastInputTokens），
+// 不传累计 TokensUsed。
+func renderCtxBar(used, contextBudget, barWidth int) string {
+	return tree.RenderCtxBar(used, contextBudget, barWidth)
 }
 
 // flattenTreeWithCollapse — 兼容 wrapper（实现迁出至 internal/dashboard/tree.FlattenTreeWithCollapse）。

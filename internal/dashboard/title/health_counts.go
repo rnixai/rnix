@@ -28,7 +28,7 @@ import (
 //   - Multiple errors from same PID counted once
 //   - Warnings (W):
 //   - Running/Created processes with any of:
-//   - ctx usage >= 80% (TokensUsed*100/ContextBudget)
+//   - ctx usage >= 80% (LastInputTokens*100/ContextBudget)
 //   - cost budget >= 80% (UsedCost*100/MaxCost)
 //   - token budget >= 80% (TokensUsed*100/MaxTokens)
 //   - Heartbeat-stalled processes (heartbeat.CurrentStalled)

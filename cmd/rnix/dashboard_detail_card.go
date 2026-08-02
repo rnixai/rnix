@@ -325,7 +325,15 @@ func formatTraceBudgetSteps(m *dashboardModel, d *ipc.GetProcDetailResponse) str
 	stepCount := len(m.timeline.StepEntries)
 	budgetPct := 0
 	if d.ContextStats.ContextBudget > 0 {
-		budgetPct = int(int64(d.ContextStats.TokensUsed) * 100 / int64(d.ContextStats.ContextBudget))
+		// 直接消费服务端算好的 UsagePct（LastInputTokens/Budget，server_process.go）。
+		// 🔴 不能用 ContextStats.TokensUsed——那是全生命周期累计消耗，÷ 单请求
+		// 容量会出 "Budget: 166%" 这类越界值（2026-08-03 meetup 事故现场）。
+		budgetPct = int(d.ContextStats.UsagePct)
+		if budgetPct > 100 {
+			budgetPct = 100
+		} else if budgetPct < 0 {
+			budgetPct = 0
+		}
 	}
 
 	traceInfo := "—"
