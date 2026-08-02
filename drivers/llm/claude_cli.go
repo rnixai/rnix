@@ -915,16 +915,42 @@ func contentBlocksToAny(blocks []claudeContentBlock) []map[string]any {
 
 // classifyCliError attempts to categorize an error message from the CLI
 // into a sentinel error and HTTP status code. Returns (0, nil) if no match.
+//
+// Story 73.1 / AC5. CLI drivers see neither an HTTP status nor response
+// headers, so the message text is the only evidence available. The branch
+// order below is a contract, not an accident:
+//
+//  1. Retryable throttle BEFORE terminal quota. The recorded production text
+//     "…temporarily limiting requests (not your usage limit) · carpool 5h
+//     quota exhausted" carries evidence that reads both ways; landing it on
+//     the recoverable side costs one backoff, while the reverse would suspend
+//     the process for hours against the provider's explicit statement. This is
+//     the same fail-open direction as AC4.
+//  2. Marker precision is the other half of the guard — see
+//     rateLimitQuotaMarkers for why the terminal set may not carry bare
+//     "usage limit" or bare "quota exhausted".
+//
+// The marker sets are shared with the HTTP body classifier
+// (classifyRateLimitBody) so the two paths cannot drift.
 func classifyCliError(msg string) (int, error) {
 	lower := strings.ToLower(msg)
 	switch {
-	case strings.Contains(lower, "rate limit"):
-		return 429, ErrRateLimit
-	case strings.Contains(lower, "overloaded") || strings.Contains(lower, "529"):
-		return 529, ErrTransient
+	case containsAnyMarker(lower, rateLimitThrottleMarkers):
+		return 429, ErrRateLimitThrottle
+	case containsAnyMarker(lower, rateLimitQuotaMarkers):
+		return 429, ErrQuotaExhausted
+	case strings.Contains(lower, "overloaded") || strings.Contains(lower, "529") || strings.Contains(lower, "503"):
+		return 529, ErrServerOverloaded
 	case strings.Contains(lower, "socket") || strings.Contains(lower, "connection"):
 		return 0, ErrTransient
-	case strings.Contains(lower, "auth") || strings.Contains(lower, "key"):
+	// "key" alone was too broad (it matched any body mentioning a key); the
+	// branch is narrowed rather than deleted because ErrAuth is a permanent-
+	// error veto in isTransientLLMError — dropping it would send genuine auth
+	// failures into the retry path to spin three times (Story 73.1 / D7).
+	case strings.Contains(lower, "auth") ||
+		strings.Contains(lower, "api key") ||
+		strings.Contains(lower, "api-key") ||
+		strings.Contains(lower, "apikey"):
 		return 401, ErrAuth
 	case strings.Contains(lower, "too long") || strings.Contains(lower, "context"):
 		return 400, ErrContextLength

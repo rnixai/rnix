@@ -474,7 +474,14 @@ func (d *OpenAICompatDriver) classifyHTTPError(statusCode int, body []byte) *LLM
 	case 401:
 		return NewLLMError(d.name, 401, fmt.Errorf("%s: %w", errMsg, ErrAuth))
 	case 429:
-		return NewLLMError(d.name, 429, fmt.Errorf("%s: %w", errMsg, ErrRateLimit))
+		// Story 73.1 / AC4: this driver has the provider's structured
+		// error.type already parsed (errResp.Error.Code/.Type), so both
+		// evidence channels feed the split.
+		kind := classifyRateLimitBody(errResp.Error.Message, errResp.Error.Code+" "+errResp.Error.Type)
+		return NewLLMError(d.name, 429, NewRateLimitError(kind, errMsg))
+	case 529, 503:
+		// Story 73.1 / AC3.
+		return NewLLMError(d.name, statusCode, NewRateLimitError(KindOverload, errMsg))
 	case 404:
 		return NewLLMError(d.name, 404, fmt.Errorf("%s: %w", errMsg, ErrModelNotFound))
 	case 400:

@@ -550,7 +550,14 @@ func (d *AnthropicDriver) classifyError(err error) error {
 		case 401:
 			return NewLLMError(d.name, 401, fmt.Errorf("%s: %w", msg, ErrAuth))
 		case 429:
-			return NewLLMError(d.name, 429, fmt.Errorf("%s: %w", msg, ErrRateLimit))
+			// Story 73.1 / AC4: split retryable throttle from terminal quota
+			// using the provider's own body. Anthropic exposes no structured
+			// error.type here, so the message is the only evidence.
+			return NewLLMError(d.name, 429, NewRateLimitError(classifyRateLimitBody(msg, ""), msg))
+		case 529, 503:
+			// Story 73.1 / AC3: server overload is its own class — not a rate
+			// limit — so 73.3's quota suspension never swallows a service blip.
+			return NewLLMError(d.name, apiErr.StatusCode, NewRateLimitError(KindOverload, msg))
 		case 404:
 			return NewLLMError(d.name, 404, fmt.Errorf("%s: %w", msg, ErrModelNotFound))
 		case 400:

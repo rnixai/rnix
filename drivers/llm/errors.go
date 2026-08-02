@@ -19,11 +19,38 @@ var (
 	ErrMaxTurns         = errors.New("llm: agent loop exhausted max turns")
 )
 
+// Rate-limit trichotomy sentinels (Story 73.1 / AC2). They form the stable
+// errors.Is judgement surface; the structured payload that carries wait
+// durations lives in *RateLimitError (ratelimit.go).
+//
+// ErrRateLimitThrottle and ErrQuotaExhausted both wrap ErrRateLimit so the
+// public sentinel established by Architecture Decision 4 stays on the Unwrap
+// chain — eight existing driver tests assert errors.Is(err, ErrRateLimit) and
+// downstream consumers (ipc/http_openai.go formatUpstreamError) key off it.
+// ErrServerOverloaded deliberately does NOT wrap ErrRateLimit: 529/503 mean
+// "the server is momentarily unavailable", not "your allowance is spent", and
+// merging the two would let Story 73.3's terminal-quota suspension swallow a
+// transient service blip.
+var (
+	// ErrRateLimitThrottle — retryable throttle: the provider states a short
+	// wait is enough to recover.
+	ErrRateLimitThrottle = fmt.Errorf("%w (retryable throttle)", ErrRateLimit)
+	// ErrQuotaExhausted — terminal quota exhaustion: a whole window is spent,
+	// recovery requires waiting for the reset instant.
+	ErrQuotaExhausted = fmt.Errorf("%w (quota window exhausted)", ErrRateLimit)
+	// ErrServerOverloaded — 529/503: the server is temporarily unavailable.
+	ErrServerOverloaded = errors.New("llm: server overloaded")
+)
+
 // IsTransient returns true if the error is a transient LLM error that may
 // succeed on retry (socket disconnect, connection reset, overloaded, etc.).
+//
+// Story 73.1 / AC1: rate limits are deliberately NOT part of this set. They
+// need a wait before the retry, whereas everything here is safe to retry with
+// zero delay. The kernel claims the rate-limit family separately via
+// IsRateLimited so the two can carry different backoff policies (Story 73.2).
 func IsTransient(err error) bool {
 	return errors.Is(err, ErrTransient) ||
-		errors.Is(err, ErrRateLimit) ||
 		errors.Is(err, ErrTimeout) ||
 		errors.Is(err, ErrStreamIncomplete)
 }

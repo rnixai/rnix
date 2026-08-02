@@ -281,11 +281,23 @@ func isTransientLLMError(err error) bool {
 	if llm.IsTransient(err) {
 		return true
 	}
+	// Story 73.1 / AC1-D3: rate limits left llm.IsTransient when the trichotomy
+	// landed, so they must be claimed here explicitly — otherwise a 429 skips
+	// the retry path entirely and goes straight to attemptFallback →
+	// finishProcess, which is worse than the zero-delay retries it replaced.
+	// All three kinds return true here; kind-specific backoff is Story 73.2's
+	// work, this only holds the line against regression.
+	if llm.IsRateLimited(err) {
+		return true
+	}
 	var llmErr interface{ Unwrap() error }
 	if errors.As(err, &llmErr) {
 		inner := llmErr.Unwrap()
 		if inner != nil {
 			if llm.IsTransient(inner) {
+				return true
+			}
+			if llm.IsRateLimited(inner) {
 				return true
 			}
 			lower := strings.ToLower(inner.Error())
@@ -737,12 +749,24 @@ func (k *KernelImpl) reasonStep(proc *Process, llmFD types.FD, opts SpawnOpts) {
 			// Transient error retry (socket disconnect, overloaded, etc.)
 			if isTransientLLMError(err) && consecutiveTransientRetries < 2 {
 				consecutiveTransientRetries++
-				k.emitEvent(proc, "ReasonStep", map[string]any{
+				retryFields := map[string]any{
 					"step":    step,
 					"action":  "transient_retry",
 					"attempt": consecutiveTransientRetries,
 					"reason":  err.Error(),
-				}, nil, nil, time.Since(stepStart))
+				}
+				// Story 73.1 / AC6: tag the retry with the rate-limit class so
+				// "waited 4 seconds" and "window resets in 95 hours" stop
+				// looking identical in the event stream. Non-rate-limit
+				// failures carry no field at all — an anti-semantic "none"
+				// would be worse than absence (same discipline as 71.4's
+				// failure_kind).
+				if kind, ok := llm.RateLimitKindOf(err); ok {
+					retryFields["rate_limit_kind"] = kind.String()
+					log.Printf("[kernel] pid=%d step=%d rate limit classified: kind=%s attempt=%d device=%s",
+						proc.PID, step, kind, consecutiveTransientRetries, proc.PrimaryDevice)
+				}
+				k.emitEvent(proc, "ReasonStep", retryFields, nil, nil, time.Since(stepStart))
 				continue // retry current step
 			}
 

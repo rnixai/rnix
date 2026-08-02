@@ -551,7 +551,12 @@ func (d *GeminiDriver) classifyError(err error) error {
 		case 401:
 			return NewLLMError(d.name, 401, fmt.Errorf("%s: %w", msg, ErrAuth))
 		case 429:
-			return NewLLMError(d.name, 429, fmt.Errorf("%s: %w", msg, ErrRateLimit))
+			// Story 73.1 / AC4: body-evidence split (genai.APIError carries no
+			// structured error.type; the message is the only evidence).
+			return NewLLMError(d.name, 429, NewRateLimitError(classifyRateLimitBody(msg, ""), msg))
+		case 529, 503:
+			// Story 73.1 / AC3.
+			return NewLLMError(d.name, apiErr.Code, NewRateLimitError(KindOverload, msg))
 		case 404:
 			return NewLLMError(d.name, 404, fmt.Errorf("%s: %w", msg, ErrModelNotFound))
 		case 400:

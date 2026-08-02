@@ -421,7 +421,12 @@ func (d *OpenAIDriver) classifyError(err error) error {
 		case 401:
 			return NewLLMError(d.name, 401, fmt.Errorf("%s: %w", msg, ErrAuth))
 		case 429:
-			return NewLLMError(d.name, 429, fmt.Errorf("%s: %w", msg, ErrRateLimit))
+			// Story 73.1 / AC4: body-evidence split (no structured error.type
+			// reachable through the SDK's reflected error shape).
+			return NewLLMError(d.name, 429, NewRateLimitError(classifyRateLimitBody(msg, ""), msg))
+		case 529, 503:
+			// Story 73.1 / AC3.
+			return NewLLMError(d.name, statusCode, NewRateLimitError(KindOverload, msg))
 		case 404:
 			return NewLLMError(d.name, 404, fmt.Errorf("%s: %w", msg, ErrModelNotFound))
 		case 400:
