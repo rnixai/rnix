@@ -12,6 +12,7 @@ import (
 	"github.com/rnixai/rnix/internal/dashboard/timeline"
 	"github.com/rnixai/rnix/internal/dashboard/trace"
 	"github.com/rnixai/rnix/internal/types"
+	"github.com/rnixai/rnix/internal/ui"
 	"github.com/rnixai/rnix/ipc"
 	"github.com/rnixai/rnix/vfs"
 )
@@ -116,6 +117,25 @@ const (
 const colorIPC = status.ColorIPC
 
 const statusMsgDefaultTTL = 4
+
+// statusGlyphWarn / statusGlyphFail return the leading glyph for a statusMsg,
+// honouring RNIX_ASCII=1 (see internal/ui.StateSymbol for the same pattern).
+// The dashboard's statusMsg strings hardcoded these glyphs historically; these
+// helpers route them through the one authoritative ASCII switch so a terminal
+// without Unicode support does not render replacement boxes in the status bar.
+func statusGlyphWarn() string {
+	if ui.IsASCIIMode() {
+		return "!"
+	}
+	return "⚠"
+}
+
+func statusGlyphFail() string {
+	if ui.IsASCIIMode() {
+		return "x"
+	}
+	return "✗"
+}
 
 const slowStepThresholdMs = 1000.0
 

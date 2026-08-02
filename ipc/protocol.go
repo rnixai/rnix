@@ -1369,6 +1369,13 @@ type ListStepsResponse struct {
 	// ParseErrors counts lines in steps.jsonl that failed to unmarshal and were
 	// skipped (Story 72.1 AC4, mirroring the raw-capture ParseErrors precedent).
 	// omitempty keeps the wire bytes identical when there are no bad lines.
+	//
+	// ⚠️ Unlike ListEventsResponse, this type has NO ipc/wire mirror — apex
+	// consumes list_events but not list_steps, so `wire` carries no
+	// MethodListSteps / StepSummaryWire (same situation as ProcInfoWire above).
+	// TestWireDrift therefore does not cover this struct; do not read the
+	// mirror-guard note on ListEventsResponse as applying here. Adding a mirror
+	// would widen the apex contract surface for a method apex never calls.
 	ParseErrors int `json:"parse_errors,omitempty"`
 }
 

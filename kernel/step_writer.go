@@ -77,7 +77,28 @@ func (sw *StepWriter) WriteStep(rec types.StepRecord) error {
 // Clone it first.
 func truncateStepRecordForWrite(rec types.StepRecord) types.StepRecord {
 	rec.ToolResult = truncateToBytes(rec.ToolResult, maxDriverToolResultBytes)
-	rec.ToolInput = truncateToBytes(rec.ToolInput, maxDriverToolResultBytes)
+	// 🔴 Input fields get a 4 MB bound, NOT the 64 KB used for results — two
+	// independent reasons, both load-bearing (code-review 72.1, Decker 裁决
+	// 2026-08-02):
+	//
+	//  1. Structural, not textual. ToolResult is free text: truncating it loses
+	//     tail content but the prefix stays usable. ToolInput / ToolCalls[].Input
+	//     hold the tool-argument JSON string (internal/types/step_record.go),
+	//     and a truncated JSON document is not JSON — cmd/rnix/agtest_import.go
+	//     decodeToolInput then fails and silently inlines the raw string, making
+	//     the fixture unreplayable. The damage is unrecoverable at write time.
+	//  2. steps.jsonl is the fidelity layer. kernel/observe.go bounds the
+	//     events.jsonl aggregate event's input at 64 KB precisely because
+	//     "steps.jsonl remains the fidelity layer for the full input" (Story
+	//     65.1 裁决 1/2/4). Capping both sides at 64 KB would have deleted that
+	//     last full copy — the two would truncate at the same offset and the
+	//     comment's promise would fail exactly when it is needed.
+	//
+	// Same 4 MB quantum as RawResponse below (defaultRawCaptureMaxOutputBytes),
+	// so the write-side bound never binds before raw.jsonl's own read ceiling.
+	// Observed max ToolInput across 400 stored steps.jsonl files is 13,093 B, so
+	// this bound — like RawResponse's — is purely defensive.
+	rec.ToolInput = truncateToBytes(rec.ToolInput, int(defaultRawCaptureMaxOutputBytes))
 	// RawResponse is raw LLM output shown verbatim in the dashboard inspector;
 	// its observed max (96 KB) already exceeds 64 KB, so a 64 KB cap would
 	// truncate live data. The 4 MB bound is purely defensive.
@@ -87,7 +108,8 @@ func truncateStepRecordForWrite(rec types.StepRecord) types.StepRecord {
 		calls := slices.Clone(rec.ToolCalls)
 		for i := range calls {
 			calls[i].Result = truncateToBytes(calls[i].Result, maxDriverToolResultBytes)
-			calls[i].Input = truncateToBytes(calls[i].Input, maxDriverToolResultBytes)
+			// Structured JSON — see the ToolInput rationale above.
+			calls[i].Input = truncateToBytes(calls[i].Input, int(defaultRawCaptureMaxOutputBytes))
 		}
 		rec.ToolCalls = calls
 	}

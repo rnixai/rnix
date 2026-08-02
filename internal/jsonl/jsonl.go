@@ -38,9 +38,11 @@ const initialBufSize = 64 * 1024
 //
 // name identifies the source in log messages (typically the file path).
 //
-// The byte slice handed to fn includes its trailing newline (if any) and is
-// freshly allocated per line, but the contract does not promise it stays valid
-// after fn returns — callers must copy anything they retain.
+// The byte slice handed to fn includes its trailing newline (if any) and points
+// into a buffer that Scan reuses for the next line — it stops being valid as
+// soon as fn returns. Callers MUST copy anything they retain. (json.Unmarshal
+// is safe: the decoder allocates its own strings, and json.RawMessage's
+// UnmarshalJSON appends into the destination rather than aliasing the input.)
 //
 // If fn returns a non-nil error, scanning stops and that error is returned
 // verbatim. This is what lets callers who must fail hard on a malformed line
@@ -49,13 +51,54 @@ const initialBufSize = 64 * 1024
 func Scan(r io.Reader, name string, fn func(line []byte) error) error {
 	br := bufio.NewReaderSize(r, initialBufSize)
 	warned := false
+	// scratch assembles only those lines that exceed the reader's buffer. It is
+	// reused across lines, so the growth cost is amortised over the whole file.
+	//
+	// 🔴 Why ReadSlice + scratch instead of the simpler ReadBytes: ReadBytes
+	// allocates a fresh slice for EVERY line. On the 147 MB / 128-line carrier
+	// that motivated this package that is tolerable, but the same helper indexes
+	// every steps.jsonl on daemon startup (kernel/memory/recall.go) and serves
+	// the dashboard's per-tick step fetch — measured at 20k lines it was ~200k
+	// allocations and 3x the wall time of the bufio.Scanner it replaced.
+	// ReadSlice hands back a window into the reader's own buffer: zero
+	// allocations for any line under initialBufSize, which is all of them in
+	// practice (observed max non-Messages field: 233 KB, and the 8 MB carriers
+	// are a handful of lines out of 27,623).
+	var scratch []byte
 
 	for {
-		line, err := br.ReadBytes('\n')
+		line, err := br.ReadSlice('\n')
 
-		// ReadBytes returns the trailing fragment together with io.EOF when the
-		// file does not end in a newline. Process the data BEFORE acting on the
-		// error, or that last line is silently dropped.
+		// A line longer than the buffer arrives in chunks, each flagged
+		// ErrBufferFull. Stitch them together in scratch — the only allocating
+		// path, and only for genuinely oversized lines.
+		if errors.Is(err, bufio.ErrBufferFull) {
+			scratch = append(scratch[:0], line...)
+			for errors.Is(err, bufio.ErrBufferFull) {
+				line, err = br.ReadSlice('\n')
+				scratch = append(scratch, line...)
+			}
+			line = scratch
+		}
+
+		// Deliver data to fn only when it forms a COMPLETE line:
+		//   err == nil    → terminated by '\n'
+		//   err == io.EOF → final fragment with no trailing newline (normal for
+		//                   a file written without a closing \n)
+		//
+		// 🔴 Any other error means a torn read: the bytes in hand are the front
+		// half of a line the reader never finished. Handing that fragment to fn
+		// would make it fail to unmarshal, and the caller would report a PARSE
+		// error while the real I/O cause silently vanishes — the exact
+		// "read failure disguised as something else" defect this story exists to
+		// remove (AC3). bufio.Scanner, which this package replaced, also never
+		// yielded a token on a read error. Drop the fragment; surface the truth.
+		if err != nil && !errors.Is(err, io.EOF) {
+			return err
+		}
+
+		// Process the data BEFORE acting on io.EOF, or the last line of a file
+		// without a trailing newline is silently dropped.
 		if len(line) > 0 {
 			if len(line) >= hugeLineWarnBytes && !warned {
 				// Warn once per source: a file with hundreds of huge lines

@@ -390,6 +390,70 @@ func TestATDD_72_1_AC5_WriteStep_TruncatesToolResult(t *testing.T) {
 	}
 }
 
+// 🔴 code-review 2026-08-02（Decker 裁决）：input 字段的上限是 4 MB 而非 64 KB，
+// 两个理由都是承重的：
+//   - 结构化 vs 文本：ToolInput 存工具参数的 JSON 串，截断后不再是合法 JSON，
+//     agtest_import 的 decodeToolInput 会失败并静默降级为原始串（写盘那刻即
+//     不可复原）；ToolResult 是自由文本，截断只丢尾部。
+//   - fidelity layer：kernel/observe.go 把 events.jsonl 的 aggregate input 截到
+//     64 KB，其依据正是「steps.jsonl remains the fidelity layer for the full
+//     input」（Story 65.1 裁决）。两侧同取 64 KB 会在同一位置截断，那句承诺
+//     恰在需要它的时刻失效。
+//
+// 本测试是「不得统一两个量纲」的护栏：把 input 上限改回 64 KB 即转红。
+func TestATDD_72_1_AC5_WriteStep_InputBoundIsRawQuantumNot64KB(t *testing.T) {
+	// 200 KB：远超 64 KB，但远低于 4 MB —— 必须逐字节保留。
+	input := `{"cmd":"` + strings.Repeat("a", 200*1024) + `"}`
+	rec := types.StepRecord{
+		Step:      1,
+		ToolInput: input,
+		ToolCalls: []types.ToolCallRecord{{Name: "Bash", Input: input}},
+	}
+
+	line := writeAndReadBack(t, rec)
+
+	var got types.StepRecord
+	if err := json.Unmarshal([]byte(line), &got); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if got.ToolInput != input {
+		t.Errorf("ToolInput was truncated at %d bytes (len %d → %d); the input bound must be the 4 MB raw quantum, not 64 KB",
+			maxDriverToolResultBytes, len(input), len(got.ToolInput))
+	}
+	if len(got.ToolCalls) != 1 {
+		t.Fatalf("len(ToolCalls) = %d, want 1", len(got.ToolCalls))
+	}
+	if got.ToolCalls[0].Input != input {
+		t.Errorf("ToolCalls[0].Input was truncated (len %d → %d); same 4 MB bound applies",
+			len(input), len(got.ToolCalls[0].Input))
+	}
+	// 存量实测最大 ToolInput 仅 13,093 B，故 4 MB 是纯防御性上界：
+	// 200 KB 的输入在正确实现下必须完整落盘，且仍是合法 JSON。
+	var probe map[string]string
+	if err := json.Unmarshal([]byte(got.ToolInput), &probe); err != nil {
+		t.Errorf("persisted ToolInput is no longer valid JSON: %v", err)
+	}
+}
+
+// 4 MB 上界本身仍然生效（纯防御，非无界）。
+func TestATDD_72_1_AC5_WriteStep_InputStillBoundedAt4MB(t *testing.T) {
+	huge := strings.Repeat("b", 5*1024*1024) // > 4 MB
+	rec := types.StepRecord{Step: 1, ToolInput: huge}
+
+	line := writeAndReadBack(t, rec)
+
+	var got types.StepRecord
+	if err := json.Unmarshal([]byte(line), &got); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if !strings.Contains(got.ToolInput, "[truncated:") {
+		t.Error("ToolInput above 4 MB lacks truncation marker — the defensive bound is gone")
+	}
+	if len(got.ToolInput) > int(defaultRawCaptureMaxOutputBytes)+64 {
+		t.Errorf("ToolInput len = %d, want <= 4 MB + marker", len(got.ToolInput))
+	}
+}
+
 func TestATDD_72_1_AC5_WriteStep_TruncatesToolCallResult(t *testing.T) {
 	rec := types.StepRecord{
 		Step: 1,
@@ -434,7 +498,12 @@ func TestATDD_72_1_AC5_WriteStep_MessagesUntouched(t *testing.T) {
 }
 
 // 幂等：已截断过的串二次进入不产生双重标记。
-func TestATDD_72_1_AC5_WriteStep_Idempotent(t *testing.T) {
+//
+// ⚠️ 本测试直接调 truncateToBytes，不经 WriteStep——故名为 TruncateToBytes_*。
+// 原名 WriteStep_Idempotent 名不副实（WriteStep 从未被调用），会让人误以为
+// 写盘路径的幂等性已被覆盖。WriteStep 层的幂等由紧随其后的
+// TestATDD_72_1_AC5_WriteStep_IdempotentAcrossWrites 用 writeAndReadBack 验。
+func TestATDD_72_1_AC5_TruncateToBytes_Idempotent(t *testing.T) {
 	once := truncateToBytes(strings.Repeat("a", 200*1024), maxDriverToolResultBytes)
 	twice := truncateToBytes(once, maxDriverToolResultBytes)
 	if once != twice {
@@ -442,6 +511,34 @@ func TestATDD_72_1_AC5_WriteStep_Idempotent(t *testing.T) {
 	}
 	if strings.Count(twice, "[truncated:") != 1 {
 		t.Errorf("double truncation marker detected")
+	}
+}
+
+// WriteStep 层的真幂等：把第一次写盘后已带截断标记的正文再喂回 WriteStep，
+// 落盘结果必须与第一次逐字节相同（标记不叠加、长度不再缩水）。
+//
+// 这条覆盖的是 truncateToBytes 单元测试到不了的组合面——WriteStep 内部对
+// ToolResult / ToolInput / ToolCalls[] 各字段分别调截断，任一字段漏掉「已截断
+// 则跳过」判断都会在这里显形（真实触发场景：resume 重放已落盘的 StepRecord）。
+func TestATDD_72_1_AC5_WriteStep_IdempotentAcrossWrites(t *testing.T) {
+	big := strings.Repeat("r", 200*1024) // > 64 KB，必被截断
+
+	first := writeAndReadBack(t, types.StepRecord{Step: 1, ToolResult: big})
+
+	var firstRec types.StepRecord
+	if err := json.Unmarshal([]byte(first), &firstRec); err != nil {
+		t.Fatalf("unmarshal first write: %v", err)
+	}
+
+	// 已截断的正文二次入写盘路径。
+	second := writeAndReadBack(t, types.StepRecord{Step: 1, ToolResult: firstRec.ToolResult})
+
+	if first != second {
+		t.Errorf("WriteStep is not idempotent across writes:\n first len=%d\n second len=%d",
+			len(first), len(second))
+	}
+	if n := strings.Count(second, "[truncated:"); n != 1 {
+		t.Errorf("expected exactly 1 truncation marker after re-write, got %d", n)
 	}
 }
 

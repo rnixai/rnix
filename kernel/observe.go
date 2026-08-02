@@ -632,6 +632,12 @@ func (k *KernelImpl) setupDriverStreamHandler(proc *Process, llmFD types.FD) {
 			// signal alongside the driver-native `completed` event. Content is
 			// bounded by the same 64KiB UTF-8-safe truncation as tool results;
 			// steps.jsonl remains the fidelity layer for the full input.
+			//
+			// Story 72.1 code-review (2026-08-02): that last sentence is a real
+			// invariant, not a remark — StepWriter deliberately bounds the input
+			// fields at 4 MB rather than 64 KB so this file can truncate while
+			// steps.jsonl keeps the whole document (kernel/step_writer.go
+			// truncateStepRecordForWrite). Do NOT "unify" the two quanta.
 			aggEvt := map[string]any{
 				"type":        "tool_call",
 				"subtype":     "aggregate",

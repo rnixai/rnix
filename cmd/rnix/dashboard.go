@@ -440,7 +440,7 @@ func (m dashboardModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			// instead of swallowing them into an empty list. Surface a degraded
 			// status line rather than silently ignoring — presentation only,
 			// the events semantics are unchanged.
-			m.statusMsg = fmt.Sprintf("⚠ events: %v", msg.err)
+			m.statusMsg = fmt.Sprintf("%s events: %v", statusGlyphWarn(), msg.err)
 			m.statusMsgTTL = statusMsgDefaultTTL
 			return m, nil
 		}
@@ -468,7 +468,7 @@ func (m dashboardModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, forkCmd
 	case pauseToggleMsg:
 		if msg.err != nil {
-			m.statusMsg = fmt.Sprintf("✗ Pause/resume: %v", msg.err)
+			m.statusMsg = fmt.Sprintf("%s Pause/resume: %v", statusGlyphFail(), msg.err)
 		} else {
 			action := "Resumed"
 			if msg.paused {
@@ -566,7 +566,7 @@ func (m dashboardModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		if msg.err != nil {
-			m.statusMsg = fmt.Sprintf("✗ prompt load: %v", msg.err)
+			m.statusMsg = fmt.Sprintf("%s prompt load: %v", statusGlyphFail(), msg.err)
 			m.statusMsgTTL = statusMsgDefaultTTL
 			return m, nil
 		}
@@ -1030,7 +1030,7 @@ func (m *dashboardModel) applyInitialPIDFocus() {
 		}
 	}
 	if !found {
-		m.statusMsg = fmt.Sprintf("⚠ PID %d not found, showing all processes", m.initialPIDFocus)
+		m.statusMsg = fmt.Sprintf("%s PID %d not found, showing all processes", statusGlyphWarn(), m.initialPIDFocus)
 		m.statusMsgTTL = 10
 	}
 	m.initialPIDFocus = 0
