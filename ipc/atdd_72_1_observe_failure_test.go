@@ -222,3 +222,33 @@ func TestATDD_72_1_AC4_ListSteps_ParseErrors_OmittedWhenZero(t *testing.T) {
 		t.Errorf("parse_errors present on wire for a clean file (omitempty regression)")
 	}
 }
+
+// Companion for list_events: same omitempty guard as the list_steps test above.
+func TestATDD_72_1_AC4_ListEvents_ParseErrors_OmittedWhenZero(t *testing.T) {
+	srv, sockPath, _ := setupTestServer(t)
+	_, projBase := kernel.TestSetupDataDir(t, srv.kern)
+
+	// Write one clean event line.
+	dir := filepath.Join(projBase, "steps", testUUID72)
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	content := `{"timestamp_ms":1000,"pid":1,"syscall":"spawn","args":{},"result":"ok"}` + "\n"
+	if err := os.WriteFile(filepath.Join(dir, "events.jsonl"), []byte(content), 0o644); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+
+	conn := dial(t, sockPath)
+	resp := sendRequest(t, conn, MethodListEvents, ListEventsRequest{UUID: testUUID72})
+	if !resp.OK {
+		t.Fatalf("list_events: %+v", resp.Error)
+	}
+
+	var raw map[string]any
+	if err := json.Unmarshal(resp.Payload, &raw); err != nil {
+		t.Fatalf("unmarshal raw: %v", err)
+	}
+	if _, present := raw["parse_errors"]; present {
+		t.Errorf("parse_errors present on wire for a clean events file (omitempty regression)")
+	}
+}

@@ -325,9 +325,11 @@ func (e *ipcExecutor) Execute(ctx context.Context, tc *agtest.TestCaseSpec) (*ag
 		// collection failure, never a legitimate state. Surfacing it as
 		// result.Error (StatusError) is the 裁决 4 / 关键防错 #2 red line — a
 		// silent empty syscall list would let an `excludes` assertion pass
-		// vacuously. The server swallows read failures into OK+empty
-		// (ipc/server_observe.go handleListEvents), so listErr alone is NOT
-		// enough; the empty-length check below is what actually closes the hole.
+		// vacuously. Since Story 72.1 AC3, handleListEvents reports read
+		// failures as OK=false + ErrInternal (no longer swallows them into
+		// OK+empty), so listErr catches I/O failures; the empty-length check
+		// below remains as a belt-and-suspenders guard for the absent-file
+		// path (which legitimately returns OK=true + empty list).
 		if sr.uuid == "" {
 			if result.Error == "" {
 				result.Error = "syscall collection failed: no process UUID captured from spawn progress"
