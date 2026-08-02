@@ -1344,10 +1344,16 @@ type ToolDefWire struct {
 // --- ListSteps (Story 27.3) ---
 
 // ListStepsRequest is the payload for MethodListSteps.
+//
+// Story 72.2 AC1: Offset/Limit add opt-in server-side pagination on the deduped
+// step view (after afterStep filtering). Limit<=0 = full set (backward compat).
+// Shape aligned with ListAllProcsRequest.
 type ListStepsRequest struct {
 	PID       types.PID `json:"pid"`
 	UUID      string    `json:"uuid,omitempty"`
 	AfterStep int       `json:"after_step,omitempty"`
+	Offset    int       `json:"offset,omitempty"`
+	Limit     int       `json:"limit,omitempty"`
 }
 
 // StepSummaryWire is the wire-format summary of a single step.
@@ -1382,9 +1388,15 @@ type ListStepsResponse struct {
 // --- ListEvents ---
 
 // ListEventsRequest is the payload for MethodListEvents.
+//
+// Story 72.2 AC1: Offset/Limit add opt-in pagination (full-scan + slice, F5).
+// Limit<=0 = full set (backward compat).
+// 🔴 Must stay in sync with wire.ListEventsRequest (TestWireDrift guards it).
 type ListEventsRequest struct {
-	PID  types.PID `json:"pid"`
-	UUID string    `json:"uuid,omitempty"`
+	PID    types.PID `json:"pid"`
+	UUID   string    `json:"uuid,omitempty"`
+	Offset int       `json:"offset,omitempty"`
+	Limit  int       `json:"limit,omitempty"`
 }
 
 // ListEventsResponse is the response for MethodListEvents.
@@ -1393,6 +1405,9 @@ type ListEventsResponse struct {
 	// ParseErrors counts skipped malformed lines (Story 72.1 AC4).
 	// 🔴 Must stay in sync with wire.ListEventsResponse (TestWireDrift guards it).
 	ParseErrors int `json:"parse_errors,omitempty"`
+	// Total is the full-file record count before pagination slicing (Story 72.2
+	// AC1). omitempty keeps wire identical when pagination is not used.
+	Total int `json:"total,omitempty"`
 }
 
 // --- GetRawCapture (Story 56.4 · CAP-3 单一数据后端) ---
@@ -1400,18 +1415,26 @@ type ListEventsResponse struct {
 // GetRawCaptureRequest is the payload for MethodGetRawCapture. Step 缺省/0 =
 // 取该进程全部 raw 记录；Step > 0 = 仅取该 step 一条。UUID 覆盖 PID 解析以
 // 直接定位已 reaped 进程。
+//
+// Story 72.2 AC1: Offset/Limit add opt-in pagination (full-scan + slice, F5).
+// Limit<=0 = full set. Step>0 takes priority — pagination is not applied.
 type GetRawCaptureRequest struct {
-	PID  types.PID `json:"pid"`
-	UUID string    `json:"uuid,omitempty"`
-	Step int       `json:"step,omitempty"`
+	PID    types.PID `json:"pid"`
+	UUID   string    `json:"uuid,omitempty"`
+	Step   int       `json:"step,omitempty"`
+	Offset int       `json:"offset,omitempty"`
+	Limit  int       `json:"limit,omitempty"`
 }
 
 // GetRawCaptureResponse is the response for MethodGetRawCapture. 直接复用
 // vfs.RawCapture（json tag 已是 snake_case），不另造 wire 类型。ParseErrors
 // 暴露读路径跳过的 malformed 行数（AC#8 / deferred #17）。
+//
+// Story 72.2 AC1: Total = full-file record count before pagination slicing.
 type GetRawCaptureResponse struct {
 	Records     []vfs.RawCapture `json:"records"`
 	ParseErrors int              `json:"parse_errors,omitempty"`
+	Total       int              `json:"total,omitempty"`
 }
 
 // --- GetProcDetail (Story 27.6) ---

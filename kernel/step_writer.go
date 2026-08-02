@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"slices"
@@ -16,13 +17,26 @@ import (
 
 // StepWriter writes StepRecord entries as NDJSON to disk.
 // STUB: Created for ATDD red phase — implements structure per AC-2, not yet wired into kernel.
+//
+// Story 72.2 AC3/F8: also maintains a sidecar offset index (steps.idx) — an
+// append-only NDJSON file with short field names that enables O(viewport) reads
+// without parsing the full steps.jsonl.
 type StepWriter struct {
 	file   *os.File
 	writer *bufio.Writer
 	mu     sync.Mutex
+
+	// idx fields (Story 72.2)
+	idxFile     *os.File
+	idxWriter   *bufio.Writer
+	jsonlOffset int64 // byte offset of the next jsonl line to be written
 }
 
 // NewStepWriter creates a StepWriter that writes to .rnix/data/steps/<uuid>/steps.jsonl.
+//
+// Story 72.2 F8: also opens (or creates) steps.idx in the same directory and
+// initializes jsonlOffset from the current jsonl file size (append mode
+// continues from the end).
 func NewStepWriter(baseDir string, procUUID string) (*StepWriter, error) {
 	dir := filepath.Join(baseDir, "steps", procUUID)
 	if err := os.MkdirAll(dir, 0o755); err != nil {
@@ -33,10 +47,63 @@ func NewStepWriter(baseDir string, procUUID string) (*StepWriter, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &StepWriter{
-		file:   f,
-		writer: bufio.NewWriterSize(f, 64*1024),
-	}, nil
+
+	// Initialize jsonlOffset from current file size (append continues from end).
+	jsonlSize, err := f.Seek(0, io.SeekEnd)
+	if err != nil {
+		f.Close()
+		return nil, err
+	}
+
+	// Open idx file (append-only, same crash-consistency semantics as jsonl).
+	idxPath := filepath.Join(dir, "steps.idx")
+	idxFile, err := os.OpenFile(idxPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644)
+	if err != nil {
+		f.Close()
+		return nil, err
+	}
+
+	sw := &StepWriter{
+		file:        f,
+		writer:      bufio.NewWriterSize(f, 64*1024),
+		idxFile:     idxFile,
+		idxWriter:   bufio.NewWriterSize(idxFile, 64*1024),
+		jsonlOffset: jsonlSize,
+	}
+
+	// Write header if idx is newly created (empty file).
+	if idxFileSize(idxPath) == 0 {
+		if err := sw.writeIdxHeader(jsonlSize); err != nil {
+			idxFile.Close()
+			f.Close()
+			return nil, err
+		}
+	}
+
+	return sw, nil
+}
+
+// idxFileSize returns the size of the idx file, or 0 on error.
+func idxFileSize(path string) int64 {
+	fi, err := os.Stat(path)
+	if err != nil {
+		return 0
+	}
+	return fi.Size()
+}
+
+// writeIdxHeader writes the idx header line. Called once at idx creation.
+func (sw *StepWriter) writeIdxHeader(jsonlSize int64) error {
+	// Get jsonl mtime for the header.
+	jsonlFi, err := sw.file.Stat()
+	if err != nil {
+		return err
+	}
+	header := fmt.Sprintf(`{"v":1,"jsonl_size":%d,"jsonl_mtime_ms":%d}`, jsonlSize, jsonlFi.ModTime().UnixMilli())
+	if _, err := sw.idxWriter.WriteString(header + "\n"); err != nil {
+		return err
+	}
+	return sw.idxWriter.Flush()
 }
 
 // WriteStep marshals and appends a StepRecord as a single NDJSON line.
@@ -48,6 +115,10 @@ func NewStepWriter(baseDir string, procUUID string) (*StepWriter, error) {
 // non-Messages fields defensively and (b) removes the existing asymmetry where
 // the CLI-driver write path already truncated tool results to 64 KB but the API
 // driver path did not.
+//
+// Story 72.2 F8: after jsonl Flush succeeds, appends an idx entry with short
+// field names. jsonl Flush failure → no idx write (idx must not run ahead of
+// jsonl).
 func (sw *StepWriter) WriteStep(rec types.StepRecord) error {
 	sw.mu.Lock()
 	defer sw.mu.Unlock()
@@ -64,7 +135,73 @@ func (sw *StepWriter) WriteStep(rec types.StepRecord) error {
 	if err := sw.writer.WriteByte('\n'); err != nil {
 		return err
 	}
-	return sw.writer.Flush()
+	if err := sw.writer.Flush(); err != nil {
+		return err
+	}
+
+	// jsonl flushed successfully — now write the idx entry (F8).
+	offset := sw.jsonlOffset
+	sw.jsonlOffset += int64(len(data)) + 1 // +1 for '\n'
+
+	if sw.idxWriter != nil {
+		entry := idxEntryFromRecord(rec, offset)
+		idxData, err := json.Marshal(entry)
+		if err != nil {
+			return err
+		}
+		if _, err := sw.idxWriter.Write(idxData); err != nil {
+			return err
+		}
+		if err := sw.idxWriter.WriteByte('\n'); err != nil {
+			return err
+		}
+		if err := sw.idxWriter.Flush(); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+// idxEntry is the NDJSON record written to steps.idx (Story 72.2 F1).
+// Short field names minimize idx size (~150 B/entry vs ~1.6 MB for a full
+// StepRecord with Messages).
+type idxEntry struct {
+	Offset      int64   `json:"o"`           // byte offset in steps.jsonl
+	Step        int     `json:"s"`           // step number
+	Action      string  `json:"a"`           // action type
+	Summary     string  `json:"m"`           // summary (stored verbatim, not truncated)
+	ToolPath    string  `json:"t,omitempty"` // tool path
+	HasError    bool    `json:"e"`           // has tool error
+	DurationMs  float64 `json:"d"`           // tool duration in ms
+	TokenCount  int     `json:"k"`           // token count
+	TimestampMs int64   `json:"ts"`          // timestamp in ms from process start
+}
+
+// idxEntryFromRecord builds an idxEntry from a (already truncated) StepRecord.
+// has_error logic is equivalent to ipc/server_observe.go hasToolCallError but
+// computed inline in kernel (no cross-package call).
+func idxEntryFromRecord(rec types.StepRecord, offset int64) idxEntry {
+	hasErr := rec.ToolError != ""
+	if !hasErr {
+		for i := range rec.ToolCalls {
+			if rec.ToolCalls[i].Error != "" {
+				hasErr = true
+				break
+			}
+		}
+	}
+	return idxEntry{
+		Offset:      offset,
+		Step:        rec.Step,
+		Action:      rec.Action,
+		Summary:     rec.Summary,
+		ToolPath:    rec.ToolPath,
+		HasError:    hasErr,
+		DurationMs:  float64(rec.ToolDuration.Microseconds()) / 1000.0,
+		TokenCount:  rec.TokenCount,
+		TimestampMs: rec.Timestamp.Milliseconds(),
+	}
 }
 
 // truncateStepRecordForWrite returns a copy of rec with oversized string fields
@@ -117,12 +254,24 @@ func truncateStepRecordForWrite(rec types.StepRecord) types.StepRecord {
 }
 
 // Close flushes and closes the underlying file.
+//
+// Story 72.2: also closes the idx writer/file.
 func (sw *StepWriter) Close() error {
 	sw.mu.Lock()
 	defer sw.mu.Unlock()
 
 	if err := sw.writer.Flush(); err != nil {
 		return err
+	}
+	if sw.idxWriter != nil {
+		if err := sw.idxWriter.Flush(); err != nil {
+			return err
+		}
+	}
+	if sw.idxFile != nil {
+		if err := sw.idxFile.Close(); err != nil {
+			return err
+		}
 	}
 	return sw.file.Close()
 }

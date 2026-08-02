@@ -1218,6 +1218,21 @@ func (c *Client) ListStepsByUUID(uuid string, afterStep int) (*ListStepsResponse
 	return &result, nil
 }
 
+// ListStepsPaged returns a paginated slice of step summaries (Story 72.2 AC1).
+// Offset/Limit apply to the deduped view after afterStep filtering.
+// Limit<=0 = full set (same as ListSteps/ListStepsByUUID).
+func (c *Client) ListStepsPaged(pid types.PID, uuid string, afterStep, offset, limit int) (*ListStepsResponse, error) {
+	resp, err := c.call(MethodListSteps, ListStepsRequest{PID: pid, UUID: uuid, AfterStep: afterStep, Offset: offset, Limit: limit})
+	if err != nil {
+		return nil, err
+	}
+	var result ListStepsResponse
+	if err := json.Unmarshal(resp.Payload, &result); err != nil {
+		return nil, fmt.Errorf("ipc: unmarshal list_steps: %w", err)
+	}
+	return &result, nil
+}
+
 // Lineage returns the differentiation lineage for the given PID.
 func (c *Client) Lineage(pid types.PID) (*LineageResponse, error) {
 	resp, err := c.call(MethodLineage, LineageRequest{PID: pid})
@@ -1367,11 +1382,40 @@ func (c *Client) ListEvents(pid types.PID, uuid string) ([]SyscallEventWire, err
 	return result.Events, nil
 }
 
+// ListEventsPaged returns a paginated slice of persisted syscall events plus
+// the full-file total (Story 72.2 AC1). Limit<=0 = full set.
+func (c *Client) ListEventsPaged(pid types.PID, uuid string, offset, limit int) ([]SyscallEventWire, int, error) {
+	resp, err := c.call(MethodListEvents, ListEventsRequest{PID: pid, UUID: uuid, Offset: offset, Limit: limit})
+	if err != nil {
+		return nil, 0, err
+	}
+	var result ListEventsResponse
+	if err := json.Unmarshal(resp.Payload, &result); err != nil {
+		return nil, 0, fmt.Errorf("ipc: unmarshal list_events: %w", err)
+	}
+	return result.Events, result.Total, nil
+}
+
 // GetRawCapture returns raw LLM request/response records from raw.jsonl for a
 // process (Story 56.4 · CAP-3 单一数据后端). step=0 取全部，step>0 取单条。
 // uuid 非空时覆盖 PID 解析以直接定位已 reaped 进程。
 func (c *Client) GetRawCapture(pid types.PID, uuid string, step int) (*GetRawCaptureResponse, error) {
 	resp, err := c.call(MethodGetRawCapture, GetRawCaptureRequest{PID: pid, UUID: uuid, Step: step})
+	if err != nil {
+		return nil, err
+	}
+	var result GetRawCaptureResponse
+	if err := json.Unmarshal(resp.Payload, &result); err != nil {
+		return nil, fmt.Errorf("ipc: unmarshal get_raw_capture: %w", err)
+	}
+	return &result, nil
+}
+
+// GetRawCapturePaged returns a paginated slice of raw capture records (Story
+// 72.2 AC1). Step>0 takes priority — pagination is not applied in that case.
+// Limit<=0 = full set.
+func (c *Client) GetRawCapturePaged(pid types.PID, uuid string, step, offset, limit int) (*GetRawCaptureResponse, error) {
+	resp, err := c.call(MethodGetRawCapture, GetRawCaptureRequest{PID: pid, UUID: uuid, Step: step, Offset: offset, Limit: limit})
 	if err != nil {
 		return nil, err
 	}

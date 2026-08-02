@@ -119,6 +119,21 @@ type Server struct {
 
 	featureProfile string
 	featureFlags   map[string]bool
+
+	// Story 72.2 AC6: idx cache for O(1)/O(delta) step list reads.
+	idxMu    sync.Mutex
+	idxCache map[string]*idxCacheState // key = steps.jsonl absolute path
+}
+
+// idxCacheState holds the in-memory dedup view of a steps.idx file (Story 72.2
+// F3/AC6). Populated either by reading the disk idx or by fallback full-scan
+// backfill (idxSize == -1 marks the latter).
+type idxCacheState struct {
+	last      map[int]kernel.StepIdxEntry // step → last entry (dedup)
+	order     []int                       // first-seen order
+	total     int                         // full-file record count (incl. duplicates)
+	idxSize   int64                       // last-read idx file size; -1 = no disk idx (fallback backfill)
+	jsonlSize int64                       // last-read jsonl file size (for fallback backfill incremental)
 }
 
 // NewServer creates an IPC server backed by the given kernel.
@@ -141,6 +156,7 @@ func NewServer(kern *kernel.KernelImpl, agentLoader AgentLoaderFunc, version, co
 		IdleTimeout:      DefaultIdleTimeout,
 		done:             make(chan struct{}),
 		projectProviders: xsync.NewSyncMap[string, []ProviderStatusWire](),
+		idxCache:         make(map[string]*idxCacheState),
 	}
 	return s
 }

@@ -168,6 +168,11 @@ type AttachDebugRequest struct {
 type ListEventsRequest struct {
 	PID  uint64 `json:"pid"`
 	UUID string `json:"uuid,omitempty"`
+	// Story 72.2 AC1: opt-in pagination (full-scan + slice, F5).
+	// 🔴 Mirror of ipc.ListEventsRequest — TestWireDrift_ListEventsRequest
+	// fails if the two field sets diverge.
+	Offset int `json:"offset,omitempty"`
+	Limit  int `json:"limit,omitempty"`
 }
 
 type ListEventsResponse struct {
@@ -176,6 +181,9 @@ type ListEventsResponse struct {
 	// 🔴 Mirror of ipc.ListEventsResponse — TestWireDrift_ListEventsResponse
 	// fails if the two field sets diverge.
 	ParseErrors int `json:"parse_errors,omitempty"`
+	// Total is the full-file record count before pagination slicing (Story 72.2
+	// AC1). 🔴 Mirror of ipc.ListEventsResponse.Total.
+	Total int `json:"total,omitempty"`
 }
 
 type SyscallEventWire struct {

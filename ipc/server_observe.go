@@ -13,6 +13,7 @@ import (
 
 	rnixctx "github.com/rnixai/rnix/context"
 	"github.com/rnixai/rnix/debug"
+	"github.com/rnixai/rnix/internal/jsonl"
 	"github.com/rnixai/rnix/internal/types"
 	"github.com/rnixai/rnix/kernel"
 	"github.com/rnixai/rnix/vfs"
@@ -290,16 +291,29 @@ func (s *Server) handleGetStepDetail(conn net.Conn, rawPayload json.RawMessage) 
 	}
 
 	// Phase B: read StepRecord
-	rec, err := kernel.ReadStep(stepsPath, req.Step)
-	if err != nil {
-		if errors.Is(err, kernel.ErrStepNotFound) {
+	// Story 72.2 F10: try idx offset + direct read first (O(line)), fall back
+	// to sequential scan (O(file)) when idx is unavailable.
+	var rec *types.StepRecord
+	var readErr error
+	idxPath := kernel.IdxPathForJSONL(stepsPath)
+	if offset, idxErr := kernel.ReadStepOffsetFromIdx(idxPath, stepsPath, req.Step); idxErr == nil && offset >= 0 {
+		rec, readErr = kernel.ReadStepAtOffset(stepsPath, offset)
+		if readErr != nil {
+			// idx pointed to a bad line — fall back to full scan.
+			rec, readErr = kernel.ReadStep(stepsPath, req.Step)
+		}
+	} else {
+		rec, readErr = kernel.ReadStep(stepsPath, req.Step)
+	}
+	if readErr != nil {
+		if errors.Is(readErr, kernel.ErrStepNotFound) {
 			// The step genuinely does not exist — preserve the original wording.
 			writeResponse(conn, Response{OK: false, Error: &ErrorPayload{Code: "not_found", Message: fmt.Sprintf("step %d not yet recorded", req.Step)}})
 			return
 		}
 		// Story 72.1 AC3: a real read failure must not be reported as
 		// "step not yet recorded" — surface it as an internal error.
-		writeResponse(conn, Response{OK: false, Error: &ErrorPayload{Code: string(types.ErrInternal), Message: fmt.Sprintf("read step %d: %v", req.Step, err)}})
+		writeResponse(conn, Response{OK: false, Error: &ErrorPayload{Code: string(types.ErrInternal), Message: fmt.Sprintf("read step %d: %v", req.Step, readErr)}})
 		return
 	}
 
@@ -353,6 +367,9 @@ func hasToolCallError(calls []types.ToolCallRecord) bool {
 }
 
 // handleListSteps returns step summaries for a process (Story 27.3).
+//
+// Story 72.2 AC2/AC6: serves from the idx cache when available (O(1) hit /
+// O(delta) incremental), falling back to full jsonl scan with cache backfill.
 func (s *Server) handleListSteps(conn net.Conn, rawPayload json.RawMessage) {
 	var req ListStepsRequest
 	if err := json.Unmarshal(rawPayload, &req); err != nil {
@@ -375,30 +392,278 @@ func (s *Server) handleListSteps(conn net.Conn, rawPayload json.RawMessage) {
 		return
 	}
 
-	records, total, parseErrors, err := kernel.ReadAllStepsWithErrors(stepsPath, req.AfterStep)
-	if err != nil {
-		// Story 72.1 AC3: the path was already resolved above, so a failure here
-		// is a genuine read/parse problem — not "process not found".
-		writeResponse(conn, Response{OK: false, Error: &ErrorPayload{Code: string(types.ErrInternal), Message: fmt.Sprintf("read steps: %v", err)}})
-		return
+	// Try idx cache path (AC6).
+	entries, total, parseErrors, cached := s.listStepsViaCache(stepsPath)
+	if !cached {
+		// Fallback: full scan (existing path, verbatim preserved).
+		// Scan with afterStep=0 so the backfilled cache holds the full view.
+		records, t, pe, err := kernel.ReadAllStepsWithErrors(stepsPath, 0)
+		if err != nil {
+			// Story 72.1 AC3: the path was already resolved above, so a failure here
+			// is a genuine read/parse problem — not "process not found".
+			writeResponse(conn, Response{OK: false, Error: &ErrorPayload{Code: string(types.ErrInternal), Message: fmt.Sprintf("read steps: %v", err)}})
+			return
+		}
+		total = t
+		parseErrors = pe
+		entries = make([]kernel.StepIdxEntry, len(records))
+		for i, r := range records {
+			entries[i] = kernel.StepIdxEntry{
+				Step:        r.Step,
+				Action:      r.Action,
+				Summary:     r.Summary,
+				ToolPath:    r.ToolPath,
+				HasError:    r.ToolError != "" || hasToolCallError(r.ToolCalls),
+				DurationMs:  float64(r.ToolDuration.Microseconds()) / 1000.0,
+				TokenCount:  r.TokenCount,
+				TimestampMs: r.Timestamp.Milliseconds(),
+			}
+		}
+		// F3: backfill memory cache so the next tick is O(1).
+		s.backfillIdxCache(stepsPath, entries, total)
+		// Background disk idx rebuild (AC4).
+		go kernel.RebuildIdx(stepsPath)
 	}
 
-	wires := make([]StepSummaryWire, len(records))
-	for i, r := range records {
+	// Apply afterStep filter on the dedup view.
+	if req.AfterStep > 0 {
+		filtered := entries[:0]
+		for _, e := range entries {
+			if e.Step > req.AfterStep {
+				filtered = append(filtered, e)
+			}
+		}
+		entries = filtered
+	}
+
+	// Apply Offset/Limit pagination (AC1).
+	if req.Limit > 0 {
+		if req.Offset > 0 {
+			if req.Offset < len(entries) {
+				entries = entries[req.Offset:]
+			} else {
+				entries = nil
+			}
+		}
+		if len(entries) > req.Limit {
+			entries = entries[:req.Limit]
+		}
+	}
+
+	wires := make([]StepSummaryWire, len(entries))
+	for i, e := range entries {
 		wires[i] = StepSummaryWire{
-			Step:        r.Step,
-			Action:      r.Action,
-			Summary:     r.Summary,
-			ToolPath:    r.ToolPath,
-			HasError:    r.ToolError != "" || hasToolCallError(r.ToolCalls),
-			DurationMs:  float64(r.ToolDuration.Microseconds()) / 1000.0,
-			TokenCount:  r.TokenCount,
-			TimestampMs: r.Timestamp.Milliseconds(),
+			Step:        e.Step,
+			Action:      e.Action,
+			Summary:     e.Summary,
+			ToolPath:    e.ToolPath,
+			HasError:    e.HasError,
+			DurationMs:  e.DurationMs,
+			TokenCount:  e.TokenCount,
+			TimestampMs: e.TimestampMs,
 		}
 	}
 
 	respPayload, _ := json.Marshal(ListStepsResponse{Steps: wires, Total: total, ParseErrors: parseErrors})
 	writeResponse(conn, Response{OK: true, Payload: respPayload})
+}
+
+// listStepsViaCache tries to serve the full dedup step view from the idx cache.
+// Returns entries (unfiltered by afterStep), total, parseErrors, and whether
+// the cache path succeeded.
+func (s *Server) listStepsViaCache(stepsPath string) ([]kernel.StepIdxEntry, int, int, bool) {
+	idxPath := kernel.IdxPathForJSONL(stepsPath)
+
+	s.idxMu.Lock()
+	defer s.idxMu.Unlock()
+
+	cs, hit := s.idxCache[stepsPath]
+	if hit {
+		if cs.idxSize >= 0 {
+			// Disk idx exists — check for growth.
+			fi, err := os.Stat(idxPath)
+			if err != nil {
+				// idx deleted (concurrent rebuild?) — invalidate.
+				delete(s.idxCache, stepsPath)
+				return nil, 0, 0, false
+			}
+			if fi.Size() == cs.idxSize {
+				// O(1) hit.
+				return s.cacheToEntries(cs), cs.total, 0, true
+			}
+			if fi.Size() > cs.idxSize {
+				// Incremental: read only appended idx lines.
+				s.mergeIdxAppend(cs, idxPath, cs.idxSize)
+				cs.idxSize = fi.Size()
+				return s.cacheToEntries(cs), cs.total, 0, true
+			}
+			// idx shrank (rebuilt) — invalidate and re-read.
+			delete(s.idxCache, stepsPath)
+		} else {
+			// Fallback backfill (no disk idx) — check jsonl growth.
+			fi, err := os.Stat(stepsPath)
+			if err != nil {
+				delete(s.idxCache, stepsPath)
+				return nil, 0, 0, false
+			}
+			if fi.Size() == cs.jsonlSize {
+				return s.cacheToEntries(cs), cs.total, 0, true
+			}
+			if fi.Size() > cs.jsonlSize {
+				s.mergeJSONLAppend(cs, stepsPath, cs.jsonlSize)
+				cs.jsonlSize = fi.Size()
+				return s.cacheToEntries(cs), cs.total, 0, true
+			}
+			delete(s.idxCache, stepsPath)
+		}
+	}
+
+	// Cache miss — try reading disk idx.
+	idxEntries, total, _, err := kernel.ReadStepsFromIdx(idxPath, stepsPath, 0)
+	if err == nil {
+		fi, _ := os.Stat(idxPath)
+		idxSize := int64(0)
+		if fi != nil {
+			idxSize = fi.Size()
+		}
+		cs = &idxCacheState{
+			last:    make(map[int]kernel.StepIdxEntry, len(idxEntries)),
+			order:   make([]int, 0, len(idxEntries)),
+			total:   total,
+			idxSize: idxSize,
+		}
+		for _, e := range idxEntries {
+			if _, seen := cs.last[e.Step]; !seen {
+				cs.order = append(cs.order, e.Step)
+			}
+			cs.last[e.Step] = e
+		}
+		s.evictIdxCacheLocked()
+		s.idxCache[stepsPath] = cs
+		return s.cacheToEntries(cs), cs.total, 0, true
+	}
+
+	return nil, 0, 0, false
+}
+
+// cacheToEntries builds the ordered dedup entry slice from cache state.
+func (s *Server) cacheToEntries(cs *idxCacheState) []kernel.StepIdxEntry {
+	entries := make([]kernel.StepIdxEntry, 0, len(cs.order))
+	for _, step := range cs.order {
+		entries = append(entries, cs.last[step])
+	}
+	return entries
+}
+
+// mergeIdxAppend reads idx lines appended after fromSize and merges into cache.
+func (s *Server) mergeIdxAppend(cs *idxCacheState, idxPath string, fromSize int64) {
+	f, err := os.Open(idxPath)
+	if err != nil {
+		return
+	}
+	defer f.Close()
+	if _, err := f.Seek(fromSize, 0); err != nil {
+		return
+	}
+	_ = jsonl.Scan(f, idxPath, func(line []byte) error {
+		var raw struct {
+			O  int64   `json:"o"`
+			S  int     `json:"s"`
+			A  string  `json:"a"`
+			M  string  `json:"m"`
+			T  string  `json:"t"`
+			E  bool    `json:"e"`
+			D  float64 `json:"d"`
+			K  int     `json:"k"`
+			TS int64   `json:"ts"`
+		}
+		if err := json.Unmarshal(line, &raw); err != nil {
+			return nil
+		}
+		entry := kernel.StepIdxEntry{
+			Offset: raw.O, Step: raw.S, Action: raw.A, Summary: raw.M,
+			ToolPath: raw.T, HasError: raw.E, DurationMs: raw.D,
+			TokenCount: raw.K, TimestampMs: raw.TS,
+		}
+		cs.total++
+		if _, seen := cs.last[entry.Step]; !seen {
+			cs.order = append(cs.order, entry.Step)
+		}
+		cs.last[entry.Step] = entry
+		return nil
+	})
+}
+
+// mergeJSONLAppend reads jsonl lines appended after fromSize and merges into
+// cache (for fallback-backfilled caches with no disk idx).
+func (s *Server) mergeJSONLAppend(cs *idxCacheState, jsonlPath string, fromSize int64) {
+	f, err := os.Open(jsonlPath)
+	if err != nil {
+		return
+	}
+	defer f.Close()
+	if _, err := f.Seek(fromSize, 0); err != nil {
+		return
+	}
+	offset := fromSize
+	_ = jsonl.Scan(f, jsonlPath, func(line []byte) error {
+		entry, err := kernel.ParseIdxEntryFromJSONL(line, offset)
+		if err != nil {
+			offset += int64(len(line)) // line includes trailing '\n'
+			return nil
+		}
+		cs.total++
+		if _, seen := cs.last[entry.Step]; !seen {
+			cs.order = append(cs.order, entry.Step)
+		}
+		cs.last[entry.Step] = entry
+		offset += int64(len(line))
+		return nil
+	})
+}
+
+// backfillIdxCache populates the cache from a full-scan result (F3).
+// idxSize = -1 marks this as a fallback backfill with no disk idx.
+func (s *Server) backfillIdxCache(stepsPath string, entries []kernel.StepIdxEntry, total int) {
+	s.idxMu.Lock()
+	defer s.idxMu.Unlock()
+
+	if _, exists := s.idxCache[stepsPath]; exists {
+		return // already cached (race between concurrent requests)
+	}
+
+	fi, _ := os.Stat(stepsPath)
+	jsonlSize := int64(0)
+	if fi != nil {
+		jsonlSize = fi.Size()
+	}
+
+	cs := &idxCacheState{
+		last:      make(map[int]kernel.StepIdxEntry, len(entries)),
+		order:     make([]int, 0, len(entries)),
+		total:     total,
+		idxSize:   -1,
+		jsonlSize: jsonlSize,
+	}
+	for _, e := range entries {
+		if _, seen := cs.last[e.Step]; !seen {
+			cs.order = append(cs.order, e.Step)
+		}
+		cs.last[e.Step] = e
+	}
+	s.evictIdxCacheLocked()
+	s.idxCache[stepsPath] = cs
+}
+
+// evictIdxCacheLocked evicts an arbitrary entry when over capacity (cap 8).
+// Must be called with idxMu held.
+func (s *Server) evictIdxCacheLocked() {
+	for len(s.idxCache) >= 8 {
+		for k := range s.idxCache {
+			delete(s.idxCache, k)
+			break
+		}
+	}
 }
 
 // handleListEvents returns persisted syscall events from events.jsonl for a process.
@@ -449,7 +714,22 @@ func (s *Server) handleListEvents(conn net.Conn, rawPayload json.RawMessage) {
 		}
 	}
 
-	respPayload, _ := json.Marshal(ListEventsResponse{Events: wires, ParseErrors: parseErrors})
+	// Story 72.2 F5: events pagination = full-scan + slice (not idx).
+	total := len(wires)
+	if req.Limit > 0 {
+		if req.Offset > 0 {
+			if req.Offset < len(wires) {
+				wires = wires[req.Offset:]
+			} else {
+				wires = nil
+			}
+		}
+		if len(wires) > req.Limit {
+			wires = wires[:req.Limit]
+		}
+	}
+
+	respPayload, _ := json.Marshal(ListEventsResponse{Events: wires, ParseErrors: parseErrors, Total: total})
 	writeResponse(conn, Response{OK: true, Payload: respPayload})
 }
 
@@ -519,7 +799,24 @@ func (s *Server) handleGetRawCapture(conn net.Conn, rawPayload json.RawMessage) 
 	if records == nil {
 		records = []vfs.RawCapture{}
 	}
-	writeResponse(conn, Response{OK: true, Payload: mustMarshal(GetRawCaptureResponse{Records: records, ParseErrors: parseErrors})})
+
+	// Story 72.2 F5: raw pagination = full-scan + slice (not idx).
+	// Step>0 path above takes priority and never reaches here.
+	total := len(records)
+	if req.Limit > 0 {
+		if req.Offset > 0 {
+			if req.Offset < len(records) {
+				records = records[req.Offset:]
+			} else {
+				records = nil
+			}
+		}
+		if len(records) > req.Limit {
+			records = records[:req.Limit]
+		}
+	}
+
+	writeResponse(conn, Response{OK: true, Payload: mustMarshal(GetRawCaptureResponse{Records: records, ParseErrors: parseErrors, Total: total})})
 }
 
 // resolveRawPath returns the path to raw.jsonl for a UUID (Story 56.4), mirroring
