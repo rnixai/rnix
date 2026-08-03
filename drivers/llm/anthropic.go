@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"net/http"
 	"slices"
 	"strings"
 	"time"
@@ -545,7 +546,23 @@ func (d *AnthropicDriver) StreamWithTools(ctx context.Context, req LLMRequest, t
 
 func (d *AnthropicDriver) classifyError(err error) error {
 	if apiErr, ok := errors.AsType[*anthropic.Error](err); ok {
-		msg := err.Error()
+		// Story 73.2 / AC2 + D1: anthropic.Error is an exported ALIAS of
+		// apierror.Error (aliases.go:17), so Response.Header is a direct
+		// field read — no reflection. The SDK's own Error() dereferences
+		// Request AND Response, so a nil Response/Request (some construction
+		// paths) must be guarded BEFORE taking msg — otherwise the 429
+		// handling path panics, turning a recoverable throttle into a crash.
+		// Missing headers are the norm (6 of 13 captured 429s) — nil here
+		// just degrades to body parsing / local backoff.
+		var hdr http.Header
+		var msg string
+		if apiErr.Response != nil && apiErr.Request != nil {
+			hdr = apiErr.Response.Header
+			msg = err.Error()
+		} else {
+			msg = fmt.Sprintf("status %d", apiErr.StatusCode)
+		}
+		retryAfter, resetAt, source, _ := resolveRateLimitWait(hdr, msg, time.Now())
 		switch apiErr.StatusCode {
 		case 401:
 			return NewLLMError(d.name, 401, fmt.Errorf("%s: %w", msg, ErrAuth))
@@ -553,11 +570,11 @@ func (d *AnthropicDriver) classifyError(err error) error {
 			// Story 73.1 / AC4: split retryable throttle from terminal quota
 			// using the provider's own body. Anthropic exposes no structured
 			// error.type here, so the message is the only evidence.
-			return NewLLMError(d.name, 429, NewRateLimitError(classifyRateLimitBody(msg, ""), msg))
+			return NewLLMError(d.name, 429, NewRateLimitErrorWithWait(classifyRateLimitBody(msg, ""), msg, retryAfter, resetAt, source))
 		case 529, 503:
 			// Story 73.1 / AC3: server overload is its own class — not a rate
 			// limit — so 73.3's quota suspension never swallows a service blip.
-			return NewLLMError(d.name, apiErr.StatusCode, NewRateLimitError(KindOverload, msg))
+			return NewLLMError(d.name, apiErr.StatusCode, NewRateLimitErrorWithWait(KindOverload, msg, retryAfter, resetAt, source))
 		case 404:
 			return NewLLMError(d.name, 404, fmt.Errorf("%s: %w", msg, ErrModelNotFound))
 		case 400:

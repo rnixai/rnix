@@ -462,13 +462,18 @@ func (d *OpenAICompatDriver) doHTTP(ctx context.Context, body oaiRequest) (*http
 }
 
 // classifyHTTPError maps an HTTP error response to a typed LLMError.
-func (d *OpenAICompatDriver) classifyHTTPError(statusCode int, body []byte) *LLMError {
+// hdr carries the response headers so 73.2 can parse server-declared waits
+// (Retry-After); both callers hold resp in scope, so no restructuring needed.
+func (d *OpenAICompatDriver) classifyHTTPError(statusCode int, hdr http.Header, body []byte) *LLMError {
 	var errResp oaiErrorResponse
 	_ = json.Unmarshal(body, &errResp)
 	errMsg := errResp.Error.Message
 	if errMsg == "" {
 		errMsg = string(body)
 	}
+	// Story 73.2 / AC2: header-first arbitration, body fallback; the parsed
+	// wait travels on the error value (D8 — filled here, kernel only reads).
+	retryAfter, resetAt, source, _ := resolveRateLimitWait(hdr, errMsg, time.Now())
 
 	switch statusCode {
 	case 401:
@@ -481,10 +486,10 @@ func (d *OpenAICompatDriver) classifyHTTPError(statusCode int, body []byte) *LLM
 		// field: a non-JSON or message-less 429 body must still expose its
 		// evidence to the split, symmetric with what NewRateLimitError stores.
 		kind := classifyRateLimitBody(errMsg, errResp.Error.Code+" "+errResp.Error.Type)
-		return NewLLMError(d.name, 429, NewRateLimitError(kind, errMsg))
+		return NewLLMError(d.name, 429, NewRateLimitErrorWithWait(kind, errMsg, retryAfter, resetAt, source))
 	case 529, 503:
 		// Story 73.1 / AC3.
-		return NewLLMError(d.name, statusCode, NewRateLimitError(KindOverload, errMsg))
+		return NewLLMError(d.name, statusCode, NewRateLimitErrorWithWait(KindOverload, errMsg, retryAfter, resetAt, source))
 	case 404:
 		return NewLLMError(d.name, 404, fmt.Errorf("%s: %w", errMsg, ErrModelNotFound))
 	case 400:
@@ -552,7 +557,7 @@ func (d *OpenAICompatDriver) callInternal(ctx context.Context, req LLMRequest, t
 	}
 
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return nil, d.classifyHTTPError(resp.StatusCode, body)
+		return nil, d.classifyHTTPError(resp.StatusCode, resp.Header, body)
 	}
 
 	var oaiResp oaiResponse
@@ -623,8 +628,9 @@ func (d *OpenAICompatDriver) streamInternal(ctx context.Context, req LLMRequest,
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		body, _ := io.ReadAll(resp.Body)
 		resp.Body.Close()
+		hdr := resp.Header
 		cancel()
-		return nil, d.classifyHTTPError(resp.StatusCode, body)
+		return nil, d.classifyHTTPError(resp.StatusCode, hdr, body)
 	}
 
 	ch := make(chan StreamEvent, streamChanBuffer)

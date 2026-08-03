@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/rnixai/rnix/internal/types"
 	"google.golang.org/genai"
@@ -226,21 +227,64 @@ func TestATDD_73_1_AC2_CliErrorTextFidelity(t *testing.T) {
 	}
 }
 
-// TestATDD_73_1_AC2_RateLimit73_2FieldsStayZero enforces the scope line: this
-// story builds the fields, Story 73.2 fills them. A Retry-After parser landing
-// here would bypass 73.2's hard-cap and clock-injection design.
+// TestATDD_73_1_AC2_RateLimit73_2FieldsStayZero pinned the 73.1 scope line
+// ("this story builds the fields, 73.2 fills them"). Story 73.2 has now
+// landed, so the assertion is updated in place rather than deleted — the
+// contract it guards has TWO halves, and both still matter:
+//
+//	① the bare NewRateLimitError constructor still leaves the fields zero, so
+//	   every caller that has no wait evidence (the four CLI drivers, whose
+//	   classifyCliError has no headers and no provider body) keeps producing
+//	   zero-valued fields rather than fabricated ones;
+//	② the wait-carrying constructor is the ONLY way values arrive, which is
+//	   what keeps parsing on the driver side of the boundary (73.2 / D8 —
+//	   the kernel reads these fields, it never writes them).
 func TestATDD_73_1_AC2_RateLimit73_2FieldsStayZero(t *testing.T) {
-	// The infron fixture literally contains "after 6 seconds" — the single
-	// most tempting string to parse early.
+	// ① The infron fixture literally contains "after 6 seconds" — the single
+	// most tempting string to parse implicitly. The plain constructor must
+	// still not do it: evidence is parsed by the caller, not the constructor.
 	e := NewRateLimitError(classifyRateLimitBody(throttleBodyFixture, ""), throttleBodyFixture)
 	if e.RetryAfter != 0 {
-		t.Errorf("RetryAfter = %v, want 0 (Story 73.2 fills it)", e.RetryAfter)
+		t.Errorf("RetryAfter = %v, want 0 (the plain constructor never parses)", e.RetryAfter)
 	}
 	if !e.ResetAt.IsZero() {
-		t.Errorf("ResetAt = %v, want zero value (Story 73.2 fills it)", e.ResetAt)
+		t.Errorf("ResetAt = %v, want zero value (the plain constructor never parses)", e.ResetAt)
 	}
 	if e.Source != "" {
-		t.Errorf("Source = %q, want empty (Story 73.2 fills it)", e.Source)
+		t.Errorf("Source = %q, want empty (the plain constructor never parses)", e.Source)
+	}
+	// The CLI path proves half ① is load-bearing, not hypothetical.
+	_, cliErr := classifyCliError(cliThrottleFixture)
+	if _, _, _, ok := RateLimitWaitOf(cliErr); ok {
+		t.Error("CLI classification must carry no wait fields — it has neither headers nor a provider body")
+	}
+
+	// ② Story 73.2's constructor is where values enter, and they must survive
+	// extraction through the production wrapping intact.
+	resetAt := time.Date(2026, 8, 5, 22, 23, 0, 0, time.UTC)
+	filled := NewRateLimitErrorWithWait(KindThrottle, throttleBodyFixture, 6*time.Second, resetAt, "header")
+	wrapped := types.NewDriverError("write", "/dev/llm/infron",
+		NewLLMError("infron", 429, filled), types.ErrDriver)
+
+	ra, at, source, ok := RateLimitWaitOf(wrapped)
+	if !ok {
+		t.Fatal("RateLimitWaitOf must extract the wait fields through LLMError+DriverError wrapping")
+	}
+	if ra != 6*time.Second {
+		t.Errorf("RetryAfter = %v, want 6s", ra)
+	}
+	if !at.Equal(resetAt) {
+		t.Errorf("ResetAt = %v, want %v", at, resetAt)
+	}
+	if source != "header" {
+		t.Errorf("Source = %q, want %q", source, "header")
+	}
+
+	// The 73.1 byte-fidelity contract is unaffected by the new fields: they
+	// travel on the struct, never in Error() text (exit_reason is derived
+	// from that string, capped at 200 bytes).
+	if got, want := filled.Error(), throttleBodyFixture+": "+ErrRateLimit.Error(); got != want {
+		t.Errorf("Error() = %q, want %q — wait fields must not leak into the rendered text", got, want)
 	}
 }
 

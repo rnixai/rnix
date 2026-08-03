@@ -547,16 +547,21 @@ func (d *GeminiDriver) classifyError(err error) error {
 		if msg == "" {
 			msg = err.Error()
 		}
+		// Story 73.2 / AC2: genai.APIError exposes only Code/Message — the
+		// response headers are UNREACHABLE through this SDK. No fabrication:
+		// pass nil headers and rely on body parsing alone (nil degrades to
+		// parseWaitFromBody inside resolveRateLimitWait).
+		retryAfter, resetAt, source, _ := resolveRateLimitWait(nil, msg, time.Now())
 		switch apiErr.Code {
 		case 401:
 			return NewLLMError(d.name, 401, fmt.Errorf("%s: %w", msg, ErrAuth))
 		case 429:
 			// Story 73.1 / AC4: body-evidence split (genai.APIError carries no
 			// structured error.type; the message is the only evidence).
-			return NewLLMError(d.name, 429, NewRateLimitError(classifyRateLimitBody(msg, ""), msg))
+			return NewLLMError(d.name, 429, NewRateLimitErrorWithWait(classifyRateLimitBody(msg, ""), msg, retryAfter, resetAt, source))
 		case 529, 503:
 			// Story 73.1 / AC3.
-			return NewLLMError(d.name, apiErr.Code, NewRateLimitError(KindOverload, msg))
+			return NewLLMError(d.name, apiErr.Code, NewRateLimitErrorWithWait(KindOverload, msg, retryAfter, resetAt, source))
 		case 404:
 			return NewLLMError(d.name, 404, fmt.Errorf("%s: %w", msg, ErrModelNotFound))
 		case 400:

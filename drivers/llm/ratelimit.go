@@ -223,3 +223,14 @@ func containsAnyMarker(lower string, markers []string) bool {
 func NewRateLimitError(kind RateLimitKind, errMsg string) *RateLimitError {
 	return &RateLimitError{Kind: kind, Message: errMsg}
 }
+
+// NewRateLimitErrorWithWait builds a *RateLimitError whose 73.2 wait fields
+// are already populated (Story 73.2 / D8: fields are filled at construction
+// time on the driver side and NEVER backfilled by the kernel — once an error
+// value crosses the package boundary it is an immutable, shared carrier; a
+// kernel-side write would race with any second consumer). retryAfter / resetAt
+// / source travel on the Unwrap-extractable struct (AC7), not in Error() text
+// — the exit_reason byte-fidelity contract (73.1 / AC2-②) forbids them there.
+func NewRateLimitErrorWithWait(kind RateLimitKind, errMsg string, retryAfter time.Duration, resetAt time.Time, source string) *RateLimitError {
+	return &RateLimitError{Kind: kind, Message: errMsg, RetryAfter: retryAfter, ResetAt: resetAt, Source: source}
+}

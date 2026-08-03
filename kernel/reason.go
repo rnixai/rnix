@@ -512,6 +512,11 @@ func (k *KernelImpl) reasonStep(proc *Process, llmFD types.FD, opts SpawnOpts) {
 	var lastResultSummary string
 	var consecutiveToolErrors errFingerprintCounter
 	var consecutiveTransientRetries int
+	// Story 73.2 / D5: the rate-limit family retries on its OWN counter —
+	// socket/EOF/timeout keeps the legacy `< 2` budget above untouched, and
+	// the two counters never consume each other. Declared beside
+	// consecutiveTransientRetries on purpose; both reset together on success.
+	var consecutiveRateLimitRetries int
 	// lastToolResultHash carries the PREVIOUS tool_call step's result hash into the
 	// loop check, which happens before this step's tools run (Story 70.1 AC2).
 	var lastToolResultHash uint64
@@ -746,28 +751,109 @@ func (k *KernelImpl) reasonStep(proc *Process, llmFD types.FD, opts SpawnOpts) {
 				return
 			}
 
-			// Transient error retry (socket disconnect, overloaded, etc.)
-			if isTransientLLMError(err) && consecutiveTransientRetries < 2 {
-				consecutiveTransientRetries++
-				retryFields := map[string]any{
-					"step":    step,
-					"action":  "transient_retry",
-					"attempt": consecutiveTransientRetries,
-					"reason":  err.Error(),
+			// Transient error retry. Story 73.2 / D5: the rate-limit family
+			// branches off BEFORE the legacy transient counter — it keeps its
+			// own counter (consecutiveRateLimitRetries, capped at
+			// maxRateLimitRetries) and its own disposition (backoff wait),
+			// while socket/EOF/timeout failures keep the `< 2` budget and the
+			// zero-delay retry VERBATIM. The two counters never consume each
+			// other's budget; both reset on success below.
+			if isTransientLLMError(err) {
+				kind, isRateLimit := llm.RateLimitKindOf(err)
+				if isRateLimit {
+					// AC4 three-level precedence: server-declared wait
+					// (header or body, parsed driver-side — D8) bypasses the
+					// local maxDelay cap; only the hard cap below bounds it.
+					// attempt is 1-based for the retry about to happen.
+					baseDelay, waitSource, serverStated := resolveRateLimitDelay(err, consecutiveRateLimitRetries+1)
+
+					if baseDelay > maxInProcessWait {
+						// AC5 give-up: a required wait beyond the in-process
+						// limit is neither waited out nor retried — fall
+						// through to the existing failure path
+						// (attemptFallback → finishProcess). That is no
+						// worse than pre-73.2 (long quota windows died there
+						// too) and stops burning retries on a window that
+						// cannot recover in-process.
+						//
+						// TODO(Story 73.3): replace this give-up with
+						// selfSuspend + ResumeAt so long quota windows
+						// suspend the process and resume at the reset
+						// instant instead of killing it. 73.2 deliberately
+						// stops at the early-exit seam (D4).
+						k.emitEvent(proc, "ReasonStep", map[string]any{
+							"step":            step,
+							"action":          "rate_limit_giveup",
+							"wait_ms":         baseDelay.Milliseconds(), // the REQUIRED wait, not a waited duration
+							"limit_ms":        maxInProcessWait.Milliseconds(),
+							"rate_limit_kind": kind.String(),
+						}, nil, nil, time.Since(stepStart))
+						log.Printf("[kernel] pid=%d step=%d rate limit giveup: kind=%s required wait %s exceeds in-process limit %s — no retry (device=%s)",
+							proc.PID, step, kind, baseDelay, maxInProcessWait, proc.PrimaryDevice)
+						// No continue: control falls through to attemptFallback.
+					} else if consecutiveRateLimitRetries < maxRateLimitRetries {
+						consecutiveRateLimitRetries++
+						// AC4 one-sided jitter applies to server-declared
+						// values too (de-correlating simultaneous retries);
+						// the result is clamped to the hard cap so jitter can
+						// never promote an in-cap wait into give-up
+						// territory (test 9-②'s 59s provider relies on this).
+						delay := min(applyRateLimitJitter(baseDelay), maxInProcessWait)
+						retryFields := map[string]any{
+							"step":    step,
+							"action":  "transient_retry",
+							"attempt": consecutiveRateLimitRetries,
+							"reason":  err.Error(),
+							// Story 73.1 / AC6 field, preserved verbatim:
+							"rate_limit_kind": kind.String(),
+						}
+						// Story 73.2 / D9: four new fields ride the existing
+						// transient_retry event. Non-rate-limit retries carry
+						// none of them (anti-semantic-placeholder discipline,
+						// same as 73.1's rate_limit_kind).
+						retryFields["wait_ms"] = delay.Milliseconds()
+						retryFields["wait_source"] = waitSource
+						if serverStated {
+							if ra, resetAt, _, ok := llm.RateLimitWaitOf(err); ok {
+								if ra > 0 {
+									retryFields["retry_after_ms"] = ra.Milliseconds()
+								}
+								if !resetAt.IsZero() {
+									retryFields["reset_at"] = resetAt.Format(time.RFC3339)
+								}
+							}
+						}
+						k.emitEvent(proc, "ReasonStep", retryFields, nil, nil, time.Since(stepStart))
+						log.Printf("[kernel] pid=%d step=%d rate limit classified: kind=%s attempt=%d wait=%s source=%s device=%s",
+							proc.PID, step, kind, consecutiveRateLimitRetries, delay, waitSource, proc.PrimaryDevice)
+
+						// AC6: interruptible chunked wait. A cancel arriving
+						// mid-wait never passes the pre-retry cancel check
+						// above, so this select is the only defence; the true
+						// case routes through handleInterruptedWrite — the
+						// SAME exit path as a cancel during the write — so
+						// one SIGTERM yields one exit_reason regardless of
+						// timing.
+						if k.backoffWaitInterruptible(proc, delay) {
+							k.handleInterruptedWrite(proc, step, promptResult, err, stepStart)
+							return
+						}
+						continue // retry current step
+					}
+					// Rate-limit budget exhausted with the wait still inside
+					// the cap: fall through to attemptFallback — fallback
+					// only AFTER backoff is exhausted (§6 combination matrix).
+				} else if consecutiveTransientRetries < 2 {
+					consecutiveTransientRetries++
+					retryFields := map[string]any{
+						"step":    step,
+						"action":  "transient_retry",
+						"attempt": consecutiveTransientRetries,
+						"reason":  err.Error(),
+					}
+					k.emitEvent(proc, "ReasonStep", retryFields, nil, nil, time.Since(stepStart))
+					continue // retry current step (zero-delay, unchanged)
 				}
-				// Story 73.1 / AC6: tag the retry with the rate-limit class so
-				// "waited 4 seconds" and "window resets in 95 hours" stop
-				// looking identical in the event stream. Non-rate-limit
-				// failures carry no field at all — an anti-semantic "none"
-				// would be worse than absence (same discipline as 71.4's
-				// failure_kind).
-				if kind, ok := llm.RateLimitKindOf(err); ok {
-					retryFields["rate_limit_kind"] = kind.String()
-					log.Printf("[kernel] pid=%d step=%d rate limit classified: kind=%s attempt=%d device=%s",
-						proc.PID, step, kind, consecutiveTransientRetries, proc.PrimaryDevice)
-				}
-				k.emitEvent(proc, "ReasonStep", retryFields, nil, nil, time.Since(stepStart))
-				continue // retry current step
 			}
 
 			k.emitEvent(proc, "Write", map[string]any{"fd": llmFD, "size": len(reqJSON), "model": eventModel, "reasoning_effort": proc.ReasoningEffort}, nil, err, time.Since(writeStart))
@@ -806,6 +892,10 @@ func (k *KernelImpl) reasonStep(proc *Process, llmFD types.FD, opts SpawnOpts) {
 			proc.SetStepCancel(nil)
 			stepCancel()
 			consecutiveTransientRetries = 0 // reset on success
+			// Story 73.2 / D5: both counters reset together — a success after
+			// a rate-limit wait proves the window recovered, clearing the
+			// family budget for the next throttle.
+			consecutiveRateLimitRetries = 0
 
 			k.emitEvent(proc, "Write", map[string]any{"fd": llmFD, "size": len(reqJSON), "model": eventModel, "reasoning_effort": proc.ReasoningEffort}, nil, nil, time.Since(writeStart))
 			readStart := time.Now()

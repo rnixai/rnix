@@ -3,7 +3,9 @@ package llm
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"net/http"
 	"reflect"
 	"strings"
 	"time"
@@ -416,17 +418,36 @@ func (d *OpenAIDriver) classifyError(err error) error {
 	statusCode := extractSDKStatusCode(err)
 
 	if statusCode > 0 {
+		// Story 73.2 / AC2 + D1: openai.Error is an exported ALIAS of
+		// apierror.Error (v3/aliases.go:17), so Response.Header is a direct
+		// typed read. The reflection path above (extractSDKStatusCode) stays
+		// — it works for ANY struct carrying a StatusCode field, a strictly
+		// broader fallback than the type assertion (D1: do not delete it).
+		// The SDK's own Error() dereferences Request AND Response, so a nil
+		// Response/Request must be guarded BEFORE taking msg (a nil Response
+		// panic would turn a recoverable throttle into a crash); non-SDK
+		// error shapes keep the plain err.Error() text.
 		msg := err.Error()
+		var hdr http.Header
+		if oaiErr, ok := errors.AsType[*openai.Error](err); ok {
+			if oaiErr.Response != nil {
+				hdr = oaiErr.Response.Header
+			}
+			if oaiErr.Response == nil || oaiErr.Request == nil {
+				msg = fmt.Sprintf("status %d", statusCode)
+			}
+		}
+		retryAfter, resetAt, source, _ := resolveRateLimitWait(hdr, msg, time.Now())
 		switch statusCode {
 		case 401:
 			return NewLLMError(d.name, 401, fmt.Errorf("%s: %w", msg, ErrAuth))
 		case 429:
 			// Story 73.1 / AC4: body-evidence split (no structured error.type
 			// reachable through the SDK's reflected error shape).
-			return NewLLMError(d.name, 429, NewRateLimitError(classifyRateLimitBody(msg, ""), msg))
+			return NewLLMError(d.name, 429, NewRateLimitErrorWithWait(classifyRateLimitBody(msg, ""), msg, retryAfter, resetAt, source))
 		case 529, 503:
 			// Story 73.1 / AC3.
-			return NewLLMError(d.name, statusCode, NewRateLimitError(KindOverload, msg))
+			return NewLLMError(d.name, statusCode, NewRateLimitErrorWithWait(KindOverload, msg, retryAfter, resetAt, source))
 		case 404:
 			return NewLLMError(d.name, 404, fmt.Errorf("%s: %w", msg, ErrModelNotFound))
 		case 400:
