@@ -319,20 +319,24 @@ func compactStats(events []UnifiedEvent, pid types.PID) (count int, avgPct int) 
 	return
 }
 
-// formatTraceBudgetSteps formats the detail card right line 2 per AC2 spec:
-// "Trace: span-{id} {dur}s │ Budget: {pct}% │ Steps: {N}"
+// formatTraceBudgetSteps formats the detail card right line 2 per AC2 spec
+// (Story 34.5 原文案为 "Budget:"，2026-08-03 正名为 "Ctx:"——该百分比是
+// 上下文占用率 LastInputTokens/ContextBudget，与树 ctx 条同源；"Budget"
+// 一词在 rnix 里属于 MaxTokens/MaxCost 累计勒绳语义，标签误导，见卷宗
+// investigations/orchestrator-fabricated-loop-guard-escalation-investigation.md 附带发现):
+// "Trace: span-{id} {dur}s │ Ctx: {pct}% │ Steps: {N}"
 func formatTraceBudgetSteps(m *dashboardModel, d *ipc.GetProcDetailResponse) string {
 	stepCount := len(m.timeline.StepEntries)
-	budgetPct := 0
+	ctxPct := 0
 	if d.ContextStats.ContextBudget > 0 {
 		// 直接消费服务端算好的 UsagePct（LastInputTokens/Budget，server_process.go）。
 		// 🔴 不能用 ContextStats.TokensUsed——那是全生命周期累计消耗，÷ 单请求
-		// 容量会出 "Budget: 166%" 这类越界值（2026-08-03 meetup 事故现场）。
-		budgetPct = int(d.ContextStats.UsagePct)
-		if budgetPct > 100 {
-			budgetPct = 100
-		} else if budgetPct < 0 {
-			budgetPct = 0
+		// 容量会出 "166%" 这类越界值（2026-08-03 meetup 事故现场）。
+		ctxPct = int(d.ContextStats.UsagePct)
+		if ctxPct > 100 {
+			ctxPct = 100
+		} else if ctxPct < 0 {
+			ctxPct = 0
 		}
 	}
 
@@ -347,8 +351,8 @@ func formatTraceBudgetSteps(m *dashboardModel, d *ipc.GetProcDetailResponse) str
 		traceInfo = fmt.Sprintf("span-%s %.1fs", spanID, durS)
 	}
 
-	return fmt.Sprintf("  Trace: %s │ Budget: %d%% │ Steps: %d",
-		traceInfo, budgetPct, stepCount)
+	return fmt.Sprintf("  Trace: %s │ Ctx: %d%% │ Steps: %d",
+		traceInfo, ctxPct, stepCount)
 }
 
 // formatLivedDuration returns a formatted duration string from procDetail timestamps.

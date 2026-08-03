@@ -85,8 +85,10 @@ func TestRenderDetailCardRight_Running(t *testing.T) {
 	if !strings.Contains(result, "Steps:") {
 		t.Errorf("expected steps count, got %q", result)
 	}
-	if !strings.Contains(result, "Budget:") {
-		t.Errorf("expected budget percentage, got %q", result)
+	if !strings.Contains(result, "Ctx:") {
+		// Story 34.5 原文案 "Budget:"，2026-08-03 正名为 "Ctx:"（占用率口径，
+		// 与树 ctx 条同源；Budget 一词保留给 MaxTokens/MaxCost 累计勒绳）。
+		t.Errorf("expected ctx occupancy percentage, got %q", result)
 	}
 }
 
