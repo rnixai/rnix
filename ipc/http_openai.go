@@ -507,6 +507,11 @@ func formatUpstreamError(err error) string {
 		switch {
 		case errors.Is(llmErr.Err, llm.ErrRateLimit):
 			return "rate limit exceeded, please retry later"
+		case errors.Is(llmErr.Err, llm.ErrServerOverloaded):
+			// Story 73.1 review: overload deliberately does not wrap
+			// ErrRateLimit, so it needs its own case or 529/503 degrade to
+			// the generic fallback below.
+			return "server temporarily overloaded, please retry later"
 		case errors.Is(llmErr.Err, llm.ErrAuth):
 			return "authentication failed, check API key configuration"
 		case errors.Is(llmErr.Err, llm.ErrContextLength):
@@ -522,6 +527,8 @@ func formatUpstreamError(err error) string {
 			return "authentication failed, check API key configuration"
 		case 429:
 			return "rate limit exceeded, please retry later"
+		case 503, 529:
+			return "server temporarily overloaded, please retry later"
 		case 400:
 			return "invalid request sent to LLM provider"
 		}

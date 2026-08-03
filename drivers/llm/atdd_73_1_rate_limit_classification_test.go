@@ -186,6 +186,46 @@ func TestATDD_73_1_AC2_ErrorTextFidelity(t *testing.T) {
 	}
 }
 
+// TestATDD_73_1_AC2_CliErrorTextFidelity extends the byte-fidelity contract to
+// the CLI path (review decision 2026-08-03). CLI drivers carry no provider
+// body, so classifyCliError returns RateLimitError{Kind, Message:""} — the
+// rendering must stay byte-identical to the pre-73.1 bare-sentinel text
+// ("llm: rate limit exceeded"), with the kind travelling only on the Unwrap
+// chain. The bare kind sentinels carry parenthesised suffixes
+// ("… (retryable throttle)") that would otherwise leak into exit_reason and
+// the transient_retry event's reason field.
+func TestATDD_73_1_AC2_CliErrorTextFidelity(t *testing.T) {
+	code, classified := classifyCliError(cliThrottleFixture)
+	wrapped := NewLLMError("claude", code, classified)
+	want := "llm [claude] (status 429): " + ErrRateLimit.Error()
+	if got := wrapped.Error(); got != want {
+		t.Fatalf("CLI throttle rendering = %q, want %q (byte-identical to pre-73.1)", got, want)
+	}
+
+	// The quota side renders the same public sentinel text: pre-73.1 had a
+	// single "rate limit" branch, so both kinds shared this exact string.
+	_, quotaErr := classifyCliError(quotaBodyFixture)
+	if got := NewLLMError("claude", 429, quotaErr).Error(); got != want {
+		t.Fatalf("CLI quota rendering = %q, want %q", got, want)
+	}
+
+	// Overload is a new classification (pre-73.1 mapped it to ErrTransient);
+	// its text is the overload sentinel's own — no suffix leakage either.
+	_, overloadErr := classifyCliError("upstream returned 503")
+	wantOverload := "llm [claude] (status 529): " + ErrServerOverloaded.Error()
+	if got := NewLLMError("claude", 529, overloadErr).Error(); got != wantOverload {
+		t.Fatalf("CLI overload rendering = %q, want %q", got, wantOverload)
+	}
+
+	// The kind must still be extractable through the LLMError wrap.
+	if kind, ok := RateLimitKindOf(wrapped); !ok || kind != KindThrottle {
+		t.Fatalf("RateLimitKindOf(CLI throttle) = (%v, %v), want (throttle, true)", kind, ok)
+	}
+	if kind, ok := RateLimitKindOf(NewLLMError("claude", 429, quotaErr)); !ok || kind != KindQuota {
+		t.Fatalf("RateLimitKindOf(CLI quota) = (%v, %v), want (quota, true)", kind, ok)
+	}
+}
+
 // TestATDD_73_1_AC2_RateLimit73_2FieldsStayZero enforces the scope line: this
 // story builds the fields, Story 73.2 fills them. A Retry-After parser landing
 // here would bypass 73.2's hard-cap and clock-injection design.
@@ -392,6 +432,20 @@ func TestATDD_73_1_AC4_DriverWiring429(t *testing.T) {
 		_, err := d.Call(context.Background(), LLMRequest{Intent: "hi"})
 		assertKind(t, err, KindQuota)
 	})
+
+	// A non-JSON 429 body bypasses every structured field (message/code/type
+	// all stay empty); the classifier must see the same body-fallback text
+	// that RateLimitError.Message carries. Review patch 2026-08-03: the first
+	// argument was the unparsed field, so body-level evidence was invisible.
+	t.Run("openai_compat/non-JSON body evidence", func(t *testing.T) {
+		d, _, cleanup := newTestDriver(func(w http.ResponseWriter, r *http.Request) {
+			w.WriteHeader(429)
+			fmt.Fprint(w, "Your quota has been exhausted. Reset at midnight.")
+		})
+		defer cleanup()
+		_, err := d.Call(context.Background(), LLMRequest{Intent: "hi"})
+		assertKind(t, err, KindQuota)
+	})
 }
 
 func assertKind(t *testing.T, err error, want RateLimitKind) {
@@ -453,6 +507,9 @@ func TestATDD_73_1_AC5_CliClassificationTable(t *testing.T) {
 		{"api key", "Invalid API key provided", 401, ErrAuth},
 		{"api-key", "missing api-key header", 401, ErrAuth},
 		{"apikey", "bad apikey", 401, ErrAuth},
+		// Every provider env var in this repo is *_API_KEY; CLIs quote them
+		// verbatim, so the underscore shape is a real auth message form.
+		{"api_key underscore env form", "Error: ANTHROPIC_API_KEY environment variable not set", 401, ErrAuth},
 		{"context length", "prompt is too long", 400, ErrContextLength},
 		{"unclassified", "something else entirely", 0, nil},
 	}

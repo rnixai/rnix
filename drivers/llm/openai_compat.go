@@ -476,8 +476,11 @@ func (d *OpenAICompatDriver) classifyHTTPError(statusCode int, body []byte) *LLM
 	case 429:
 		// Story 73.1 / AC4: this driver has the provider's structured
 		// error.type already parsed (errResp.Error.Code/.Type), so both
-		// evidence channels feed the split.
-		kind := classifyRateLimitBody(errResp.Error.Message, errResp.Error.Code+" "+errResp.Error.Type)
+		// evidence channels feed the split. The classifier's message input is
+		// errMsg (already fallen back to the raw body), not the raw parsed
+		// field: a non-JSON or message-less 429 body must still expose its
+		// evidence to the split, symmetric with what NewRateLimitError stores.
+		kind := classifyRateLimitBody(errMsg, errResp.Error.Code+" "+errResp.Error.Type)
 		return NewLLMError(d.name, 429, NewRateLimitError(kind, errMsg))
 	case 529, 503:
 		// Story 73.1 / AC3.

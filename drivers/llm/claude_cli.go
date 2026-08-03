@@ -935,22 +935,38 @@ func contentBlocksToAny(blocks []claudeContentBlock) []map[string]any {
 func classifyCliError(msg string) (int, error) {
 	lower := strings.ToLower(msg)
 	switch {
+	// The rate-limit family returns *RateLimitError with an empty Message
+	// rather than the bare kind sentinel (review decision 2026-08-03): the
+	// bare sentinel's Error() carries a parenthesised kind suffix
+	// ("llm: rate limit exceeded (retryable throttle)") that would leak into
+	// exit_reason and the transient_retry event's reason, changing them
+	// byte-wise from the pre-73.1 shape and contradicting the "kind never
+	// enters the text" principle in ratelimit.go. With Message == "" the
+	// rendering is exactly the public sentinel text (byte-identical to
+	// pre-73.1), while the kind still travels on the Unwrap chain for
+	// errors.Is/RateLimitKindOf.
 	case containsAnyMarker(lower, rateLimitThrottleMarkers):
-		return 429, ErrRateLimitThrottle
+		return 429, NewRateLimitError(KindThrottle, "")
 	case containsAnyMarker(lower, rateLimitQuotaMarkers):
-		return 429, ErrQuotaExhausted
+		return 429, NewRateLimitError(KindQuota, "")
 	case strings.Contains(lower, "overloaded") || strings.Contains(lower, "529") || strings.Contains(lower, "503"):
-		return 529, ErrServerOverloaded
+		return 529, NewRateLimitError(KindOverload, "")
 	case strings.Contains(lower, "socket") || strings.Contains(lower, "connection"):
 		return 0, ErrTransient
 	// "key" alone was too broad (it matched any body mentioning a key); the
 	// branch is narrowed rather than deleted because ErrAuth is a permanent-
 	// error veto in isTransientLLMError — dropping it would send genuine auth
 	// failures into the retry path to spin three times (Story 73.1 / D7).
+	// "api_key" (underscore) is the fourth shape: every provider env var in
+	// this repo is *_API_KEY, and CLIs quote them verbatim in missing-key
+	// errors ("ANTHROPIC_API_KEY environment variable not set"). Review patch
+	// 2026-08-03: the pre-73.1 bare "key" matched it; the narrowing must not
+	// drop the classification.
 	case strings.Contains(lower, "auth") ||
 		strings.Contains(lower, "api key") ||
 		strings.Contains(lower, "api-key") ||
-		strings.Contains(lower, "apikey"):
+		strings.Contains(lower, "apikey") ||
+		strings.Contains(lower, "api_key"):
 		return 401, ErrAuth
 	case strings.Contains(lower, "too long") || strings.Contains(lower, "context"):
 		return 400, ErrContextLength

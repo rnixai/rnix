@@ -2300,3 +2300,59 @@ func TestChatCompletions_UnknownModel_NoDefaultProvider_Returns404(t *testing.T)
 		t.Fatalf("status = %d, want 404", w.Code)
 	}
 }
+
+// TestFormatUpstreamError_RateLimitTrichotomy covers the Story 73.1 review
+// patch: the rate-limit family and the overload class each get a specific
+// user-facing message through the OpenAI-compat gateway. Overload does not
+// wrap ErrRateLimit by design (D4), so it needs its own case or 529/503
+// degrade to the generic fallback.
+func TestFormatUpstreamError_RateLimitTrichotomy(t *testing.T) {
+	cases := []struct {
+		name string
+		err  error
+		want string
+	}{
+		{
+			name: "structured throttle",
+			err:  llm.NewLLMError("qwen", 429, llm.NewRateLimitError(llm.KindThrottle, "Rate limit exceeded. Try again after 6 seconds.")),
+			want: "rate limit exceeded, please retry later",
+		},
+		{
+			name: "structured quota",
+			err:  llm.NewLLMError("qwen", 429, llm.NewRateLimitError(llm.KindQuota, "Your quota has been exhausted.")),
+			want: "rate limit exceeded, please retry later",
+		},
+		{
+			name: "structured overload",
+			err:  llm.NewLLMError("anthropic", 529, llm.NewRateLimitError(llm.KindOverload, "")),
+			want: "server temporarily overloaded, please retry later",
+		},
+		{
+			name: "bare overload sentinel",
+			err:  llm.NewLLMError("claude", 529, llm.ErrServerOverloaded),
+			want: "server temporarily overloaded, please retry later",
+		},
+		{
+			name: "status 503 without sentinel",
+			err:  llm.NewLLMError("compat", 503, fmt.Errorf("upstream unavailable")),
+			want: "server temporarily overloaded, please retry later",
+		},
+		{
+			name: "status 529 without sentinel",
+			err:  llm.NewLLMError("anthropic", 529, fmt.Errorf("overloaded")),
+			want: "server temporarily overloaded, please retry later",
+		},
+		{
+			name: "unknown error stays generic",
+			err:  llm.NewLLMError("compat", 500, fmt.Errorf("boom")),
+			want: "LLM driver returned an error",
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := formatUpstreamError(tc.err); got != tc.want {
+				t.Fatalf("formatUpstreamError(%v) = %q, want %q", tc.err, got, tc.want)
+			}
+		})
+	}
+}
