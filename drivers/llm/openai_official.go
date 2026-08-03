@@ -423,19 +423,26 @@ func (d *OpenAIDriver) classifyError(err error) error {
 		// typed read. The reflection path above (extractSDKStatusCode) stays
 		// — it works for ANY struct carrying a StatusCode field, a strictly
 		// broader fallback than the type assertion (D1: do not delete it).
-		// The SDK's own Error() dereferences Request AND Response, so a nil
-		// Response/Request must be guarded BEFORE taking msg (a nil Response
-		// panic would turn a recoverable throttle into a crash); non-SDK
-		// error shapes keep the plain err.Error() text.
-		msg := err.Error()
+		// The SDK's own Error() dereferences Request AND Response, so msg is
+		// taken ONLY inside the nil guard (a nil Response panic would turn a
+		// recoverable throttle into a daemon-wide crash — reasonStep has no
+		// recover). hdr needs only Response; msg needs BOTH. Non-SDK error
+		// shapes keep the plain err.Error() text.
+		// Review 2026-08-03: the guard used to run AFTER msg := err.Error(),
+		// which made it dead code for the very shape it defends against.
 		var hdr http.Header
+		var msg string
 		if oaiErr, ok := errors.AsType[*openai.Error](err); ok {
 			if oaiErr.Response != nil {
 				hdr = oaiErr.Response.Header
 			}
-			if oaiErr.Response == nil || oaiErr.Request == nil {
+			if oaiErr.Response != nil && oaiErr.Request != nil {
+				msg = err.Error()
+			} else {
 				msg = fmt.Sprintf("status %d", statusCode)
 			}
+		} else {
+			msg = err.Error()
 		}
 		retryAfter, resetAt, source, _ := resolveRateLimitWait(hdr, msg, time.Now())
 		switch statusCode {

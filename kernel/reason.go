@@ -765,7 +765,7 @@ func (k *KernelImpl) reasonStep(proc *Process, llmFD types.FD, opts SpawnOpts) {
 					// (header or body, parsed driver-side — D8) bypasses the
 					// local maxDelay cap; only the hard cap below bounds it.
 					// attempt is 1-based for the retry about to happen.
-					baseDelay, waitSource, serverStated := resolveRateLimitDelay(err, consecutiveRateLimitRetries+1)
+					baseDelay, waitSource, serverStated, retryAfter, resetAt := resolveRateLimitDelay(err, consecutiveRateLimitRetries+1)
 
 					if baseDelay > maxInProcessWait {
 						// AC5 give-up: a required wait beyond the in-process
@@ -814,13 +814,16 @@ func (k *KernelImpl) reasonStep(proc *Process, llmFD types.FD, opts SpawnOpts) {
 						retryFields["wait_ms"] = delay.Milliseconds()
 						retryFields["wait_source"] = waitSource
 						if serverStated {
-							if ra, resetAt, _, ok := llm.RateLimitWaitOf(err); ok {
-								if ra > 0 {
-									retryFields["retry_after_ms"] = ra.Milliseconds()
-								}
-								if !resetAt.IsZero() {
-									retryFields["reset_at"] = resetAt.Format(time.RFC3339)
-								}
+							// The SAME extraction that decided the delay feeds
+							// the event fields (resolveRateLimitDelay returns
+							// the raw server-declared values) — a second
+							// traversal could silently desync the report from
+							// the actual wait.
+							if retryAfter > 0 {
+								retryFields["retry_after_ms"] = retryAfter.Milliseconds()
+							}
+							if !resetAt.IsZero() {
+								retryFields["reset_at"] = resetAt.Format(time.RFC3339)
 							}
 						}
 						k.emitEvent(proc, "ReasonStep", retryFields, nil, nil, time.Since(stepStart))
@@ -835,6 +838,29 @@ func (k *KernelImpl) reasonStep(proc *Process, llmFD types.FD, opts SpawnOpts) {
 						// one SIGTERM yields one exit_reason regardless of
 						// timing.
 						if k.backoffWaitInterruptible(proc, delay) {
+							// Story 44.5 AC1 — SIGPAUSE cancels proc.ctx just
+							// like SIGTERM (suspendOneForSubtree sets
+							// suspendRequested, then Cancel), but it must hand
+							// off to the reasonStep defer (suspendProcess), not
+							// kill: without this guard a pause arriving inside
+							// the wait — a NEW window of up to maxInProcessWait
+							// per retry — routes through
+							// handleInterruptedWrite/finishProcess, leaving the
+							// waiting suspendOneForSubtree calling
+							// suspendProcess on an already-Dead process.
+							// Story 44.5 AC1 — SIGPAUSE cancels proc.ctx just
+							// like SIGTERM (suspendOneForSubtree sets
+							// suspendRequested, then Cancel), but it must hand
+							// off to the reasonStep defer (suspendProcess), not
+							// kill: without this guard a pause arriving inside
+							// the wait — a NEW window of up to maxInProcessWait
+							// per retry — routes through
+							// handleInterruptedWrite/finishProcess, leaving the
+							// waiting suspendOneForSubtree calling
+							// suspendProcess on an already-Dead process.
+							if proc.IsSuspendRequested() && errors.Is(proc.ctx.Err(), gocontext.Canceled) {
+								return
+							}
 							k.handleInterruptedWrite(proc, step, promptResult, err, stepStart)
 							return
 						}

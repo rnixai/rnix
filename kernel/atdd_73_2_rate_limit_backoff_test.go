@@ -380,6 +380,60 @@ func TestATDD_73_2_AC6_CancelInterruptsWait(t *testing.T) {
 	}
 }
 
+// TestATDD_73_2_SuspendDuringBackoffWait (review 2026-08-03): SIGPAUSE
+// cancels proc.ctx exactly like SIGTERM (suspendOneForSubtree sets
+// suspendRequested, then Cancel), and the chunked wait is a NEW cancel window
+// the Story 44.5 AC1 guard at the Write-error path never covered. The wait's
+// interrupt exit must distinguish: a pause hands off to suspendProcess (the
+// process lives on, Suspended); only a kill routes through
+// handleInterruptedWrite. Without the guard the process died "interrupted"
+// and the waiting suspendOneForSubtree got an illegal-transition error from
+// suspendProcess on the already-Dead process.
+func TestATDD_73_2_SuspendDuringBackoffWait(t *testing.T) {
+	rec := installSleepRecorder(t, true, 0) // block forever inside the wait
+	rlErr := withWait(llm.KindThrottle, "try again after 30 seconds", 30*time.Second, "header")
+	primary := &writeErrSequenceLLM{errs: []error{rlErr, rlErr, rlErr, rlErr}}
+
+	k, baseDir := newFailureRawKernel(t, primary, nil, "claude", "")
+	pid, err := k.Spawn("73.2 suspend mid-wait", nil, failureRawSpawnOpts(baseDir))
+	if err != nil {
+		t.Fatalf("Spawn: %v", err)
+	}
+	proc, _ := k.GetProcess(pid)
+
+	// Wait until the process is parked inside the chunked wait.
+	deadline := time.Now().Add(3 * time.Second)
+	for len(rec.snapshot()) == 0 {
+		if time.Now().After(deadline) {
+			t.Fatal("process never entered the backoff wait")
+		}
+		time.Sleep(2 * time.Millisecond)
+	}
+
+	// SIGPAUSE mid-wait must succeed — a kill-instead-of-suspend regression
+	// surfaces here as "suspend_failed" (suspendProcess rejecting the
+	// already-Dead process).
+	if err := k.Signal(pid, types.SIGPAUSE); err != nil {
+		t.Fatalf("Signal(SIGPAUSE) mid-wait: %v — the suspend hand-off failed", err)
+	}
+	if st := proc.GetState(); st != types.StateSuspended {
+		t.Fatalf("state after SIGPAUSE mid-wait = %s, want %s", st, types.StateSuspended)
+	}
+
+	// The interrupted exit path must NOT have run: no interrupted event, no
+	// exit status. (handleInterruptedWrite emits action=interrupted before
+	// finishProcess; the suspend hand-off emits neither.)
+	evs, err := ReadAllEvents(filepath.Join(baseDir, "steps", proc.UUID, "events.jsonl"))
+	if err != nil {
+		t.Fatalf("ReadAllEvents: %v", err)
+	}
+	for _, ev := range evs {
+		if ev.Syscall == "ReasonStep" && ev.Args["action"] == "interrupted" {
+			t.Fatal("interrupted event emitted — SIGPAUSE mid-wait took the kill path, not the suspend hand-off")
+		}
+	}
+}
+
 // TestATDD_73_2_AC6_HeartbeatRefreshedDuringWait (D6): a 60s wait runs as
 // heartbeatRefreshInterval chunks and refreshes LastHeartbeat on each —
 // without this, every process with StepTimeout < 60s would register a false

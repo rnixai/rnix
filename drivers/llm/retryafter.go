@@ -1,7 +1,7 @@
 package llm
 
 import (
-	"errors"
+	"math"
 	"net/http"
 	"regexp"
 	"strconv"
@@ -44,16 +44,20 @@ func parseRetryAfter(h http.Header, now time.Time) (time.Duration, bool) {
 	// http.Header.Get canonicalises the key, so lookup is case-insensitive.
 	if ms := strings.TrimSpace(h.Get("retry-after-ms")); ms != "" {
 		if v, err := strconv.ParseInt(ms, 10, 64); err == nil && v > 0 {
-			return time.Duration(v) * time.Millisecond, true
+			return scaleDuration(v, time.Millisecond), true
 		}
-		return 0, false
+		// A malformed/zero/negative ms header FALLS THROUGH to retry-after:
+		// the three wire shapes are tried IN ORDER, and a proxy-injected
+		// garbage ms header must not shadow the origin's valid seconds header
+		// (symmetric with the garbage retry-after fall-through to the body
+		// channel). Review 2026-08-03.
 	}
 	if ra := strings.TrimSpace(h.Get("retry-after")); ra != "" {
 		if v, err := strconv.ParseInt(ra, 10, 64); err == nil {
 			if v <= 0 {
 				return 0, false
 			}
-			return time.Duration(v) * time.Second, true
+			return scaleDuration(v, time.Second), true
 		}
 		if t, err := http.ParseTime(ra); err == nil {
 			if d := t.Sub(now); d > 0 {
@@ -66,10 +70,32 @@ func parseRetryAfter(h http.Header, now time.Time) (time.Duration, bool) {
 	return 0, false
 }
 
+// scaleDuration converts a parsed count into a Duration without int64
+// overflow. Declared waits beyond ~292 years (MaxInt64 nanoseconds) cannot be
+// represented; they SATURATE to the maximum Duration instead of wrapping to a
+// small positive value — a wrapped 584-year declaration would otherwise be
+// credited as a sub-second wait and retry almost immediately, bypassing the
+// kernel's give-up decision. Bounding a wait is the kernel's AC5 hard cap's
+// job (this file never guesses units or caps — see the 343831 note above),
+// so a saturated value correctly lands in the give-up branch.
+func scaleDuration(v int64, unit time.Duration) time.Duration {
+	if v > math.MaxInt64/int64(unit) {
+		return time.Duration(math.MaxInt64)
+	}
+	return time.Duration(v) * unit
+}
+
 // resetAtBodyRe matches the captured qwen shape "The quota will reset at 08-05
 // 22:23:00 UTC." — month-day without a year (fixture provenance: verbatim
 // production capture, see atdd_73_1_rate_limit_classification_test.go).
-var resetAtBodyRe = regexp.MustCompile(`(?i)reset at (\d{1,2})-(\d{1,2}) (\d{1,2}):(\d{2}):(\d{2})\s*(UTC|GMT|Z)?`)
+//
+// The UTC-equivalent suffix is REQUIRED (review 2026-08-03): the instant is
+// always built in time.UTC, so a missing or unrecognised zone suffix (+08:00,
+// PST, …) would be silently read as UTC — off by up to ±14h, which a
+// past-shifted instant then compounds into a next-year rollover and a
+// give-up-and-die. The captured shape carries an explicit "UTC"; anything
+// else fails safe to local backoff instead of guessing.
+var resetAtBodyRe = regexp.MustCompile(`(?i)reset at (\d{1,2})-(\d{1,2}) (\d{1,2}):(\d{2}):(\d{2})\s*(UTC|GMT|Z)\b`)
 
 // retryAfterBodyRe matches the captured infron shape "Please try again after
 // 6 seconds." The judgement matches the TEMPLATE `try again after<N> <unit>`,
@@ -106,21 +132,32 @@ func parseWaitFromBody(msg string, now time.Time) (retryAfter time.Duration, res
 			return 0, time.Time{}, false
 		}
 		candidate := time.Date(now.Year(), time.Month(month), day, hour, minute, second, 0, time.UTC)
-		if !candidate.After(now) {
+		// time.Date NORMALIZES impossible dates (02-31 → 03-03); a round-trip
+		// check rejects them fail-safe instead of waiting for an instant the
+		// provider never named (review 2026-08-03).
+		if candidate.Month() != time.Month(month) || candidate.Day() != day {
+			return 0, time.Time{}, false
+		}
+		if candidate.Before(now) {
+			// Strictly-past instants roll into next year (Dec 31 seeing
+			// "01-02"). An instant exactly equal to now is returned as-is:
+			// the kernel's time.Until ≤ 0 handling degrades it to local
+			// backoff (retry promptly — the window is resetting now), whereas
+			// a next-year roll would balloon into a give-up-and-die.
 			candidate = candidate.AddDate(1, 0, 0)
 		}
 		return 0, candidate, true
 	}
 	if m := retryAfterBodyRe.FindStringSubmatch(msg); m != nil {
-		n, _ := strconv.Atoi(m[1])
-		if n <= 0 {
+		n, err := strconv.Atoi(m[1])
+		if err != nil || n <= 0 {
 			return 0, time.Time{}, false
 		}
 		unit := strings.ToLower(m[2])
 		if strings.HasPrefix(unit, "m") {
-			return time.Duration(n) * time.Minute, time.Time{}, true
+			return scaleDuration(int64(n), time.Minute), time.Time{}, true
 		}
-		return time.Duration(n) * time.Second, time.Time{}, true
+		return scaleDuration(int64(n), time.Second), time.Time{}, true
 	}
 	return 0, time.Time{}, false
 }
@@ -140,30 +177,10 @@ func resolveRateLimitWait(h http.Header, msg string, now time.Time) (retryAfter 
 	if d, hOK := parseRetryAfter(h, now); hOK && d > 0 {
 		return d, time.Time{}, "header", true
 	}
-	if ra, at, bOK := parseWaitFromBody(msg, now); bOK {
+	// Symmetric positivity gate with the header branch: ok=true must carry a
+	// usable instruction (a positive relative wait OR a reset instant).
+	if ra, at, bOK := parseWaitFromBody(msg, now); bOK && (ra > 0 || !at.IsZero()) {
 		return ra, at, "body", true
 	}
 	return 0, time.Time{}, "", false
-}
-
-// RateLimitWaitOf extracts the server-declared wait fields from a rate-limit
-// error chain — the kernel's read-only entry point (AC7: kernel reads, never
-// writes; the fields were filled at driver-side construction, D8). Returns
-// (0, zero, "", false) for shapes carrying no wait information (bare CLI
-// sentinels, unclassified errors), which the kernel reads as "no server
-// instruction — use local backoff".
-//
-// This sits next to IsRateLimited / RateLimitKindOf (ratelimit.go) on
-// purpose: the kernel reaches the payload through these exported functions,
-// never through a direct errors.As into the struct (73.1 / AC2-③ coupling
-// discipline).
-func RateLimitWaitOf(err error) (retryAfter time.Duration, resetAt time.Time, source string, ok bool) {
-	var rle *RateLimitError
-	if !errors.As(err, &rle) {
-		return 0, time.Time{}, "", false
-	}
-	if rle.RetryAfter <= 0 && rle.ResetAt.IsZero() {
-		return 0, time.Time{}, "", false
-	}
-	return rle.RetryAfter, rle.ResetAt, rle.Source, true
 }

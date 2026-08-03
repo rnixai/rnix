@@ -115,19 +115,25 @@ func applyRateLimitJitter(d time.Duration) time.Duration {
 // the wait, orthogonal to the rate_limit_kind dimension (D9) — and
 // serverStated reports whether levels 1-2 produced the value (drives the
 // retry_after_ms / reset_at event fields).
-func resolveRateLimitDelay(err error, attempt int) (baseDelay time.Duration, source string, serverStated bool) {
+//
+// retryAfter and resetAt are the RAW server-declared fields from the SAME
+// extraction that decided the delay (review 2026-08-03: the caller's event
+// fields used to come from a second, independent RateLimitWaitOf traversal —
+// today identical, but a future cap/unit change on either path would silently
+// desync what the event reports from what the process actually waited).
+func resolveRateLimitDelay(err error, attempt int) (baseDelay time.Duration, source string, serverStated bool, retryAfter time.Duration, resetAt time.Time) {
 	retryAfter, resetAt, waitSource, ok := llm.RateLimitWaitOf(err)
 	switch {
 	case ok && retryAfter > 0:
-		return retryAfter, waitSource, true
+		return retryAfter, waitSource, true, retryAfter, resetAt
 	case ok && !resetAt.IsZero():
 		if d := time.Until(resetAt); d > 0 {
-			return d, waitSource, true
+			return d, waitSource, true, retryAfter, resetAt
 		}
 		// A reset instant already in the past carries no instruction; fall
 		// through to local backoff rather than treating it as "wait zero".
 	}
-	return localRateLimitBackoff(attempt), "backoff", false
+	return localRateLimitBackoff(attempt), "backoff", false, 0, time.Time{}
 }
 
 // backoffWaitInterruptible waits d in heartbeat-sized chunks, refreshing

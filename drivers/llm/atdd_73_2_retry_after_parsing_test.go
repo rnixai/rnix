@@ -5,6 +5,9 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	anthropic "github.com/anthropics/anthropic-sdk-go"
+	openai "github.com/openai/openai-go/v3"
 )
 
 // Story 73.2 — AC1 (Retry-After three-form parsing) and AC3 (body wait
@@ -183,6 +186,60 @@ func TestATDD_73_2_AC3_YearRollover(t *testing.T) {
 	}
 }
 
+// TestATDD_73_2_ParseRobustness (review 2026-08-03 patches): overflow
+// saturation, ms-header fall-through, timezone requirement, and calendar
+// validation. Each case pins a guard that a silent wrap/normalization would
+// otherwise defeat.
+func TestATDD_73_2_ParseRobustness(t *testing.T) {
+	// Overflow saturates instead of wrapping: a ~584-year declaration fits
+	// int64 but NOT time.Duration once multiplied. A wrap would credit it as
+	// a sub-second wait and retry almost immediately; saturation lands it in
+	// the kernel's give-up branch (wait > maxInProcessWait).
+	huge := hdr("retry-after", "18446744074") // ≈584 years in seconds
+	if d, ok := parseRetryAfter(huge, captureInstant); !ok || d < 365*24*time.Hour {
+		t.Errorf("oversized seconds header = (%v, %v), want a saturated multi-year duration", d, ok)
+	}
+	hugeMs := hdr("retry-after-ms", "18446744073710") // ≈584 years in ms
+	if d, ok := parseRetryAfter(hugeMs, captureInstant); !ok || d < 365*24*time.Hour {
+		t.Errorf("oversized ms header = (%v, %v), want a saturated duration", d, ok)
+	}
+	if ra, _, ok := parseWaitFromBody("Please try again after 9999999999999 seconds.", captureInstant); !ok || ra < 365*24*time.Hour {
+		t.Errorf("oversized body count = (%v, %v), want a saturated duration", ra, ok)
+	}
+
+	// A garbage retry-after-ms header falls through to retry-after instead of
+	// shadowing the origin's valid seconds header.
+	if d, ok := parseRetryAfter(hdr("retry-after-ms", "soon", "retry-after", "30"), captureInstant); !ok || d != 30*time.Second {
+		t.Errorf("garbage ms + valid seconds = (%v, %v), want (30s, true)", d, ok)
+	}
+
+	// The reset instant requires a UTC-equivalent suffix: the parser builds
+	// time.UTC, so missing or foreign zones fail safe instead of guessing.
+	for _, body := range []string{
+		"The quota will reset at 08-05 22:23:00.",        // no suffix
+		"The quota will reset at 08-05 22:23:00 +08:00.", // foreign offset
+	} {
+		if _, _, ok := parseWaitFromBody(body, captureInstant); ok {
+			t.Errorf("body %q parsed, want ok=false (no UTC-equivalent suffix)", body)
+		}
+	}
+
+	// Impossible calendar dates fail safe instead of normalizing (02-31 would
+	// silently become 03-03 and wait for an instant never declared).
+	if _, _, ok := parseWaitFromBody("The quota will reset at 02-31 10:00:00 UTC.", captureInstant); ok {
+		t.Error("impossible date 02-31 parsed, want ok=false")
+	}
+
+	// An instant exactly equal to now is returned as-is, not rolled a year
+	// forward (the kernel's time.Until ≤ 0 handling degrades it to local
+	// backoff — the window is resetting NOW; a year roll would give up).
+	now := time.Date(2026, 8, 5, 22, 23, 0, 0, time.UTC)
+	_, resetAt, ok := parseWaitFromBody("The quota will reset at 08-05 22:23:00 UTC.", now)
+	if !ok || !resetAt.Equal(now) {
+		t.Errorf("exact-equality instant = (%v, %v), want (%v, true)", resetAt, ok, now)
+	}
+}
+
 // TestATDD_73_2_D2_HeaderPrecedence: when BOTH channels carry a wait and the
 // values differ, the header wins — but Source must record the channel
 // actually credited ([[observability-data-provenance-principle]]), and a
@@ -245,17 +302,56 @@ func TestATDD_73_2_ContradictoryEvidenceTerminalFirst(t *testing.T) {
 	// Same contradiction end-to-end through the driver, since that is where
 	// the two channels actually meet.
 	d, _, cleanup := newTestDriver(func(w http.ResponseWriter, _ *http.Request) {
-		w.WriteHeader(429)
 		// Header carries a wait; the type still decides the KIND. The two
 		// dimensions are orthogonal — 73.2 fills wait fields on quota errors
 		// too (the disposition difference is the kernel's, not the
 		// classifier's).
+		// 🔴 Header BEFORE WriteHeader: net/http snapshots the header map at
+		// WriteHeader, so setting it afterwards never reaches the client
+		// (review 2026-08-03: the original ordering made this E2E verify
+		// nothing about header propagation).
 		w.Header().Set("retry-after", "6")
+		w.WriteHeader(429)
 		_, _ = w.Write([]byte(`{"error":{"message":"Rate limit exceeded (5 requests per minute). Please try again after 6 seconds.","type":"insufficient_quota"}}`))
 	})
 	defer cleanup()
 	_, err := d.Call(t.Context(), LLMRequest{Intent: "hi"})
 	assertKind(t, err, KindQuota)
+
+	// The header's wait actually propagated through a real HTTP round-trip —
+	// the first E2E evidence of AC2's header wiring (review 2026-08-03):
+	// kind comes from the structured type, the wait from the header, and
+	// Source records the channel actually credited.
+	ra, _, source, ok := RateLimitWaitOf(err)
+	if !ok || ra != 6*time.Second || source != "header" {
+		t.Errorf("RateLimitWaitOf = (%v, %q, %v), want (6s, %q, true)", ra, source, ok, "header")
+	}
+}
+
+// TestATDD_73_2_AC2_NilResponseNoPanic 🔴 (AC9 item 6): the SDKs can yield
+// errors with nil Response/Request on some construction paths, and the SDK's
+// own Error() dereferences BOTH (internal/apierror). classifyError must
+// classify without panicking and the wait fields must stay honestly empty.
+// This is the test whose absence let the openai_official guard-order bug
+// ship: the guard ran AFTER msg := err.Error(), making it dead code for the
+// very shape it defends against (review 2026-08-03 patch P1/P2).
+func TestATDD_73_2_AC2_NilResponseNoPanic(t *testing.T) {
+	t.Run("anthropic", func(t *testing.T) {
+		d := NewAnthropicDriver("anthropic-nil-test", WithAnthropicKey("k"))
+		err := d.classifyError(&anthropic.Error{StatusCode: 429}) // Response & Request nil
+		assertKind(t, err, KindThrottle) // fail-open classification completes
+		if _, _, source, ok := RateLimitWaitOf(err); ok || source != "" {
+			t.Errorf("RateLimitWaitOf = (_, %q, %v), want no wait information (nothing to parse)", source, ok)
+		}
+	})
+	t.Run("openai_official", func(t *testing.T) {
+		d := NewOpenAIDriver("openai-nil-test", WithOpenAIKey("k"))
+		err := d.classifyError(&openai.Error{StatusCode: 429}) // Response & Request nil
+		assertKind(t, err, KindThrottle)
+		if _, _, source, ok := RateLimitWaitOf(err); ok || source != "" {
+			t.Errorf("RateLimitWaitOf = (_, %q, %v), want no wait information (nothing to parse)", source, ok)
+		}
+	})
 }
 
 // TestATDD_73_2_MarkerSetsAreNotSubstrings closes deferral 2. The two marker

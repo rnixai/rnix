@@ -134,6 +134,28 @@ func RateLimitKindOf(err error) (RateLimitKind, bool) {
 	}
 }
 
+// RateLimitWaitOf extracts the server-declared wait fields from a rate-limit
+// error chain — the kernel's read-only entry point (Story 73.2 / AC7: kernel
+// reads, never writes; the fields were filled at driver-side construction,
+// D8). Returns (0, zero, "", false) for shapes carrying no wait information
+// (bare CLI sentinels, unclassified errors), which the kernel reads as "no
+// server instruction — use local backoff".
+//
+// This sits next to IsRateLimited / RateLimitKindOf on purpose (spec §2):
+// the kernel reaches the payload through these exported functions, never
+// through a direct errors.As into the struct (73.1 / AC2-③ coupling
+// discipline). Parsing lives in retryafter.go; accessors live here.
+func RateLimitWaitOf(err error) (retryAfter time.Duration, resetAt time.Time, source string, ok bool) {
+	var rle *RateLimitError
+	if !errors.As(err, &rle) {
+		return 0, time.Time{}, "", false
+	}
+	if rle.RetryAfter <= 0 && rle.ResetAt.IsZero() {
+		return 0, time.Time{}, "", false
+	}
+	return rle.RetryAfter, rle.ResetAt, rle.Source, true
+}
+
 // rateLimitQuotaMarkers are terminal-quota evidence: hitting any of them
 // means the whole window is spent. The set form (not scattered ifs) lets new
 // provider shapes be added as entries (Story 73.1 / AC4).

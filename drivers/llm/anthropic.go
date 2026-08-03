@@ -554,10 +554,16 @@ func (d *AnthropicDriver) classifyError(err error) error {
 		// handling path panics, turning a recoverable throttle into a crash.
 		// Missing headers are the norm (6 of 13 captured 429s) — nil here
 		// just degrades to body parsing / local backoff.
+		// hdr needs only Response; msg needs BOTH (the SDK's Error()
+		// dereferences Request and Response). Keeping the two reads fused
+		// discarded a parseable Retry-After header whenever Request alone was
+		// nil (review 2026-08-03) — split as openai_official does.
 		var hdr http.Header
 		var msg string
-		if apiErr.Response != nil && apiErr.Request != nil {
+		if apiErr.Response != nil {
 			hdr = apiErr.Response.Header
+		}
+		if apiErr.Response != nil && apiErr.Request != nil {
 			msg = err.Error()
 		} else {
 			msg = fmt.Sprintf("status %d", apiErr.StatusCode)
