@@ -56,3 +56,4 @@ _bmad-output/
 
 # agtest import skeletons (Story 68.3) — half-reviewed, never auto-committed
 tests/agtest/imported/
+.env
