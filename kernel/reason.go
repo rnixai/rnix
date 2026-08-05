@@ -761,6 +761,25 @@ func (k *KernelImpl) reasonStep(proc *Process, llmFD types.FD, opts SpawnOpts) {
 			if isTransientLLMError(err) {
 				kind, isRateLimit := llm.RateLimitKindOf(err)
 				if isRateLimit {
+					// Story 73.3 / D5 fast path: terminal quota with NO
+					// server wait evidence suspends immediately — zero
+					// retries. The classifier already required strong-evidence
+					// markers to reach quota (73.1's fail-open only lets
+					// strong evidence classify quota), so the window will not
+					// recover within the few seconds retries would burn —
+					// retrying is pure waste, and dying loses all state that a
+					// suspension preserves. The judgement is RateLimitWaitOf's
+					// ok flag — NOT resolveRateLimitDelay's serverStated,
+					// which is ALSO false for a resetAt already in the past,
+					// while a past resetAt means the window just recovered and
+					// the right move is to retry now (the D5 trap).
+					if kind == llm.KindQuota {
+						if _, _, _, hasWait := llm.RateLimitWaitOf(err); !hasWait {
+							k.quotaSuspendProcess(proc, step, kind, time.Time{}, "", 0, stepStart)
+							return
+						}
+					}
+
 					// AC4 three-level precedence: server-declared wait
 					// (header or body, parsed driver-side — D8) bypasses the
 					// local maxDelay cap; only the hard cap below bounds it.
@@ -768,29 +787,36 @@ func (k *KernelImpl) reasonStep(proc *Process, llmFD types.FD, opts SpawnOpts) {
 					baseDelay, waitSource, serverStated, retryAfter, resetAt := resolveRateLimitDelay(err, consecutiveRateLimitRetries+1)
 
 					if baseDelay > maxInProcessWait {
-						// AC5 give-up: a required wait beyond the in-process
-						// limit is neither waited out nor retried — fall
-						// through to the existing failure path
-						// (attemptFallback → finishProcess). That is no
-						// worse than pre-73.2 (long quota windows died there
-						// too) and stops burning retries on a window that
-						// cannot recover in-process.
+						// Story 73.3 / D6 (replaces 73.2's give-up
+						// fall-through, resolving its TODO(Story 73.3)): a
+						// rate-limit family failure whose server-declared wait
+						// exceeds the in-process cap SUSPENDS the process with
+						// the wake instant recorded, instead of killing it.
+						// The rule is keyed on the wait DURATION, not the kind
+						// — a 503 + long Retry-After (maintenance window) or a
+						// long throttle carries the same semantic as quota:
+						// "retrying now is pointless, wait until this instant".
+						// The wake scanner (kernel/quota_wake.go) knows
+						// ResumeAt, never the kind, so the unified rule needs
+						// no branch there.
 						//
-						// TODO(Story 73.3): replace this give-up with
-						// selfSuspend + ResumeAt so long quota windows
-						// suspend the process and resume at the reset
-						// instant instead of killing it. 73.2 deliberately
-						// stops at the early-exit seam (D4).
-						k.emitEvent(proc, "ReasonStep", map[string]any{
-							"step":            step,
-							"action":          "rate_limit_giveup",
-							"wait_ms":         baseDelay.Milliseconds(), // the REQUIRED wait, not a waited duration
-							"limit_ms":        maxInProcessWait.Milliseconds(),
-							"rate_limit_kind": kind.String(),
-						}, nil, nil, time.Since(stepStart))
-						log.Printf("[kernel] pid=%d step=%d rate limit giveup: kind=%s required wait %s exceeds in-process limit %s — no retry (device=%s)",
-							proc.PID, step, kind, baseDelay, maxInProcessWait, proc.PrimaryDevice)
-						// No continue: control falls through to attemptFallback.
+						// ResumeAt derives from the PRE-jitter server values
+						// resolveRateLimitDelay returned (jitter de-correlates
+						// retries, it has no meaning for window wake): resetAt
+						// first (a server absolute instant survives daemon
+						// restarts), else now+retryAfter (see
+						// deriveQuotaResumeAt).
+						//
+						// attemptFallback is deliberately SKIPPED (D6):
+						// switching provider on a window-class failure is
+						// useless for the same account and a resource swap —
+						// not a window recovery — for a different one, and it
+						// would blur which provider's window ResumeAt belongs
+						// to. The suspend branch returns directly; control
+						// never falls through to attemptFallback below.
+						resumeAt, resumeAtSource := deriveQuotaResumeAt(retryAfter, resetAt)
+						k.quotaSuspendProcess(proc, step, kind, resumeAt, resumeAtSource, baseDelay, stepStart)
+						return
 					} else if consecutiveRateLimitRetries < maxRateLimitRetries {
 						consecutiveRateLimitRetries++
 						// AC4 one-sided jitter applies to server-declared

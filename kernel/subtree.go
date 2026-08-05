@@ -281,6 +281,12 @@ func (k *KernelImpl) resumeOneForSubtree(proc *Process) error {
 		return fmt.Errorf("unsuspend: %w", err)
 	}
 	proc.SetSuspendReason("")
+	// Story 73.3 / D7 — clear the quota wake instant alongside SuspendReason.
+	// The quota wake scanner's re-check (Suspended + quota_exhausted +
+	// ResumeAt due) then never matches an already-woken process, so there is
+	// no double wake; the next SaveProcInfo erases the stale value from disk
+	// via omitempty.
+	proc.SetResumeAt(time.Time{})
 
 	// Story 44.5 v2 — close the pausedAt → pausedTotal accounting cycle that
 	// suspendProcess opened. Mirror of SoftPause Resume() (kernel/process.go:754).
@@ -293,6 +299,13 @@ func (k *KernelImpl) resumeOneForSubtree(proc *Process) error {
 		proc.pausedTotal += time.Since(proc.pausedAt)
 		proc.pausedAt = time.Time{}
 	}
+	// Story 73.3 / AC8 — drop the stale suspend ExitStatus: suspendProcess set
+	// it on the suspend leg, and leaving it on the now-Running process makes
+	// GetProcInfo report a non-empty ExitReason, violating the invariant
+	// matrix's Running row (the 73.3 guardrail test pins this; the leak
+	// pre-existed for every in-place wake reason). Safe: the next suspend
+	// cycle stamps a fresh Exit before any reader (notifySuspendDone) runs.
+	proc.Exit = nil
 	proc.mu.Unlock()
 
 	// Story 44.5 AC8 — drain any stale ExitSuspended event left in proc.Done

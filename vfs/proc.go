@@ -119,6 +119,12 @@ type ProcInfo struct {
 	// ContextWindow in kernel/ctx_token_limit.go).
 	CompactTimeout time.Duration
 	SuspendReason  string
+	// ResumeAt is the quota-window reset instant a quota-suspended process
+	// waits for (Story 73.3). The daemon-side quota wake scanner resumes the
+	// process once now >= ResumeAt. Zero for non-quota suspends and for quota
+	// suspends with no server-declared wait evidence (manual resume only).
+	// Persisted to proc-info.json and restored across daemon restarts.
+	ResumeAt time.Time
 	// CompactLatched reports that automatic compaction has been latched off for
 	// this process after a failure (Story 71.4 AC4-②). Process-level visible
 	// state for the latch — deliberately NOT SuspendReason, which invariant.go

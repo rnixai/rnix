@@ -347,6 +347,13 @@ func NewKernel(v *vfs.VFS, ctxMgr *rnixctx.Manager, cb KernelCallbacks) *KernelI
 		featureFlags: FullFeatureFlags(),
 	}
 	k.startReaper()
+	// Story 73.3 / D2 — the quota wake scanner starts with the kernel, before
+	// any resume path runs: after a daemon restart LoadSuspendedFromDisk
+	// restores quota placeholders WITH their persisted ResumeAt (D1), and the
+	// scanner picks them up on its next tick. No one-shot startup hook is
+	// needed — quota suspension is NOT "collateral of daemon shutdown", so it
+	// must stay out of AutoResumeDaemonShutdown's reason set.
+	k.startQuotaWakeScanner()
 	return k
 }
 

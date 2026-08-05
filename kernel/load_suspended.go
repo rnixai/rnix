@@ -119,6 +119,11 @@ func (k *KernelImpl) LoadSuspendedFromDisk() (int, error) {
 
 		proc.mu.Lock()
 		proc.SuspendReason = info.SuspendReason
+		// Story 73.3 / D1 — restore the quota wake instant: daemon restart must
+		// not lose the window reset time, or the quota wake scanner would never
+		// fire for placeholders (the whole "95.5h window survives daemon
+		// restarts" value proposition).
+		proc.ResumeAt = info.ResumeAt
 		proc.pausedAt = info.PausedAt
 		proc.pausedTotal = info.PausedTotal
 		proc.TokensUsed = info.TokensUsed

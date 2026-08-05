@@ -165,11 +165,12 @@ func withWait(kind llm.RateLimitKind, msg string, retryAfter time.Duration, sour
 // --- AC5: the double cap (test 9) ---
 
 // TestATDD_73_2_AC5_GiveupBeyondCap ①: a required wait above
-// maxInProcessWait is neither waited out nor retried — the new early-exit
-// path emits rate_limit_giveup and falls through to the existing failure
-// path. This is the D4 seam: Story 73.3 swaps the fall-through for
-// selfSuspend. 🔴 Until then, the captured 95.5-hour quota window still
-// kills the process — it just stops burning retries first.
+// maxInProcessWait is neither waited out nor retried. Story 73.3 updated
+// this test to match the disposition it introduced: the 73.2 give-up
+// fall-through (rate_limit_giveup → attemptFallback → death) is replaced by
+// a quota SUSPENSION with the wake instant recorded (quota_suspend →
+// selfSuspend + ResumeAt). The over-cap exit is keyed on the wait DURATION,
+// not the kind — hence one throttle and one quota case, both suspending.
 func TestATDD_73_2_AC5_GiveupBeyondCap(t *testing.T) {
 	cases := []struct {
 		name string
@@ -191,30 +192,45 @@ func TestATDD_73_2_AC5_GiveupBeyondCap(t *testing.T) {
 			primary := &writeErrSequenceLLM{errs: []error{tc.err, tc.err, tc.err, tc.err}}
 			proc, exit, steps := runBackoffProcess(t, primary, "73.2 AC5 giveup")
 
-			giveups := filterAction(steps, "rate_limit_giveup")
-			if len(giveups) != 1 {
-				t.Fatalf("rate_limit_giveup events = %d, want exactly 1 (steps=%v)", len(giveups), steps)
+			suspends := filterAction(steps, "quota_suspend")
+			if len(suspends) != 1 {
+				t.Fatalf("quota_suspend events = %d, want exactly 1 (steps=%v)", len(suspends), steps)
 			}
-			g := giveups[0]
+			g := suspends[0]
 			if lm, ok := argMillis(g["limit_ms"]); !ok || lm != maxInProcessWait.Milliseconds() {
 				t.Errorf("limit_ms = %v, want %d", g["limit_ms"], maxInProcessWait.Milliseconds())
 			}
-			if wm, ok := argMillis(g["wait_ms"]); !ok || time.Duration(wm)*time.Millisecond <= maxInProcessWait {
-				t.Errorf("giveup wait_ms = %v, want a required wait above the cap", g["wait_ms"])
+			if wm, ok := argMillis(g["required_wait_ms"]); !ok || time.Duration(wm)*time.Millisecond <= maxInProcessWait {
+				t.Errorf("required_wait_ms = %v, want a required wait above the cap", g["required_wait_ms"])
 			}
 			if _, hasKind := g["rate_limit_kind"]; !hasKind {
-				t.Error("giveup event must carry rate_limit_kind")
+				t.Error("quota_suspend event must carry rate_limit_kind")
+			}
+			if _, hasResumeAt := g["resume_at"]; !hasResumeAt {
+				t.Error("quota_suspend event must carry resume_at — the wake instant the scanner waits for")
+			}
+			if giveups := filterAction(steps, "rate_limit_giveup"); len(giveups) != 0 {
+				t.Errorf("rate_limit_giveup events = %d, want 0 — the 73.2 give-up shape is replaced by quota_suspend", len(giveups))
 			}
 			if retries := filterAction(steps, "transient_retry"); len(retries) != 0 {
-				t.Errorf("transient_retry events = %d, want 0 — give-up means no retry", len(retries))
+				t.Errorf("transient_retry events = %d, want 0 — over-cap means no retry", len(retries))
 			}
 			if n := len(rec.snapshot()); n != 0 {
-				t.Errorf("sleepFunc called %d times, want 0 — the give-up path must not wait at all", n)
+				t.Errorf("sleepFunc called %d times, want 0 — the over-cap path must not wait at all", n)
 			}
-			if exit.Code == 0 {
-				t.Error("exit code 0, want failure — 73.2 gives up, it does not recover long windows (73.3's job)")
+			// Story 73.3: the over-cap exit SUSPENDS — it no longer kills.
+			if exit.Code != ExitSuspended {
+				t.Errorf("exit.Code = %d, want %d (ExitSuspended) — over-cap is a suspension, not a death", exit.Code, ExitSuspended)
 			}
-			_ = proc
+			if st := proc.GetState(); st != types.StateSuspended {
+				t.Errorf("state = %s, want %s", st, types.StateSuspended)
+			}
+			if r := proc.GetSuspendReason(); r != SuspendReasonQuotaExhausted {
+				t.Errorf("SuspendReason = %q, want %q", r, SuspendReasonQuotaExhausted)
+			}
+			if proc.GetResumeAt().IsZero() {
+				t.Error("ResumeAt zero, want the derived wake instant")
+			}
 		})
 	}
 }

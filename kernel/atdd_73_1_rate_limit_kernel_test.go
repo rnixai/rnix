@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/rnixai/rnix/drivers/llm"
 	"github.com/rnixai/rnix/internal/types"
@@ -210,8 +211,15 @@ func TestATDD_73_1_AC6_RetryEventCarriesRateLimitKind(t *testing.T) {
 		wantKind string
 	}{
 		{
-			name:     "quota",
-			writeErr: llm.NewLLMError("qwen", 429, llm.NewRateLimitError(llm.KindQuota, kernelQuotaBody)),
+			name: "quota",
+			// Story 73.3 / D5 update: a WAITLESS KindQuota error now suspends
+			// immediately — no transient_retry event exists there to carry the
+			// kind (that disposition is covered by
+			// TestATDD_73_3_D5_FastPath_NoWaitQuotaSuspendsImmediately). Give
+			// the classification probe an in-cap server wait so the retry path
+			// still exercises the kind plumbing.
+			writeErr: llm.NewLLMError("qwen", 429,
+				llm.NewRateLimitErrorWithWait(llm.KindQuota, kernelQuotaBody, 3*time.Second, time.Time{}, "header")),
 			wantKind: "quota",
 		},
 		{
@@ -264,13 +272,19 @@ func TestATDD_73_1_AC6_NonRateLimitRetryOmitsField(t *testing.T) {
 
 // TestATDD_73_1_D5_FallbackStillTriggersOnRateLimit registers the D5 decision
 // as executable fact: this story is the classification layer and leaves the
-// disposition layer alone. Whether a terminal quota should skip fallback is
-// Story 73.3's call (by which point the terminal path no longer reaches
-// attemptFallback at all) and the retryable side is Story 73.2's.
+// disposition layer alone.
+//
+// Story 73.3 update (the call this test anticipated): terminal quota no longer
+// reaches attemptFallback — the waitless fast path (D5) and the over-cap exit
+// (D6) SUSPEND the process instead, and the suspend branch skips fallback by
+// design (pinned by TestATDD_73_3_AC1_QuotaBeyondCap's zero-fallback-write
+// assertion and the D5 fast-path test). This test now drives the rate-limit
+// path that STILL exhausts its retry budget inside the cap and falls back: a
+// retryable throttle with an in-cap server wait.
 func TestATDD_73_1_D5_FallbackStillTriggersOnRateLimit(t *testing.T) {
 	primary := &rateLimitRetryLLM{
 		writeErr: llm.NewLLMError("qwen", 429,
-			llm.NewRateLimitError(llm.KindQuota, kernelQuotaBody)),
+			llm.NewRateLimitErrorWithWait(llm.KindThrottle, kernelThrottleBody, 3*time.Second, time.Time{}, "header")),
 		failures: 999, // never recovers: exhaust retries, then fall back
 	}
 	fallback := &rateLimitRetryLLM{failures: 0}
@@ -285,11 +299,11 @@ func TestATDD_73_1_D5_FallbackStillTriggersOnRateLimit(t *testing.T) {
 	exit := waitDone(t, proc)
 
 	// The fallback served the step, so the process completed rather than dying
-	// on the primary's quota error.
+	// on the primary's throttling.
 	if exit.Code != 0 {
-		t.Fatalf("exit = %+v, want code 0 — a rate limit must still reach the fallback provider in this story", exit)
+		t.Fatalf("exit = %+v, want code 0 — an in-cap rate limit that exhausts its retry budget must still reach the fallback provider", exit)
 	}
-	if errors.Is(exit.Err, llm.ErrQuotaExhausted) {
+	if errors.Is(exit.Err, llm.ErrRateLimitThrottle) {
 		t.Errorf("exit.Err = %v, want the fallback to have recovered the step", exit.Err)
 	}
 }

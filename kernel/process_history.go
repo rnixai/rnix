@@ -237,8 +237,14 @@ type procInfoDisk struct {
 	// LoadSuspendedFromDisk can recreate accurate Suspended placeholders.
 	// SuspendReason intentionally typed as string (not enum) to stay
 	// decoupled from Epic 45's planned HeartbeatMonitor removal.
-	SuspendReason   string   `json:"suspend_reason,omitempty"`
-	PausedAt        string   `json:"paused_at,omitempty"`
+	SuspendReason string `json:"suspend_reason,omitempty"`
+	PausedAt      string `json:"paused_at,omitempty"`
+	// Story 73.3 / D1 — the quota-window reset instant a quota-suspended
+	// process waits for, persisted across daemon restarts so the quota wake
+	// scanner (kernel/quota_wake.go) keeps working after a restart. RFC3339Nano
+	// string in PausedAt's shape; omitempty keeps legacy proc-info.json clean
+	// and non-quota suspends carry no field.
+	ResumeAt        string   `json:"resume_at,omitempty"`
 	IsPaused        bool     `json:"is_paused,omitempty"`
 	CtxID           uint64   `json:"ctx_id"`
 	Result          string   `json:"result,omitempty"`
@@ -362,6 +368,11 @@ func procInfoToDisk(info vfs.ProcInfo) procInfoDisk {
 	if !info.PausedAt.IsZero() {
 		d.PausedAt = info.PausedAt.Format(time.RFC3339Nano)
 	}
+	// Story 73.3 / D1 — persist the quota wake instant (zero for non-quota
+	// suspends → omitted).
+	if !info.ResumeAt.IsZero() {
+		d.ResumeAt = info.ResumeAt.Format(time.RFC3339Nano)
+	}
 	if info.PausedTotal > 0 {
 		d.PausedTotalMs = info.PausedTotal.Milliseconds()
 	}
@@ -439,6 +450,12 @@ func procInfoFromDisk(d procInfoDisk) vfs.ProcInfo {
 	}
 	if d.PausedAt != "" {
 		info.PausedAt, _ = time.Parse(time.RFC3339Nano, d.PausedAt)
+	}
+	// Story 73.3 / D1 — restore the quota wake instant best-effort (parse
+	// failure leaves it zero = manual-resume-only, same degradation as a
+	// missing value).
+	if d.ResumeAt != "" {
+		info.ResumeAt, _ = time.Parse(time.RFC3339Nano, d.ResumeAt)
 	}
 	if d.PausedTotalMs > 0 {
 		info.PausedTotal = time.Duration(d.PausedTotalMs) * time.Millisecond

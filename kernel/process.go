@@ -46,7 +46,7 @@ type ExitStatus struct {
 const (
 	ExitOK          = 0 // normal completion
 	ExitError       = 1 // abnormal termination (circuit_breaker, append failure, unexpected exit)
-	ExitSuspended   = 2 // suspended (budget_exhausted, loop_detected, user_suspended, max_turns)
+	ExitSuspended   = 2 // suspended (budget_exhausted, loop_detected, user_suspended, max_turns, quota_exhausted)
 	ExitContextFull = 3 // context full after precompact (recoverable via resume + compact)
 )
 
@@ -268,6 +268,18 @@ type Process struct {
 	suspendRequested atomic.Bool // set by Suspend(), checked by reasonStep
 	SuspendReason    string      // reason for suspension (mu protected)
 
+	// ResumeAt (Story 73.3) — the quota-window reset instant this suspended
+	// process waits for; the daemon-side quota wake scanner
+	// (kernel/quota_wake.go) resumes the process once now >= ResumeAt. Zero
+	// for every non-quota suspend reason and for the D5 fast path (quota
+	// failure with NO server-declared wait evidence — manual resume only, the
+	// scanner's IsZero gate never wakes it). mu protected. Persisted to
+	// proc-info.json (D1: the reset instant is a server-declared external
+	// fact that survives daemon restarts, unlike locally-inferred state such
+	// as CompactLatched) and restored by LoadSuspendedFromDisk so the scanner
+	// keeps working across daemon restarts.
+	ResumeAt time.Time
+
 	// Compact latch (Story 71.4) — set after an automatic compaction failure;
 	// while true, autoCompactIfNeeded short-circuits (qwen's one-shot
 	// hasFailedCompressionAttempt). Deliberately NOT SuspendReason:
@@ -405,6 +417,21 @@ func (p *Process) SetSuspendReason(reason string) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	p.SuspendReason = reason
+}
+
+// GetResumeAt returns the quota-window wake instant (thread-safe). Zero when
+// the process is not waiting on a quota window. Story 73.3.
+func (p *Process) GetResumeAt() time.Time {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return p.ResumeAt
+}
+
+// SetResumeAt updates the quota-window wake instant (thread-safe). Story 73.3.
+func (p *Process) SetResumeAt(t time.Time) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.ResumeAt = t
 }
 
 // GetCompactLatched returns whether automatic compaction is latched off
