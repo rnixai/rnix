@@ -31,6 +31,12 @@ tests/agtest/
   directory** (e.g. `scripts/02-single-tool-echo.responses.yaml`). The agtest
   executor absolutizes it against that directory before spawning, so cases stay
   portable across machines — never write an absolute path.
+- **Self-hosting case (Story 49.1, NR-1 evidence):** `13-self-hosting-validation.yaml`
+  drives the real `code-analyst` agent (code-analysis skill) with the replay driver
+  against a planted fixture `tier1/testdata/self-hosting-demo.go` (3 known defects),
+  asserting the report names the file + defect keywords + severity labels and that
+  the agent really `Read` the fixture — run via `make agtest` / `rnix agtest
+  tests/agtest/tier1/ --tier1`. Live-LLM counterpart (advisory): `tier2/02-self-hosting-live.yaml`.
 
 ## Tier1 assertion discipline
 

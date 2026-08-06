@@ -1,0 +1,47 @@
+version: "1"
+responses:
+  - tool_calls:
+      - name: Read
+        input:
+          path: "tests/agtest/tier1/testdata/self-hosting-demo.go"
+    usage:
+      input_tokens: 10
+      output_tokens: 5
+    stop_reason: "tool_use"
+  - content: |
+      ## 分析报告: tests/agtest/tier1/testdata/self-hosting-demo.go
+
+      ### 概要
+      - 文件用途: 自托管验证演示代码（Story 49.1 植入夹具）
+      - 代码行数: 45
+      - 发现总数: {Critical: 1, Warning: 2, Info: 0}
+
+      ### 发现列表
+
+      #### [Critical] 切片越界风险
+      - **位置**: tests/agtest/tier1/testdata/self-hosting-demo.go:15
+      - **维度**: Bug
+      - **描述**: 循环内访问 users[i+1]，当 i == len(users)-1 时越界 panic，切分逻辑缺边界判断。
+      - **代码片段**: `pairs = append(pairs, [2]string{users[i], users[i+1]})`
+      - **建议修复**: 循环条件改为 i < len(users)-1
+
+      #### [Warning] 未检查错误
+      - **位置**: tests/agtest/tier1/testdata/self-hosting-demo.go:23
+      - **维度**: Bug
+      - **描述**: `data, _ := os.ReadFile(cfgPath)` 忽略 error，配置文件缺失时静默返回空配置。
+      - **代码片段**: `data, _ := os.ReadFile(cfgPath)`
+      - **建议修复**: 检查 err 并向上返回或记录日志
+
+      #### [Warning] 资源泄漏
+      - **位置**: tests/agtest/tier1/testdata/self-hosting-demo.go:30
+      - **维度**: 性能
+      - **描述**: os.Open 成功后未调用 Close（缺少 defer f.Close()），文件句柄泄漏。
+      - **代码片段**: `f, err := os.Open(logPath)`
+      - **建议修复**: 成功路径立即 defer f.Close()
+
+      ### 总结
+      该文件存在 1 个 Critical（越界 panic）与 2 个 Warning（未检查错误、资源泄漏），建议优先修复越界问题。
+    usage:
+      input_tokens: 20
+      output_tokens: 150
+    stop_reason: "end_turn"

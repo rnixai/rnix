@@ -1,0 +1,28 @@
+# Tier2 (advisory) live case — Story 49.1 self-hosting evidence (NR-1).
+#
+# Runs code-analyst against REAL, unmodified Rnix source (kernel/reason.go)
+# with a REAL LLM via the ambient daemon. Advisory only: `make agtest-live`
+# executes it manually / from a nightly job, never a PR gate — the
+# deterministic Tier1 gate for this story is
+# tests/agtest/tier1/13-self-hosting-validation.yaml.
+#
+# `agent.provider` is intentionally omitted → falls back to the code-analyst
+# manifest default (models.provider: deepseek, preferred deepseek-v4-flash,
+# lib/agents/code-analyst/agent.yaml). If your ambient providers.yaml names
+# the working instance differently, set `provider` explicitly.
+version: "1.0"
+name: "self-hosting-live"
+intent: "分析 kernel/reason.go，列出真实存在的代码问题，每条标注 文件:行号 + 严重级别（Critical/Warning/Info），最后总结哪些问题可以人工复核确认"
+agent:
+  name: code-analyst
+timeout: 180000
+assert:
+  quality:
+    criteria: >
+      The agent actually read the target file kernel/reason.go (used a
+      Read-style tool) and produced at least one real, verifiable code issue
+      with a concrete file:line location and a severity label (Critical /
+      Warning / Info). The finding must correspond to code that actually
+      exists in kernel/reason.go — not a hallucinated line or file. A report
+      that only lists generic advice, or claims issues without file:line
+      locations, fails this criterion.

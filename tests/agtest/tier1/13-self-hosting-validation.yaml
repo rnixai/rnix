@@ -1,0 +1,13 @@
+version: "1.0"
+name: self-hosting-validation
+intent: "分析 tests/agtest/tier1/testdata/self-hosting-demo.go，列出真实存在的代码问题，每条标注 文件:行号 + 严重级别（Critical/Warning/Info）"
+agent:
+  name: code-analyst
+  provider: replay
+  model: scripts/13-self-hosting-validation.responses.yaml
+timeout: 30000
+assert:
+  output:
+    contains: ["self-hosting-demo.go", "越界", "未检查错误", "资源泄漏", "[Critical]", "[Warning]"]
+  syscalls:
+    includes: ["ReasonStep", "Read"]
