@@ -1098,8 +1098,12 @@ func TestOpenAICompatDriver_StreamUsage_DefaultOn(t *testing.T) {
 // when an assistant message carries thinking-mode reasoning text (DeepSeek's
 // reasoning_content / OpenRouter's reasoning), buildMessages echoes it under
 // BOTH protocol field names so a provider-agnostic driver satisfies whichever
-// the upstream API requires. DeepSeek returns HTTP 400 if reasoning_content is
-// dropped on a multi-turn assistant turn.
+// the upstream API expects.
+//
+// The echo is for reasoning CONTINUITY, not acceptance: a 2026-08-04 probe
+// against deepseek-v4-flash returned 200 on multi-turn requests (tool calls
+// included) with reasoning_content dropped entirely. The earlier claim that
+// DeepSeek returns HTTP 400 was wrong.
 func TestOpenAICompatDriver_BuildMessages_EchoesAssistantReasoning(t *testing.T) {
 	d := NewOpenAICompatDriver("test", "http://example/v1", WithCompatModel("m"))
 
@@ -1169,9 +1173,16 @@ func TestOpenAICompatDriver_BuildMessages_OmitsEmptyReasoning(t *testing.T) {
 
 // TestOpenAICompatDriver_RoundTrip_DeepSeekReasoningContent simulates the
 // PID-6 production failure: step1 returns reasoning_content + tool call,
-// step2 must echo the reasoning_content back or the API returns
-// "The reasoning_content in the thinking mode must be passed back to the API."
-// (HTTP 400). Verifies the driver's full inbound→outbound round-trip.
+// step2 echoes the reasoning_content back. Verifies the driver's full
+// inbound→outbound round-trip.
+//
+// NOTE: this test was originally written believing the echo is required for
+// acceptance ("must be passed back to the API", HTTP 400). A 2026-08-04 probe
+// against deepseek-v4-flash disproved that — the live API returns 200 with
+// reasoning_content omitted, tool calls included. The round-trip still matters
+// for reasoning CONTINUITY (the model seeing its own prior thinking), which is
+// what this test actually guards. The mock server here never enforced a 400,
+// so the assertions were always about the echo itself, not about acceptance.
 func TestOpenAICompatDriver_RoundTrip_DeepSeekReasoningContent(t *testing.T) {
 	var step int
 	var step2Body []byte

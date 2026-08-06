@@ -359,52 +359,98 @@ func (s *Supervisor) handleChildExit(idx int, pid types.PID, exit ExitStatus) {
 	// MaxRestarts until the WHOLE tree is killed (the thundering-herd the
 	// epic's combination matrix flagged).
 	//
-	// Both guards are load-bearing:
-	//   ① GetState() == StateSuspended — a kill during suspension goes
-	//     through killSuspendedProcess (→ Dead) and does NOT reliably clear
-	//     SuspendReason on that path; matching on the reason alone would hold
-	//     the supervisor forever on an already-dead child.
-	//   ② reason == SuspendReasonQuotaExhausted ONLY — the pre-existing
-	//     restart behaviour for context_full / budget_exhausted /
-	//     loop_detected stays verbatim (budget_exhausted restart = token
-	//     budget reset is the established permanent-worker semantic); zero
-	//     regression surface. Generalizing "never restart any suspend" would
-	//     need its own adjudication.
-	if childProc, ok := s.kernel.GetProcess(pid); ok &&
-		childProc.GetState() == types.StateSuspended &&
-		childProc.GetSuspendReason() == SuspendReasonQuotaExhausted {
-
-		args := map[string]any{
-			"child_name":  child.spec.Name,
-			"child_pid":   child.pid,
-			"child_index": idx,
+	// The quota determination reads the EXIT EVENT (exit.Code/Reason are
+	// stamped by suspendProcess at suspend time — authoritative, TOCTOU-free),
+	// then dispatches on the LIVE state. Keying the determination on live
+	// state alone is a race: the ExitSuspended event can queue in exitCh while
+	// the monitor loop is busy with another child's restart cycle (one_for_all
+	// stopChild is ~12s per child), and within that window the scanner or a
+	// D12-sanctioned manual resume can wake this child. A live-state-only gate
+	// would then miss, fall through to shouldRestart, and spawn a duplicate
+	// beside the already-Running original (restartOneForOne's Reap is a no-op
+	// on a Running process), whose terminal Done is never delivered (no
+	// re-armed monitor) — a permanent Zombie.
+	//
+	// Live-state dispatch inside the quota branch:
+	//   - Suspended (still) → the gate below: wait for the window wake.
+	//   - Running → already woken in flight: re-arm the monitor, no restart.
+	//   - Dead/Zombie/absent → a kill won the race: normal exit path below
+	//     (the event-based determination is what makes this safe —
+	//     killSuspendedProcess does NOT reliably clear SuspendReason, so the
+	//     live reason alone would mislead).
+	//
+	// The gate fires on reason == quota_exhausted ONLY — the pre-existing
+	// restart behaviour for context_full / budget_exhausted / loop_detected
+	// stays verbatim (budget_exhausted restart = token budget reset is the
+	// established permanent-worker semantic); zero regression surface.
+	// Generalizing "never restart any suspend" would need its own
+	// adjudication.
+	if exit.Code == ExitSuspended && exit.Reason == "suspended: "+SuspendReasonQuotaExhausted {
+		childProc, ok := s.kernel.GetProcess(pid)
+		if !ok {
+			// A detach-style manual resume (rnix resume <uuid>) replaced the
+			// suspended placeholder with a NEW process object under the same
+			// UUID. Adopt it instead of restarting a duplicate.
+			if newProc, uok := s.kernel.GetProcessByUUID(child.uuid); uok &&
+				newProc.GetState() == types.StateRunning {
+				log.Printf("[kernel] supervisor pid=%d: child %q (old pid=%d) quota-suspend exit processed after detach-resume — adopting new pid=%d, re-arming monitor instead of restarting",
+					s.proc.PID, child.spec.Name, child.pid, newProc.PID)
+				child.pid = newProc.PID
+				go func(index int, childPID types.PID, done <-chan ExitStatus) {
+					exit := <-done
+					s.exitCh <- childExit{index: index, pid: childPID, exit: exit}
+				}(idx, newProc.PID, newProc.Done)
+				return
+			}
+		} else if childProc.GetState() == types.StateRunning {
+			// Woken (scanner or in-place manual resume) while the event was
+			// queued. Already running again — restarting would duplicate it.
+			log.Printf("[kernel] supervisor pid=%d: child %q (pid=%d) quota-suspend exit processed after wake — child already Running, re-arming monitor instead of restarting",
+				s.proc.PID, child.spec.Name, child.pid)
+			go func(index int, childPID types.PID, done <-chan ExitStatus) {
+				exit := <-done
+				s.exitCh <- childExit{index: index, pid: childPID, exit: exit}
+			}(idx, pid, childProc.Done)
+			return
 		}
-		if resumeAt := childProc.GetResumeAt(); !resumeAt.IsZero() {
-			args["resume_at"] = resumeAt.Format(time.RFC3339)
-		}
-		s.kernel.emitEvent(s.proc, "SupervisorChildSuspended", args, nil, nil, 0)
-		log.Printf("[kernel] supervisor pid=%d: child %q (pid=%d) suspended for quota — waiting for window wake instead of restarting (resume_at=%s)",
-			s.proc.PID, child.spec.Name, child.pid, formatResumeAt(childProc.GetResumeAt()))
+		if ok && childProc.GetState() == types.StateSuspended &&
+			childProc.GetSuspendReason() == SuspendReasonQuotaExhausted {
 
-		// Re-arm the one-shot monitor goroutine: notifySuspendDone's Done was
-		// consumed by this handleChildExit round and the original goroutine
-		// has exited. The wake goes through resumeOneForSubtree (the SAME
-		// process object), so the reasonStep restarted there writes its
-		// terminal finishProcess Done to the SAME channel — the re-armed
-		// goroutine delivers it to a second handleChildExit round, which sees
-		// a Zombie/Dead state, fails the gate, and runs the normal
-		// shouldRestart path. If the child hits quota again (window not truly
-		// recovered) it re-enters this gate — a natural retry loop clocked by
-		// the window, one LLM request per turn.
-		//
-		// alive stays true: allDone() keeps returning false, so the supervisor
-		// neither completes nor escalates while the window is spent. No
-		// restart, no reap.
-		go func(index int, childPID types.PID, done <-chan ExitStatus) {
-			exit := <-done
-			s.exitCh <- childExit{index: index, pid: childPID, exit: exit}
-		}(idx, pid, childProc.Done)
-		return
+			resumeAt := childProc.GetResumeAt()
+			args := map[string]any{
+				"child_name":  child.spec.Name,
+				"child_pid":   child.pid,
+				"child_index": idx,
+			}
+			if !resumeAt.IsZero() {
+				args["resume_at"] = resumeAt.Format(time.RFC3339)
+			}
+			s.kernel.emitEvent(s.proc, "SupervisorChildSuspended", args, nil, nil, 0)
+			log.Printf("[kernel] supervisor pid=%d: child %q (pid=%d) suspended for quota — waiting for window wake instead of restarting (resume_at=%s)",
+				s.proc.PID, child.spec.Name, child.pid, formatResumeAt(resumeAt))
+
+			// Re-arm the one-shot monitor goroutine: notifySuspendDone's Done was
+			// consumed by this handleChildExit round and the original goroutine
+			// has exited. The wake goes through resumeOneForSubtree (the SAME
+			// process object), so the reasonStep restarted there writes its
+			// terminal finishProcess Done to the SAME channel — the re-armed
+			// goroutine delivers it to a second handleChildExit round, which sees
+			// a Zombie/Dead state, fails the gate, and runs the normal
+			// shouldRestart path. If the child hits quota again (window not truly
+			// recovered) it re-enters this gate — a natural retry loop clocked by
+			// the window, one LLM request per turn.
+			//
+			// alive stays true: allDone() keeps returning false, so the supervisor
+			// neither completes nor escalates while the window is spent. No
+			// restart, no reap.
+			go func(index int, childPID types.PID, done <-chan ExitStatus) {
+				exit := <-done
+				s.exitCh <- childExit{index: index, pid: childPID, exit: exit}
+			}(idx, pid, childProc.Done)
+			return
+		}
+		// Dead/Zombie/absent: the kill raced ahead of the event — fall
+		// through to the normal exit path.
 	}
 
 	child.alive = false

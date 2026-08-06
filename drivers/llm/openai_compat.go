@@ -69,8 +69,11 @@ func WithCompatMaxTokens(n int) CompatOption {
 
 // WithCompatThinkingBudget enables thinking/reasoning mode for providers that
 // support it (DeepSeek V4+). The budget is sent as budget_tokens in the request.
-// DeepSeek requires this parameter for multi-turn conversations with tool calls;
-// without it, the API returns HTTP 400 "reasoning_content must be passed back".
+//
+// UNVERIFIED: this option was added believing DeepSeek requires it for
+// multi-turn tool-calling conversations. A 2026-08-04 probe disproved the
+// related HTTP 400 claim (see buildMessages), but whether budget_tokens itself
+// is required — or what it changes — was never measured. Treat as unproven.
 func WithCompatThinkingBudget(n int) CompatOption {
 	return func(d *OpenAICompatDriver) { d.thinkingBudget = n }
 }
@@ -261,7 +264,12 @@ func (d *OpenAICompatDriver) buildMessages(req LLMRequest) ([]oaiMessage, error)
 				// Echo thinking-mode text under both protocol field names so
 				// provider-agnostic round-tripping satisfies DeepSeek
 				// (reasoning_content) and OpenRouter/GLM (reasoning) alike.
-				// DeepSeek returns HTTP 400 if reasoning_content is dropped.
+				//
+				// Echoing is for reasoning CONTINUITY, not for acceptance: a
+				// 2026-08-04 probe against deepseek-v4-flash confirmed the API
+				// returns 200 on multi-turn requests — including tool calls —
+				// when reasoning_content is omitted entirely. The earlier claim
+				// that it returns HTTP 400 was wrong.
 				om.Reasoning = m.Reasoning
 				om.ReasoningContent = m.Reasoning
 			}

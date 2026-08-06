@@ -82,9 +82,17 @@ func WithAnthropicMaxTokens(n int) AnthropicOption {
 }
 
 // WithAnthropicThinkingBudget enables extended thinking with the given token
-// budget. Required for DeepSeek V4+ models via their Anthropic-compatible
-// endpoint — without it, multi-turn conversations with tool calls fail with
-// HTTP 400 "reasoning_content must be passed back to the API".
+// budget. Believed required for DeepSeek V4+ models via their
+// Anthropic-compatible endpoint — without it, multi-turn conversations with
+// tool calls were reported to fail with HTTP 400 "reasoning_content must be
+// passed back to the API".
+//
+// UNVERIFIED for this endpoint. A 2026-08-04 probe disproved the equivalent
+// claim on DeepSeek's OpenAI-compatible endpoint (/v1/chat/completions returns
+// 200 with reasoning_content omitted, tool calls included). That probe does NOT
+// cover the Anthropic-compatible endpoint (/anthropic), which is a separate
+// wire protocol and may genuinely require this. Verify before relying on
+// either reading.
 func WithAnthropicThinkingBudget(n int) AnthropicOption {
 	return func(c *anthropicDriverConfig) { c.thinkingBudget = n }
 }
@@ -304,10 +312,11 @@ func (d *AnthropicDriver) buildParams(req LLMRequest, tools []ToolDef) anthropic
 	}
 
 	// Reasoning effort (migration target): OutputConfig.Effort takes priority
-	// when set; the thinkingBudget path is RETAINED as the fallback (required by
-	// DeepSeek V4 Anthropic-compat endpoints — see WithAnthropicThinkingBudget,
-	// removing it triggers HTTP 400 on multi-turn tool calls). Effort is an open
-	// string type → passed through verbatim, no validation/mapping.
+	// when set; the thinkingBudget path is RETAINED as the fallback (believed
+	// required by DeepSeek V4 Anthropic-compat endpoints — see
+	// WithAnthropicThinkingBudget, whose doc comment records that this HTTP 400
+	// claim is unverified for /anthropic). Effort is an open string type →
+	// passed through verbatim, no validation/mapping.
 	switch effort := d.resolveEffort(req); {
 	case effort != "":
 		params.OutputConfig.Effort = anthropic.OutputConfigEffort(effort)

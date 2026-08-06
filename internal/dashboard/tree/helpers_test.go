@@ -108,6 +108,7 @@ func TestSuspendReasonAbbrev(t *testing.T) {
 		{"budget_exhausted_tokens", "[budget]"},
 		{"heartbeat_timeout", "[stalled]"},
 		{"loop_detected", "[loop]"},
+		{"quota_exhausted", "[quota]"},
 		{"user_pause", "[user]"},
 		{"manual", "[user]"},
 	}

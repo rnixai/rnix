@@ -104,6 +104,10 @@ func (k *KernelImpl) quotaSuspendProcess(proc *Process, step int, kind llm.RateL
 	// precedent (reason.go) verbatim in shape.
 	if err := k.selfSuspend(proc, SuspendReasonQuotaExhausted, ExitSuspended); err != nil {
 		log.Printf("[kernel] pid=%d quota suspend failed: %v, falling back to terminate", proc.PID, err)
+		// Story 73.3 review P5 — ResumeAt was stamped above for the snapshot
+		// that never happened; clear it before the terminal leg so the dead
+		// proc-info.json does not carry a wake instant.
+		proc.SetResumeAt(time.Time{})
 		k.finishProcess(proc, ExitStatus{Code: 1, Reason: "quota_exhausted + suspend failed", Err: err})
 	}
 	// The caller (reasonStep) returns immediately after this; the reasonStep
@@ -224,6 +228,16 @@ func (k *KernelImpl) wakeQuotaProcess(proc *Process, now time.Time) {
 	if !isQuotaWakeCandidate(proc, now) {
 		return
 	}
+	// Membership re-check: a non-fork manual resume that raced our collection
+	// deletes the OLD placeholder from procTable (cleanupOldProcessAndHistory)
+	// WITHOUT transitioning it — the detached object still reads
+	// Suspended/quota/due, so the state re-check above passes for it. Only
+	// table membership separates the live process from the husk; waking the
+	// husk would run reasonStep on a freed (possibly already reused) CtxID
+	// and double-run the agent beside the manual resume's new process.
+	if _, ok := k.GetProcess(proc.PID); !ok {
+		return
+	}
 
 	resumeAt := proc.GetResumeAt()
 	k.emitEvent(proc, "Resume", map[string]any{
@@ -233,18 +247,19 @@ func (k *KernelImpl) wakeQuotaProcess(proc *Process, now time.Time) {
 	}, nil, nil, 0)
 	log.Printf("[kernel] pid=%d quota window wake: reset instant %s reached, resuming", proc.PID, resumeAt.Format(time.RFC3339))
 
-	// D3 — a wake attempt must NEVER kill the process. resumeOneForSubtree's
-	// reopen-failure branch finishes the process to a terminal state
-	// (load-bearing hang-prevention for the manual resume paths), so probe the
-	// reopen side-effect-free FIRST: when the device is gone, postpone while
-	// still Suspended instead of attempting a resume that would end in
-	// resume_failed → Zombie.
+	// D3 — a wake attempt must NEVER kill the process. The probe keeps the
+	// common failure (device unmounted) side-effect-free: postpone while still
+	// Suspended instead of paying an Unsuspend→rollback cycle. Reopen failures
+	// the probe cannot see (project opener errors, registered-device Open
+	// errors) are caught by resumeOneForSubtreeQuotaWake's rollback branch,
+	// which restores the Suspended shape instead of finishing the process
+	// (the terminal reopen-failure semantics stay reserved for manual resume).
 	if err := k.probeQuotaWakeReopen(proc); err != nil {
 		k.postponeQuotaWake(proc, now, err)
 		return
 	}
 
-	if err := k.resumeOneForSubtree(proc); err != nil {
+	if err := k.resumeOneForSubtreeQuotaWake(proc); err != nil {
 		// D3 — resume failed (device unmounted, rehydrate corrupt, ...). Do NOT
 		// lift the suspension: re-check the state first (a concurrent manual
 		// resume or kill may have already moved it out of quota-Suspended, in
@@ -256,6 +271,35 @@ func (k *KernelImpl) wakeQuotaProcess(proc *Process, now time.Time) {
 		}
 		k.postponeQuotaWake(proc, now, err)
 	}
+}
+
+// rollbackQuotaWakeResume restores the Suspended shape after the scanner's
+// Unsuspend, so a failed wake attempt leaves the process exactly where it
+// started (D3: an automated wake attempt must never kill). Running→Suspended
+// is a legal transition; the fields re-stamped are the ones suspendProcess
+// would have written — SuspendReason, the pausedAt accounting start, and the
+// Exit payload notifySuspendDone would have delivered (the invariant matrix's
+// Suspended row requires a non-empty SuspendReason and a "suspended: …"
+// ExitReason). The reasonStep goroutine is NOT running yet at the rollback
+// point (reopen fails before it starts), so there is no wg to wait on and no
+// Done write is owed: a parent waiting on this child was already waiting on a
+// Suspended child, and a supervising parent's re-armed monitor (D4) keeps
+// watching for the next terminal or suspend Done, exactly as pre-attempt.
+// ResumeAt stays cleared here — postponeQuotaWake stamps the postponed
+// instant and persists it right after.
+func (k *KernelImpl) rollbackQuotaWakeResume(proc *Process, cause error) {
+	if err := proc.Suspend(); err != nil {
+		// Concurrently raced to a terminal state (killed while we were
+		// reopening) — nothing to roll back onto; leave the terminal shape.
+		log.Printf("[kernel] pid=%d quota wake rollback skipped (state changed): %v", proc.PID, err)
+		return
+	}
+	proc.mu.Lock()
+	proc.SuspendReason = SuspendReasonQuotaExhausted
+	proc.pausedAt = time.Now()
+	proc.Exit = &ExitStatus{Code: ExitSuspended, Reason: "suspended: " + SuspendReasonQuotaExhausted}
+	proc.mu.Unlock()
+	log.Printf("[kernel] pid=%d quota wake reopen failed: %v — rolled back to Suspended (D3 never-kill)", proc.PID, cause)
 }
 
 // probeQuotaWakeReopen verifies — side-effect-free — that the LLM device a
@@ -291,6 +335,17 @@ func (k *KernelImpl) postponeQuotaWake(proc *Process, now time.Time, cause error
 	// the hot loop D3 exists to prevent.
 	newResumeAt := now.Add(quotaWakeRetryBackoff)
 	proc.SetResumeAt(newResumeAt)
+	// Persist the postponed instant: a daemon restart inside the backoff
+	// window must not reload the stale due ResumeAt from disk and retry
+	// immediately on the first post-restart scan (the anchoring at `now`
+	// above only guarantees the gap while the memory state survives).
+	// Best-effort, same shape as resumeOneForSubtree's 44.3 persist.
+	if info, ierr := k.GetProcInfo(proc.PID); ierr == nil && info != nil {
+		if perr := SaveProcInfo(k.ResolveStepBaseDir(proc), *info); perr != nil {
+			log.Printf("[quota_wake] proc-info.json write error pid=%d uuid=%s: %v",
+				proc.PID, proc.UUID, perr)
+		}
+	}
 	k.emitEvent(proc, "Resume", map[string]any{
 		"pid":              proc.PID,
 		"action":           "quota_wake_failed",

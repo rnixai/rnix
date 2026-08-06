@@ -176,15 +176,23 @@ func CreateDriverWithEnv(cfg ProviderConfig, envLookup func(string) string) (LLM
 		}
 		if cfg.BaseURL != "" {
 			opts = append(opts, WithOpenAIBaseURL(cfg.BaseURL))
-			// The openai_official driver targets the openai-go SDK and does
-			// NOT round-trip reasoning_content. Endpoints that return it
-			// (DeepSeek thinking, GLM, Qwen reasoner, OpenRouter thinking)
-			// will reject multi-turn assistant turns with HTTP 400 once the
-			// reasoning_content is dropped. Use driver=openai_compat there.
+			// Endpoints that return reasoning (DeepSeek V4, GLM, Qwen-thinker,
+			// OpenRouter thinking) WORK on this driver — a 2026-08-04 probe
+			// confirmed deepseek-v4-flash returns 200 on multi-turn requests,
+			// including tool calls, with reasoning_content omitted. What breaks
+			// is not the request but the observability: convertCompletion only
+			// fills Content/ToolCalls, so LLMResponse.Reasoning stays empty, no
+			// "reasoning" stream events reach the dashboard, and the model loses
+			// sight of its own prior thinking. The same probe showed the SDK CAN
+			// carry the field (option.WithJSONSet to write,
+			// msg.JSON.ExtraFields to read, both streaming and not) — this
+			// driver simply does not yet do it. Until it does, use
+			// driver=openai-compat when the upstream emits reasoning.
 			if !isLikelyOpenAIOfficial(cfg.BaseURL) {
 				log.Printf("[llm] warning: provider %q: driver=openai with non-official BaseURL %q. "+
-					"If the upstream returns reasoning_content (DeepSeek/Qwen-thinker/GLM thinking), "+
-					"switch to driver=openai_compat to avoid HTTP 400 on multi-turn round-trip.",
+					"If the upstream returns reasoning (DeepSeek/Qwen-thinker/GLM/OpenRouter thinking), "+
+					"this driver silently DROPS it — requests succeed but reasoning is lost. "+
+					"Use driver=openai-compat to retain it.",
 					cfg.Name, cfg.BaseURL)
 			}
 		}

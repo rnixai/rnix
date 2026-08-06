@@ -138,15 +138,17 @@ func (f *countingLLMFile) Stat() (vfs.FileStat, error) {
 }
 func (f *countingLLMFile) SupportsToolCalling() bool { return true }
 
-// quotaOnceRouter hands out per-FD files whose FIRST Write across the whole
-// router fails with quotaErr and every later Write (any FD) succeeds. The
-// failure state is router-level, not per-FD: a wake reopens the LLM device —
-// a fresh per-FD "fail once" would suspend the child again on the reopened
-// FD and it would never complete (D4 subtests ②/③).
+// quotaOnceRouter hands out per-FD files whose first N Writes across the
+// whole router fail with quotaErr and every later Write (any FD) succeeds.
+// The failure state is router-level, not per-FD: a wake reopens the LLM
+// device — a fresh per-FD "fail once" would suspend the child again on the
+// reopened FD and it would never complete (D4 subtests ②/③). failTimes <= 1
+// means fail-once (the legacy D4 shape); the wake-rehit-loop test sets 2.
 type quotaOnceRouter struct {
-	mu       sync.Mutex
-	quotaErr error
-	failed   bool
+	mu        sync.Mutex
+	quotaErr  error
+	failTimes int
+	failures  int
 }
 
 func (r *quotaOnceRouter) newFile() vfs.VFSFile { return &quotaOnceRoutedFile{router: r} }
@@ -154,8 +156,9 @@ func (r *quotaOnceRouter) newFile() vfs.VFSFile { return &quotaOnceRoutedFile{ro
 func (r *quotaOnceRouter) firstWriteFails() error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	if !r.failed {
-		r.failed = true
+	limit := max(r.failTimes, 1)
+	if r.failures < limit {
+		r.failures++
 		return r.quotaErr
 	}
 	return nil
@@ -806,11 +809,19 @@ func TestATDD_73_3_D3_NoPostponeWhenNoLongerQuotaSuspended(t *testing.T) {
 	if st := proc.GetState(); st != types.StateDead {
 		t.Fatalf("state after kill = %s, want Dead", st)
 	}
+	// Review P5 contract: the terminal kill leg itself clears the wake
+	// instant (ResumeAt is zero whenever the process is not
+	// quota-Suspended). Capture the post-kill value — the skipped scan below
+	// must leave it untouched.
+	postKillResumeAt := proc.GetResumeAt()
+	if !postKillResumeAt.IsZero() {
+		t.Fatalf("ResumeAt after kill = %v, want zero — the terminal leg clears the stale wake instant", postKillResumeAt)
+	}
 
 	k.scanQuotaWakeups(time.Now())       // collection predicate: state != Suspended → skip
 	k.wakeQuotaProcess(proc, time.Now()) // re-check under resumeMu → silent skip
 
-	if got := proc.GetResumeAt(); !got.Equal(staleResumeAt) {
+	if got := proc.GetResumeAt(); !got.Equal(postKillResumeAt) {
 		t.Errorf("ResumeAt changed to %v after a skipped wake — a non-quota-Suspended process must never be postponed", got)
 	}
 	evs := readDiskEvents(t, baseDir, proc.UUID)
@@ -1158,7 +1169,15 @@ func TestATDD_73_3_AC8_InvariantHoldsWhenQuotaSuspended(t *testing.T) {
 // after that (including the wake-time reopened FD) succeeds.
 func newQuotaSupervisorKernel(t *testing.T, quotaErr error) *KernelImpl {
 	t.Helper()
-	router := &quotaOnceRouter{quotaErr: quotaErr}
+	return newQuotaSupervisorKernelFailN(t, quotaErr, 1)
+}
+
+// newQuotaSupervisorKernelFailN is the same fixture with a router that fails
+// the first N writes across all FDs — the wake-rehit-loop test needs two
+// suspensions (failTimes=2).
+func newQuotaSupervisorKernelFailN(t *testing.T, quotaErr error, failTimes int) *KernelImpl {
+	t.Helper()
+	router := &quotaOnceRouter{quotaErr: quotaErr, failTimes: failTimes}
 	reg := vfs.NewDeviceRegistry()
 	_ = reg.Register("/dev/llm/claude", func(_ string, _ vfs.OpenFlag, _ string) (vfs.VFSFile, error) {
 		return router.newFile(), nil
@@ -1440,5 +1459,618 @@ func TestATDD_73_3_D6_WaitlessOverloadNeverSuspends(t *testing.T) {
 	}
 	if retries := filterAction(steps, "transient_retry"); len(retries) != maxRateLimitRetries {
 		t.Errorf("transient_retry events = %d, want %d — local backoff (≤30s) stays inside the cap and consumes the retry budget", len(retries), maxRateLimitRetries)
+	}
+}
+
+// =============================================================================
+// code-review 2026-08-06 补强测试（Review Findings P8/P9）
+// =============================================================================
+
+// -----------------------------------------------------------------------------
+// P8 — AC2-6 钉住：resume 后盘上旧 resume_at 被抹掉
+// -----------------------------------------------------------------------------
+
+// TestATDD_73_3_AC2_DiskErasureOnResume pins AC2-6: the quota suspension
+// persists resume_at into proc-info.json; after a checkpoint- or
+// history-path resume the SAME file must no longer carry the key — the new
+// process's zero ResumeAt plus omitempty erases the stale value. Behaviour
+// holds structurally (new process + omitempty); the spec demands the pin.
+func TestATDD_73_3_AC2_DiskErasureOnResume(t *testing.T) {
+	run := func(t *testing.T, checkpointing bool) {
+		resetAt := time.Now().Add(2 * time.Hour).UTC().Truncate(time.Second)
+		primary := quotaWithToolStepScript(resetAt)
+		k, baseDir := newQuotaCheckpointKernel(t, primary)
+		if checkpointing {
+			k.SetCheckpointConfig(CheckpointConfig{IntervalSteps: 1})
+		}
+
+		opts := failureRawSpawnOpts(baseDir)
+		opts.AllowedDevices = []string{"/dev/echo"}
+		pid, err := k.Spawn("73.3 review P8 disk erasure", nil, opts)
+		if err != nil {
+			t.Fatalf("Spawn: %v", err)
+		}
+		proc, _ := k.GetProcess(pid)
+		firstExit := waitDone(t, proc)
+		if firstExit.Code != ExitSuspended {
+			t.Fatalf("first exit = %+v, want the quota suspension", firstExit)
+		}
+		uuid := proc.UUID
+
+		if checkpointing {
+			deadline := time.Now().Add(3 * time.Second)
+			for {
+				if _, serr := os.Stat(filepath.Join(baseDir, "steps", uuid, "checkpoint.json")); serr == nil {
+					break
+				}
+				if time.Now().After(deadline) {
+					t.Fatal("checkpoint.json never appeared")
+				}
+				time.Sleep(5 * time.Millisecond)
+			}
+		}
+
+		// The suspend leg persisted resume_at.
+		infoPath := filepath.Join(baseDir, "steps", uuid, "proc-info.json")
+		raw, err := os.ReadFile(infoPath)
+		if err != nil {
+			t.Fatalf("read proc-info.json: %v", err)
+		}
+		var before map[string]any
+		if err := json.Unmarshal(raw, &before); err != nil {
+			t.Fatalf("parse proc-info.json: %v", err)
+		}
+		if _, present := before["resume_at"]; !present {
+			t.Fatal("proc-info.json lacks resume_at before resume — the suspend leg must persist it")
+		}
+
+		res, err := k.ResumeWithOpts(uuid, ResumeOpts{})
+		if err != nil {
+			t.Fatalf("ResumeWithOpts: %v", err)
+		}
+		resumed, ok := k.GetProcess(res.PID)
+		if !ok {
+			t.Fatal("resumed process not in procTable")
+		}
+		finalExit := waitDone(t, resumed)
+		if finalExit.Code != 0 {
+			t.Fatalf("post-resume exit = %+v, want success", finalExit)
+		}
+		k.Reap(res.PID) // persist the terminal snapshot
+
+		raw, err = os.ReadFile(infoPath)
+		if err != nil {
+			t.Fatalf("re-read proc-info.json: %v", err)
+		}
+		var after map[string]any
+		if err := json.Unmarshal(raw, &after); err != nil {
+			t.Fatalf("re-parse proc-info.json: %v", err)
+		}
+		if v, present := after["resume_at"]; present {
+			t.Errorf("proc-info.json still carries resume_at=%v after resume — the new process's zero ResumeAt + omitempty must erase the stale value (AC2-6)", v)
+		}
+	}
+	t.Run("checkpoint path", func(t *testing.T) { run(t, true) })
+	t.Run("history path", func(t *testing.T) { run(t, false) })
+}
+
+// -----------------------------------------------------------------------------
+// P9① — daemon 重启恢复 + 扫描唤醒一条链
+// -----------------------------------------------------------------------------
+
+// TestATDD_73_3_AC2_RestartThenScannerWakeChain: the two AC2/AC3 halves in ONE
+// chain — quota suspend persists resume_at, a fresh kernel over the same
+// dataDir rehydrates the placeholder WITH the wake instant, and the scanner
+// wakes it there: reasonStep restarts on the restarted daemon's device and
+// the process completes. This is the "95.5h window survives daemon restarts"
+// value proposition end to end.
+func TestATDD_73_3_AC2_RestartThenScannerWakeChain(t *testing.T) {
+	resetAt := time.Now().Add(2 * time.Hour).UTC().Truncate(time.Second)
+	primary := &scriptedQuotaLLM{
+		writeErrs: []error{quotaErrWithResetAt(resetAt)},
+		readData:  [][]byte{makeLLMResponse("done", 1)},
+	}
+	k, baseDir := newQuotaWakeKernel(t, primary)
+	proc := spawnWithEventBase(t, k, baseDir, "73.3 restart+wake chain")
+	waitDone(t, proc)
+	if st := proc.GetState(); st != types.StateSuspended {
+		t.Fatalf("state = %s, want Suspended", st)
+	}
+	// Guarantee the rehydrate sidecars in the 44.3 fixture shape (a longer
+	// running process would have left richer step records; the scanner chain
+	// only needs a rehydratable placeholder).
+	writeRehydrateSidecars(t, filepath.Join(baseDir, "steps", proc.UUID))
+
+	// --- daemon restart: fresh kernel, same dataDir, device re-registered ---
+	primary2 := &scriptedQuotaLLM{readData: [][]byte{makeLLMResponse("done", 1)}}
+	reg2 := vfs.NewDeviceRegistry()
+	_ = reg2.Register("/dev/llm/claude", func(_ string, _ vfs.OpenFlag, _ string) (vfs.VFSFile, error) {
+		return primary2, nil
+	})
+	k2 := NewKernel(vfs.NewVFS(reg2), rnixctx.NewManager(), nil)
+	k2.SetDataDir(k.GetDataDir())
+	t.Cleanup(k2.Shutdown)
+
+	loaded, err := k2.LoadSuspendedFromDisk()
+	if err != nil {
+		t.Fatalf("LoadSuspendedFromDisk: %v", err)
+	}
+	if loaded < 1 {
+		t.Fatalf("loaded = %d, want >= 1", loaded)
+	}
+	placeholder, ok := k2.GetProcessByUUID(proc.UUID)
+	if !ok {
+		t.Fatal("placeholder not in the restarted kernel's procTable")
+	}
+	if got := placeholder.GetResumeAt(); !got.Equal(resetAt) {
+		t.Fatalf("placeholder ResumeAt = %v, want %v — restart must not lose the wake instant (D1)", got, resetAt)
+	}
+
+	// --- the window recovers; the restarted daemon's scanner wakes it ---
+	placeholder.SetResumeAt(time.Now().Add(-time.Second))
+	k2.scanQuotaWakeups(time.Now())
+
+	exit := waitDone(t, placeholder)
+	if exit.Code != 0 {
+		t.Fatalf("post-restart wake exit = %+v, want success — the placeholder must resume reasoning on the new daemon", exit)
+	}
+	if n := primary2.writeCount(); n != 1 {
+		t.Errorf("restarted daemon LLM writes = %d, want 1 — the wake must restart reasonStep with a fresh LLM call", n)
+	}
+	evs := readDiskEvents(t, baseDir, placeholder.UUID)
+	if wakes := diskEventsWithAction(evs, "Resume", "quota_window_wake"); len(wakes) != 1 {
+		t.Errorf("quota_window_wake events after restart = %d, want 1", len(wakes))
+	}
+}
+
+// -----------------------------------------------------------------------------
+// P9② — supervisor 唤醒→再撞配额→重入 gate 的自然循环
+// -----------------------------------------------------------------------------
+
+// TestATDD_73_3_D4_SupervisorGate_WakeRehitLoop: the D4 retry loop the gate
+// comment promises — wake → the window was NOT truly recovered → the child
+// suspends again → the re-armed monitor delivers the second ExitSuspended →
+// the gate fires AGAIN. Throughout: no restart, no replacement child, the
+// supervisor alive-flag untouched.
+func TestATDD_73_3_D4_SupervisorGate_WakeRehitLoop(t *testing.T) {
+	resetAt := time.Now().Add(2 * time.Hour).UTC().Truncate(time.Second)
+	k := newQuotaSupervisorKernelFailN(t, quotaErrWithResetAt(resetAt), 2)
+
+	supPID, err := k.SpawnSupervisor(SupervisorSpec{
+		Strategy: OneForOne,
+		Children: []ChildSpec{{Name: "worker", Intent: "quota worker", Restart: RestartPermanent}},
+	})
+	if err != nil {
+		t.Fatalf("SpawnSupervisor: %v", err)
+	}
+	supProc, _ := k.GetProcess(supPID)
+	defer func() { _ = k.Kill(supPID, types.SIGKILL) }()
+
+	// First suspension: the gate fires (event 1) and re-arms the monitor.
+	evs := waitForSyscallEvent(t, supProc, "SupervisorChildSuspended", 5*time.Second)
+	childPID := childPIDFromEvent(t, evs[len(evs)-1])
+	childProc, ok := k.GetProcess(childPID)
+	if !ok {
+		t.Fatal("child process not found")
+	}
+
+	// Wake the child; its next write hits quota AGAIN (router fails twice).
+	childProc.SetResumeAt(time.Now().Add(-time.Second))
+	k.scanQuotaWakeups(time.Now())
+
+	// The re-armed monitor delivers the second ExitSuspended; the gate must
+	// re-fire — the natural retry loop, one LLM request per turn.
+	evs = append(evs, waitForSyscallEvent(t, supProc, "SupervisorChildSuspended", 5*time.Second)...)
+	evs = append(evs, drainProcEventsFor(supProc, 300*time.Millisecond)...)
+
+	if n := countSupEvents(evs, "SupervisorChildSuspended"); n != 2 {
+		t.Errorf("SupervisorChildSuspended events = %d, want 2 — the gate must re-fire after the rehit", n)
+	}
+	if n := countSupEvents(evs, "SupervisorStartChild"); n != 1 {
+		t.Errorf("SupervisorStartChild events = %d, want 1 — no replacement child across the whole loop", n)
+	}
+	if n := countSupEvents(evs, "SupervisorRestart"); n != 0 {
+		t.Errorf("SupervisorRestart events = %d, want 0", n)
+	}
+	if st := childProc.GetState(); st != types.StateSuspended {
+		t.Errorf("child state = %s, want Suspended again after the rehit", st)
+	}
+	if got := childProc.GetResumeAt(); got.IsZero() || got.Before(time.Now()) {
+		t.Errorf("child ResumeAt = %v, want the rehit's fresh future reset instant", got)
+	}
+	if st := supProc.GetState(); st != types.StateRunning {
+		t.Errorf("supervisor state = %s, want Running — still waiting for the window", st)
+	}
+}
+
+// -----------------------------------------------------------------------------
+// P9③ — D12：手动 resume 早于 ResumeAt 不拦截
+// -----------------------------------------------------------------------------
+
+// TestATDD_73_3_D12_ManualResumeBeforeResumeAtNotBlocked: D12 — rnix resume /
+// SIGRESUME ahead of the recorded reset instant is NOT gated. The operator
+// may know the quota recovered early; the scanner automates what the
+// operator could always do manually. No warn, no block, no scanner event.
+func TestATDD_73_3_D12_ManualResumeBeforeResumeAtNotBlocked(t *testing.T) {
+	resetAt := time.Now().Add(2 * time.Hour).UTC().Truncate(time.Second)
+	primary := &scriptedQuotaLLM{
+		writeErrs: []error{quotaErrWithResetAt(resetAt)},
+		readData:  [][]byte{makeLLMResponse("done", 1)},
+	}
+	k, baseDir := newQuotaWakeKernel(t, primary)
+	proc := spawnWithEventBase(t, k, baseDir, "73.3 D12 early manual resume")
+	waitDone(t, proc)
+
+	// ResumeAt lies ~2h in the future — the manual resume must not care.
+	if got := proc.GetResumeAt(); got.Before(time.Now().Add(time.Hour)) {
+		t.Fatalf("ResumeAt = %v, want far-future for this test to mean anything", got)
+	}
+	if _, _, err := k.ResumeSubtree(proc.PID); err != nil {
+		t.Fatalf("ResumeSubtree ahead of ResumeAt: %v — D12 forbids any gate", err)
+	}
+
+	exit := waitDone(t, proc)
+	if exit.Code != 0 {
+		t.Fatalf("post-resume exit = %+v, want success", exit)
+	}
+	evs := readDiskEvents(t, baseDir, proc.UUID)
+	if wakes := diskEventsWithAction(evs, "Resume", "quota_window_wake"); len(wakes) != 0 {
+		t.Errorf("quota_window_wake events = %d, want 0 — this wake belongs to the operator, not the scanner", len(wakes))
+	}
+}
+
+// -----------------------------------------------------------------------------
+// P9④ — scanner vs 手动 resume 并发竞态回归（P1/P2 修复的牙齿）
+// -----------------------------------------------------------------------------
+
+// TestATDD_73_3_ScannerSkipsDetachedPlaceholder: the P1 regression — a
+// non-fork manual resume racing the scanner deletes the old placeholder from
+// procTable WITHOUT transitioning it (it still reads Suspended/quota/due).
+// wakeQuotaProcess on the stale pointer must silently skip: no revival, no
+// reasonStep on the freed CtxID, no double agent run.
+func TestATDD_73_3_ScannerSkipsDetachedPlaceholder(t *testing.T) {
+	resetAt := time.Now().Add(2 * time.Hour).UTC().Truncate(time.Second)
+	primary := quotaWithToolStepScript(resetAt)
+	k, baseDir := newQuotaCheckpointKernel(t, primary)
+	k.SetCheckpointConfig(CheckpointConfig{IntervalSteps: 1})
+
+	opts := failureRawSpawnOpts(baseDir)
+	opts.AllowedDevices = []string{"/dev/echo"}
+	pid, err := k.Spawn("73.3 P1 detached placeholder", nil, opts)
+	if err != nil {
+		t.Fatalf("Spawn: %v", err)
+	}
+	oldProc, _ := k.GetProcess(pid)
+	waitDone(t, oldProc)
+	uuid := oldProc.UUID
+
+	deadline := time.Now().Add(3 * time.Second)
+	for {
+		if _, serr := os.Stat(filepath.Join(baseDir, "steps", uuid, "checkpoint.json")); serr == nil {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("checkpoint.json never appeared")
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+
+	// Make the old placeholder due, then race: manual resume deletes it from
+	// procTable (cleanupOldProcessAndHistory) while the scanner "holds" the
+	// stale pointer.
+	oldProc.SetResumeAt(time.Now().Add(-time.Second))
+	res, err := k.ResumeWithOpts(uuid, ResumeOpts{})
+	if err != nil {
+		t.Fatalf("ResumeWithOpts: %v", err)
+	}
+	resumed, ok := k.GetProcess(res.PID)
+	if !ok {
+		t.Fatal("resumed process not in procTable")
+	}
+	if res.PID == oldProc.PID {
+		t.Fatal("resume reused the old PID — this test needs the detach shape")
+	}
+	if _, still := k.GetProcess(oldProc.PID); still {
+		t.Fatal("old placeholder still in procTable after non-fork resume")
+	}
+	writesBeforeStaleWake := primary.writeCount()
+
+	// The stale wake: the exact call the scanner would make on the collected
+	// pointer. The membership re-check must reject the husk.
+	k.wakeQuotaProcess(oldProc, time.Now())
+
+	if st := oldProc.GetState(); st != types.StateSuspended {
+		t.Errorf("detached placeholder state = %s after the stale wake, want untouched Suspended — it must never be revived", st)
+	}
+	if n := primary.writeCount(); n != writesBeforeStaleWake {
+		t.Errorf("LLM writes grew %d → %d on the stale wake — reasonStep ran on the husk (freed CtxID, double agent run)", writesBeforeStaleWake, n)
+	}
+	if got, present := k.GetProcessByUUID(uuid); !present || got.PID != res.PID {
+		t.Errorf("uuid lookup after stale wake = (pid=%v, ok=%v), want the resumed pid=%d alone", got.GetPID(), present, res.PID)
+	}
+	evs := readDiskEvents(t, baseDir, uuid)
+	if wakes := diskEventsWithAction(evs, "Resume", "quota_window_wake"); len(wakes) != 0 {
+		t.Errorf("quota_window_wake events = %d, want 0 — the stale wake must be silent", len(wakes))
+	}
+
+	finalExit := waitDone(t, resumed)
+	if finalExit.Code != 0 {
+		t.Fatalf("resumed process exit = %+v, want success — the legitimate resume is unaffected", finalExit)
+	}
+}
+
+// newManualSupervisorFixture builds the TOCTOU fixtures' supervisor BY HAND
+// (SpawnSupervisor's run loop would consume exitCh itself; these tests need
+// to inject the stale event at a controlled instant). Returns the supervisor
+// and its process.
+func newManualSupervisorFixture(t *testing.T, k *KernelImpl, child *Process) *Supervisor {
+	t.Helper()
+	spec := SupervisorSpec{
+		Strategy: OneForOne,
+		Children: []ChildSpec{{Name: "worker", Intent: child.Intent, Restart: RestartPermanent}},
+	}
+	supProc := NewProcess(0, "supervisor:toctou-fixture", nil)
+	ctx, cancel := gocontext.WithCancel(gocontext.Background())
+	ctx = ContextWithPID(ctx, supProc.PID)
+	supProc.cancel = cancel
+	supProc.ctx = ctx
+	if err := supProc.Start(); err != nil {
+		t.Fatalf("start supervisor fixture proc: %v", err)
+	}
+	k.AddProcess(supProc)
+	sup := newSupervisor(supProc, spec, k)
+	sup.children[0] = &supervisedChild{
+		spec:  spec.Children[0],
+		pid:   child.PID,
+		uuid:  child.UUID,
+		index: 0,
+		alive: true,
+	}
+	return sup
+}
+
+// drainStaleSuspendDone consumes the suspend-leg ExitSuspended from proc.Done
+// — standing in for the original monitor goroutine that delivered it into
+// exitCh in the real flow.
+func drainStaleSuspendDone(proc *Process) {
+	select {
+	case <-proc.Done:
+	default:
+	}
+}
+
+// waitUntilState polls proc until it reaches want (or the deadline kills the
+// test).
+func waitUntilState(t *testing.T, proc *Process, want types.ProcessState) {
+	t.Helper()
+	deadline := time.Now().Add(3 * time.Second)
+	for {
+		if st := proc.GetState(); st == want {
+			return
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("state = %s, never reached %s within 3s", proc.GetState(), want)
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+}
+
+// quotaSuspendExitStatus is the stale event payload: the ExitStatus
+// notifySuspendDone delivers for a quota suspension (suspendProcess stamps
+// "suspended: <reason>").
+func quotaSuspendExitStatus() ExitStatus {
+	return ExitStatus{Code: ExitSuspended, Reason: "suspended: " + SuspendReasonQuotaExhausted}
+}
+
+// TestATDD_73_3_SupervisorStaleEventAfterWake_NoRestart: the P2 regression —
+// the ExitSuspended event sits in exitCh while the supervisor loop is busy;
+// within that window the child is woken; the loop then processes the STALE
+// event. The event-based gate + Running dispatch must re-arm the monitor,
+// NOT restart: no duplicate child, no zombie leak, and the re-armed monitor
+// still delivers the real terminal exit.
+func TestATDD_73_3_SupervisorStaleEventAfterWake_NoRestart(t *testing.T) {
+	resetAt := time.Now().Add(2 * time.Hour).UTC().Truncate(time.Second)
+	release := make(chan struct{})
+	var releaseOnce sync.Once
+	releaseNow := func() { releaseOnce.Do(func() { close(release) }) }
+	defer releaseNow()
+	primary := &parkedWriteLLM{quotaErr: quotaErrWithResetAt(resetAt), release: release}
+	reg := vfs.NewDeviceRegistry()
+	_ = reg.Register("/dev/llm/claude", func(_ string, _ vfs.OpenFlag, _ string) (vfs.VFSFile, error) {
+		return primary, nil
+	})
+	k := NewKernel(vfs.NewVFS(reg), rnixctx.NewManager(), nil)
+	t.Cleanup(k.Shutdown)
+
+	childPID, err := k.Spawn("73.3 P2 stale event after wake", nil, SpawnOpts{})
+	if err != nil {
+		t.Fatalf("Spawn child: %v", err)
+	}
+	childProc, _ := k.GetProcess(childPID)
+	waitDone(t, childProc) // quota suspension; Done carries ExitSuspended
+	sup := newManualSupervisorFixture(t, k, childProc)
+	drainStaleSuspendDone(childProc) // the original monitor already delivered it
+
+	// Wake the child in place (scanner shape); write #2 parks inside the LLM
+	// call so the child stays Running while the stale event is processed.
+	childProc.SetResumeAt(time.Now().Add(-time.Second))
+	k.scanQuotaWakeups(time.Now())
+	waitUntilState(t, childProc, types.StateRunning)
+
+	// The supervisor loop only NOW gets around to the queued event — but the
+	// child is already Running.
+	sup.handleChildExit(0, childProc.PID, quotaSuspendExitStatus())
+
+	if !sup.children[0].alive {
+		t.Error("child.alive = false — the stale event must not mark a woken child dead")
+	}
+	if sup.children[0].pid != childProc.PID {
+		t.Errorf("child.pid = %d, want %d — no replacement spawn", sup.children[0].pid, childProc.PID)
+	}
+	if n := len(sup.restartTimes); n != 0 {
+		t.Errorf("restarts recorded = %d, want 0 — a woken child must not be restarted", n)
+	}
+	if st := childProc.GetState(); st != types.StateRunning {
+		t.Errorf("child state = %s, want still Running (parked in the LLM write)", st)
+	}
+	count := 0
+	k.procTable.Range(func(_ types.PID, _ *Process) bool { count++; return true })
+	if count != 2 { // supervisor fixture + the ONE child
+		t.Errorf("procTable size = %d, want 2 — a duplicate child beside the woken original is the bug this pins", count)
+	}
+
+	// The re-armed monitor must deliver the REAL terminal exit once the child
+	// finishes.
+	releaseNow()
+	select {
+	case ce := <-sup.exitCh:
+		if ce.pid != childProc.PID {
+			t.Errorf("delivered exit pid = %d, want %d", ce.pid, childProc.PID)
+		}
+		if ce.exit.Code != 0 {
+			t.Errorf("delivered exit = %+v, want the clean terminal completion", ce.exit)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("re-armed monitor never delivered the terminal exit — the re-arm is broken")
+	}
+}
+
+// quotaThenParkLLM drives the adoption fixture: write#1 succeeds (the
+// checkpointed step 1), write#2 fails quota (the suspension), write#3+ park
+// until release — so the post-resume incarnation stays Running while the
+// stale event is processed.
+type quotaThenParkLLM struct {
+	mu       sync.Mutex
+	quotaErr error
+	writes   int
+	reads    int
+	release  chan struct{}
+	readData [][]byte
+}
+
+func (f *quotaThenParkLLM) Write(_ gocontext.Context, _ []byte) error {
+	f.mu.Lock()
+	i := f.writes
+	f.writes++
+	f.mu.Unlock()
+	switch i {
+	case 0:
+		return nil
+	case 1:
+		return f.quotaErr
+	default:
+		<-f.release
+		return nil
+	}
+}
+
+func (f *quotaThenParkLLM) Read(_ int) ([]byte, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	i := f.reads
+	f.reads++
+	if i >= len(f.readData) {
+		i = len(f.readData) - 1
+	}
+	return f.readData[i], nil
+}
+
+func (f *quotaThenParkLLM) Close() error { return nil }
+func (f *quotaThenParkLLM) Stat() (vfs.FileStat, error) {
+	return vfs.FileStat{IsDevice: true, Name: "/dev/llm/claude"}, nil
+}
+func (f *quotaThenParkLLM) SupportsToolCalling() bool { return true }
+
+// TestATDD_73_3_SupervisorStaleEventAfterDetachResume_Adopts: the detach
+// variant of the P2 race — the operator resumes the quota-suspended child via
+// rnix resume <uuid> (non-fork: NEW process object under the same UUID, old
+// placeholder deleted). The stale ExitSuspended then finds no process at the
+// old PID; the gate must adopt the new incarnation by UUID, re-arm on ITS
+// Done channel, and never spawn a duplicate.
+func TestATDD_73_3_SupervisorStaleEventAfterDetachResume_Adopts(t *testing.T) {
+	resetAt := time.Now().Add(2 * time.Hour).UTC().Truncate(time.Second)
+	release := make(chan struct{})
+	var releaseOnce sync.Once
+	releaseNow := func() { releaseOnce.Do(func() { close(release) }) }
+	defer releaseNow()
+	primary := &quotaThenParkLLM{
+		quotaErr: quotaErrWithResetAt(resetAt),
+		release:  release,
+		readData: [][]byte{
+			makeToolCallResponse("/dev/echo", map[string]any{}, 1),
+			makeLLMResponse("done", 1),
+		},
+	}
+	k, baseDir := newQuotaCheckpointKernel(t, primary)
+	k.SetCheckpointConfig(CheckpointConfig{IntervalSteps: 1})
+
+	opts := failureRawSpawnOpts(baseDir)
+	opts.AllowedDevices = []string{"/dev/echo"}
+	childPID, err := k.Spawn("73.3 P2 detach adoption", nil, opts)
+	if err != nil {
+		t.Fatalf("Spawn child: %v", err)
+	}
+	childProc, _ := k.GetProcess(childPID)
+	waitDone(t, childProc) // step 1 tool ok + checkpoint, step 2 quota suspend
+	uuid := childProc.UUID
+
+	deadline := time.Now().Add(3 * time.Second)
+	for {
+		if _, serr := os.Stat(filepath.Join(baseDir, "steps", uuid, "checkpoint.json")); serr == nil {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("checkpoint.json never appeared")
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+
+	sup := newManualSupervisorFixture(t, k, childProc)
+	drainStaleSuspendDone(childProc)
+
+	// Detach-style manual resume: new process object, old placeholder deleted.
+	res, err := k.ResumeWithOpts(uuid, ResumeOpts{})
+	if err != nil {
+		t.Fatalf("ResumeWithOpts: %v", err)
+	}
+	newProc, ok := k.GetProcess(res.PID)
+	if !ok {
+		t.Fatal("resumed incarnation not in procTable")
+	}
+	if res.PID == childProc.PID {
+		t.Fatal("resume reused the old PID — this test needs the detach shape")
+	}
+	waitUntilState(t, newProc, types.StateRunning) // parked on the post-resume write
+
+	// The stale event arrives for a PID that no longer exists.
+	sup.handleChildExit(0, childProc.PID, quotaSuspendExitStatus())
+
+	if !sup.children[0].alive {
+		t.Error("child.alive = false — adoption must keep the slot alive")
+	}
+	if sup.children[0].pid != newProc.PID {
+		t.Errorf("child.pid = %d, want the adopted %d", sup.children[0].pid, newProc.PID)
+	}
+	if n := len(sup.restartTimes); n != 0 {
+		t.Errorf("restarts recorded = %d, want 0 — adoption replaces restart", n)
+	}
+	count := 0
+	k.procTable.Range(func(_ types.PID, _ *Process) bool { count++; return true })
+	if count != 2 { // supervisor fixture + the adopted incarnation
+		t.Errorf("procTable size = %d, want 2 — a duplicate beside the adopted incarnation is the bug this pins", count)
+	}
+
+	// The adopted monitor delivers the terminal exit.
+	releaseNow()
+	select {
+	case ce := <-sup.exitCh:
+		if ce.pid != newProc.PID {
+			t.Errorf("delivered exit pid = %d, want the adopted %d", ce.pid, newProc.PID)
+		}
+		if ce.exit.Code != 0 {
+			t.Errorf("delivered exit = %+v, want the clean terminal completion", ce.exit)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("adopted monitor never delivered the terminal exit")
 	}
 }

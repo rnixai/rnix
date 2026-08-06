@@ -786,7 +786,25 @@ func (k *KernelImpl) reasonStep(proc *Process, llmFD types.FD, opts SpawnOpts) {
 					// attempt is 1-based for the retry about to happen.
 					baseDelay, waitSource, serverStated, retryAfter, resetAt := resolveRateLimitDelay(err, consecutiveRateLimitRetries+1)
 
-					if baseDelay > maxInProcessWait {
+					// D6 is keyed on the server-declared WAIT, and a server
+					// may declare TWO: a duration (Retry-After, level 1 in
+					// resolveRateLimitDelay) AND an absolute reset instant
+					// (level 2). The LONGER of the two is the honest
+					// "retrying before this is pointless" — a short
+					// Retry-After beside a far-future reset (the Anthropic
+					// quota shape: small retry-after header + multi-hour
+					// window in the body) must not mask the window, or the
+					// error burns three short retries and dies through
+					// attemptFallback instead of suspending. A PAST resetAt
+					// contributes nothing (time.Until < 0) — consistent with
+					// the D5 trap rule: past reset = window just recovered =
+					// retry now.
+					effectiveWait := baseDelay
+					if !resetAt.IsZero() {
+						effectiveWait = max(effectiveWait, time.Until(resetAt))
+					}
+
+					if effectiveWait > maxInProcessWait {
 						// Story 73.3 / D6 (replaces 73.2's give-up
 						// fall-through, resolving its TODO(Story 73.3)): a
 						// rate-limit family failure whose server-declared wait
@@ -815,7 +833,7 @@ func (k *KernelImpl) reasonStep(proc *Process, llmFD types.FD, opts SpawnOpts) {
 						// to. The suspend branch returns directly; control
 						// never falls through to attemptFallback below.
 						resumeAt, resumeAtSource := deriveQuotaResumeAt(retryAfter, resetAt)
-						k.quotaSuspendProcess(proc, step, kind, resumeAt, resumeAtSource, baseDelay, stepStart)
+						k.quotaSuspendProcess(proc, step, kind, resumeAt, resumeAtSource, effectiveWait, stepStart)
 						return
 					} else if consecutiveRateLimitRetries < maxRateLimitRetries {
 						consecutiveRateLimitRetries++

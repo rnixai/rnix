@@ -699,8 +699,15 @@ func TestIsLikelyOpenAIOfficial(t *testing.T) {
 
 // TestCreateDriver_OpenAI_WarnsOnNonOfficialBaseURL verifies the factory
 // emits a warning when driver=openai is configured with a non-OpenAI BaseURL,
-// pointing users at openai_compat for upstreams that return reasoning_content.
-// Without this hint, users hit cryptic HTTP 400 errors mid-conversation.
+// pointing users at openai-compat for upstreams that return reasoning.
+//
+// What the warning is FOR changed on 2026-08-04: a live probe against
+// deepseek-v4-flash showed such requests succeed (200, tool calls included)
+// with reasoning_content omitted — the old "cryptic HTTP 400" rationale was
+// wrong. The real cost is silent data loss: this driver drops the reasoning it
+// receives. The assertion below checks "openai-compat" (hyphen) because that is
+// the actual config value (see DriverOpenAICompat); the earlier spelling
+// "openai_compat" pointed at a driver name no user could type.
 func TestCreateDriver_OpenAI_WarnsOnNonOfficialBaseURL(t *testing.T) {
 	var buf bytes.Buffer
 	prevOut := log.Writer()
@@ -722,8 +729,8 @@ func TestCreateDriver_OpenAI_WarnsOnNonOfficialBaseURL(t *testing.T) {
 	}
 
 	got := buf.String()
-	if !strings.Contains(got, "openai_compat") {
-		t.Errorf("expected warning to mention openai_compat, got: %q", got)
+	if !strings.Contains(got, DriverOpenAICompat) {
+		t.Errorf("expected warning to mention %s, got: %q", DriverOpenAICompat, got)
 	}
 	if !strings.Contains(got, "deepseek-via-openai") {
 		t.Errorf("expected warning to mention provider name, got: %q", got)
@@ -760,8 +767,8 @@ func TestCreateDriver_OpenAI_NoWarnOnOfficialBaseURL(t *testing.T) {
 			if err != nil {
 				t.Fatalf("CreateDriverWithEnv: %v", err)
 			}
-			if strings.Contains(buf.String(), "openai_compat") {
-				t.Errorf("unexpected openai_compat warning for %q: %q", baseURL, buf.String())
+			if strings.Contains(buf.String(), DriverOpenAICompat) {
+				t.Errorf("unexpected %s warning for %q: %q", DriverOpenAICompat, baseURL, buf.String())
 			}
 		})
 	}

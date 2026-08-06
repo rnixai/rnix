@@ -265,10 +265,26 @@ func (k *KernelImpl) suspendOneForSubtree(proc *Process, reason string) error {
 // those processes we only transition state and let the IPC layer drive the
 // script forward.
 //
-// Failure mode: if the FD re-open fails, we roll back the Unsuspend so the
-// process does not end up Running-but-undriven (which would cause the
-// heartbeat monitor to escalate stall recovery indefinitely).
+// Failure mode (manual paths): if the FD re-open fails, the process is
+// finished to a terminal state — see the reopen-failure branch below for why
+// re-Suspending was rejected there. The quota wake scanner uses
+// resumeOneForSubtreeQuotaWake instead, whose reopen-failure branch rolls
+// back to Suspended (D3: an automated wake attempt must never kill).
 func (k *KernelImpl) resumeOneForSubtree(proc *Process) error {
+	return k.resumeOneForSubtreeMode(proc, false)
+}
+
+// resumeOneForSubtreeQuotaWake is the quota wake scanner's variant of
+// resumeOneForSubtree (Story 73.3 / D3): on FD re-open failure it rolls the
+// process back to Suspended (restoring SuspendReason, the pausedAt
+// accounting and the suspend Exit stamp) instead of finishing it, so a
+// transient device failure during an automated wake postpones rather than
+// kills. Manual resume paths keep the terminal semantics verbatim.
+func (k *KernelImpl) resumeOneForSubtreeQuotaWake(proc *Process) error {
+	return k.resumeOneForSubtreeMode(proc, true)
+}
+
+func (k *KernelImpl) resumeOneForSubtreeMode(proc *Process, quotaWake bool) error {
 	preSnap := proc.GetDetailSnapshot()
 	log.Printf("[resume-trace] resumeOneForSubtree enter pid=%d uuid=%s state=%s tokens=%d ctx_id=%d",
 		preSnap.PID, preSnap.UUID, preSnap.State, preSnap.TokensUsed, preSnap.CtxID)
@@ -376,6 +392,21 @@ func (k *KernelImpl) resumeOneForSubtree(proc *Process) error {
 	// Re-open LLM device FD (the old one was closed by suspendProcess).
 	llmFD, openErr := k.openLLMDeviceForResume(proc, proc.PrimaryDevice)
 	if openErr != nil {
+		if quotaWake {
+			// Story 73.3 / D3 — scanner-only rollback: an automated wake
+			// attempt must NEVER kill the process. Roll the Unsuspend back to
+			// Suspended and let wakeQuotaProcess postpone the retry. The
+			// process was Suspended before the attempt, so restoring that
+			// exact shape adds no new hang surface: a parent waiting on this
+			// child was already waiting on a Suspended child, and the
+			// supervising parent's re-armed monitor (D4) keeps watching for
+			// the NEXT terminal or suspend Done, exactly as pre-attempt.
+			// The scanner's quota_wake_failed event is emitted by
+			// postponeQuotaWake; resume_failed is deliberately NOT emitted
+			// here (the scanner's failure channel is quota_wake_failed).
+			k.rollbackQuotaWakeResume(proc, openErr)
+			return fmt.Errorf("reopen llm device %q: %w", proc.PrimaryDevice, openErr)
+		}
 		// FD reopen failed — the process can no longer be driven. Finish it to a
 		// terminal state (Running→Zombie, writes a terminal Done) instead of
 		// re-Suspending. suspendProcess never writes proc.Done (only reasonStep's

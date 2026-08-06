@@ -163,6 +163,7 @@ func OrchestrationAnnotation(p vfs.ProcInfo) string {
 //	"budget_exhausted*"             → "[budget]"
 //	"heartbeat_timeout"             → "[stalled]"
 //	"loop_detected"                 → "[loop]"
+//	"quota_exhausted"               → "[quota]"（Story 73.3，勿落 default 误标 [user]）
 //	其他（含用户主动 suspend）         → "[user]"
 func SuspendReasonAbbrev(reason string) string {
 	switch {
@@ -174,6 +175,8 @@ func SuspendReasonAbbrev(reason string) string {
 		return "[stalled]"
 	case reason == "loop_detected":
 		return "[loop]"
+	case reason == "quota_exhausted":
+		return "[quota]"
 	default:
 		return "[user]"
 	}

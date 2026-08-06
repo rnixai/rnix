@@ -269,6 +269,11 @@ func (k *KernelImpl) killSuspendedProcess(proc *Process, sig types.Signal, sysca
 	proc.mu.Lock()
 	proc.Exit = &exit
 	proc.DeadAt = time.Now()
+	// Story 73.3 review P5 — a kill during quota suspension must not leak the
+	// wake instant into the terminal snapshot (field contract: ResumeAt is
+	// zero whenever the process is not quota-Suspended; 73.4's wire will
+	// carry it and a dead proc-info.json with resume_at would mislead).
+	proc.ResumeAt = time.Time{}
 	// Story 44.2 review P1: wake any ScriptExecutor parked on ResumedCh().
 	// Without this close, a SIGKILL on a Suspended script-runner leaves the
 	// executor blocked forever on `<-resumedCh` (scriptCtx is also not
