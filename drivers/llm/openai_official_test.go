@@ -997,3 +997,146 @@ func TestOpenAIDriver_Stream_ReasoningOpenRouterSpelling(t *testing.T) {
 		t.Errorf("accumulated reasoning = %q, want %q", got, want)
 	}
 }
+
+// TestOpenAIDriver_Call_ReasoningRoundTrip_WithSystemPrompt verifies AC3 index
+// alignment when SystemPrompt is set (production default path via kernel/reason.go:682).
+// This is the guardrail test missing from the original implementation — without it,
+// the F1 index-offset bug was masked by a test that happened to NOT set SystemPrompt.
+func TestOpenAIDriver_Call_ReasoningRoundTrip_WithSystemPrompt(t *testing.T) {
+	const wantReasoning = "列方程：x+y=35, 2x+4y=94。"
+
+	var gotBody map[string]any
+	d, _, cleanup := newTestOpenAIDriver(func(w http.ResponseWriter, r *http.Request) {
+		body, _ := io.ReadAll(r.Body)
+		gotBody = nil
+		json.Unmarshal(body, &gotBody)
+		writeJSON(w, `{"id":"c","object":"chat.completion","choices":[{"index":0,"message":{"role":"assistant","content":"答案：鸡23只，兔12只。","reasoning_content":"列方程：x+y=35, 2x+4y=94。"},"finish_reason":"stop"}],"usage":{}}`)
+	})
+	defer cleanup()
+
+	// Round 1: get reasoning
+	resp, err := d.Call(context.Background(), LLMRequest{
+		SystemPrompt: "你是数学助手。",
+		Messages:     []Message{{Role: "user", Content: "鸡兔同笼共35头94足"}},
+	})
+	if err != nil {
+		t.Fatalf("Call round 1: %v", err)
+	}
+	if resp.Reasoning != wantReasoning {
+		t.Errorf("Reasoning = %q, want %q", resp.Reasoning, wantReasoning)
+	}
+
+	// Round 2: echo back and verify injection lands on assistant (not user)
+	_, err = d.Call(context.Background(), LLMRequest{
+		SystemPrompt: "你是数学助手。",
+		Messages: []Message{
+			{Role: "user", Content: "鸡兔同笼共35头94足"},
+			{Role: "assistant", Content: resp.Content, Reasoning: resp.Reasoning},
+			{Role: "user", Content: "那40头100足呢？"},
+		},
+	})
+	if err != nil {
+		t.Fatalf("Call round 2: %v", err)
+	}
+
+	msgs, ok := gotBody["messages"].([]any)
+	if !ok || len(msgs) != 4 {
+		t.Fatalf("messages len = %d, want 4 (system+user+assistant+user)", len(msgs))
+	}
+	// Wire layout: [0]=system(prepended), [1]=user, [2]=assistant, [3]=user
+	asst, ok := msgs[2].(map[string]any)
+	if !ok {
+		t.Fatal("messages[2] not an object")
+	}
+	if asst["role"] != "assistant" {
+		t.Fatalf("messages[2].role = %v, want assistant", asst["role"])
+	}
+	// AC3: reasoning must be injected to assistant (index 2), not user (index 1)
+	if got := asst["reasoning_content"]; got != wantReasoning {
+		t.Errorf("messages[2].reasoning_content = %v, want %q (F1: index offset bug)", got, wantReasoning)
+	}
+	if got := asst["reasoning"]; got != wantReasoning {
+		t.Errorf("messages[2].reasoning = %v, want %q", got, wantReasoning)
+	}
+	// Negative: user messages must NOT carry reasoning
+	for _, idx := range []int{1, 3} {
+		m := msgs[idx].(map[string]any)
+		if _, has := m["reasoning_content"]; has {
+			t.Errorf("messages[%d] (user) carries reasoning_content (pollution)", idx)
+		}
+		if _, has := m["reasoning"]; has {
+			t.Errorf("messages[%d] (user) carries reasoning (pollution)", idx)
+		}
+	}
+}
+
+// TestOpenAIDriver_Stream_ReasoningRoundTrip verifies AC3 works on stream path
+// (the default mode). This is F2's guardrail: original implementation had zero
+// injection on streamInternal, so this test would have caught it.
+func TestOpenAIDriver_Stream_ReasoningRoundTrip(t *testing.T) {
+	const wantReasoning = "设鸡x兔y，得x+y=35, 2x+4y=94"
+
+	callCount := 0
+	var round2Body map[string]any
+	d, _, cleanup := newTestOpenAIDriver(func(w http.ResponseWriter, r *http.Request) {
+		callCount++
+		body, _ := io.ReadAll(r.Body)
+		if callCount == 2 {
+			json.Unmarshal(body, &round2Body)
+		}
+		w.Header().Set("Content-Type", "text/event-stream")
+		if callCount == 1 {
+			writeOAISSE(w, `{"id":"c","object":"chat.completion.chunk","choices":[{"delta":{"reasoning_content":"设鸡x兔y，得x+y=35, 2x+4y=94"},"index":0}]}`)
+		}
+		writeOAISSE(w, `{"id":"c","object":"chat.completion.chunk","choices":[{"delta":{"content":"答案"},"index":0}]}`)
+		writeOAISSE(w, "[DONE]")
+	})
+	defer cleanup()
+
+	// Round 1: stream and collect reasoning
+	ch1, err := d.Stream(context.Background(), LLMRequest{Intent: "题目"})
+	if err != nil {
+		t.Fatalf("Stream round 1: %v", err)
+	}
+	var reasoning1 []string
+	for evt := range ch1 {
+		if evt.Type == "reasoning" {
+			reasoning1 = append(reasoning1, evt.Content)
+		}
+	}
+	if got := strings.Join(reasoning1, ""); got != wantReasoning {
+		t.Errorf("round 1 reasoning = %q, want %q", got, wantReasoning)
+	}
+
+	// Round 2: echo back and verify wire injection (F2: stream path had zero opts)
+	ch2, err := d.Stream(context.Background(), LLMRequest{
+		Messages: []Message{
+			{Role: "user", Content: "题目"},
+			{Role: "assistant", Content: "答案", Reasoning: wantReasoning},
+			{Role: "user", Content: "下一题"},
+		},
+	})
+	if err != nil {
+		t.Fatalf("Stream round 2: %v", err)
+	}
+	for range ch2 {
+	} // drain
+
+	if round2Body == nil {
+		t.Fatal("round 2 request body not captured")
+	}
+	msgs, ok := round2Body["messages"].([]any)
+	if !ok || len(msgs) != 3 {
+		t.Fatalf("messages len = %d, want 3", len(msgs))
+	}
+	asst := msgs[1].(map[string]any)
+	if asst["role"] != "assistant" {
+		t.Fatalf("messages[1].role = %v, want assistant", asst["role"])
+	}
+	if got := asst["reasoning_content"]; got != wantReasoning {
+		t.Errorf("stream round-trip: messages[1].reasoning_content = %v, want %q (F2: no injection)", got, wantReasoning)
+	}
+	if got := asst["reasoning"]; got != wantReasoning {
+		t.Errorf("stream round-trip: messages[1].reasoning = %v, want %q", got, wantReasoning)
+	}
+}

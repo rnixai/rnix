@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net/http"
 	"reflect"
+	"sort"
 	"strings"
 	"time"
 
@@ -147,7 +148,7 @@ func (d *OpenAIDriver) HealthCheck(ctx context.Context) error {
 
 // --- Message / param conversion ---
 
-func (d *OpenAIDriver) buildSDKMessages(req LLMRequest) []openai.ChatCompletionMessageParamUnion {
+func (d *OpenAIDriver) buildSDKMessages(req LLMRequest) ([]openai.ChatCompletionMessageParamUnion, map[int]string) {
 	var msgs []openai.ChatCompletionMessageParamUnion
 
 	if len(req.Messages) > 0 {
@@ -158,13 +159,34 @@ func (d *OpenAIDriver) buildSDKMessages(req LLMRequest) []openai.ChatCompletionM
 		msgs = append(msgs, openai.UserMessage(req.Intent))
 	}
 
+	// Determine whether system prepend will happen
+	systemPrepended := false
 	if req.SystemPrompt != "" && (len(msgs) == 0 || msgs[0].OfSystem == nil) {
 		msgs = append([]openai.ChatCompletionMessageParamUnion{
 			openai.SystemMessage(req.SystemPrompt),
 		}, msgs...)
+		systemPrepended = true
 	}
 
-	return msgs
+	// Story 75.1 AC3: build reasoning injection map using final SDK message indices
+	// (after system prepend), so callInternal/streamInternal can inject via WithJSONSet
+	// with correct alignment. Dual-spelling superset: both reasoning_content (DeepSeek)
+	// and reasoning (OpenRouter/GLM) so each provider takes what it needs.
+	reasoningByIdx := make(map[int]string)
+	if len(req.Messages) > 0 {
+		for i, m := range req.Messages {
+			if m.Role == "assistant" && m.Reasoning != "" {
+				// Calculate final index: if system was prepended, all req.Messages indices shift +1
+				finalIdx := i
+				if systemPrepended {
+					finalIdx = i + 1
+				}
+				reasoningByIdx[finalIdx] = m.Reasoning
+			}
+		}
+	}
+
+	return msgs, reasoningByIdx
 }
 
 func convertMessageToSDK(m Message) openai.ChatCompletionMessageParamUnion {
@@ -233,14 +255,15 @@ func (d *OpenAIDriver) resolveEffort(req LLMRequest) string {
 	return d.reasoningEffort
 }
 
-func (d *OpenAIDriver) buildParams(req LLMRequest, tools []ToolDef) openai.ChatCompletionNewParams {
+func (d *OpenAIDriver) buildParams(req LLMRequest, tools []ToolDef) (openai.ChatCompletionNewParams, map[int]string) {
 	model := req.Model
 	if model == "" {
 		model = d.defaultModel
 	}
 
+	msgs, reasoningByIdx := d.buildSDKMessages(req)
 	params := openai.ChatCompletionNewParams{
-		Messages: d.buildSDKMessages(req),
+		Messages: msgs,
 		Model:    shared.ChatModel(model),
 	}
 	if req.Temperature != nil {
@@ -260,7 +283,37 @@ func (d *OpenAIDriver) buildParams(req LLMRequest, tools []ToolDef) openai.ChatC
 	if sdkTools := convertToolDefsToSDK(tools); len(sdkTools) > 0 {
 		params.Tools = sdkTools
 	}
-	return params
+	return params, reasoningByIdx
+}
+
+// reasoningRequestOptions turns the SDK-index → reasoning map produced by
+// buildSDKMessages into WithJSONSet options. Story 75.1 AC3: the dual-spelling
+// superset (reasoning_content for DeepSeek, reasoning for OpenRouter/GLM) is
+// written on every assistant message that carries reasoning; endpoints ignore
+// the spelling they do not recognise. Indices are final SDK message indices, so
+// this is safe regardless of whether a system prompt was prepended.
+//
+// Shared by callInternal and streamInternal so both transports round-trip
+// reasoning identically — stream is the default mode (see config.go validModes).
+func reasoningRequestOptions(reasoningByIdx map[int]string) []option.RequestOption {
+	if len(reasoningByIdx) == 0 {
+		return nil
+	}
+	// Sort indices for deterministic option ordering (sjson applies sequentially).
+	idxs := make([]int, 0, len(reasoningByIdx))
+	for i := range reasoningByIdx {
+		idxs = append(idxs, i)
+	}
+	sort.Ints(idxs)
+
+	opts := make([]option.RequestOption, 0, len(idxs)*2)
+	for _, i := range idxs {
+		opts = append(opts,
+			option.WithJSONSet(fmt.Sprintf("messages.%d.reasoning_content", i), reasoningByIdx[i]),
+			option.WithJSONSet(fmt.Sprintf("messages.%d.reasoning", i), reasoningByIdx[i]),
+		)
+	}
+	return opts
 }
 
 // --- Call / CallWithTools ---
@@ -273,25 +326,10 @@ func (d *OpenAIDriver) callInternal(ctx context.Context, req LLMRequest, tools [
 	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 
-	params := d.buildParams(req, tools)
+	params, reasoningByIdx := d.buildParams(req, tools)
 
-	// Story 75.1 AC3: inject reasoning with dual-spelling compatibility
-	// for round-trip continuity across DeepSeek/OpenRouter/GLM providers
-	var opts []option.RequestOption
-	if len(req.Messages) > 0 {
-		for i, m := range req.Messages {
-			if m.Role == "assistant" && m.Reasoning != "" {
-				// Dual-spelling superset: write both reasoning_content (DeepSeek)
-				// and reasoning (OpenRouter/GLM) so each provider takes what it needs
-				opts = append(opts,
-					option.WithJSONSet(fmt.Sprintf("messages.%d.reasoning_content", i), m.Reasoning),
-					option.WithJSONSet(fmt.Sprintf("messages.%d.reasoning", i), m.Reasoning),
-				)
-			}
-		}
-	}
-
-	completion, err := d.client.Chat.Completions.New(ctx, params, opts...)
+	completion, err := d.client.Chat.Completions.New(ctx, params,
+		reasoningRequestOptions(reasoningByIdx)...)
 	if err != nil {
 		if ctx.Err() == context.DeadlineExceeded {
 			return nil, NewLLMError(d.name, 0, ErrTimeout)
@@ -321,16 +359,17 @@ func (d *OpenAIDriver) convertCompletion(c *openai.ChatCompletion) *LLMResponse 
 		resp.Content = msg.Content
 		resp.ToolCalls = convertSDKToolCalls(msg.ToolCalls)
 
-		// Extract reasoning with dual-spelling compatibility (DeepSeek: reasoning_content, OpenRouter/GLM: reasoning)
+		// Extract reasoning with dual-spelling compatibility. Fallback order matches
+		// openai_compat.reasoningText() for consistency: reasoning → reasoning_content.
 		// Story 75.1 AC1: must use Raw() + json.Unmarshal, NOT Valid() (Valid() returns false for ExtraFields)
-		if raw := msg.JSON.ExtraFields["reasoning_content"].Raw(); raw != "" {
+		if raw := msg.JSON.ExtraFields["reasoning"].Raw(); raw != "" {
 			var reasoning string
 			if err := json.Unmarshal([]byte(raw), &reasoning); err == nil && reasoning != "" {
 				resp.Reasoning = reasoning
 			}
 		}
 		if resp.Reasoning == "" {
-			if raw := msg.JSON.ExtraFields["reasoning"].Raw(); raw != "" {
+			if raw := msg.JSON.ExtraFields["reasoning_content"].Raw(); raw != "" {
 				var reasoning string
 				if err := json.Unmarshal([]byte(raw), &reasoning); err == nil && reasoning != "" {
 					resp.Reasoning = reasoning
@@ -378,14 +417,17 @@ func (d *OpenAIDriver) streamInternal(ctx context.Context, req LLMRequest, tools
 	// Timeout applies as an idle timeout on the SSE stream (see streamtimeout.go).
 	ctx, idle, cancel := NewIdleTimer(ctx, timeout)
 
-	params := d.buildParams(req, tools)
+	params, reasoningByIdx := d.buildParams(req, tools)
 	if d.streamUsage {
 		params.StreamOptions = openai.ChatCompletionStreamOptionsParam{
 			IncludeUsage: openai.Bool(true),
 		}
 	}
 
-	stream := d.client.Chat.Completions.NewStreaming(ctx, params)
+	// Story 75.1 AC3: stream is the default mode, so reasoning round-trip must be
+	// injected here too — not only in callInternal.
+	stream := d.client.Chat.Completions.NewStreaming(ctx, params,
+		reasoningRequestOptions(reasoningByIdx)...)
 
 	ch := make(chan StreamEvent, streamChanBuffer)
 
@@ -411,26 +453,29 @@ func (d *OpenAIDriver) streamInternal(ctx context.Context, req LLMRequest, tools
 					}
 				}
 
-				// Story 75.1 AC2: Extract reasoning delta with dual-spelling compatibility
-				// (DeepSeek: reasoning_content, OpenRouter/GLM: reasoning)
+				// Story 75.1 AC2: Extract reasoning delta with dual-spelling compatibility.
+				// Fallback order matches openai_compat.reasoningText(): reasoning → reasoning_content.
 				// Must use Raw() + json.Unmarshal, NOT Valid() (Valid() returns false for ExtraFields)
-				if raw := delta.JSON.ExtraFields["reasoning_content"].Raw(); raw != "" {
-					var reasoningDelta string
-					if err := json.Unmarshal([]byte(raw), &reasoningDelta); err == nil && reasoningDelta != "" {
-						select {
-						case ch <- StreamEvent{Type: "reasoning", Content: reasoningDelta}:
-						case <-ctx.Done():
-							return
+				reasoningDelta := ""
+				if raw := delta.JSON.ExtraFields["reasoning"].Raw(); raw != "" {
+					var s string
+					if err := json.Unmarshal([]byte(raw), &s); err == nil {
+						reasoningDelta = s
+					}
+				}
+				if reasoningDelta == "" {
+					if raw := delta.JSON.ExtraFields["reasoning_content"].Raw(); raw != "" {
+						var s string
+						if err := json.Unmarshal([]byte(raw), &s); err == nil {
+							reasoningDelta = s
 						}
 					}
-				} else if raw := delta.JSON.ExtraFields["reasoning"].Raw(); raw != "" {
-					var reasoningDelta string
-					if err := json.Unmarshal([]byte(raw), &reasoningDelta); err == nil && reasoningDelta != "" {
-						select {
-						case ch <- StreamEvent{Type: "reasoning", Content: reasoningDelta}:
-						case <-ctx.Done():
-							return
-						}
+				}
+				if reasoningDelta != "" {
+					select {
+					case ch <- StreamEvent{Type: "reasoning", Content: reasoningDelta}:
+					case <-ctx.Done():
+						return
 					}
 				}
 			}
