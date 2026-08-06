@@ -274,7 +274,24 @@ func (d *OpenAIDriver) callInternal(ctx context.Context, req LLMRequest, tools [
 	defer cancel()
 
 	params := d.buildParams(req, tools)
-	completion, err := d.client.Chat.Completions.New(ctx, params)
+
+	// Story 75.1 AC3: inject reasoning with dual-spelling compatibility
+	// for round-trip continuity across DeepSeek/OpenRouter/GLM providers
+	var opts []option.RequestOption
+	if len(req.Messages) > 0 {
+		for i, m := range req.Messages {
+			if m.Role == "assistant" && m.Reasoning != "" {
+				// Dual-spelling superset: write both reasoning_content (DeepSeek)
+				// and reasoning (OpenRouter/GLM) so each provider takes what it needs
+				opts = append(opts,
+					option.WithJSONSet(fmt.Sprintf("messages.%d.reasoning_content", i), m.Reasoning),
+					option.WithJSONSet(fmt.Sprintf("messages.%d.reasoning", i), m.Reasoning),
+				)
+			}
+		}
+	}
+
+	completion, err := d.client.Chat.Completions.New(ctx, params, opts...)
 	if err != nil {
 		if ctx.Err() == context.DeadlineExceeded {
 			return nil, NewLLMError(d.name, 0, ErrTimeout)
@@ -303,6 +320,28 @@ func (d *OpenAIDriver) convertCompletion(c *openai.ChatCompletion) *LLMResponse 
 		msg := c.Choices[0].Message
 		resp.Content = msg.Content
 		resp.ToolCalls = convertSDKToolCalls(msg.ToolCalls)
+
+		// Extract reasoning with dual-spelling compatibility (DeepSeek: reasoning_content, OpenRouter/GLM: reasoning)
+		// Story 75.1 AC1: must use Raw() + json.Unmarshal, NOT Valid() (Valid() returns false for ExtraFields)
+		if raw := msg.JSON.ExtraFields["reasoning_content"].Raw(); raw != "" {
+			var reasoning string
+			if err := json.Unmarshal([]byte(raw), &reasoning); err == nil && reasoning != "" {
+				resp.Reasoning = reasoning
+			}
+		}
+		if resp.Reasoning == "" {
+			if raw := msg.JSON.ExtraFields["reasoning"].Raw(); raw != "" {
+				var reasoning string
+				if err := json.Unmarshal([]byte(raw), &reasoning); err == nil && reasoning != "" {
+					resp.Reasoning = reasoning
+				}
+			}
+		}
+
+		// DeepSeek V4 特性：仅 reasoning 无 content 时，回填 content
+		if resp.Content == "" && resp.Reasoning != "" {
+			resp.Content = resp.Reasoning
+		}
 	}
 	return resp
 }
@@ -369,6 +408,29 @@ func (d *OpenAIDriver) streamInternal(ctx context.Context, req LLMRequest, tools
 					case ch <- StreamEvent{Type: "content", Content: delta.Content}:
 					case <-ctx.Done():
 						return
+					}
+				}
+
+				// Story 75.1 AC2: Extract reasoning delta with dual-spelling compatibility
+				// (DeepSeek: reasoning_content, OpenRouter/GLM: reasoning)
+				// Must use Raw() + json.Unmarshal, NOT Valid() (Valid() returns false for ExtraFields)
+				if raw := delta.JSON.ExtraFields["reasoning_content"].Raw(); raw != "" {
+					var reasoningDelta string
+					if err := json.Unmarshal([]byte(raw), &reasoningDelta); err == nil && reasoningDelta != "" {
+						select {
+						case ch <- StreamEvent{Type: "reasoning", Content: reasoningDelta}:
+						case <-ctx.Done():
+							return
+						}
+					}
+				} else if raw := delta.JSON.ExtraFields["reasoning"].Raw(); raw != "" {
+					var reasoningDelta string
+					if err := json.Unmarshal([]byte(raw), &reasoningDelta); err == nil && reasoningDelta != "" {
+						select {
+						case ch <- StreamEvent{Type: "reasoning", Content: reasoningDelta}:
+						case <-ctx.Done():
+							return
+						}
 					}
 				}
 			}

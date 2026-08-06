@@ -773,3 +773,227 @@ func TestCreateDriver_OpenAI_NoWarnOnOfficialBaseURL(t *testing.T) {
 		})
 	}
 }
+
+// --- Story 75.1: reasoning round-trip tests ---
+
+// TestOpenAIDriver_Call_ReasoningRoundTrip verifies non-streaming reasoning
+// extraction (DeepSeek `reasoning_content` spelling) and the dual-spelling
+// echo-back on the follow-up turn.
+func TestOpenAIDriver_Call_ReasoningRoundTrip(t *testing.T) {
+	const wantReasoning = "设鸡为 x，兔为 y。x+y=35，2x+4y=94。解得 y=12，x=23。"
+
+	var gotBody map[string]any
+	d, _, cleanup := newTestOpenAIDriver(func(w http.ResponseWriter, r *http.Request) {
+		body, _ := io.ReadAll(r.Body)
+		gotBody = nil
+		json.Unmarshal(body, &gotBody)
+		writeJSON(w, `{"id":"c","object":"chat.completion","choices":[{"index":0,"message":{"role":"assistant","content":"鸡 23 只，兔 12 只。","reasoning_content":"设鸡为 x，兔为 y。x+y=35，2x+4y=94。解得 y=12，x=23。"},"finish_reason":"stop"}],"usage":{"prompt_tokens":20,"completion_tokens":80,"total_tokens":100}}`)
+	})
+	defer cleanup()
+
+	// Round 1: read reasoning off the response.
+	resp, err := d.Call(context.Background(), LLMRequest{
+		Intent: "鸡兔同笼共 35 头 94 足，求鸡兔各几只？",
+	})
+	if err != nil {
+		t.Fatalf("Call round 1: %v", err)
+	}
+	if resp.Reasoning != wantReasoning {
+		t.Errorf("Reasoning = %q, want %q", resp.Reasoning, wantReasoning)
+	}
+	if resp.Content != "鸡 23 只，兔 12 只。" {
+		t.Errorf("Content = %q, want the answer text", resp.Content)
+	}
+
+	// Round 2: echo the prior reasoning back and assert BOTH spellings land
+	// on the assistant message in the wire request.
+	_, err = d.Call(context.Background(), LLMRequest{
+		Messages: []Message{
+			{Role: "user", Content: "鸡兔同笼共 35 头 94 足，求鸡兔各几只？"},
+			{Role: "assistant", Content: resp.Content, Reasoning: resp.Reasoning},
+			{Role: "user", Content: "那 40 头 100 足呢？"},
+		},
+	})
+	if err != nil {
+		t.Fatalf("Call round 2: %v", err)
+	}
+
+	msgs, ok := gotBody["messages"].([]any)
+	if !ok {
+		t.Fatal("messages not in round-2 request body")
+	}
+	if len(msgs) != 3 {
+		t.Fatalf("messages len = %d, want 3", len(msgs))
+	}
+	asst, ok := msgs[1].(map[string]any)
+	if !ok {
+		t.Fatal("messages[1] is not an object")
+	}
+	if asst["role"] != "assistant" {
+		t.Fatalf("messages[1].role = %v, want assistant", asst["role"])
+	}
+	if got := asst["reasoning_content"]; got != wantReasoning {
+		t.Errorf("messages[1].reasoning_content = %v, want %q", got, wantReasoning)
+	}
+	if got := asst["reasoning"]; got != wantReasoning {
+		t.Errorf("messages[1].reasoning = %v, want %q", got, wantReasoning)
+	}
+
+	// Non-assistant / reasoning-less messages must NOT gain the fields.
+	for _, idx := range []int{0, 2} {
+		m := msgs[idx].(map[string]any)
+		if _, present := m["reasoning_content"]; present {
+			t.Errorf("messages[%d] unexpectedly carries reasoning_content", idx)
+		}
+		if _, present := m["reasoning"]; present {
+			t.Errorf("messages[%d] unexpectedly carries reasoning", idx)
+		}
+	}
+}
+
+// TestOpenAIDriver_Call_ReasoningOpenRouterSpelling verifies the OpenRouter/GLM
+// `reasoning` spelling (no _content suffix) is also recognised.
+func TestOpenAIDriver_Call_ReasoningOpenRouterSpelling(t *testing.T) {
+	const wantReasoning = "先列方程组，再消元求解。"
+
+	d, _, cleanup := newTestOpenAIDriver(func(w http.ResponseWriter, r *http.Request) {
+		writeJSON(w, `{"id":"c","object":"chat.completion","choices":[{"index":0,"message":{"role":"assistant","content":"鸡 23 只，兔 12 只。","reasoning":"先列方程组，再消元求解。"},"finish_reason":"stop"}],"usage":{"prompt_tokens":20,"completion_tokens":40,"total_tokens":60}}`)
+	})
+	defer cleanup()
+
+	resp, err := d.Call(context.Background(), LLMRequest{
+		Intent: "鸡兔同笼共 35 头 94 足，求鸡兔各几只？",
+	})
+	if err != nil {
+		t.Fatalf("Call: %v", err)
+	}
+	if resp.Reasoning != wantReasoning {
+		t.Errorf("Reasoning = %q, want %q", resp.Reasoning, wantReasoning)
+	}
+}
+
+// TestOpenAIDriver_Call_ReasoningOnlyBackfillsContent covers the DeepSeek V4
+// shape where only reasoning comes back and content is empty.
+func TestOpenAIDriver_Call_ReasoningOnlyBackfillsContent(t *testing.T) {
+	const wantReasoning = "只有思考没有正文。"
+
+	d, _, cleanup := newTestOpenAIDriver(func(w http.ResponseWriter, r *http.Request) {
+		writeJSON(w, `{"id":"c","object":"chat.completion","choices":[{"index":0,"message":{"role":"assistant","content":"","reasoning_content":"只有思考没有正文。"},"finish_reason":"stop"}],"usage":{}}`)
+	})
+	defer cleanup()
+
+	resp, err := d.Call(context.Background(), LLMRequest{Intent: "x"})
+	if err != nil {
+		t.Fatalf("Call: %v", err)
+	}
+	if resp.Reasoning != wantReasoning {
+		t.Errorf("Reasoning = %q, want %q", resp.Reasoning, wantReasoning)
+	}
+	if resp.Content != wantReasoning {
+		t.Errorf("Content = %q, want reasoning backfill %q", resp.Content, wantReasoning)
+	}
+}
+
+// TestOpenAIDriver_Call_NoReasoningStaysEmpty is the negative control: a plain
+// response must not synthesise a Reasoning value.
+func TestOpenAIDriver_Call_NoReasoningStaysEmpty(t *testing.T) {
+	d, _, cleanup := newTestOpenAIDriver(func(w http.ResponseWriter, r *http.Request) {
+		writeJSON(w, okCompletion)
+	})
+	defer cleanup()
+
+	resp, err := d.Call(context.Background(), LLMRequest{Intent: "hi"})
+	if err != nil {
+		t.Fatalf("Call: %v", err)
+	}
+	if resp.Reasoning != "" {
+		t.Errorf("Reasoning = %q, want empty", resp.Reasoning)
+	}
+}
+
+// TestOpenAIDriver_Stream_ReasoningDeltas verifies streaming reasoning deltas
+// arrive as Type:"reasoning" events and accumulate in order.
+func TestOpenAIDriver_Stream_ReasoningDeltas(t *testing.T) {
+	d, _, cleanup := newTestOpenAIDriver(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		writeOAISSE(w, `{"id":"c","object":"chat.completion.chunk","choices":[{"delta":{"reasoning_content":"设鸡为 x，"},"index":0}]}`)
+		writeOAISSE(w, `{"id":"c","object":"chat.completion.chunk","choices":[{"delta":{"reasoning_content":"兔为 y。"},"index":0}]}`)
+		writeOAISSE(w, `{"id":"c","object":"chat.completion.chunk","choices":[{"delta":{"reasoning_content":"x+y=35，2x+4y=94，"},"index":0}]}`)
+		writeOAISSE(w, `{"id":"c","object":"chat.completion.chunk","choices":[{"delta":{"reasoning_content":"解得 y=12。"},"index":0}]}`)
+		writeOAISSE(w, `{"id":"c","object":"chat.completion.chunk","choices":[{"delta":{"content":"鸡 23 只，"},"index":0}]}`)
+		writeOAISSE(w, `{"id":"c","object":"chat.completion.chunk","choices":[{"delta":{"content":"兔 12 只。"},"index":0}]}`)
+		writeOAISSE(w, `{"id":"c","object":"chat.completion.chunk","choices":[{"delta":{},"index":0,"finish_reason":"stop"}],"usage":{"prompt_tokens":25,"completion_tokens":469,"total_tokens":494}}`)
+		writeOAISSE(w, "[DONE]")
+	})
+	defer cleanup()
+
+	ch, err := d.Stream(context.Background(), LLMRequest{
+		Intent: "鸡兔同笼共 35 头 94 足，求鸡兔各几只？",
+	})
+	if err != nil {
+		t.Fatalf("Stream: %v", err)
+	}
+
+	var reasoning, contents []string
+	var doneEvt StreamEvent
+	for evt := range ch {
+		switch evt.Type {
+		case "reasoning":
+			reasoning = append(reasoning, evt.Content)
+		case "content":
+			contents = append(contents, evt.Content)
+		case "done":
+			doneEvt = evt
+		case "error":
+			t.Fatalf("unexpected error event: %v", evt.Err)
+		}
+	}
+
+	if len(reasoning) != 4 {
+		t.Errorf("reasoning event count = %d, want 4", len(reasoning))
+	}
+	const wantReasoning = "设鸡为 x，兔为 y。x+y=35，2x+4y=94，解得 y=12。"
+	if got := strings.Join(reasoning, ""); got != wantReasoning {
+		t.Errorf("accumulated reasoning = %q, want %q", got, wantReasoning)
+	}
+	if got := strings.Join(contents, ""); got != "鸡 23 只，兔 12 只。" {
+		t.Errorf("accumulated content = %q, want the answer text", got)
+	}
+	if doneEvt.TokensUsed != 494 {
+		t.Errorf("TokensUsed = %d, want 494", doneEvt.TokensUsed)
+	}
+}
+
+// TestOpenAIDriver_Stream_ReasoningOpenRouterSpelling covers the `reasoning`
+// spelling on the streaming path.
+func TestOpenAIDriver_Stream_ReasoningOpenRouterSpelling(t *testing.T) {
+	d, _, cleanup := newTestOpenAIDriver(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		writeOAISSE(w, `{"id":"c","object":"chat.completion.chunk","choices":[{"delta":{"reasoning":"先列方程组，"},"index":0}]}`)
+		writeOAISSE(w, `{"id":"c","object":"chat.completion.chunk","choices":[{"delta":{"reasoning":"再消元求解。"},"index":0}]}`)
+		writeOAISSE(w, `{"id":"c","object":"chat.completion.chunk","choices":[{"delta":{"content":"鸡 23 只。"},"index":0}]}`)
+		writeOAISSE(w, "[DONE]")
+	})
+	defer cleanup()
+
+	ch, err := d.Stream(context.Background(), LLMRequest{
+		Intent: "鸡兔同笼共 35 头 94 足，求鸡兔各几只？",
+	})
+	if err != nil {
+		t.Fatalf("Stream: %v", err)
+	}
+
+	var reasoning []string
+	for evt := range ch {
+		if evt.Type == "reasoning" {
+			reasoning = append(reasoning, evt.Content)
+		}
+		if evt.Type == "error" {
+			t.Fatalf("unexpected error event: %v", evt.Err)
+		}
+	}
+	const want = "先列方程组，再消元求解。"
+	if got := strings.Join(reasoning, ""); got != want {
+		t.Errorf("accumulated reasoning = %q, want %q", got, want)
+	}
+}
