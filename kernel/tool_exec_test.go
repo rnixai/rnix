@@ -686,7 +686,10 @@ func TestErrFingerprintCounter_SuccessClearsConsecutive(t *testing.T) {
 
 func TestErrFingerprintCounter_TotalTripsAcrossFingerprints(t *testing.T) {
 	var c errFingerprintCounter
-	codes := []string{"IS_DIRECTORY", "NOT_FOUND", "PERMISSION", "TIMEOUT", "DRIVER", "INTERNAL"}
+	// Every code here must be one that feeds the cumulative counter. TIMEOUT is
+	// deliberately excluded from `total` (see TimeoutErrorThreshold) and would
+	// leave the run one short of the trip, so INVALID stands in for it.
+	codes := []string{"IS_DIRECTORY", "NOT_FOUND", "PERMISSION", "INVALID", "DRIVER", "INTERNAL"}
 	for i, code := range codes {
 		seen := map[string]bool{}
 		_, tripped := bumpToolError(&c, seen, code, "/dev/fs")
@@ -699,6 +702,43 @@ func TestErrFingerprintCounter_TotalTripsAcrossFingerprints(t *testing.T) {
 	}
 	if c.total != TotalToolErrorThreshold {
 		t.Fatalf("expected total=%d, got %d", TotalToolErrorThreshold, c.total)
+	}
+}
+
+// A blocking wait that outlives the shell deadline reports TIMEOUT every time it
+// is re-issued. Under the general streak limit of 3 that killed the caller while
+// the awaited child was still healthy, so timeouts run to TimeoutErrorThreshold.
+func TestErrFingerprintCounter_TimeoutStreakUsesHigherThreshold(t *testing.T) {
+	var c errFingerprintCounter
+	for i := 1; i < TimeoutErrorThreshold; i++ {
+		_, tripped := bumpToolError(&c, map[string]bool{}, string(types.ErrTimeout), "/dev/shell")
+		if tripped {
+			t.Fatalf("timeout %d/%d tripped the breaker early", i, TimeoutErrorThreshold)
+		}
+	}
+	n, tripped := bumpToolError(&c, map[string]bool{}, string(types.ErrTimeout), "/dev/shell")
+	if !tripped {
+		t.Fatalf("timeout %d did not trip at threshold %d", n, TimeoutErrorThreshold)
+	}
+	if reason := circuitBreakerReason(&c); !strings.Contains(reason, "consecutive") {
+		t.Fatalf("timeout trip should be attributed to the streak breaker, got %q", reason)
+	}
+}
+
+// Timeouts must not raise the cumulative counter either: doing so would re-impose
+// the low limit on a wait loop through the other channel, and would push unrelated
+// tools closer to a trip for errors they did not cause.
+func TestErrFingerprintCounter_TimeoutExcludedFromTotal(t *testing.T) {
+	var c errFingerprintCounter
+	for range TotalToolErrorThreshold + 2 {
+		bumpToolError(&c, map[string]bool{}, string(types.ErrTimeout), "/dev/shell")
+	}
+	if c.total != 0 {
+		t.Fatalf("timeouts leaked into cumulative total: got %d, want 0", c.total)
+	}
+	// A single unrelated failure therefore still starts from a clean slate.
+	if _, tripped := bumpToolError(&c, map[string]bool{}, "NOT_FOUND", "/dev/fs"); tripped {
+		t.Fatal("unrelated error tripped the cumulative breaker on timeout-only history")
 	}
 }
 

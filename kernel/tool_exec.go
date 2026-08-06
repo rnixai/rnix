@@ -26,6 +26,22 @@ import (
 // per-fingerprint breaker by alternating between different failing tools.
 const TotalToolErrorThreshold = 6
 
+// TimeoutErrorThreshold is the consecutive-error threshold applied to ErrTimeout
+// instead of the general limit of 3. A timeout is flow control, not tool misuse
+// (see isCancellation): the command was well-formed and the deadline simply
+// expired, so re-issuing it is the correct response and must not be punished at
+// the same rate as a malformed call. Blocking waits legitimately produce a run
+// of timeouts — an orchestrator polling a long-running child in bounded windows
+// burns one per window, and at the general limit of 3 the parent is killed while
+// the child is still healthy.
+//
+// The threshold is high, not absent: a fully wedged command would otherwise be
+// re-issued forever, so the breaker still converges — just far enough out that
+// a legitimate wait loop survives it. ErrTimeout is likewise excluded from the
+// cumulative `total` (see bump), because counting it there would re-impose the
+// low limit through the other channel and defeat this exemption.
+const TimeoutErrorThreshold = 8
+
 // errFingerprintCounter tracks consecutive tool errors by fingerprint (errorCode|toolPath).
 // When a new fingerprint appears, count resets to 1. Same fingerprint increments count.
 // The total field accumulates across all fingerprints and decays by 1 on each
@@ -39,7 +55,13 @@ type errFingerprintCounter struct {
 
 func (c *errFingerprintCounter) bump(errCode, toolPath string) int {
 	fp := errCode + "|" + toolPath
-	c.total++
+	// ErrTimeout is deliberately kept out of the cumulative pressure: it is flow
+	// control (see TimeoutErrorThreshold), and letting it raise `total` would both
+	// re-impose the low limit on a legitimate wait loop and push unrelated tools
+	// closer to the cumulative trip for errors they did not cause.
+	if errCode != string(types.ErrTimeout) {
+		c.total++
+	}
 	if c.fp != fp {
 		c.fp = fp
 		c.count = 1
@@ -112,16 +134,24 @@ func extractErrCode(err error) string {
 
 // circuitBreakerReason formats the exit reason string for traceability.
 // It distinguishes between per-fingerprint trips and cumulative total trips.
+// The streak threshold is class-dependent (see TimeoutErrorThreshold), so the
+// fingerprint is read off the counter rather than compared against a fixed 3 —
+// otherwise a timeout trip at 8 would be misattributed to the cumulative breaker.
 func circuitBreakerReason(counter *errFingerprintCounter) string {
-	if counter.count >= 3 {
+	streakLimit := 3
+	if strings.HasPrefix(counter.fp, string(types.ErrTimeout)+"|") {
+		streakLimit = TimeoutErrorThreshold
+	}
+	if counter.count >= streakLimit {
 		return fmt.Sprintf("circuit_breaker: %d consecutive errors with fingerprint %s", counter.count, counter.fp)
 	}
 	return fmt.Sprintf("circuit_breaker: %d cumulative tool errors across fingerprints", counter.total)
 }
 
 // bumpToolError applies per-step deduplication then bumps the cross-step counter.
-// Returns (count, tripped) where tripped=true when same-fingerprint count >= 3
-// OR cumulative total errors >= TotalToolErrorThreshold.
+// Returns (count, tripped) where tripped=true when same-fingerprint count reaches
+// the threshold for its error class (TimeoutErrorThreshold for ErrTimeout, 3 for
+// everything else) OR cumulative total errors >= TotalToolErrorThreshold.
 // Cancellation errors are filtered upstream and never reach here.
 func bumpToolError(counter *errFingerprintCounter, seen map[string]bool, errCode, toolPath string) (int, bool) {
 	fp := errCode + "|" + toolPath
@@ -130,6 +160,12 @@ func bumpToolError(counter *errFingerprintCounter, seen map[string]bool, errCode
 	}
 	seen[fp] = true
 	n := counter.bump(errCode, toolPath)
+	// Timeouts get their own, higher streak limit and skip the cumulative check
+	// entirely — bump() does not raise `total` for them, so consulting it here
+	// would only let unrelated errors trip the wait loop.
+	if errCode == string(types.ErrTimeout) {
+		return n, n >= TimeoutErrorThreshold
+	}
 	return n, n >= 3 || counter.total >= TotalToolErrorThreshold
 }
 
