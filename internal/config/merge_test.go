@@ -247,7 +247,7 @@ func TestMergeNamedSlice_OverridePartial(t *testing.T) {
 	base := []any{
 		map[string]any{"name": "claude", "driver": "claude-cli", "default_model": "haiku"},
 		map[string]any{"name": "cursor", "driver": "cursor-cli"},
-		map[string]any{"name": "openrouter", "driver": "openai-compat", "base_url": "https://openrouter.ai/api/v1"},
+		map[string]any{"name": "openrouter", "driver": "openai", "base_url": "https://openrouter.ai/api/v1"},
 	}
 	override := []any{
 		map[string]any{"name": "cursor", "default_model": "gpt-4o"},
@@ -568,7 +568,7 @@ func BenchmarkDeepMergeYAML(b *testing.B) {
 				"default_model": "sonnet",
 			},
 			"ollama": map[string]any{
-				"driver":   "openai-compat",
+				"driver":   "openai",
 				"base_url": "http://localhost:11434/v1",
 			},
 		},

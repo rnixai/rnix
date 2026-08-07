@@ -125,7 +125,7 @@ func TestBuildMetaLens_HistoricalProcessMatchesByUUID(t *testing.T) {
 	m.selectedPID = 0
 	m.selectedUUID = "hist-B"
 
-	out := m.buildMetaLens(&ipc.GetStepDetailResponse{DriverType: "openai-compat"})
+	out := m.buildMetaLens(&ipc.GetStepDetailResponse{DriverType: "openai"})
 	if !strings.Contains(out, "model-BBB") {
 		t.Errorf("historical process should match by UUID (model-BBB), got:\n%s", out)
 	}

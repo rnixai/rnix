@@ -74,10 +74,10 @@ providers:
     api_key_env: OPENAI_API_KEY
     reasoning_effort: high          # none/minimal/low/medium/high/xhigh（小写）
 
-  # OpenAI 兼容端点（DeepSeek/Groq/Ollama 等）—— body 字段 reasoning_effort
+  # OpenAI 兼容端点（DeepSeek/Groq/Ollama 等，统一 openai driver）—— body 字段 reasoning_effort
   # 注意：reasoning_effort 与 thinking_budget 正交，可同时配置
   - name: deepseek
-    driver: openai-compat
+    driver: openai
     base_url: https://api.deepseek.com/v1
     default_model: deepseek-chat
     api_key_env: DEEPSEEK_API_KEY

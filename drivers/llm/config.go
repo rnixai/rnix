@@ -251,7 +251,7 @@ func DefaultProvidersConfig() *ProvidersConfig {
 			{Name: "cursor", Driver: DriverCursorCLI},
 			{
 				Name:         "deepseek",
-				Driver:       DriverOpenAICompat,
+				Driver:       DriverOpenAI,
 				BaseURL:      "https://api.deepseek.com/v1",
 				APIKeyEnv:    "DEEPSEEK_API_KEY",
 				DefaultModel: "deepseek-v4-flash",

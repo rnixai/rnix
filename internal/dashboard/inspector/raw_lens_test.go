@@ -178,7 +178,7 @@ func TestIsCLIDriver(t *testing.T) {
 			t.Errorf("IsCLIDriver(%q) should be true", d)
 		}
 	}
-	for _, d := range []string{"anthropic", "openai", "openai-compat", "gemini", "deepseek", ""} {
+	for _, d := range []string{"anthropic", "openai", "gemini", "deepseek", ""} {
 		if IsCLIDriver(d) {
 			t.Errorf("IsCLIDriver(%q) should be false", d)
 		}

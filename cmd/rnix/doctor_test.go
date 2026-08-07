@@ -18,7 +18,6 @@ func TestDoctor_IsCLIDriver(t *testing.T) {
 		llm.DriverCursorCLI:    true,
 		llm.DriverQwenCLI:      true,
 		llm.DriverCodexCLI:     true,
-		llm.DriverOpenAICompat: false,
 		llm.DriverOpenAI:       false,
 		llm.DriverGemini:       false,
 		llm.DriverAnthropic:    false,
@@ -81,7 +80,7 @@ func TestDoctor_CheckProviderAuth_APIKeyUnset(t *testing.T) {
 	t.Setenv("MY_KEY_FOR_TEST", "")
 	checks := checkProviderAuth(llm.ProviderConfig{
 		Name:      "ollama-test",
-		Driver:    llm.DriverOpenAICompat,
+		Driver:    llm.DriverOpenAI,
 		APIKeyEnv: "MY_KEY_FOR_TEST",
 	})
 	if len(checks) != 1 || checks[0].Code != "auth_api_key_unset" {

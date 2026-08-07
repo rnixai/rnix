@@ -84,8 +84,8 @@ func testDriverTypeFor566(devicePath string) string {
 		return llm.DriverCodexCLI
 	case "/dev/llm/qwen":
 		return llm.DriverQwenCLI
-	case "/dev/llm/openai-compat":
-		return llm.DriverOpenAICompat
+	case "/dev/llm/openai":
+		return llm.DriverOpenAI
 	default:
 		return llm.DriverOpenAI
 	}
@@ -506,18 +506,18 @@ func TestATDD_56_6_INT_012_CLIHostNonTaskToolNoSyntheticNode(t *testing.T) {
 
 // ---------------------------------------------------------------------------
 // 🟢 56-6-INT-014 (P0, AC5 spec-named device, Story 56.6 code-review patch 6):
-// openai-compat (API) driver host → 零合成节点，即便喂带 subagent_type 的 Task
+// openai (API) driver host → 零合成节点，即便喂带 subagent_type 的 Task
 // 形状 tool_use。证明 driver-TYPE gate（非仅 shape gate）拦住 API driver，绝不
-// 双计（真 ActionSpawn 子进程 + 合成节点）。spec AC5 第 39 行点名 openai-compat；
-// INT-011 覆盖的是 /dev/llm/openai。
+// 双计（真 ActionSpawn 子进程 + 合成节点）。spec AC5 第 39 行点名的兼容 driver
+// 已随 75.2 统一为 openai；INT-011 覆盖的是 rnix Agent 工具（无 subagent_type）。
 // ---------------------------------------------------------------------------
-func TestATDD_56_6_INT_014_OpenAICompatDriverNoSyntheticNode(t *testing.T) {
-	h := newSubagent566Harness(t, "/dev/llm/openai-compat") // API driver host
+func TestATDD_56_6_INT_014_OpenAIDriverNoSyntheticNode(t *testing.T) {
+	h := newSubagent566Harness(t, "/dev/llm/openai") // API driver host
 	// 即便喂带 subagent_type 的 Task 形状 tool_use，driver-type gate 也应拦住。
 	h.feed(evtTaskToolUse566("toolu_task1", "code-reviewer", "review the diff", ""))
 
 	if n := len(syntheticChildren566(h.tk.k, h.tk.proc.UUID)); n != 0 {
-		t.Errorf("AC5 FAIL: openai-compat driver host 产生了 %d 个合成节点, want 0（driver-type gate 未拦住 API driver）", n)
+		t.Errorf("AC5 FAIL: openai driver host 产生了 %d 个合成节点, want 0（driver-type gate 未拦住 API driver）", n)
 	}
 }
 

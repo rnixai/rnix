@@ -41,7 +41,7 @@ func TestIsTransientLLMError_TimeoutAndCancel(t *testing.T) {
 		},
 		{
 			name: "ErrTimeout sentinel from driver layer is transient",
-			err:  llm.NewLLMError("openai-compat", 0, llm.ErrTimeout),
+			err:  llm.NewLLMError("openai", 0, llm.ErrTimeout),
 			want: true,
 		},
 		{

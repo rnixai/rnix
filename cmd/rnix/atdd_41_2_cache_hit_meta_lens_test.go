@@ -34,7 +34,7 @@ func newMetaLensDetailFixture(step int, driverType string, in, cached, out int) 
 
 func TestBuildMetaLens_CacheHitRow_OpenAICompat(t *testing.T) {
 	m := newTestInspectorModelWithDetail()
-	m.inspector.Detail = newMetaLensDetailFixture(2, "openai-compat", 14118, 3456, 239)
+	m.inspector.Detail = newMetaLensDetailFixture(2, "openai", 14118, 3456, 239)
 	content := m.buildMetaLens(m.inspector.Detail)
 	stripped := stripANSIApprox(content)
 
@@ -70,7 +70,7 @@ func TestBuildMetaLens_CacheHitRow_Anthropic(t *testing.T) {
 
 func TestBuildMetaLens_CacheHitRow_FirstStep_PrefixShared(t *testing.T) {
 	m := newTestInspectorModelWithDetail()
-	m.inspector.Detail = newMetaLensDetailFixture(1, "openai-compat", 14118, 3456, 239)
+	m.inspector.Detail = newMetaLensDetailFixture(1, "openai", 14118, 3456, 239)
 	content := m.buildMetaLens(m.inspector.Detail)
 	stripped := stripANSIApprox(content)
 
@@ -82,7 +82,7 @@ func TestBuildMetaLens_CacheHitRow_FirstStep_PrefixShared(t *testing.T) {
 func TestBuildMetaLens_CacheHitRow_FirstStep_ColdStart(t *testing.T) {
 	m := newTestInspectorModelWithDetail()
 	// hit rate = 0 / 14118 = 0% ≤ 5% threshold → cold start
-	m.inspector.Detail = newMetaLensDetailFixture(1, "openai-compat", 14118, 0, 239)
+	m.inspector.Detail = newMetaLensDetailFixture(1, "openai", 14118, 0, 239)
 	content := m.buildMetaLens(m.inspector.Detail)
 	stripped := stripANSIApprox(content)
 
@@ -109,7 +109,7 @@ func TestBuildMetaLens_CacheHitRow_NoInput(t *testing.T) {
 
 func TestBuildMetaLens_CachedRow_DenominatorIsInput(t *testing.T) {
 	m := newTestInspectorModelWithDetail()
-	m.inspector.Detail = newMetaLensDetailFixture(2, "openai-compat", 14118, 3456, 239)
+	m.inspector.Detail = newMetaLensDetailFixture(2, "openai", 14118, 3456, 239)
 	content := m.buildMetaLens(m.inspector.Detail)
 	stripped := stripANSIApprox(content)
 
@@ -125,7 +125,7 @@ func TestBuildMetaLens_CachedRow_DenominatorIsInput(t *testing.T) {
 
 func TestBuildMetaLens_TokensRowSequence_Preserved(t *testing.T) {
 	m := newTestInspectorModelWithDetail()
-	m.inspector.Detail = newMetaLensDetailFixture(2, "openai-compat", 14118, 3456, 239)
+	m.inspector.Detail = newMetaLensDetailFixture(2, "openai", 14118, 3456, 239)
 	content := m.buildMetaLens(m.inspector.Detail)
 	stripped := stripANSIApprox(content)
 

@@ -288,10 +288,10 @@ func TestRenderRateLine_OverHundredPercent(t *testing.T) {
 // =============================================================================
 
 func TestComputeCacheHitRate_OpenAICompat(t *testing.T) {
-	rate, denom := ComputeCacheHitRate("openai-compat", 14118, 3456)
+	rate, denom := ComputeCacheHitRate("openai", 14118, 3456)
 	wantRate := 3456.0 / 14118.0
 	if rate != wantRate {
-		t.Errorf("ComputeCacheHitRate(openai-compat,14118,3456) rate = %v, want %v", rate, wantRate)
+		t.Errorf("ComputeCacheHitRate(openai,14118,3456) rate = %v, want %v", rate, wantRate)
 	}
 	if denom != 14118 {
 		t.Errorf("denom = %d, want 14118 (input only)", denom)
@@ -332,12 +332,12 @@ func TestComputeCacheHitRate_EmptyDriverFallback(t *testing.T) {
 }
 
 func TestComputeCacheHitRate_ZeroInput(t *testing.T) {
-	rate, denom := ComputeCacheHitRate("openai-compat", 0, 0)
+	rate, denom := ComputeCacheHitRate("openai", 0, 0)
 	if rate != 0 || denom != 0 {
 		t.Errorf("zero input: got (%v, %d), want (0, 0)", rate, denom)
 	}
 	// 边界 case：cached > 0 但 input == 0 仍返回 (0, 0)
-	rate, denom = ComputeCacheHitRate("openai-compat", 0, 500)
+	rate, denom = ComputeCacheHitRate("openai", 0, 500)
 	if rate != 0 || denom != 0 {
 		t.Errorf("zero input cached>0: got (%v, %d), want (0, 0)", rate, denom)
 	}
@@ -345,7 +345,7 @@ func TestComputeCacheHitRate_ZeroInput(t *testing.T) {
 
 func TestComputeCacheHitRate_OverHundred(t *testing.T) {
 	// 异常 case：cached > input（OpenAI 语义下不应出现）→ rate > 1 不 clamp
-	rate, denom := ComputeCacheHitRate("openai-compat", 100, 200)
+	rate, denom := ComputeCacheHitRate("openai", 100, 200)
 	if rate != 2.0 {
 		t.Errorf("over-hundred rate = %v, want 2.0 (no clamp at compute layer)", rate)
 	}
@@ -369,7 +369,7 @@ func TestIsAnthropicDriver(t *testing.T) {
 	if !IsAnthropicDriver("anthropic") {
 		t.Errorf("IsAnthropicDriver(anthropic) should be true")
 	}
-	for _, d := range []string{"openai-compat", "deepseek", "claude-cli", "", "unknown"} {
+	for _, d := range []string{"openai", "deepseek", "claude-cli", "", "unknown"} {
 		if IsAnthropicDriver(d) {
 			t.Errorf("IsAnthropicDriver(%q) should be false", d)
 		}
@@ -499,10 +499,10 @@ func TestRenderModelSectionLines_ClaudeCliFullMeta(t *testing.T) {
 // 非 CLI driver：DriverMeta 为 nil → 三项 + "(无运行时诊断)"，无诊断字段、无空行。
 func TestRenderModelSectionLines_NonCLINilMeta(t *testing.T) {
 	t.Setenv("RNIX_ASCII", "")
-	lines := RenderModelSectionLines("deepseek", "deepseek-v4", "", "openai-compat", nil)
+	lines := RenderModelSectionLines("deepseek", "deepseek-v4", "", "openai", nil)
 	got := stripANSIMeta(strings.Join(lines, "\n"))
 
-	for _, want := range []string{"deepseek", "deepseek-v4", "openai-compat", "(no runtime diagnostics)"} {
+	for _, want := range []string{"deepseek", "deepseek-v4", "openai", "(no runtime diagnostics)"} {
 		if !strings.Contains(got, want) {
 			t.Errorf("NonCLI output missing %q:\n%s", want, got)
 		}

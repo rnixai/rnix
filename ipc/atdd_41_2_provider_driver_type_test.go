@@ -34,7 +34,7 @@ func setProviderConfigForTest(srv *Server) {
 	cfg := &llm.ProvidersConfig{
 		Providers: []llm.ProviderConfig{
 			{Name: "anthropic-prod", Driver: llm.DriverAnthropic, DefaultModel: "claude-sonnet-4-6"},
-			{Name: "deepseek", Driver: llm.DriverOpenAICompat, DefaultModel: "deepseek-chat"},
+			{Name: "deepseek", Driver: llm.DriverOpenAI, DefaultModel: "deepseek-chat"},
 			{Name: "openai", Driver: llm.DriverOpenAI, DefaultModel: "gpt-5"},
 		},
 	}
@@ -130,8 +130,8 @@ func TestHandleGetStepDetail_ContainsProviderAndDriverType_ReapedProcess(t *test
 	if detail.Provider != "deepseek" {
 		t.Errorf("Reaped: Provider = %q, want %q (from proc-info history)", detail.Provider, "deepseek")
 	}
-	if detail.DriverType != "openai-compat" {
-		t.Errorf("Reaped: DriverType = %q, want %q (deepseek → openai-compat driver)", detail.DriverType, "openai-compat")
+	if detail.DriverType != "openai" {
+		t.Errorf("Reaped: DriverType = %q, want %q (deepseek → openai driver)", detail.DriverType, "openai")
 	}
 }
 

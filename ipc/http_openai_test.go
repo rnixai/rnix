@@ -64,7 +64,7 @@ func newTestRegistry(t *testing.T) *llm.DriverRegistry {
 		Name: "claude", Provider: "claude", DefaultModel: "claude-3.5-sonnet", DriverType: "claude-cli",
 	}})
 	_ = reg.Register("ollama", &stubDriver{info: llm.DriverInfo{
-		Name: "ollama", Provider: "ollama", DefaultModel: "llama3", DriverType: "openai-compat",
+		Name: "ollama", Provider: "ollama", DefaultModel: "llama3", DriverType: "openai",
 	}})
 	return reg
 }
@@ -739,7 +739,7 @@ func TestChatCompletions_SyncSuccess_FullResponse(t *testing.T) {
 	// Then returns complete ChatCompletionResponse with correct format
 	reg := llm.NewDriverRegistry()
 	_ = reg.Register("ollama", &configurableDriver{
-		info: llm.DriverInfo{Name: "ollama", Provider: "ollama", DefaultModel: "llama3", DriverType: "openai-compat"},
+		info: llm.DriverInfo{Name: "ollama", Provider: "ollama", DefaultModel: "llama3", DriverType: "openai"},
 		callFn: func(_ context.Context, req llm.LLMRequest) (*llm.LLMResponse, error) {
 			return &llm.LLMResponse{
 				Content:      "Hello! How can I help you?",
@@ -829,7 +829,7 @@ func TestChatCompletions_ProviderOnly_UsesDefaultModel(t *testing.T) {
 	var capturedReq llm.LLMRequest
 	reg := llm.NewDriverRegistry()
 	_ = reg.Register("ollama", &configurableDriver{
-		info: llm.DriverInfo{Name: "ollama", Provider: "ollama", DefaultModel: "llama3", DriverType: "openai-compat"},
+		info: llm.DriverInfo{Name: "ollama", Provider: "ollama", DefaultModel: "llama3", DriverType: "openai"},
 		callFn: func(_ context.Context, req llm.LLMRequest) (*llm.LLMResponse, error) {
 			capturedReq = req
 			return &llm.LLMResponse{Content: "ok"}, nil
@@ -1214,7 +1214,7 @@ func newStreamingTestServer(t *testing.T, streamFn func(ctx context.Context, req
 	t.Helper()
 	reg := llm.NewDriverRegistry()
 	_ = reg.Register("ollama", &configurableDriver{
-		info: llm.DriverInfo{Name: "ollama", Provider: "ollama", DefaultModel: "llama3", DriverType: "openai-compat"},
+		info: llm.DriverInfo{Name: "ollama", Provider: "ollama", DefaultModel: "llama3", DriverType: "openai"},
 		callFn: func(_ context.Context, _ llm.LLMRequest) (*llm.LLMResponse, error) {
 			return &llm.LLMResponse{Content: "sync-response"}, nil
 		},
@@ -1938,7 +1938,7 @@ func TestListModels_ModelID(t *testing.T) {
 	// AC #2: Provider name as model ID; if default_model exists, extra "provider:model" entry
 	reg := llm.NewDriverRegistry()
 	_ = reg.Register("ollama", &stubDriver{info: llm.DriverInfo{
-		Name: "ollama", Provider: "ollama", DefaultModel: "llama3", DriverType: "openai-compat",
+		Name: "ollama", Provider: "ollama", DefaultModel: "llama3", DriverType: "openai",
 	}})
 	_ = reg.Register("bare", &stubDriver{info: llm.DriverInfo{
 		Name: "bare", Provider: "bare", DefaultModel: "", DriverType: "test",
@@ -2125,7 +2125,7 @@ func TestChatCompletions_BareModelName_ResolvedByDefaultModel(t *testing.T) {
 	reg := llm.NewDriverRegistry()
 	_ = reg.Register("deepseek", &configurableDriver{
 		info: llm.DriverInfo{
-			Name: "deepseek", Provider: "deepseek", DefaultModel: "deepseek-chat", DriverType: "openai-compat",
+			Name: "deepseek", Provider: "deepseek", DefaultModel: "deepseek-chat", DriverType: "openai",
 		},
 		callFn: func(_ context.Context, req llm.LLMRequest) (*llm.LLMResponse, error) {
 			if req.Model != "deepseek-chat" {
@@ -2162,7 +2162,7 @@ func TestChatCompletions_BareModelName_FallbackToDefaultProvider(t *testing.T) {
 	reg := llm.NewDriverRegistry()
 	_ = reg.Register("deepseek", &configurableDriver{
 		info: llm.DriverInfo{
-			Name: "deepseek", Provider: "deepseek", DefaultModel: "deepseek-chat", DriverType: "openai-compat",
+			Name: "deepseek", Provider: "deepseek", DefaultModel: "deepseek-chat", DriverType: "openai",
 		},
 		callFn: func(_ context.Context, req llm.LLMRequest) (*llm.LLMResponse, error) {
 			if req.Model != "deepseek-r1" {
@@ -2195,7 +2195,7 @@ func TestChatCompletions_BareModelName_DefaultModelTakesPrecedenceOverDefaultPro
 	}})
 	_ = reg.Register("ollama", &configurableDriver{
 		info: llm.DriverInfo{
-			Name: "ollama", Provider: "ollama", DefaultModel: "llama3", DriverType: "openai-compat",
+			Name: "ollama", Provider: "ollama", DefaultModel: "llama3", DriverType: "openai",
 		},
 		callFn: func(_ context.Context, req llm.LLMRequest) (*llm.LLMResponse, error) {
 			return &llm.LLMResponse{Content: "from-ollama"}, nil
@@ -2229,7 +2229,7 @@ func TestChatCompletions_ProviderColonModel_StillWorks(t *testing.T) {
 	reg := llm.NewDriverRegistry()
 	_ = reg.Register("deepseek", &configurableDriver{
 		info: llm.DriverInfo{
-			Name: "deepseek", Provider: "deepseek", DefaultModel: "deepseek-chat", DriverType: "openai-compat",
+			Name: "deepseek", Provider: "deepseek", DefaultModel: "deepseek-chat", DriverType: "openai",
 		},
 		callFn: func(_ context.Context, req llm.LLMRequest) (*llm.LLMResponse, error) {
 			if req.Model != "deepseek-chat" {
@@ -2258,7 +2258,7 @@ func TestChatCompletions_BareProviderName_StillWorks(t *testing.T) {
 	reg := llm.NewDriverRegistry()
 	_ = reg.Register("deepseek", &configurableDriver{
 		info: llm.DriverInfo{
-			Name: "deepseek", Provider: "deepseek", DefaultModel: "deepseek-chat", DriverType: "openai-compat",
+			Name: "deepseek", Provider: "deepseek", DefaultModel: "deepseek-chat", DriverType: "openai",
 		},
 		callFn: func(_ context.Context, req llm.LLMRequest) (*llm.LLMResponse, error) {
 			if req.Model != "" {

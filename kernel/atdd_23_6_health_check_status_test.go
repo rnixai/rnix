@@ -26,6 +26,7 @@ import (
 func TestATDD_23_6_AC1_HTTPProviderHealthCheck(t *testing.T) {
 	t.Parallel()
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(200)
 		fmt.Fprint(w, `{"data":[{"id":"test-model"}]}`)
 	}))
@@ -34,11 +35,11 @@ func TestATDD_23_6_AC1_HTTPProviderHealthCheck(t *testing.T) {
 	cfg := &llm.ProvidersConfig{
 		Version: "1",
 		Providers: []llm.ProviderConfig{
-			{Name: "healthy-api", Driver: llm.DriverOpenAICompat, BaseURL: ts.URL},
+			{Name: "healthy-api", Driver: llm.DriverOpenAI, BaseURL: ts.URL},
 		},
 	}
 	reg := llm.NewDriverRegistry()
-	drv := llm.NewOpenAICompatDriver("healthy-api", ts.URL, llm.WithHTTPClient(ts.Client()))
+	drv := llm.NewOpenAIDriver("healthy-api", llm.WithOpenAIBaseURL(ts.URL), llm.WithOpenAIHTTPClient(ts.Client()))
 	_ = reg.Register("healthy-api", drv)
 
 	llm.RunHealthChecks(cfg, reg, 3*time.Second)
@@ -60,11 +61,12 @@ func TestATDD_23_6_AC1_HealthCheckCallsModelsEndpoint(t *testing.T) {
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		gotPath = r.URL.Path
 		gotAuth = r.Header.Get("Authorization")
+		w.Header().Set("Content-Type", "application/json")
 		fmt.Fprint(w, `{"data":[]}`)
 	}))
 	defer ts.Close()
 
-	drv := llm.NewOpenAICompatDriver("groq", ts.URL, llm.WithHTTPClient(ts.Client()), llm.WithAPIKey("sk-test-key"))
+	drv := llm.NewOpenAIDriver("groq", llm.WithOpenAIBaseURL(ts.URL), llm.WithOpenAIHTTPClient(ts.Client()), llm.WithOpenAIKey("sk-test-key"))
 	err := drv.HealthCheck(context.Background())
 	if err != nil {
 		t.Fatalf("HealthCheck: %v", err)
@@ -81,11 +83,12 @@ func TestATDD_23_6_AC1_HealthCheckWithinTimeout(t *testing.T) {
 	t.Parallel()
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		time.Sleep(50 * time.Millisecond)
+		w.Header().Set("Content-Type", "application/json")
 		fmt.Fprint(w, `{"data":[]}`)
 	}))
 	defer ts.Close()
 
-	drv := llm.NewOpenAICompatDriver("fast-provider", ts.URL, llm.WithHTTPClient(ts.Client()))
+	drv := llm.NewOpenAIDriver("fast-provider", llm.WithOpenAIBaseURL(ts.URL), llm.WithOpenAIHTTPClient(ts.Client()))
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
 
@@ -110,11 +113,11 @@ func TestATDD_23_6_AC2_UnreachableProvider(t *testing.T) {
 	cfg := &llm.ProvidersConfig{
 		Version: "1",
 		Providers: []llm.ProviderConfig{
-			{Name: "dead-api", Driver: llm.DriverOpenAICompat, BaseURL: "http://127.0.0.1:1"},
+			{Name: "dead-api", Driver: llm.DriverOpenAI, BaseURL: "http://127.0.0.1:1"},
 		},
 	}
 	reg := llm.NewDriverRegistry()
-	drv := llm.NewOpenAICompatDriver("dead-api", "http://127.0.0.1:1")
+	drv := llm.NewOpenAIDriver("dead-api", llm.WithOpenAIBaseURL("http://127.0.0.1:1"))
 	_ = reg.Register("dead-api", drv)
 
 	// Should NOT panic
@@ -146,11 +149,11 @@ func TestATDD_23_6_AC2_HealthCheckTimeout(t *testing.T) {
 	cfg := &llm.ProvidersConfig{
 		Version: "1",
 		Providers: []llm.ProviderConfig{
-			{Name: "slow-api", Driver: llm.DriverOpenAICompat, BaseURL: ts.URL},
+			{Name: "slow-api", Driver: llm.DriverOpenAI, BaseURL: ts.URL},
 		},
 	}
 	reg := llm.NewDriverRegistry()
-	drv := llm.NewOpenAICompatDriver("slow-api", ts.URL, llm.WithHTTPClient(ts.Client()))
+	drv := llm.NewOpenAIDriver("slow-api", llm.WithOpenAIBaseURL(ts.URL), llm.WithOpenAIHTTPClient(ts.Client()))
 	_ = reg.Register("slow-api", drv)
 
 	start := time.Now()
@@ -178,13 +181,13 @@ func TestATDD_23_6_AC2_HTTP401Unhealthy(t *testing.T) {
 	}))
 	defer ts.Close()
 
-	drv := llm.NewOpenAICompatDriver("bad-key", ts.URL, llm.WithHTTPClient(ts.Client()))
+	drv := llm.NewOpenAIDriver("bad-key", llm.WithOpenAIBaseURL(ts.URL), llm.WithOpenAIHTTPClient(ts.Client()))
 	err := drv.HealthCheck(context.Background())
 	if err == nil {
 		t.Fatal("AC2: expected error for HTTP 401, got nil")
 	}
-	if !strings.Contains(err.Error(), "HTTP 401") {
-		t.Errorf("AC2: error = %v, want to contain 'HTTP 401'", err)
+	if !strings.Contains(err.Error(), "401") {
+		t.Errorf("AC2: error = %v, want to contain '401'", err)
 	}
 }
 
@@ -199,11 +202,11 @@ func TestATDD_23_6_AC2_DaemonDoesNotBlock(t *testing.T) {
 	cfg := &llm.ProvidersConfig{
 		Version: "1",
 		Providers: []llm.ProviderConfig{
-			{Name: "slow-check", Driver: llm.DriverOpenAICompat, BaseURL: ts.URL},
+			{Name: "slow-check", Driver: llm.DriverOpenAI, BaseURL: ts.URL},
 		},
 	}
 	reg := llm.NewDriverRegistry()
-	drv := llm.NewOpenAICompatDriver("slow-check", ts.URL, llm.WithHTTPClient(ts.Client()))
+	drv := llm.NewOpenAIDriver("slow-check", llm.WithOpenAIBaseURL(ts.URL), llm.WithOpenAIHTTPClient(ts.Client()))
 	_ = reg.Register("slow-check", drv)
 
 	start := time.Now()
@@ -258,7 +261,7 @@ func TestATDD_23_6_AC3_CLIDriverDoesNotImplementHealthChecker(t *testing.T) {
 
 func TestATDD_23_6_AC3_OpenAICompatImplementsHealthChecker(t *testing.T) {
 	t.Parallel()
-	drv := llm.NewOpenAICompatDriver("test", "http://localhost:11434")
+	drv := llm.NewOpenAIDriver("test", llm.WithOpenAIBaseURL("http://localhost:11434"))
 	if _, ok := any(drv).(llm.HealthChecker); !ok {
 		t.Error("AC3: OpenAICompatDriver should implement HealthChecker")
 	}
@@ -272,7 +275,7 @@ func TestATDD_23_6_AC4_DaemonStatusShowsProviders(t *testing.T) {
 	t.Parallel()
 	reg := llm.NewDriverRegistry()
 	_ = reg.Register("claude", llm.NewClaudeCliDriver())
-	_ = reg.Register("ollama", llm.NewOpenAICompatDriver("ollama", "http://localhost:11434/v1"))
+	_ = reg.Register("ollama", llm.NewOpenAIDriver("ollama", llm.WithOpenAIBaseURL("http://localhost:11434/v1")))
 
 	reg.SetHealth("ollama", llm.HealthStatusHealthy)
 
@@ -292,8 +295,8 @@ func TestATDD_23_6_AC4_DaemonStatusShowsProviders(t *testing.T) {
 	if wires[0].Name != "claude" || wires[0].Driver != "claude-cli" || wires[0].Health != "unchecked" {
 		t.Errorf("AC4: claude = %+v, want name=claude driver=claude-cli health=unchecked", wires[0])
 	}
-	if wires[1].Name != "ollama" || wires[1].Driver != "openai-compat" || wires[1].Health != "healthy" {
-		t.Errorf("AC4: ollama = %+v, want name=ollama driver=openai-compat health=healthy", wires[1])
+	if wires[1].Name != "ollama" || wires[1].Driver != "openai" || wires[1].Health != "healthy" {
+		t.Errorf("AC4: ollama = %+v, want name=ollama driver=openai health=healthy", wires[1])
 	}
 
 	// Verify JSON roundtrip
@@ -311,9 +314,9 @@ func TestATDD_23_6_AC4_DaemonStatusShowsProviders(t *testing.T) {
 func TestATDD_23_6_AC4_RegistryHealthStatuses(t *testing.T) {
 	t.Parallel()
 	reg := llm.NewDriverRegistry()
-	_ = reg.Register("groq", llm.NewOpenAICompatDriver("groq", "http://localhost:1"))
+	_ = reg.Register("groq", llm.NewOpenAIDriver("groq", llm.WithOpenAIBaseURL("http://localhost:1")))
 	_ = reg.Register("claude", llm.NewClaudeCliDriver())
-	_ = reg.Register("ollama", llm.NewOpenAICompatDriver("ollama", "http://localhost:11434"))
+	_ = reg.Register("ollama", llm.NewOpenAIDriver("ollama", llm.WithOpenAIBaseURL("http://localhost:11434")))
 
 	reg.SetHealth("groq", llm.HealthStatusHealthy)
 	reg.SetHealth("ollama", llm.HealthStatusUnhealthy)
@@ -337,7 +340,7 @@ func TestATDD_23_6_AC4_RegistryHealthStatuses(t *testing.T) {
 func TestATDD_23_6_AC4_DefaultUnchecked(t *testing.T) {
 	t.Parallel()
 	reg := llm.NewDriverRegistry()
-	_ = reg.Register("new", llm.NewOpenAICompatDriver("new", "http://localhost:1"))
+	_ = reg.Register("new", llm.NewOpenAIDriver("new", llm.WithOpenAIBaseURL("http://localhost:1")))
 
 	if got := reg.GetHealth("new"); got != llm.HealthStatusUnchecked {
 		t.Errorf("AC4: default health = %q, want %q", got, llm.HealthStatusUnchecked)
@@ -351,6 +354,7 @@ func TestATDD_23_6_AC4_DefaultUnchecked(t *testing.T) {
 func TestATDD_23_6_Integration_MixedProviderHealthChecks(t *testing.T) {
 	t.Parallel()
 	healthySrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
 		fmt.Fprint(w, `{"data":[]}`)
 	}))
 	defer healthySrv.Close()
@@ -358,14 +362,14 @@ func TestATDD_23_6_Integration_MixedProviderHealthChecks(t *testing.T) {
 	cfg := &llm.ProvidersConfig{
 		Version: "1",
 		Providers: []llm.ProviderConfig{
-			{Name: "healthy-api", Driver: llm.DriverOpenAICompat, BaseURL: healthySrv.URL},
-			{Name: "broken-api", Driver: llm.DriverOpenAICompat, BaseURL: "http://127.0.0.1:1"},
+			{Name: "healthy-api", Driver: llm.DriverOpenAI, BaseURL: healthySrv.URL},
+			{Name: "broken-api", Driver: llm.DriverOpenAI, BaseURL: "http://127.0.0.1:1"},
 			{Name: "claude-cli", Driver: llm.DriverClaudeCLI},
 		},
 	}
 	reg := llm.NewDriverRegistry()
-	_ = reg.Register("healthy-api", llm.NewOpenAICompatDriver("healthy-api", healthySrv.URL, llm.WithHTTPClient(healthySrv.Client())))
-	_ = reg.Register("broken-api", llm.NewOpenAICompatDriver("broken-api", "http://127.0.0.1:1"))
+	_ = reg.Register("healthy-api", llm.NewOpenAIDriver("healthy-api", llm.WithOpenAIBaseURL(healthySrv.URL), llm.WithOpenAIHTTPClient(healthySrv.Client())))
+	_ = reg.Register("broken-api", llm.NewOpenAIDriver("broken-api", llm.WithOpenAIBaseURL("http://127.0.0.1:1")))
 	_ = reg.Register("claude-cli", llm.NewClaudeCliDriver())
 
 	llm.RunHealthChecks(cfg, reg, 3*time.Second)

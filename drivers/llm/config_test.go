@@ -482,8 +482,8 @@ func TestDefaultProvidersConfig(t *testing.T) {
 	if deepseek.Name != "deepseek" {
 		t.Errorf("Providers[2].Name = %q, want %q", deepseek.Name, "deepseek")
 	}
-	if deepseek.Driver != DriverOpenAICompat {
-		t.Errorf("Providers[2].Driver = %q, want %q", deepseek.Driver, DriverOpenAICompat)
+	if deepseek.Driver != DriverOpenAI {
+		t.Errorf("Providers[2].Driver = %q, want %q", deepseek.Driver, DriverOpenAI)
 	}
 	if deepseek.DefaultModel != "deepseek-v4-flash" {
 		t.Errorf("Providers[2].DefaultModel = %q, want %q", deepseek.DefaultModel, "deepseek-v4-flash")

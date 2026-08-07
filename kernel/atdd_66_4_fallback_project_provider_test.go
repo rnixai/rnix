@@ -80,7 +80,7 @@ func newProjectFallbackKernel(t testing.TB, globalNames []string, dataDir string
 func projectConfigWithProviders(defaultProvider string, names []string, openFor func(provider string) *mockLLMFile) *config.ProjectConfig {
 	providers := make([]llm.ProviderConfig, 0, len(names))
 	for _, n := range names {
-		providers = append(providers, llm.ProviderConfig{Name: n, Driver: "openai-compat", BaseURL: "http://x"})
+		providers = append(providers, llm.ProviderConfig{Name: n, Driver: "openai", BaseURL: "http://x"})
 	}
 	return &config.ProjectConfig{
 		DefaultProvider: defaultProvider,

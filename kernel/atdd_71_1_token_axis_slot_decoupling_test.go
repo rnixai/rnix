@@ -60,7 +60,7 @@ func projectConfigWithModelWindow(provider, model string, window int) *config.Pr
 		Providers: &llm.ProvidersConfig{
 			Providers: []llm.ProviderConfig{{
 				Name:         provider,
-				Driver:       "openai-compat",
+				Driver:       "openai",
 				DefaultModel: model,
 				Models:       map[string]llm.ModelConfig{model: {ContextWindow: window}},
 			}},

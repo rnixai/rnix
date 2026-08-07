@@ -30,7 +30,7 @@ func projectConfigWithTimeout(provider string, timeoutSec int) *config.ProjectCo
 		Providers: &llm.ProvidersConfig{
 			Providers: []llm.ProviderConfig{{
 				Name:       provider,
-				Driver:     "openai-compat",
+				Driver:     "openai",
 				TimeoutSec: timeoutSec,
 			}},
 		},
@@ -86,7 +86,7 @@ func TestATDD_71_3_AC1_ProjectMissFallsBackToGlobal(t *testing.T) {
 		Providers: &llm.ProvidersConfig{
 			Providers: []llm.ProviderConfig{{
 				Name:   "proj-prov",
-				Driver: "openai-compat",
+				Driver: "openai",
 				// TimeoutSec 未设 → 0 → miss
 			}},
 		},
