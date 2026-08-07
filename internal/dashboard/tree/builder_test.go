@@ -403,6 +403,84 @@ func TestBuildProcessTree_PausedChildResumedAfterParentDead(t *testing.T) {
 	}
 }
 
+// TestBuildProcessTree_ReparentedOrphan_Historical_PIDZero（Story 77.1 AC3）锁定
+// 最小合成用例：ListAllProcs 把历史条目 PID 归一为 0（proc_query.go:603），reparent
+// 孤儿（reap.go:218）呈 PID=0, PPID=0, ParentUUID=父UUID。自指伪根判据
+// `p.PID == p.PPID` 会把 `0==0` 误判为真自指根——必须加 PID>0 守卫，
+// 让孤儿落入 `PPID==0 && ParentUUID!=""` 的 UUID 挂载分支。
+func TestBuildProcessTree_ReparentedOrphan_Historical_PIDZero(t *testing.T) {
+	t.Parallel()
+	parentUUID := "019fd9ff-cda8-7c05-840f-5d4a188378c8"
+	orphanUUID := "019fda02-7b77-726f-8edf-aae3e17dc8c3"
+	now := time.Now()
+	procs := []vfs.ProcInfo{
+		{PID: 0, PPID: 0, UUID: parentUUID, ParentUUID: "", State: types.StateDead, CreatedAt: now.Add(-1 * time.Hour)},
+		{PID: 0, PPID: 0, UUID: orphanUUID, ParentUUID: parentUUID, State: types.StateDead, CreatedAt: now},
+	}
+	roots := BuildProcessTree(procs, 0, false)
+	if len(roots) != 1 {
+		t.Fatalf("expected 1 root (parent), got %d roots", len(roots))
+	}
+	if roots[0].Proc.UUID != parentUUID {
+		t.Fatalf("expected root UUID=%s, got %s", parentUUID, roots[0].Proc.UUID)
+	}
+	if len(roots[0].Children) != 1 {
+		t.Fatalf("expected 1 child (reparented orphan) under parent, got %d", len(roots[0].Children))
+	}
+	if roots[0].Children[0].Proc.UUID != orphanUUID {
+		t.Errorf("expected child UUID=%s, got %s", orphanUUID, roots[0].Children[0].Proc.UUID)
+	}
+}
+
+// TestBuildProcessTree_ReparentedOrphans_WicketTopology（Story 77.1 AC2）锁定真实
+// 事故拓扑：wicket `MODE=resume EPIC=9` 会话 5 进程（字段摘自已 reaped 的
+// proc-info.json，仅保留 PID/PPID/ParentUUID/State/CreatedAt，PID 按 ListAllProcs
+// 历史归一为 0）。两个晚死于父进程的 worker（code-review 019fda02 / dev 019fda04）
+// 被 handleOrphanChildren reparent 为 PPID=0——修复前被自指伪根判据误当根（3 roots），
+// 修复后必须经 ParentUUID 挂回父节点（1 root + 4 children）。
+func TestBuildProcessTree_ReparentedOrphans_WicketTopology(t *testing.T) {
+	t.Parallel()
+	parentUUID := "019fd9ff-cda8-7c05-840f-5d4a188378c8"
+	devEarly := "019fda00-b8d9-7048-9b6d-2c8bf0195ae1"
+	autoEarly := "019fda01-5a79-7526-9e7f-a7acd2c44ded"
+	reviewLate := "019fda02-7b77-726f-8edf-aae3e17dc8c3"
+	devLate := "019fda04-02c7-7930-a899-5fe0c424dd98"
+	base := time.Date(2026, 8, 7, 10, 0, 0, 0, time.UTC)
+	procs := []vfs.ProcInfo{
+		// 父进程（reap 后进历史）：PID=0, PPID=0, 无 ParentUUID → 真根
+		{PID: 0, PPID: 0, UUID: parentUUID, ParentUUID: "", State: types.StateDead, CreatedAt: base.Add(14 * time.Minute)},
+		// dev worker，早死于父进程：reap 时父还活着，PPID 保留
+		{PID: 0, PPID: 3105, UUID: devEarly, ParentUUID: parentUUID, State: types.StateDead, CreatedAt: base.Add(15 * time.Minute)},
+		// auto worker，早死于父进程：同上
+		{PID: 0, PPID: 3105, UUID: autoEarly, ParentUUID: parentUUID, State: types.StateDead, CreatedAt: base.Add(15 * time.Minute + 40*time.Second)},
+		// code-review worker，晚死于父进程：被 reparent 为 PPID=0
+		{PID: 0, PPID: 0, UUID: reviewLate, ParentUUID: parentUUID, State: types.StateDead, CreatedAt: base.Add(17 * time.Minute)},
+		// dev worker，晚死于父进程：被 reparent 为 PPID=0
+		{PID: 0, PPID: 0, UUID: devLate, ParentUUID: parentUUID, State: types.StateDead, CreatedAt: base.Add(18 * time.Minute + 35*time.Second)},
+	}
+	roots := BuildProcessTree(procs, 0, false)
+	if len(roots) != 1 {
+		t.Fatalf("expected exactly 1 root (parent), got %d roots", len(roots))
+	}
+	if roots[0].Proc.UUID != parentUUID {
+		t.Fatalf("expected root UUID=%s, got %s", parentUUID, roots[0].Proc.UUID)
+	}
+	if len(roots[0].Children) != 4 {
+		t.Fatalf("expected 4 children under parent, got %d", len(roots[0].Children))
+	}
+	wantChildren := map[string]bool{devEarly: true, autoEarly: true, reviewLate: true, devLate: true}
+	for _, c := range roots[0].Children {
+		if !wantChildren[c.Proc.UUID] {
+			t.Errorf("unexpected child UUID=%s under parent", c.Proc.UUID)
+			continue
+		}
+		delete(wantChildren, c.Proc.UUID)
+	}
+	for u := range wantChildren {
+		t.Errorf("missing child UUID=%s under parent", u)
+	}
+}
+
 // TestBuildProcessTree_DuplicateUUIDInInput 验证 BuildProcessTree 对输入中同 UUID
 // 多条记录的鲁棒性：nodes map 以 UUID 为 key，后写入覆盖前者。即便 ListAllProcs
 // 漏清重复，builder 也不应输出两个同 UUID 节点。
@@ -448,7 +526,8 @@ func TestBuildProcessTree_DeterministicOrder_EqualCreatedAtPIDZero(t *testing.T)
 	makeProcs := func(order []string) []vfs.ProcInfo {
 		procs := make([]vfs.ProcInfo, 0, len(order))
 		for _, u := range order {
-			// PID=0 且 PPID=0 命中 self-parent 根短路，全部为 root。
+			// PID=0 且 PPID=0（Story 77.1 守卫后不命中 self-parent 分支，
+			// ParentUUID 为空 → 落 `PPID==0` 真根分支），全部为 root。
 			procs = append(procs, vfs.ProcInfo{
 				PID: 0, PPID: 0, UUID: u,
 				State: types.StateDead, Intent: "tie", CreatedAt: tie,

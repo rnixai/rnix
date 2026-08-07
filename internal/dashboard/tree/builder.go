@@ -305,7 +305,12 @@ func BuildProcessTree(procs []vfs.ProcInfo, sortMode int, asc bool) []*TreeNode 
 	for _, n := range nodes {
 		p := n.Proc
 		myKey := nodeKey(p)
-		if p.PID == p.PPID {
+		// 自指伪根判据的前提是 PID>0（真实进程 PID 最小为 1）。PID==0 是
+		// ListAllProcs（kernel/proc_query.go:603）给历史条目的哨兵值；`0==0`
+		// 的条目是父先死后被 handleOrphanChildren（kernel/reap.go:218）reparent
+		// 的孤儿（PPID=0），必须走下方 `PPID==0 && ParentUUID!=""` 的 UUID
+		// 挂载分支（Story 77.1），否则晚死于父的 worker 会被误升为根级。
+		if p.PID > 0 && p.PID == p.PPID {
 			roots = append(roots, n)
 			continue
 		}
