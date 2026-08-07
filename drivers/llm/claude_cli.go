@@ -240,9 +240,10 @@ type claudeCliResponse struct {
 	StopReason   string  `json:"stop_reason,omitempty"`
 	TotalCostUSD float64 `json:"total_cost_usd,omitempty"`
 	Usage        struct {
-		InputTokens          int `json:"input_tokens"`
-		CacheReadInputTokens int `json:"cache_read_input_tokens"`
-		OutputTokens         int `json:"output_tokens"`
+		InputTokens              int `json:"input_tokens"`
+		CacheReadInputTokens     int `json:"cache_read_input_tokens"`
+		CacheCreationInputTokens int `json:"cache_creation_input_tokens"`
+		OutputTokens             int `json:"output_tokens"`
 	} `json:"usage,omitzero"`
 	CostUSD      float64 `json:"cost_usd"`
 	DurationMS   int     `json:"duration_ms"`
@@ -254,9 +255,13 @@ type claudeCliResponse struct {
 
 // mergeClaudeUsage returns the effective token / cost values, preferring the
 // structured Usage block (newer CLI format) over the flat legacy fields.
-func (c *claudeCliResponse) mergeClaudeUsage() (input, cached, output int, cost float64) {
+// Cache creation tokens exist only in the structured Usage block — the CLI
+// emits Anthropic wire format where creation is usage-internal, so there is
+// no flat legacy field to fall back to (Story 74.1).
+func (c *claudeCliResponse) mergeClaudeUsage() (input, cached, creation, output int, cost float64) {
 	input = c.Usage.InputTokens
 	cached = c.Usage.CacheReadInputTokens
+	creation = c.Usage.CacheCreationInputTokens
 	output = c.Usage.OutputTokens
 	if input == 0 && c.InputTokens != 0 {
 		input = c.InputTokens
@@ -361,15 +366,16 @@ func (d *ClaudeCliDriver) Call(ctx context.Context, req LLMRequest) (*LLMRespons
 		if cliResp.Result == "" {
 			return nil, NewLLMError("claude", 0, fmt.Errorf("response truncated: no result (possible max_turns limit)"))
 		}
-		input, cached, output, cost := cliResp.mergeClaudeUsage()
+		input, cached, creation, output, cost := cliResp.mergeClaudeUsage()
 		return &LLMResponse{
-			Content:           cliResp.Result,
-			TokensUsed:        input + output,
-			InputTokens:       input,
-			OutputTokens:      output,
-			CachedInputTokens: cached,
-			CostUSD:           cost,
-			StopReason:        cliResp.StopReason,
+			Content:                  cliResp.Result,
+			TokensUsed:               input + output,
+			InputTokens:              input,
+			OutputTokens:             output,
+			CachedInputTokens:        cached,
+			CacheCreationInputTokens: creation,
+			CostUSD:                  cost,
+			StopReason:               cliResp.StopReason,
 		}, nil
 	}
 
@@ -402,9 +408,10 @@ type claudeStreamEvent struct {
 		// so the kernel can preview token growth during a long CLI session
 		// instead of seeing 0 until the final `result`.
 		Usage struct {
-			InputTokens          int `json:"input_tokens"`
-			CacheReadInputTokens int `json:"cache_read_input_tokens"`
-			OutputTokens         int `json:"output_tokens"`
+			InputTokens              int `json:"input_tokens"`
+			CacheReadInputTokens     int `json:"cache_read_input_tokens"`
+			CacheCreationInputTokens int `json:"cache_creation_input_tokens"`
+			OutputTokens             int `json:"output_tokens"`
 		} `json:"usage,omitzero"`
 	} `json:"message,omitzero"`
 	Tools        []string        `json:"tools,omitempty"` // system:init tools list
@@ -414,9 +421,10 @@ type claudeStreamEvent struct {
 	StopReason   string          `json:"stop_reason,omitempty"`
 	TotalCostUSD float64         `json:"total_cost_usd,omitempty"`
 	Usage        struct {
-		InputTokens          int `json:"input_tokens"`
-		CacheReadInputTokens int `json:"cache_read_input_tokens"`
-		OutputTokens         int `json:"output_tokens"`
+		InputTokens              int `json:"input_tokens"`
+		CacheReadInputTokens     int `json:"cache_read_input_tokens"`
+		CacheCreationInputTokens int `json:"cache_creation_input_tokens"`
+		OutputTokens             int `json:"output_tokens"`
 	} `json:"usage,omitzero"`
 	CostUSD      float64 `json:"cost_usd,omitempty"`
 	DurationMS   int     `json:"duration_ms,omitempty"`
@@ -632,11 +640,12 @@ func (d *ClaudeCliDriver) Stream(ctx context.Context, req LLMRequest) (<-chan St
 					if uin != 0 || uout != 0 {
 						select {
 						case ch <- StreamEvent{
-							Type:              "usage",
-							TokensUsed:        uin + uout,
-							InputTokens:       uin,
-							OutputTokens:      uout,
-							CachedInputTokens: evt.Message.Usage.CacheReadInputTokens,
+							Type:                     "usage",
+							TokensUsed:               uin + uout,
+							InputTokens:              uin,
+							OutputTokens:             uout,
+							CachedInputTokens:        evt.Message.Usage.CacheReadInputTokens,
+							CacheCreationInputTokens: evt.Message.Usage.CacheCreationInputTokens,
 						}:
 						case <-ctx.Done():
 							return
@@ -661,6 +670,7 @@ func (d *ClaudeCliDriver) Stream(ctx context.Context, req LLMRequest) (<-chan St
 			case "result":
 				input := evt.Usage.InputTokens
 				cached := evt.Usage.CacheReadInputTokens
+				creation := evt.Usage.CacheCreationInputTokens
 				output := evt.Usage.OutputTokens
 				if input == 0 && evt.InputTokens != 0 {
 					input = evt.InputTokens
@@ -673,14 +683,15 @@ func (d *ClaudeCliDriver) Stream(ctx context.Context, req LLMRequest) (<-chan St
 					cost = evt.CostUSD
 				}
 				se := StreamEvent{
-					Type:              "done",
-					Content:           evt.Result,
-					TokensUsed:        input + output,
-					InputTokens:       input,
-					OutputTokens:      output,
-					CachedInputTokens: cached,
-					CostUSD:           cost,
-					StopReason:        evt.StopReason,
+					Type:                     "done",
+					Content:                  evt.Result,
+					TokensUsed:               input + output,
+					InputTokens:              input,
+					OutputTokens:             output,
+					CachedInputTokens:        cached,
+					CacheCreationInputTokens: creation,
+					CostUSD:                  cost,
+					StopReason:               evt.StopReason,
 				}
 				if isMaxTurnsStreamEvent(evt) {
 					se.Type = "error"

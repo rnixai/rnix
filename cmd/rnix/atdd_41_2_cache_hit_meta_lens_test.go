@@ -32,6 +32,86 @@ func newMetaLensDetailFixture(step int, driverType string, in, cached, out int) 
 	}
 }
 
+// newMetaLensDetailFixtureWithCreation extends the 41.2 fixture shape with the
+// Story 74.1 cache-creation parameter.
+func newMetaLensDetailFixtureWithCreation(step int, driverType string, in, cached, out, creation int) *ipc.GetStepDetailResponse {
+	return &ipc.GetStepDetailResponse{
+		Step:                     step,
+		Action:                   "tool_call",
+		InputTokens:              in,
+		CachedInputTokens:        cached,
+		OutputTokens:             out,
+		CacheCreationInputTokens: creation,
+		TokenCount:               in + out,
+		DriverType:               driverType,
+		MessageCount:             3,
+	}
+}
+
+// -----------------------------------------------------------------------------
+// Story 74.1 AC3-2: Cache Create 行渲染双 case
+// -----------------------------------------------------------------------------
+
+func TestBuildMetaLens_CacheCreateRow_ZeroOmitted(t *testing.T) {
+	m := newTestInspectorModelWithDetail()
+	// creation = 0 → 不渲染 "Cache Create" 行（NFR5：旧数据 0 值省略）
+	m.inspector.Detail = newMetaLensDetailFixtureWithCreation(2, "openai", 14118, 3456, 239, 0)
+	content := m.buildMetaLens(m.inspector.Detail)
+	stripped := stripANSIApprox(content)
+
+	if strings.Contains(stripped, "Cache Create:") {
+		t.Errorf("creation=0 时不应渲染 'Cache Create:' 行; got:\n%s", stripped)
+	}
+	// Cache Hit 行仍必须渲染（41.2 回归）
+	if !strings.Contains(stripped, "Cache Hit:") {
+		t.Errorf("creation=0 不应影响 Cache Hit 行; got:\n%s", stripped)
+	}
+}
+
+func TestBuildMetaLens_CacheCreateRow_Visible(t *testing.T) {
+	m := newTestInspectorModelWithDetail()
+	m.inspector.Detail = newMetaLensDetailFixtureWithCreation(2, "openai", 14118, 3456, 239, 512)
+	content := m.buildMetaLens(m.inspector.Detail)
+	stripped := stripANSIApprox(content)
+
+	// creation > 0 → 渲染 "Cache Create: 512"（label 右对齐 %10s 形态，数字非零可见）
+	if !strings.Contains(stripped, "Cache Create:") {
+		t.Fatalf("missing 'Cache Create:' line in:\n%s", stripped)
+	}
+	if !strings.Contains(stripped, "512") {
+		t.Errorf("expected '512' on Cache Create row in:\n%s", stripped)
+	}
+	// 行序：Input → Cached → Cache Create → Cache Hit → Output → Total
+	order := []string{"Input:", "Cached:", "Cache Create:", "Cache Hit:", "Output:", "Total:"}
+	prev := -1
+	for _, label := range order {
+		idx := strings.Index(stripped, label)
+		if idx < 0 {
+			t.Fatalf("missing %q in:\n%s", label, stripped)
+		}
+		if idx <= prev {
+			t.Errorf("row order broken at %q: idx=%d prev=%d\n%s", label, idx, prev, stripped)
+		}
+		prev = idx
+	}
+}
+
+func TestBuildMetaLens_CacheCreateRow_HasSplitGuard(t *testing.T) {
+	m := newTestInspectorModelWithDetail()
+	// 仅 creation 非零（input/output/cached 全 0）→ hasSplit 必须为 true，
+	// 否则误落 legacy Request/Response 分支（AC3-1 hasSplit 扩展）
+	m.inspector.Detail = newMetaLensDetailFixtureWithCreation(2, "openai", 0, 0, 0, 512)
+	content := m.buildMetaLens(m.inspector.Detail)
+	stripped := stripANSIApprox(content)
+
+	if !strings.Contains(stripped, "Cache Create:") {
+		t.Errorf("仅 creation 非零时 hasSplit 应命中 split 分支; got:\n%s", stripped)
+	}
+	if strings.Contains(stripped, "Request:") {
+		t.Errorf("仅 creation 非零时不应落 legacy Request/Response 分支; got:\n%s", stripped)
+	}
+}
+
 func TestBuildMetaLens_CacheHitRow_OpenAI(t *testing.T) {
 	m := newTestInspectorModelWithDetail()
 	m.inspector.Detail = newMetaLensDetailFixture(2, "openai", 14118, 3456, 239)

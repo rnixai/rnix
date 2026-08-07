@@ -202,9 +202,13 @@ type LLMResponse struct {
 	InputTokens       int              `json:"input_tokens,omitempty"`
 	OutputTokens      int              `json:"output_tokens,omitempty"`
 	CachedInputTokens int              `json:"cached_input_tokens,omitempty"`
-	CostUSD           float64          `json:"cost_usd,omitempty"`
-	StopReason        string           `json:"stop_reason,omitempty"`
-	ToolCalls         []ToolCall       `json:"tool_calls,omitempty"`
+	// CacheCreationInputTokens counts tokens written to the provider's prompt
+	// cache by this request (cache writes). Story 74.1: carried through the
+	// whole step pipeline; drivers without a data source leave it at zero.
+	CacheCreationInputTokens int        `json:"cache_creation_input_tokens,omitempty"`
+	CostUSD                  float64    `json:"cost_usd,omitempty"`
+	StopReason               string     `json:"stop_reason,omitempty"`
+	ToolCalls                []ToolCall `json:"tool_calls,omitempty"`
 }
 
 // StreamEvent represents a single event in a streaming LLM response.
@@ -219,18 +223,21 @@ type LLMResponse struct {
 // subagent frames (claude-cli main-thread only) to keep the tally consistent
 // with `done`.
 type StreamEvent struct {
-	Type              string           `json:"type"` // "content", "reasoning", "done", "error", "tool_call", "thinking", "system", "user", "usage"
-	Content           string           `json:"content,omitempty"`
-	TokensUsed        int              `json:"tokens_used,omitempty"`
-	InputTokens       int              `json:"input_tokens,omitempty"`
-	OutputTokens      int              `json:"output_tokens,omitempty"`
-	CachedInputTokens int              `json:"cached_input_tokens,omitempty"`
-	CostUSD           float64          `json:"cost_usd,omitempty"`
-	StopReason        string           `json:"stop_reason,omitempty"`
-	ToolCalls         []ToolCall       `json:"tool_calls,omitempty"`
-	ReasoningBlocks   []ReasoningBlock `json:"reasoning_blocks,omitempty"`
-	Data              map[string]any   `json:"data,omitempty"` // extra metadata (e.g., tool_call details)
-	Err               error            `json:"-"`
+	Type              string `json:"type"` // "content", "reasoning", "done", "error", "tool_call", "thinking", "system", "user", "usage"
+	Content           string `json:"content,omitempty"`
+	TokensUsed        int    `json:"tokens_used,omitempty"`
+	InputTokens       int    `json:"input_tokens,omitempty"`
+	OutputTokens      int    `json:"output_tokens,omitempty"`
+	CachedInputTokens int    `json:"cached_input_tokens,omitempty"`
+	// CacheCreationInputTokens mirrors LLMResponse (Story 74.1): cache-write
+	// tokens of the round-trip. Zero when the provider exposes no such count.
+	CacheCreationInputTokens int              `json:"cache_creation_input_tokens,omitempty"`
+	CostUSD                  float64          `json:"cost_usd,omitempty"`
+	StopReason               string           `json:"stop_reason,omitempty"`
+	ToolCalls                []ToolCall       `json:"tool_calls,omitempty"`
+	ReasoningBlocks          []ReasoningBlock `json:"reasoning_blocks,omitempty"`
+	Data                     map[string]any   `json:"data,omitempty"` // extra metadata (e.g., tool_call details)
+	Err                      error            `json:"-"`
 }
 
 // DriverInfo holds metadata about an LLM driver.

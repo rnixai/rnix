@@ -404,10 +404,11 @@ func (d *AnthropicDriver) CallWithTools(ctx context.Context, req LLMRequest, too
 
 func (d *AnthropicDriver) convertMessage(msg *anthropic.Message) *LLMResponse {
 	resp := &LLMResponse{
-		InputTokens:       int(msg.Usage.InputTokens),
-		OutputTokens:      int(msg.Usage.OutputTokens),
-		CachedInputTokens: int(msg.Usage.CacheReadInputTokens),
-		TokensUsed:        int(msg.Usage.InputTokens + msg.Usage.OutputTokens),
+		InputTokens:              int(msg.Usage.InputTokens),
+		OutputTokens:             int(msg.Usage.OutputTokens),
+		CachedInputTokens:        int(msg.Usage.CacheReadInputTokens),
+		CacheCreationInputTokens: int(msg.Usage.CacheCreationInputTokens),
+		TokensUsed:               int(msg.Usage.InputTokens + msg.Usage.OutputTokens),
 	}
 
 	var textParts, thinkingParts []string
@@ -519,11 +520,12 @@ func (d *AnthropicDriver) streamInternal(ctx context.Context, req LLMRequest, to
 
 		// Build done event from accumulated message
 		evt := StreamEvent{
-			Type:              "done",
-			InputTokens:       int(acc.Usage.InputTokens),
-			OutputTokens:      int(acc.Usage.OutputTokens),
-			CachedInputTokens: int(acc.Usage.CacheReadInputTokens),
-			TokensUsed:        int(acc.Usage.InputTokens + acc.Usage.OutputTokens),
+			Type:                     "done",
+			InputTokens:              int(acc.Usage.InputTokens),
+			OutputTokens:             int(acc.Usage.OutputTokens),
+			CachedInputTokens:        int(acc.Usage.CacheReadInputTokens),
+			CacheCreationInputTokens: int(acc.Usage.CacheCreationInputTokens),
+			TokensUsed:               int(acc.Usage.InputTokens + acc.Usage.OutputTokens),
 		}
 
 		// Extract reasoning blocks and tool calls from accumulated content.

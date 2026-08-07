@@ -1711,7 +1711,7 @@ func (m dashboardModel) buildMetaLens(detail *ipc.GetStepDetailResponse) string 
 	//     "Request: 0 / Response: <total>" 误导问题仍存,但至少不再加重）。
 	b.WriteString(renderMetaSectionHeader("Tokens", headerWidth))
 	b.WriteString("\n")
-	hasSplit := detail.InputTokens > 0 || detail.OutputTokens > 0 || detail.CachedInputTokens > 0
+	hasSplit := detail.InputTokens > 0 || detail.OutputTokens > 0 || detail.CachedInputTokens > 0 || detail.CacheCreationInputTokens > 0
 	switch {
 	case hasSplit:
 		b.WriteString(renderTokenLine("Input:", detail.InputTokens, ctxWindow, false))
@@ -1725,6 +1725,12 @@ func (m dashboardModel) buildMetaLens(detail *ipc.GetStepDetailResponse) string 
 				b.WriteString(renderTokenLine("Cached:", detail.CachedInputTokens, ctxWindow, false))
 				b.WriteString("\n")
 			}
+		}
+		// Story 74.1 AC3: Cache Create 行（Cached 之后、Cache Hit 之前）。
+		// 仅 >0 渲染（NFR5：旧数据 0 值不显示），复用 renderTokenLine 同形态。
+		if detail.CacheCreationInputTokens > 0 {
+			b.WriteString(renderTokenLine("Cache Create:", detail.CacheCreationInputTokens, ctxWindow, false))
+			b.WriteString("\n")
 		}
 		// Story 41.2 AC#1 + #5: 注入 Cache Hit 行（位于 Cached 之后、Output 之前）。
 		if detail.InputTokens > 0 || detail.CachedInputTokens > 0 {

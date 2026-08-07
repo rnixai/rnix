@@ -216,7 +216,7 @@ func (f *LLMFile) writeStream(ctx context.Context, req LLMRequest) error {
 
 	var content strings.Builder
 	var reasoning strings.Builder
-	var tokens, inputTokens, outputTokens, cachedInputTokens int
+	var tokens, inputTokens, outputTokens, cachedInputTokens, cacheCreationInputTokens int
 	var costUSD float64
 	var stopReason string
 	var toolCalls []ToolCall
@@ -294,11 +294,12 @@ func (f *LLMFile) writeStream(ctx context.Context, req LLMRequest) error {
 			// kernel discards these deltas at the step boundary.
 			if f.onEvent != nil {
 				evtData := map[string]any{
-					"type":                "usage",
-					"tokens_used":         evt.TokensUsed,
-					"input_tokens":        evt.InputTokens,
-					"output_tokens":       evt.OutputTokens,
-					"cached_input_tokens": evt.CachedInputTokens,
+					"type":                        "usage",
+					"tokens_used":                 evt.TokensUsed,
+					"input_tokens":                evt.InputTokens,
+					"output_tokens":               evt.OutputTokens,
+					"cached_input_tokens":         evt.CachedInputTokens,
+					"cache_creation_input_tokens": evt.CacheCreationInputTokens,
 				}
 				maps.Copy(evtData, evt.Data)
 				f.onEvent(evtData)
@@ -314,6 +315,7 @@ func (f *LLMFile) writeStream(ctx context.Context, req LLMRequest) error {
 			inputTokens = evt.InputTokens
 			outputTokens = evt.OutputTokens
 			cachedInputTokens = evt.CachedInputTokens
+			cacheCreationInputTokens = evt.CacheCreationInputTokens
 			costUSD = evt.CostUSD
 			stopReason = evt.StopReason
 			// Collect ToolCalls from done event (OpenAI stream flushes them here)
@@ -377,16 +379,17 @@ func (f *LLMFile) writeStream(ctx context.Context, req LLMRequest) error {
 	}
 
 	resp := &LLMResponse{
-		Content:           finalContent,
-		Reasoning:         reasoning.String(),
-		ReasoningBlocks:   reasoningBlocks,
-		TokensUsed:        tokens,
-		InputTokens:       inputTokens,
-		OutputTokens:      outputTokens,
-		CachedInputTokens: cachedInputTokens,
-		CostUSD:           costUSD,
-		StopReason:        stopReason,
-		ToolCalls:         toolCalls,
+		Content:                  finalContent,
+		Reasoning:                reasoning.String(),
+		ReasoningBlocks:          reasoningBlocks,
+		TokensUsed:               tokens,
+		InputTokens:              inputTokens,
+		OutputTokens:             outputTokens,
+		CachedInputTokens:        cachedInputTokens,
+		CacheCreationInputTokens: cacheCreationInputTokens,
+		CostUSD:                  costUSD,
+		StopReason:               stopReason,
+		ToolCalls:                toolCalls,
 	}
 	return f.bufferResponse(resp)
 }

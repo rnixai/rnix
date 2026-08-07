@@ -1290,26 +1290,30 @@ type GetStepDetailRequest struct {
 
 // GetStepDetailResponse is the response for MethodGetStepDetail.
 type GetStepDetailResponse struct {
-	SystemPrompt      string               `json:"system_prompt"`
-	Tools             []ToolDefWire        `json:"tools"`
-	Step              int                  `json:"step"`
-	Messages          []MessageWire        `json:"messages"`
-	MessageCount      int                  `json:"message_count"`
-	TokenCount        int                  `json:"token_count"`
-	RawResponse       string               `json:"raw_response"`
-	Action            string               `json:"action"`
-	Summary           string               `json:"summary"`
-	ToolPath          string               `json:"tool_path,omitempty"`
-	ToolInput         string               `json:"tool_input,omitempty"`
-	ToolResult        string               `json:"tool_result,omitempty"`
-	ToolError         string               `json:"tool_error,omitempty"`
-	ToolDurationMs    float64              `json:"tool_duration_ms,omitempty"`
-	RequestTokens     int                  `json:"request_tokens"`
-	ResponseTokens    int                  `json:"response_tokens"`
-	InputTokens       int                  `json:"input_tokens,omitempty"`
-	OutputTokens      int                  `json:"output_tokens,omitempty"`
-	CachedInputTokens int                  `json:"cached_input_tokens,omitempty"`
-	ToolCalls         []ToolCallDetailWire `json:"tool_calls,omitempty"`
+	SystemPrompt      string        `json:"system_prompt"`
+	Tools             []ToolDefWire `json:"tools"`
+	Step              int           `json:"step"`
+	Messages          []MessageWire `json:"messages"`
+	MessageCount      int           `json:"message_count"`
+	TokenCount        int           `json:"token_count"`
+	RawResponse       string        `json:"raw_response"`
+	Action            string        `json:"action"`
+	Summary           string        `json:"summary"`
+	ToolPath          string        `json:"tool_path,omitempty"`
+	ToolInput         string        `json:"tool_input,omitempty"`
+	ToolResult        string        `json:"tool_result,omitempty"`
+	ToolError         string        `json:"tool_error,omitempty"`
+	ToolDurationMs    float64       `json:"tool_duration_ms,omitempty"`
+	RequestTokens     int           `json:"request_tokens"`
+	ResponseTokens    int           `json:"response_tokens"`
+	InputTokens       int           `json:"input_tokens,omitempty"`
+	OutputTokens      int           `json:"output_tokens,omitempty"`
+	CachedInputTokens int           `json:"cached_input_tokens,omitempty"`
+	// CacheCreationInputTokens mirrors StepRecord (Story 74.1). No ipc/wire
+	// mirror (same situation as ListStepsResponse — TestWireDrift does not
+	// cover this struct).
+	CacheCreationInputTokens int                  `json:"cache_creation_input_tokens,omitempty"`
+	ToolCalls                []ToolCallDetailWire `json:"tool_calls,omitempty"`
 	// Story 41.2 AC#3: step-level provider/driver info,used to compute cache
 	// hit rate with correct driver-specific formula (Anthropic vs OpenAI 语义)。
 	// wire-backward compatible · 旧 daemon 不填这两字段时 dashboard 走 fallback。

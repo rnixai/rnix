@@ -209,6 +209,7 @@ func (k *KernelImpl) writeStepRecord(proc *Process, step int, promptResult *rnix
 		rec.InputTokens = resp.InputTokens
 		rec.OutputTokens = resp.OutputTokens
 		rec.CachedInputTokens = resp.CachedInputTokens
+		rec.CacheCreationInputTokens = resp.CacheCreationInputTokens
 	}
 
 	if err := sw.WriteStep(rec); err != nil {

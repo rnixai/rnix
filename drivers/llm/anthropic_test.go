@@ -265,6 +265,11 @@ func TestAnthropicDriver_ConvertMessage_CachedTokens(t *testing.T) {
 	if resp.InputTokens != 100 {
 		t.Errorf("InputTokens = %d, want 100", resp.InputTokens)
 	}
+	// Story 74.1 AC1-1: the fixture above already carries
+	// cache_creation_input_tokens: 10 — assert the field is surfaced.
+	if resp.CacheCreationInputTokens != 10 {
+		t.Errorf("CacheCreationInputTokens = %d, want 10", resp.CacheCreationInputTokens)
+	}
 }
 
 // TestAnthropicDriver_ClassifyError verifies HTTP status code → sentinel mapping.

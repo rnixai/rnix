@@ -28,9 +28,10 @@ type replayToolCall struct {
 // borrowed from a "typical" call — Tier1 replay must never introduce
 // nondeterminism through invented numbers).
 type replayUsage struct {
-	InputTokens       int `yaml:"input_tokens,omitempty"`
-	OutputTokens      int `yaml:"output_tokens,omitempty"`
-	CachedInputTokens int `yaml:"cached_input_tokens,omitempty"`
+	InputTokens              int `yaml:"input_tokens,omitempty"`
+	OutputTokens             int `yaml:"output_tokens,omitempty"`
+	CachedInputTokens        int `yaml:"cached_input_tokens,omitempty"`
+	CacheCreationInputTokens int `yaml:"cache_creation_input_tokens,omitempty"`
 }
 
 // replayResponse is one scripted LLM turn. At least one of Content /
@@ -334,13 +335,14 @@ func (d *ReplayDriver) stream(ctx context.Context, req LLMRequest) (<-chan Strea
 		}
 
 		done := StreamEvent{
-			Type:              "done",
-			TokensUsed:        llmResp.TokensUsed,
-			InputTokens:       llmResp.InputTokens,
-			OutputTokens:      llmResp.OutputTokens,
-			CachedInputTokens: llmResp.CachedInputTokens,
-			StopReason:        llmResp.StopReason,
-			ToolCalls:         llmResp.ToolCalls,
+			Type:                     "done",
+			TokensUsed:               llmResp.TokensUsed,
+			InputTokens:              llmResp.InputTokens,
+			OutputTokens:             llmResp.OutputTokens,
+			CachedInputTokens:        llmResp.CachedInputTokens,
+			CacheCreationInputTokens: llmResp.CacheCreationInputTokens,
+			StopReason:               llmResp.StopReason,
+			ToolCalls:                llmResp.ToolCalls,
 		}
 		select {
 		case ch <- done:
@@ -385,6 +387,7 @@ func responseToLLMResponse(r replayResponse) *LLMResponse {
 		resp.InputTokens = r.Usage.InputTokens
 		resp.OutputTokens = r.Usage.OutputTokens
 		resp.CachedInputTokens = r.Usage.CachedInputTokens
+		resp.CacheCreationInputTokens = r.Usage.CacheCreationInputTokens
 		resp.TokensUsed = r.Usage.InputTokens + r.Usage.OutputTokens
 	}
 	return resp

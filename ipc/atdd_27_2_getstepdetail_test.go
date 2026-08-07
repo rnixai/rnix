@@ -63,20 +63,22 @@ func TestATDD_27_2_AC1_GetStepDetailResponse_Serialization(t *testing.T) {
 		Tools: []ToolDefWire{
 			{Name: "read", Description: "Read a file", Parameters: map[string]any{"path": "string"}},
 		},
-		Step:         3,
-		Messages:     []MessageWire{{Role: "user", Content: "hello"}},
-		MessageCount: 5,
-		TokenCount:   1200,
-		RawResponse:  `{"role":"assistant","content":"hi"}`,
-		Action:       "tool_call",
-		Summary:      "/dev/fs read config.yaml",
-		ToolPath:     "/dev/fs",
-		ToolInput:    `{"path":"config.yaml"}`,
-		ToolResult:   "key: value",
-		ToolError:    "",
+		Step:           3,
+		Messages:       []MessageWire{{Role: "user", Content: "hello"}},
+		MessageCount:   5,
+		TokenCount:     1200,
+		RawResponse:    `{"role":"assistant","content":"hi"}`,
+		Action:         "tool_call",
+		Summary:        "/dev/fs read config.yaml",
+		ToolPath:       "/dev/fs",
+		ToolInput:      `{"path":"config.yaml"}`,
+		ToolResult:     "key: value",
+		ToolError:      "",
 		ToolDurationMs: 42.5,
 		RequestTokens:  800,
 		ResponseTokens: 400,
+		// Story 74.1 AC3-1: cache creation mirrors StepRecord on the wire.
+		CacheCreationInputTokens: 25,
 	}
 	data, err := json.Marshal(resp)
 	if err != nil {
@@ -100,6 +102,9 @@ func TestATDD_27_2_AC1_GetStepDetailResponse_Serialization(t *testing.T) {
 	}
 	if decoded.ToolDurationMs != 42.5 {
 		t.Errorf("AC-1: ToolDurationMs mismatch: got %f", decoded.ToolDurationMs)
+	}
+	if decoded.CacheCreationInputTokens != 25 {
+		t.Errorf("AC-1: CacheCreationInputTokens mismatch: got %d, want 25 (Story 74.1)", decoded.CacheCreationInputTokens)
 	}
 }
 
