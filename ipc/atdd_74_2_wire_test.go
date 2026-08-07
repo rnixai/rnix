@@ -35,7 +35,18 @@ func TestProcInfoWire_TokenSpend_RoundTrip(t *testing.T) {
 		t.Fatalf("wire = %d/%d/%d/%d want 600/300/120/180",
 			w.CumInputTokens, w.CumCachedInputTokens, w.CumCacheCreationInputTokens, w.CumOutputTokens)
 	}
-	back := WireToProcInfo(w)
+	// AC3 test-1: the round-trip must pass through real JSON — a mistyped
+	// cum_*_tokens json tag would otherwise silently zero the fields for
+	// `rnix ps` / JSON IPC consumers with every test still green.
+	b, err := json.Marshal(w)
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+	var w2 ProcInfoWire
+	if err := json.Unmarshal(b, &w2); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	back := WireToProcInfo(w2)
 	if back.CumInputTokens != 600 || back.CumCachedInputTokens != 300 ||
 		back.CumCacheCreationInputTokens != 120 || back.CumOutputTokens != 180 {
 		t.Errorf("roundtrip = %d/%d/%d/%d want 600/300/120/180",

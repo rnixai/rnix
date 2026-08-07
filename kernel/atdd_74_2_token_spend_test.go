@@ -29,6 +29,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strconv"
 	"testing"
 	"time"
 
@@ -268,7 +269,7 @@ func TestATDD_74_2_AC2_001_ProcInfoDiskRoundTrip(t *testing.T) {
 // JSON without them resumes with 0.
 // -----------------------------------------------------------------------------
 func TestATDD_74_2_AC2_002_CheckpointRoundTrip(t *testing.T) {
-	k, baseDir := setupResumeKernel(t)
+	k, baseDir, llmFile := setupGatedResumeKernel(t)
 	proc := &Process{PID: 7, TokensUsed: 500}
 	proc.CumInputTokens = 400
 	proc.CumCachedInputTokens = 200
@@ -283,6 +284,7 @@ func TestATDD_74_2_AC2_002_CheckpointRoundTrip(t *testing.T) {
 	}
 
 	// Legacy checkpoint without the four keys → resumed process reads 0.
+	// (The non-zero direction is AC2-006; this leg pins legacy→0, NFR5.)
 	uuid := uuidForTest("ckpt742")
 	stepsDir := filepath.Join(baseDir, "steps", uuid)
 	if err := os.MkdirAll(stepsDir, 0o755); err != nil {
@@ -300,28 +302,57 @@ func TestATDD_74_2_AC2_002_CheckpointRoundTrip(t *testing.T) {
 		t.Fatalf("write steps.jsonl: %v", err)
 	}
 
-	// buildCheckpointData above already proves snapshotting; the resume side is
-	// covered by AC2-3 (disk) + the checkpoint branch asserts restore below via
-	// a fresh kernel.Resume. Mock LLM completes immediately → process dies fast,
-	// so grab the Process before it reaps and read fields under mu.
-	result, err := k.Resume(uuid)
-	if err != nil {
-		t.Fatalf("Resume: %v", err)
-	}
-	proc2, ok := k.GetProcess(result.PID)
-	if !ok {
-		t.Fatal("resumed process not in procTable")
-	}
-	proc2.mu.Lock()
-	in, cached, creation, output := proc2.CumInputTokens, proc2.CumCachedInputTokens, proc2.CumCacheCreationInputTokens, proc2.CumOutputTokens
-	proc2.mu.Unlock()
+	_, in, cached, creation, output := resumeGatedReadFour(t, k, llmFile, uuid)
 	if in != 0 || cached != 0 || creation != 0 || output != 0 {
 		t.Errorf("AC2-2 FAIL: legacy checkpoint resumed cumulatives %d/%d/%d/%d, want 0/0/0/0",
 			in, cached, creation, output)
 	}
-	// The resumed process exits immediately (mock LLM completes); wait for its
-	// proc-info.json so the reaper is done before TempDir cleanup runs.
-	waitForProcInfoWrite(t, k, proc2)
+}
+
+// -----------------------------------------------------------------------------
+// AC2-006 (code review P1): checkpoint resume 非零装配 — buildCheckpointData →
+// writeCheckpoint (real JSON on disk) → Resume must restore the four
+// cumulatives 400/200/80/100. Pins the resumeFromCheckpoint assignment side
+// (AC2-002 only covered legacy→0); a deleted/mis-wired assignment would
+// otherwise pass the whole suite. 防「只测了序列化没测装配」的真空.
+// -----------------------------------------------------------------------------
+func TestATDD_74_2_AC2_006_CheckpointResumeRestoresFour(t *testing.T) {
+	k, baseDir, llmFile := setupGatedResumeKernel(t)
+
+	uuid := uuidForTest("ckpt742nz")
+	proc := &Process{
+		UUID:       uuid,
+		PID:        7,
+		Provider:   "claude",
+		Model:      "claude-4",
+		Intent:     "74.2 checkpoint nz",
+		TokensUsed: 500,
+	}
+	proc.CumInputTokens = 400
+	proc.CumCachedInputTokens = 200
+	proc.CumCacheCreationInputTokens = 80
+	proc.CumOutputTokens = 100
+
+	stepsDir := filepath.Join(baseDir, "steps", uuid)
+	if err := os.MkdirAll(stepsDir, 0o755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	cp := buildCheckpointData(proc, 5, json.RawMessage(`{"system_prompt":"p","messages":[],"max_size":0}`), 0)
+	if err := writeCheckpoint(stepsDir, cp); err != nil {
+		t.Fatalf("writeCheckpoint: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(stepsDir, "steps.jsonl"), []byte(`{"step":1,"messages":[]}`+"\n"), 0o644); err != nil {
+		t.Fatalf("write steps.jsonl: %v", err)
+	}
+
+	tokens, in, cached, creation, output := resumeGatedReadFour(t, k, llmFile, uuid)
+	if tokens != 500 {
+		t.Errorf("AC2-006 FAIL: TokensUsed=%d want 500 (checkpoint 恢复)", tokens)
+	}
+	if in != 400 || cached != 200 || creation != 80 || output != 100 {
+		t.Errorf("AC2-006 FAIL: checkpoint resume cumulatives %d/%d/%d/%d want 400/200/80/100",
+			in, cached, creation, output)
+	}
 }
 
 // waitForProcInfoWrite polls for the process's proc-info.json (written by
@@ -343,9 +374,63 @@ func waitForProcInfoWrite(t *testing.T, k *KernelImpl, proc *Process) {
 }
 
 // versionLiteral renders the current CheckpointVersion as a Go string literal
-// for hand-built legacy JSON fixtures.
+// for hand-built legacy JSON fixtures. Deriving from the constant (not a
+// hardcoded "1") keeps the fixture honest if CheckpointVersion ever bumps.
 func versionLiteral() string {
-	return "1"
+	return strconv.Itoa(int(CheckpointVersion))
+}
+
+// setupGatedResumeKernel mirrors setupResumeKernel but parks the LLM mock on
+// its first Write (usageLLMFile park semantics), so a resumed process stays
+// Running until the test has read its fields. setupResumeKernel's ungated mock
+// lets resumed processes complete and get reaped before GetProcess, a
+// scheduling flake under -race (the atdd_42_1/42_2 handshake-gate lesson).
+func setupGatedResumeKernel(t *testing.T) (*KernelImpl, string, *usageLLMFile) {
+	t.Helper()
+	llmFile := &usageLLMFile{park: true, reached: make(chan struct{})}
+	reg := vfs.NewDeviceRegistry()
+	_ = reg.Register("/dev/llm/claude", func(_ string, _ vfs.OpenFlag, _ string) (vfs.VFSFile, error) {
+		return llmFile, nil
+	})
+	v := vfs.NewVFS(reg)
+	ctxMgr := rnixctx.NewManager()
+	k := NewKernel(v, ctxMgr, nil)
+	t.Cleanup(k.Shutdown)
+	_, projBaseDir := TestSetupDataDir(t, k)
+	return k, projBaseDir, llmFile
+}
+
+// resumeGatedReadFour resumes uuid against a gated kernel, waits for the
+// process to enter its first LLM Write (guaranteeing it is Running and parked),
+// reads TokensUsed + the four cumulatives under mu, then kills the process and
+// waits for its proc-info.json so the reaper is done before cleanup. Returns
+// (tokens, in, cached, creation, output).
+func resumeGatedReadFour(t *testing.T, k *KernelImpl, llmFile *usageLLMFile, uuid string) (tokens, in, cached, creation, output int) {
+	t.Helper()
+	result, err := k.Resume(uuid)
+	if err != nil {
+		t.Fatalf("Resume: %v", err)
+	}
+	select {
+	case <-llmFile.reached:
+	case <-time.After(5 * time.Second):
+		t.Fatal("resumed process never entered LLM Write (gate not reached)")
+	}
+	proc, ok := k.GetProcess(result.PID)
+	if !ok {
+		t.Fatal("resumed process not in procTable")
+	}
+	proc.mu.Lock()
+	tokens, in, cached, creation, output = proc.TokensUsed,
+		proc.CumInputTokens, proc.CumCachedInputTokens,
+		proc.CumCacheCreationInputTokens, proc.CumOutputTokens
+	proc.mu.Unlock()
+	if err := k.Kill(result.PID, types.SIGTERM); err != nil {
+		t.Fatalf("Kill: %v", err)
+	}
+	waitDone(t, proc)
+	waitForProcInfoWrite(t, k, proc)
+	return tokens, in, cached, creation, output
 }
 
 // -----------------------------------------------------------------------------
@@ -353,7 +438,7 @@ func versionLiteral() string {
 // proc-info.json — a real装配 assertion, not just serialization.
 // -----------------------------------------------------------------------------
 func TestATDD_74_2_AC2_003_ResumeFromHistoryRestoresFour(t *testing.T) {
-	k, baseDir := setupResumeKernel(t)
+	k, baseDir, llmFile := setupGatedResumeKernel(t)
 	uuid := uuidForTest("res742")
 
 	info := vfs.ProcInfo{
@@ -375,18 +460,7 @@ func TestATDD_74_2_AC2_003_ResumeFromHistoryRestoresFour(t *testing.T) {
 	}
 	writeProcInfoFixture74_2(t, baseDir, uuid, info)
 
-	result, err := k.Resume(uuid)
-	if err != nil {
-		t.Fatalf("Resume: %v", err)
-	}
-	proc, ok := k.GetProcess(result.PID)
-	if !ok {
-		t.Fatal("resumed process not in procTable")
-	}
-	proc.mu.Lock()
-	in, cached, creation, output := proc.CumInputTokens, proc.CumCachedInputTokens, proc.CumCacheCreationInputTokens, proc.CumOutputTokens
-	tokens := proc.TokensUsed
-	proc.mu.Unlock()
+	tokens, in, cached, creation, output := resumeGatedReadFour(t, k, llmFile, uuid)
 	if tokens != 500 {
 		t.Errorf("AC2-3 FAIL: TokensUsed=%d want 500 (disk 恢复)", tokens)
 	}
@@ -394,9 +468,6 @@ func TestATDD_74_2_AC2_003_ResumeFromHistoryRestoresFour(t *testing.T) {
 		t.Errorf("AC2-3 FAIL: disk resume cumulatives %d/%d/%d/%d want 400/200/80/100",
 			in, cached, creation, output)
 	}
-	// Resumed process exits immediately (mock LLM completes); let the reaper
-	// finish before TempDir cleanup.
-	waitForProcInfoWrite(t, k, proc)
 }
 
 // -----------------------------------------------------------------------------
