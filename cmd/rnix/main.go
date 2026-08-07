@@ -1883,6 +1883,20 @@ func runDaemon(cmd *cobra.Command, args []string) error {
 		}
 		return 0
 	})
+	// Story 73.5 — inject the global-snapshot per-provider concurrency limit
+	// lookup, adjacent to SetDriverTimeoutFunc and capturing the same
+	// providersCfg snapshot (D1, level ② of the three-level chain). Project
+	// level is covered separately by lookupProjectProviderConcurrencyLimit
+	// (kernel/driver_timeout.go) reading proc.ProjectConfig. 0 = no
+	// declaration → the resolver falls through to defaultMaxConcurrency (4).
+	k.SetProviderConcurrencyLimitFunc(func(provider string) int {
+		for _, p := range providersCfg.Providers {
+			if p.Name == provider {
+				return p.MaxConcurrency
+			}
+		}
+		return 0
+	})
 	k.SetAgentLoader(agentLoader.Load)
 
 	// Feature profile resolution (Story 52.2) — resolve before subsystem

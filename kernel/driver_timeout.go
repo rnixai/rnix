@@ -97,6 +97,57 @@ func (k *KernelImpl) resolveDriverTimeout(proc *Process) time.Duration {
 	return llm.DefaultTimeout
 }
 
+// lookupProjectProviderConcurrencyLimit reads providers[].max_concurrency out
+// of the process's project-level providers view (Story 73.5 / D1). Shape
+// copied from lookupProjectDriverTimeoutSec: ProjectConfig.Providers is typed
+// `any` to avoid a config→drivers/llm import cycle, and a failed type-assert,
+// nil config, or empty provider is a LOOKUP MISS (→ the caller falls through
+// to the global closure / default), never a panic. 0 likewise means "no
+// declaration here" (unset OR explicitly zero — AC3: MaxConcurrency=0 is
+// equivalent to the field being absent).
+func lookupProjectProviderConcurrencyLimit(pc *config.ProjectConfig, provider string) int {
+	if pc == nil || provider == "" {
+		return 0
+	}
+	pcfg, ok := pc.Providers.(*llm.ProvidersConfig)
+	if !ok || pcfg == nil {
+		return 0
+	}
+	for i := range pcfg.Providers {
+		if pcfg.Providers[i].Name != provider {
+			continue
+		}
+		return pcfg.Providers[i].MaxConcurrency
+	}
+	return 0
+}
+
+// resolveProviderConcurrencyLimit resolves the per-provider concurrency limit
+// via the three-level chain (Story 73.5 / D1): project-level providers.yaml →
+// injected global closure → defaultMaxConcurrency. The result is always
+// positive — a 0 limit would deadlock the gate forever (the entry's channel
+// would never have a free slot), so unset/zero at every level lands on the
+// default (AC3's "zero-value config → default 4" pin).
+//
+// The provider argument is the gate key itself (D8) — the fallback call gates
+// on the FALLBACK provider's bucket, and its limit must be resolved from the
+// fallback provider's own config, not proc.Provider's.
+func (k *KernelImpl) resolveProviderConcurrencyLimit(proc *Process, provider string) int {
+	// ① Project-level (the merged global∪project view — a project miss
+	//    cannot hide a global declaration, a project hit is more specific).
+	if n := lookupProjectProviderConcurrencyLimit(proc.ProjectConfig, provider); n > 0 {
+		return n
+	}
+	// ② Global snapshot via injected closure.
+	if k.providerConcurrencyLimitFunc != nil {
+		if n := k.providerConcurrencyLimitFunc(provider); n > 0 {
+			return n
+		}
+	}
+	// ③ Kernel-side default (D1 — the three reasons live in provider_gate.go).
+	return defaultMaxConcurrency
+}
+
 // resolveCompactTimeout fills proc.CompactTimeout with the derived value
 // (driverTimeout × compactTimeoutMultiplier) when the field is still 0 — i.e.
 // neither opts nor agent manifest supplied an explicit value. Called after

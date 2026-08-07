@@ -1013,14 +1013,31 @@ func (k *KernelImpl) BuildCompactLLMCall(proc *Process) func(string, []rnixctx.M
 		// at all (DeadlineExceeded absent from the Unwrap chain); the cancelled
 		// branch keeps compactCtx.Err() on the chain via multiple %w (Go 1.20+).
 		// Message text is unchanged — AC6-③ red line.
-		if err := k.vfs.Write(compactCtx, proc.PID, fd, reqJSON); err != nil {
+		//
+		// Story 73.5 / D3: compact is a same-provider LLM request (it opens
+		// proc.PrimaryDevice's provider), and N processes compacting
+		// simultaneously is the same stampede the gate exists for — so it is
+		// gated like the primary write. The gate wait runs on compactCtx, so a
+		// compact timeout cancels a still-queued wait too.
+		if gateErr := k.acquireProviderGate(compactCtx, proc, proc.Provider); gateErr != nil {
+			// Story 73.5 / D5: a gate timeout is NOT ErrCompactTimeout /
+			// ErrCompactCancelled — classifyCompactFailure reads the
+			// sentinels, so this lands in "other" (no sentinel on the chain,
+			// no disguise) and the mechanical fallback still runs.
+			return "", fmt.Errorf("compact: provider gate: %w", gateErr)
+		}
+		writeErr := k.vfs.Write(compactCtx, proc.PID, fd, reqJSON)
+		// The slot is held exactly for the Write's lifetime (the driver's
+		// Write covers the whole compact request); release on every path.
+		k.gate().release(proc.Provider)
+		if writeErr != nil {
 			if compactCtx.Err() != nil {
 				if compactCtx.Err() == gocontext.DeadlineExceeded {
 					return "", fmt.Errorf("compact: LLM call timed out after %v: %w", timeout, ErrCompactTimeout)
 				}
 				return "", fmt.Errorf("compact: LLM call cancelled: %w: %w", compactCtx.Err(), ErrCompactCancelled)
 			}
-			return "", fmt.Errorf("compact: LLM write failed: %w", err)
+			return "", fmt.Errorf("compact: LLM write failed: %w", writeErr)
 		}
 
 		// Read response

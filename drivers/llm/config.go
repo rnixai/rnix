@@ -97,6 +97,11 @@ type ProviderConfig struct {
 	ExtraArgs       []string               `yaml:"extra_args"`       // additional CLI arguments (claude-cli/cursor-cli only)
 	TimeoutSec      int                    `yaml:"timeout_sec"`      // per-request timeout in seconds; 0 = driver default (5 min for CLI)
 	GraceSec        int                    `yaml:"grace_sec"`        // CLI grace period between SIGTERM and SIGKILL; 0 = driver default (20s)
+	// MaxConcurrency caps concurrent in-flight LLM requests to THIS provider
+	// across all processes (Story 73.5 / FR7 — the per-provider concurrency
+	// gate). 0 = unset → kernel default defaultMaxConcurrency (4); negative
+	// values are rejected by Validate (a negative cap is meaningless).
+	MaxConcurrency  int                    `yaml:"max_concurrency,omitempty"`
 	PermissionMode  string                 `yaml:"permission_mode"`  // claude-cli only: --permission-mode value (bypassPermissions/acceptEdits/plan/default); empty = driver default (bypassPermissions)
 	SandboxMode     string                 `yaml:"sandbox_mode"`     // codex-cli only: --sandbox value (read-only/workspace-write/danger-full-access); empty = workspace-write
 	Models          map[string]ModelConfig `yaml:"models,omitempty"`
@@ -209,6 +214,13 @@ func (c *ProvidersConfig) Validate() error {
 
 		if p.Driver == DriverCodexCLI && p.SandboxMode != "" && !validCodexSandboxModes[p.SandboxMode] {
 			errs = append(errs, fmt.Errorf("provider[%d] %q: invalid sandbox_mode %q (valid: read-only, workspace-write, danger-full-access)", i, p.Name, p.SandboxMode))
+		}
+
+		// Story 73.5 / AC3: negative max_concurrency is meaningless (a cap
+		// below zero can never admit a request); zero is legal and means
+		// "unset → kernel default" (same omitempty semantics as TimeoutSec).
+		if p.MaxConcurrency < 0 {
+			errs = append(errs, fmt.Errorf("provider[%d] %q: max_concurrency must not be negative (got %d)", i, p.Name, p.MaxConcurrency))
 		}
 	}
 

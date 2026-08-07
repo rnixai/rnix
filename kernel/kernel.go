@@ -274,6 +274,18 @@ type KernelImpl struct {
 	// provider-only signature. nil = no global snapshot injected (test
 	// fixtures); resolveDriverTimeout falls through to llm.DefaultTimeout.
 	driverTimeoutFunc func(provider string) time.Duration
+	// providerConcurrencyLimitFunc returns the configured per-provider LLM
+	// concurrency limit (Story 73.5 / D1, level ② of the three-level chain).
+	// Returns 0 when no explicit config exists; resolveProviderConcurrencyLimit
+	// falls through to defaultMaxConcurrency. nil = no global snapshot
+	// injected (test fixtures).
+	providerConcurrencyLimitFunc func(provider string) int
+	// providerGate is the per-provider LLM concurrency gate (Story 73.5).
+	// Lazily created via gate() on first use (providerGateOnce makes the lazy
+	// init race-free — multiple reasonStep goroutines can touch it at once;
+	// sync.Once is the documented double-checked-locking replacement).
+	providerGateOnce sync.Once
+	providerGate     *providerGate
 	defaultProvider   string // injected default provider name; "" = fall back to "claude"
 
 	// projectConfigLoader rebuilds a full ProjectConfig (LLMFileOpener,
@@ -548,6 +560,16 @@ func (k *KernelImpl) SetContextWindowFunc(fn func(provider, model string) int) {
 // ProviderConfig instance-level field, not per-model.
 func (k *KernelImpl) SetDriverTimeoutFunc(fn func(provider string) time.Duration) {
 	k.driverTimeoutFunc = fn
+}
+
+// SetProviderConcurrencyLimitFunc injects a function that returns the
+// configured per-provider LLM concurrency limit (Story 73.5 / D1, level ② of
+// the three-level chain). Returns 0 when no explicit config exists; the
+// resolver falls through to defaultMaxConcurrency. Mirrors
+// SetDriverTimeoutFunc's provider-only signature (MaxConcurrency is a
+// ProviderConfig instance-level field).
+func (k *KernelImpl) SetProviderConcurrencyLimitFunc(fn func(provider string) int) {
+	k.providerConcurrencyLimitFunc = fn
 }
 
 // StartRecording starts execution recording for the given PID.

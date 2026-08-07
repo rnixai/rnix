@@ -415,10 +415,14 @@ func (k *KernelImpl) attemptFallback(proc *Process, req llmRequest, primaryDevic
 
 	fallbackStart := time.Now()
 
+	// The fallback provider name doubles as the gate key (D8): switching
+	// provider means switching gates, so the fallback call queues on the
+	// FALLBACK provider's bucket.
+	fbProvider := strings.TrimPrefix(proc.FallbackDevice, "/dev/llm/")
+
 	var fbFD types.FD
 	var err error
 	if proc.ProjectConfig != nil && proc.ProjectConfig.LLMFileOpener != nil {
-		fbProvider := strings.TrimPrefix(proc.FallbackDevice, "/dev/llm/")
 		fileAny, openErr := proc.ProjectConfig.LLMFileOpener(fbProvider, int(vfs.O_RDWR))
 		if openErr == nil {
 			if vfsFile, ok := fileAny.(vfs.VFSFile); ok {
@@ -467,24 +471,53 @@ func (k *KernelImpl) attemptFallback(proc *Process, req llmRequest, primaryDevic
 		return nil, primaryErr
 	}
 
-	if err := k.vfs.Write(proc.ctx, proc.PID, fbFD, reqJSON); err != nil {
+	// Story 73.5 / D3: the fallback call is ALSO gated — on the FALLBACK
+	// provider's bucket (D8: switching provider means switching gates). A
+	// gate timeout here is not an LLM error (D5): it returns through the
+	// existing fallback_exhausted terminal (the aggregate carries the gate
+	// text). The fallback call runs on proc.ctx (no step deadline), so only
+	// a process-level cancel or gateAcquireTimeout can end the wait.
+	if gateErr := k.acquireProviderGate(proc.ctx, proc, fbProvider); gateErr != nil {
 		k.emitEvent(proc, "ReasonStep", map[string]any{
 			"step":            step,
 			"action":          "fallback_exhausted",
 			"primary_device":  primaryDevice,
 			"primary_error":   primaryErr.Error(),
 			"fallback_device": proc.FallbackDevice,
-			"fallback_error":  err.Error(),
+			"fallback_error":  gateErr.Error(),
 			// Story 73.4 AC2: the primary's coarse code (the fallback's code is
 			// carried by the write-fail / read-fail terminal error events).
 			"code": llmErrCode(primaryErr),
-		}, nil, err, time.Since(fallbackStart))
+		}, nil, gateErr, time.Since(fallbackStart))
 		// Story 56.7 (G4): the fallback call is persisted to raw.jsonl whether
 		// it succeeds or fails. Explicit calls before each return — the
 		// `defer Close(fbFD)` above runs at function return, so the FD is
 		// still valid at capture time.
-		k.captureRawLLMCall(proc, fbFD, step, err)
-		return nil, fmt.Errorf("primary %s: %v; fallback %s: %w", primaryDevice, primaryErr, proc.FallbackDevice, err)
+		k.captureRawLLMCall(proc, fbFD, step, gateErr)
+		return nil, fmt.Errorf("primary %s: %v; fallback %s: %w", primaryDevice, primaryErr, proc.FallbackDevice, gateErr)
+	}
+	writeErr := k.vfs.Write(proc.ctx, proc.PID, fbFD, reqJSON)
+	// The slot is held exactly for the Write's lifetime; release on every
+	// path (success and failure — the request is over either way).
+	k.gate().release(fbProvider)
+	if writeErr != nil {
+		k.emitEvent(proc, "ReasonStep", map[string]any{
+			"step":            step,
+			"action":          "fallback_exhausted",
+			"primary_device":  primaryDevice,
+			"primary_error":   primaryErr.Error(),
+			"fallback_device": proc.FallbackDevice,
+			"fallback_error":  writeErr.Error(),
+			// Story 73.4 AC2: the primary's coarse code (the fallback's code is
+			// carried by the write-fail / read-fail terminal error events).
+			"code": llmErrCode(primaryErr),
+		}, nil, writeErr, time.Since(fallbackStart))
+		// Story 56.7 (G4): the fallback call is persisted to raw.jsonl whether
+		// it succeeds or fails. Explicit calls before each return — the
+		// `defer Close(fbFD)` above runs at function return, so the FD is
+		// still valid at capture time.
+		k.captureRawLLMCall(proc, fbFD, step, writeErr)
+		return nil, fmt.Errorf("primary %s: %v; fallback %s: %w", primaryDevice, primaryErr, proc.FallbackDevice, writeErr)
 	}
 
 	respData, err := k.vfs.Read(proc.PID, fbFD, 1<<20)
@@ -737,9 +770,27 @@ func (k *KernelImpl) reasonStep(proc *Process, llmFD types.FD, opts SpawnOpts) {
 		stepCtx, stepCancel := gocontext.WithCancel(proc.ctx)
 		proc.SetStepCancel(stepCancel)
 
+		// Story 73.5 / D3: acquire the per-provider gate slot BEFORE the
+		// write (the request is already marshalled — a slot is only worth
+		// holding once the request is ready). The slot is held exactly for
+		// the Write's lifetime — the driver's Write covers the whole request
+		// (stream accumulation for CLI drivers, the full call for API
+		// drivers) — and released immediately after, on every path.
 		writeStart := time.Now()
 		var respData []byte
-		if err := k.vfs.Write(stepCtx, proc.PID, llmFD, reqJSON); err != nil {
+		if gateErr := k.acquireProviderGate(stepCtx, proc, proc.Provider); gateErr == nil {
+			err = k.vfs.Write(stepCtx, proc.PID, llmFD, reqJSON)
+			k.gate().release(proc.Provider)
+		} else {
+			// Story 73.5 / D5: a gate error is kernel-local — the write never
+			// reached the driver, so it must NOT enter the transient / LLM
+			// classification below (a retry would just re-queue on the same
+			// congested gate). It flows through the existing write-fail
+			// branches; the D5 guard at the transient check routes a timeout
+			// straight to the Write event + fallback / terminal handling.
+			err = gateErr
+		}
+		if err != nil {
 			proc.RunStreamCleanups()
 			proc.SetStepCancel(nil)
 
@@ -792,7 +843,15 @@ func (k *KernelImpl) reasonStep(proc *Process, llmFD types.FD, opts SpawnOpts) {
 			// while socket/EOF/timeout failures keep the `< 2` budget and the
 			// zero-delay retry VERBATIM. The two counters never consume each
 			// other's budget; both reset on success below.
-			if isTransientLLMError(err) {
+			// Story 73.5 / D5: gate errors never enter the transient / LLM
+			// classification — the write never reached the driver and a retry
+			// would re-queue on the same congested gate (pure waste). A
+			// ctx-cancel during the gate wait is already caught by the
+			// process-cancel check above (interrupted / suspend); only the
+			// timeout shape reaches here, and it falls straight through to
+			// the Write event + attemptFallback / terminal handling below.
+			var ge *gateError
+			if isTransientLLMError(err) && !errors.As(err, &ge) {
 				kind, isRateLimit := llm.RateLimitKindOf(err)
 				if isRateLimit {
 					// Story 73.3 / D5 fast path: terminal quota with NO

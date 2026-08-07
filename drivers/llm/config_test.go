@@ -997,3 +997,46 @@ providers:
 		t.Errorf("expected command %q, got %q", "cursor-agent", cfg.Providers[1].Command)
 	}
 }
+
+// Story 73.5 / T1 (AC3): ProviderConfig.MaxConcurrency field — YAML parse,
+// zero/absent equivalence, and the negative-value validation error.
+func TestProviderConfig_MaxConcurrency_ParseAndValidate(t *testing.T) {
+	t.Parallel()
+
+	// Field parses from providers.yaml; absent field = 0 = unset.
+	cfg, err := ParseProvidersConfig([]byte(`version: "1"
+providers:
+  - name: claude
+    driver: claude-cli
+    max_concurrency: 2
+  - name: cursor
+    driver: cursor-cli
+`))
+	if err != nil {
+		t.Fatalf("unexpected parse error: %v", err)
+	}
+	if cfg.Providers[0].MaxConcurrency != 2 {
+		t.Errorf("claude MaxConcurrency = %d, want 2", cfg.Providers[0].MaxConcurrency)
+	}
+	if cfg.Providers[1].MaxConcurrency != 0 {
+		t.Errorf("cursor MaxConcurrency = %d, want 0 (absent field = unset)", cfg.Providers[1].MaxConcurrency)
+	}
+
+	// Explicit zero is legal and equivalent to absent (0 = unset → default).
+	if err := (&ProvidersConfig{Version: "1", Providers: []ProviderConfig{
+		{Name: "claude", Driver: DriverClaudeCLI, MaxConcurrency: 0},
+	}}).Validate(); err != nil {
+		t.Errorf("MaxConcurrency=0 must validate cleanly, got: %v", err)
+	}
+
+	// Negative is meaningless and rejected.
+	err = (&ProvidersConfig{Version: "1", Providers: []ProviderConfig{
+		{Name: "claude", Driver: DriverClaudeCLI, MaxConcurrency: -1},
+	}}).Validate()
+	if err == nil {
+		t.Fatal("MaxConcurrency=-1 must be rejected, got nil error")
+	}
+	if !strings.Contains(err.Error(), "max_concurrency") {
+		t.Errorf("negative error should mention max_concurrency, got: %v", err)
+	}
+}
