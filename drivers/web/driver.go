@@ -5,12 +5,13 @@ import (
 	"context"
 	"crypto/tls"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log"
 	"net/http"
-	"os"
 	"net/url"
+	"os"
 	"strings"
 	"sync"
 	"time"
@@ -329,7 +330,18 @@ func (d *WebDriver) fetch(ctx context.Context, rawURL, prompt string) (string, e
 	}
 
 	if resp.StatusCode < 200 || resp.StatusCode >= 400 {
-		return "", fmt.Errorf("HTTP %d: %s", resp.StatusCode, resp.Status)
+		// Story 76.1: classify the upstream status instead of flattening every
+		// non-2xx into the DRIVER bucket — a 404 is informational (the agent
+		// should try another URL), not a driver failure. WebFile.Write's
+		// pass-through branch preserves the code for the kernel breaker.
+		// The message keeps the "HTTP %d" shape (status code included) so
+		// existing consumers matching on the status survive.
+		return "", &types.DriverError{
+			Op:     "Fetch",
+			Device: "/dev/web",
+			Err:    fmt.Errorf("HTTP %d: %s", resp.StatusCode, resp.Status),
+			Code:   classifyStatus(resp.StatusCode),
+		}
 	}
 
 	body, err := io.ReadAll(io.LimitReader(resp.Body, int64(maxResultChars*4)))
@@ -472,7 +484,12 @@ func (f *WebFile) Write(ctx context.Context, data []byte) error {
 	if err != nil {
 		// Preserve typed *types.DriverError values produced by the backend so
 		// callers see the exact ErrCode (Permission / ServiceUnavailable /...).
-		if drvErr, ok := err.(*types.DriverError); ok {
+		// errors.As rather than a bare type assertion: the whole story 76.1
+		// chain (classifyStatus -> ErrCode -> breaker exemption) collapses back
+		// to ErrDriver the moment any layer wraps with %w, and searxng.go's
+		// wrapBackendError already has that shape.
+		var drvErr *types.DriverError
+		if errors.As(err, &drvErr) {
 			return drvErr
 		}
 		return &types.DriverError{Op: "Write", Device: f.devicePath, Err: err, Code: types.ErrDriver}

@@ -64,7 +64,11 @@ func (s *searxngBackend) Search(ctx context.Context, params SearchParams) ([]Sea
 	}
 	defer resp.Body.Close()
 
-	if resp.StatusCode != http.StatusOK {
+	// Success window matches the exa/tavily backends (any 2xx) rather than
+	// "200 only": a 204 No Content (no search results) or a 202 Accepted is
+	// not a failure, and routing it through classifyStatus would land it in
+	// the ErrDriver default bucket and feed the circuit breaker.
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		body, _ := io.ReadAll(io.LimitReader(resp.Body, 4<<10))
 		return nil, classifyHTTPError("searxng", resp.StatusCode, body)
 	}

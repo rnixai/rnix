@@ -10,6 +10,7 @@ import (
 	"time"
 
 	rnixctx "github.com/rnixai/rnix/context"
+	"github.com/rnixai/rnix/internal/types"
 	"github.com/rnixai/rnix/skills"
 	"github.com/rnixai/rnix/vfs"
 )
@@ -313,7 +314,10 @@ func TestUnified_Spawn_CreatesChildAndWaitsResult(t *testing.T) {
 func TestUnified_CircuitBreaker_ThreeConsecutiveErrors(t *testing.T) {
 	// spec-tool-error-handling-fidelity: circuit_breaker now uses (errCode, toolPath)
 	// fingerprint deduplication. 3 consecutive same-fingerprint errors (here:
-	// PERMISSION | /dev/nonexistent) trip the breaker.
+	// DRIVER | /dev/nonexistent — the device exists but its open fails) trip the
+	// breaker. The feed MUST be a non-exempt class: an unregistered path would
+	// open-fail with ErrNotFound and an unknown tool would bump PERMISSION, both
+	// of which story 76.1 (D1/D2) exempts from the breaker entirely.
 	reg := vfs.NewDeviceRegistry()
 	seqFile := &sequenceLLMFile{
 		responses: [][]byte{
@@ -324,6 +328,14 @@ func TestUnified_CircuitBreaker_ThreeConsecutiveErrors(t *testing.T) {
 	}
 	_ = reg.Register("/dev/llm/claude", func(_ string, _ vfs.OpenFlag, _ string) (vfs.VFSFile, error) {
 		return seqFile, nil
+	})
+	registerMockTool(reg, "/dev/nonexistent", func(_ string, _ vfs.OpenFlag, _ string) (vfs.VFSFile, error) {
+		return nil, &types.DriverError{
+			Op:     "Open",
+			Device: "/dev/nonexistent",
+			Err:    fmt.Errorf("driver exploded"),
+			Code:   types.ErrDriver,
+		}
 	})
 
 	v := vfs.NewVFS(reg)

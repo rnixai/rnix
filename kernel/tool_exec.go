@@ -42,6 +42,46 @@ const TotalToolErrorThreshold = 6
 // low limit through the other channel and defeat this exemption.
 const TimeoutErrorThreshold = 8
 
+// 类豁免表（story 76.1，裁决点 D1/D2 定案；epic 验收要求：注释与实际行为一致）：
+//
+//   - ErrNotFound / ErrPermission — 信息性错误类：**不计入 streak，也不计入累计
+//     total**（D2：只免 streak 不免 total = 低阈值从累计通道重新施加，豁免形同
+//     虚设；4f4ddc2 教训）。上游已经「回答」了请求（资源不存在 / 请求不被允许），
+//     代理的正确应对是改变策略（换 URL、改路径、走本地证据），而不是死掉。wicket
+//     事故（proc-info 019fda02-7b77-726f-8edf-aae3e17dc8c3：3 个真实上游 404 →
+//     "circuit_breaker: 3 consecutive errors with fingerprint DRIVER|/dev/web"）
+//     即此例。实现位置：bumpToolError 入口早退（在 seen 去重与 bump 之前）。
+//
+//     ⚠️ 豁免按错误码全局生效，**不限 /dev/web**——爆炸半径远大于 wicket 场景。
+//     实测产出点（2026-08-07 全仓核实）：
+//       NOT_FOUND — hostfs.go:351（Edit 的 old_string 匹配不上，这是典型**工具
+//         误用**，正是熔断器本要拦的行为）、hostfs.go:889/933、mcp/http_transport
+//         .go:251（404 无活跃 session = URL 配错，永久性故障）、intent/driver.go
+//         :185/320/414、tasks/driver.go:295/338、cron/driver.go:281
+//       PERMISSION — hostfs.go:275（只读模式）/421/571/804/935（沙箱 EACCES）、
+//         shell/shell.go:163、lsp/driver.go:248、tool_exec.go:337（unknown-tool
+//         幻觉，toolPath = 工具名）
+//     即上述路径全部失去 3 连杀保护。兜底是 Story 70.1 循环检测器 + --max-steps
+//     / MaxTokens / MaxCost / StepTimeout，但**兜底并非处处可达**：循环检测器两
+//     条轨道的 hash 都含 toolPath 且以 result 重复为必要条件，故 ①每步幻觉不同
+//     工具名时两轨均不匹配 ②错误消息含 request-id/timestamp 时 result hash 每步
+//     不同（drivers/web 的 search 路径把 256B 响应体拼进消息，正中此列）。收窄
+//     豁免面（按 errCode+toolPath 二元判据）已登记 deferred-work。
+//   - 🔴 ErrServiceUnavailable 绝不入豁免表 — 它是 epic-73 的 429 处置链路的
+//     分类输入，豁免会架空虚置 73 的成果（epic 范围外红线）。
+//   - 🔴 denied-device / AllowedTools 拒绝（executeVFSTool 内的三处）返回纯
+//     `fmt.Errorf` → extractErrCode 归 INTERNAL → **不豁免，保持 3 连杀**。这是
+//     D1 裁决刻意保留的强制力属性，不是疏漏：它与 unknown-tool 的 PERMISSION
+//     豁免形成不对称，改动前请回读本条与 story 76.1 的 D3 裁决。
+//
+//   - 豁免步骤重置 streak（fp="" / count=0）但不衰减 total——后者只由
+//     recordSuccess 衰减，豁免错误不是成功，不应提供衰减。冻结的 total 不会
+//     误归因（"累计 N 次"本身属实），而重置后的 fp 不会再在豁免探索后被误报为
+//     "consecutive" trip。
+func isInformationalErrCode(errCode string) bool {
+	return errCode == string(types.ErrNotFound) || errCode == string(types.ErrPermission)
+}
+
 // errFingerprintCounter tracks consecutive tool errors by fingerprint (errorCode|toolPath).
 // When a new fingerprint appears, count resets to 1. Same fingerprint increments count.
 // The total field accumulates across all fingerprints and decays by 1 on each
@@ -137,6 +177,10 @@ func extractErrCode(err error) string {
 // The streak threshold is class-dependent (see TimeoutErrorThreshold), so the
 // fingerprint is read off the counter rather than compared against a fixed 3 —
 // otherwise a timeout trip at 8 would be misattributed to the cumulative breaker.
+// Informational classes (see 类豁免表) never reach here: bumpToolError exempts
+// them after resetting the per-fingerprint streak so a stale fingerprint from a
+// prior non-exempt error cannot resurface hundreds of steps later as a misattributed
+// "consecutive" trip.
 func circuitBreakerReason(counter *errFingerprintCounter) string {
 	streakLimit := 3
 	if strings.HasPrefix(counter.fp, string(types.ErrTimeout)+"|") {
@@ -154,6 +198,31 @@ func circuitBreakerReason(counter *errFingerprintCounter) string {
 // everything else) OR cumulative total errors >= TotalToolErrorThreshold.
 // Cancellation errors are filtered upstream and never reach here.
 func bumpToolError(counter *errFingerprintCounter, seen map[string]bool, errCode, toolPath string) (int, bool) {
+	// Informational classes (story 76.1 D1/D2, see 类豁免表) never enter the
+	// counter at all — no streak bump, no total bump, no per-step dedup entry.
+	// An agent handling an upstream 404 by switching URLs must survive the third
+	// attempt; the wicket incident (3x DRIVER|/dev/web on real 404s) is the
+	// proof of why. Class exemption happens here — before seen/bump — so manual
+	// and resume paths that bypass autoCompact-style gates inherit it for free.
+	//
+	// 🔴 The streak MUST be reset, not merely skipped. Leaving fp/count frozen
+	// makes an exempt error the one state that neither advances nor clears the
+	// counter (recordSuccess clears it; a non-exempt error advances it), so a
+	// stale streak survives an unbounded run of exempt steps and then trips:
+	// 2x DRIVER + 500x NOT_FOUND + 1x DRIVER reported "3 consecutive errors
+	// with fingerprint DRIVER|/dev/web" — three errors 502 steps apart. That
+	// inverts the story's intent, killing the very 404-exploration agent 76.1
+	// exists to keep alive, and lies about the cause of death.
+	//
+	// `total` is deliberately NOT decayed here: it counts cumulative non-exempt
+	// errors across fingerprints, and an exempt step is neither a failure to add
+	// nor a success to decay against (recordSuccess owns decay). Freezing total
+	// keeps "N cumulative tool errors" a true statement — those N really happened.
+	if isInformationalErrCode(errCode) {
+		counter.fp = ""
+		counter.count = 0
+		return 0, false
+	}
 	fp := errCode + "|" + toolPath
 	if seen[fp] {
 		return counter.count, false

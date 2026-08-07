@@ -13,6 +13,7 @@ import (
 	gocontext "context"
 
 	rnixctx "github.com/rnixai/rnix/context"
+	"github.com/rnixai/rnix/internal/types"
 	"github.com/rnixai/rnix/skills"
 	"github.com/rnixai/rnix/vfs"
 )
@@ -38,7 +39,10 @@ import (
 //   所有 synergy/reputation 数据必须来自 finishProcess 自然写入，禁止预填。
 // ======================================================================
 
-// --- failingLLMFile502: 每次 Read 返回 unknown tool_call, 触发 circuit breaker → exit 1 ---
+// --- failingLLMFile502: 每次 Read 返回对失败设备的 tool_call → 3 连 DRIVER 错误
+// 触发 circuit breaker → finishProcess(exit 1) → 失败被 finishProcess 自然写入
+// reputation/synergy。⚠️ 失败必须由 DRIVER 类驱动：story 76.1 (D1/D2) 后 unknown
+// tool 的 PERMISSION 指纹是信息性豁免类，不再 trip breaker，无法再作为失败喂料 ---
 
 type failingLLMFile502 struct {
 	mu     sync.Mutex
@@ -52,7 +56,7 @@ func newFailingLLMFile502() *failingLLMFile502 {
 func (f *failingLLMFile502) Read(_ int) ([]byte, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	return makeToolCallResponse("nonexistent_tool_502", map[string]any{"input": "trigger_failure"}, 10), nil
+	return makeToolCallResponse("/dev/tools/failing502", map[string]any{"input": "trigger_failure"}, 10), nil
 }
 
 func (f *failingLLMFile502) Write(_ gocontext.Context, _ []byte) error { return nil }
@@ -116,6 +120,18 @@ func newFeedbackLoopKernel(t *testing.T, discoverFn func() ([]skills.SkillInfo, 
 			return newCompleteLLMFile502(), nil
 		}
 		return newFailingLLMFile502(), nil
+	})
+	// The failure device: opens fail with a DRIVER-class error so the circuit
+	// breaker (3 consecutive DRIVER|/dev/tools/failing502) trips and finishProcess
+	// records the failure into reputation/synergy. An unknown tool would produce
+	// PERMISSION, which story 76.1 (D1/D2) exempts from the breaker entirely.
+	registerMockTool(reg, "/dev/tools/failing502", func(_ string, _ vfs.OpenFlag, _ string) (vfs.VFSFile, error) {
+		return nil, &types.DriverError{
+			Op:     "Open",
+			Device: "/dev/tools/failing502",
+			Err:    fmt.Errorf("simulated driver failure"),
+			Code:   types.ErrDriver,
+		}
 	})
 	v := vfs.NewVFS(reg)
 	ctxMgr := rnixctx.NewManager()

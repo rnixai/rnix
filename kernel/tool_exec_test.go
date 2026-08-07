@@ -615,7 +615,9 @@ func TestErrFingerprintCounter_SameFingerprintTripsAt3(t *testing.T) {
 func TestErrFingerprintCounter_DifferentFingerprintsDoNotTrip(t *testing.T) {
 	var c errFingerprintCounter
 	// 3 different fingerprints across 3 steps — each switches the counter back to 1.
-	codes := []string{"IS_DIRECTORY", "NOT_FOUND", "PERMISSION"}
+	// NOT_FOUND/PERMISSION are exempt from counting entirely since story 76.1
+	// (D1/D2), so they can no longer serve as fingerprint-switching feed.
+	codes := []string{"IS_DIRECTORY", "INVALID", "DRIVER"}
 	for i, code := range codes {
 		seen := map[string]bool{}
 		n, tripped := bumpToolError(&c, seen, code, "/dev/fs")
@@ -664,8 +666,10 @@ func TestErrFingerprintCounter_SameDeviceDifferentInputPathStillSameFingerprint(
 func TestErrFingerprintCounter_SuccessClearsConsecutive(t *testing.T) {
 	var c errFingerprintCounter
 	seen := map[string]bool{}
-	bumpToolError(&c, seen, "NOT_FOUND", "/dev/fs")
-	bumpToolError(&c, map[string]bool{}, "NOT_FOUND", "/dev/fs")
+	// IS_DIRECTORY stands in for a non-exempt code: NOT_FOUND/PERMISSION have
+	// been exempt from counting since story 76.1 and can no longer build a streak.
+	bumpToolError(&c, seen, "IS_DIRECTORY", "/dev/fs")
+	bumpToolError(&c, map[string]bool{}, "IS_DIRECTORY", "/dev/fs")
 	if c.count != 2 {
 		t.Fatalf("setup: got count=%d, want 2", c.count)
 	}
@@ -679,7 +683,7 @@ func TestErrFingerprintCounter_SuccessClearsConsecutive(t *testing.T) {
 		t.Fatalf("after recordSuccess: total=%d, want 1 (decayed by 1, not zeroed)", c.total)
 	}
 	// Bump after success starts a fresh consecutive count.
-	if n, _ := bumpToolError(&c, map[string]bool{}, "NOT_FOUND", "/dev/fs"); n != 1 {
+	if n, _ := bumpToolError(&c, map[string]bool{}, "IS_DIRECTORY", "/dev/fs"); n != 1 {
 		t.Fatalf("after recordSuccess, new bump count=%d, want 1", n)
 	}
 }
@@ -689,7 +693,9 @@ func TestErrFingerprintCounter_TotalTripsAcrossFingerprints(t *testing.T) {
 	// Every code here must be one that feeds the cumulative counter. TIMEOUT is
 	// deliberately excluded from `total` (see TimeoutErrorThreshold) and would
 	// leave the run one short of the trip, so INVALID stands in for it.
-	codes := []string{"IS_DIRECTORY", "NOT_FOUND", "PERMISSION", "INVALID", "DRIVER", "INTERNAL"}
+	// NOT_FOUND/PERMISSION are exempt from counting entirely since story 76.1
+	// (D1/D2) and can no longer feed the cumulative channel.
+	codes := []string{"IS_DIRECTORY", "INVALID", "DRIVER", "INTERNAL", "ERR_a", "ERR_b"}
 	for i, code := range codes {
 		seen := map[string]bool{}
 		_, tripped := bumpToolError(&c, seen, code, "/dev/fs")
@@ -737,8 +743,140 @@ func TestErrFingerprintCounter_TimeoutExcludedFromTotal(t *testing.T) {
 		t.Fatalf("timeouts leaked into cumulative total: got %d, want 0", c.total)
 	}
 	// A single unrelated failure therefore still starts from a clean slate.
+	// NOT_FOUND is exempt since story 76.1 (informational class) — the
+	// assertion's semantics moved from "not counted" to "exempt, never counted".
 	if _, tripped := bumpToolError(&c, map[string]bool{}, "NOT_FOUND", "/dev/fs"); tripped {
 		t.Fatal("unrelated error tripped the cumulative breaker on timeout-only history")
+	}
+}
+
+// Story 76.1 (D1/D2): informational classes (NOT_FOUND / PERMISSION) never
+// enter the breaker — no streak, no total — so an agent handling upstream 404s
+// by switching URLs survives the third attempt (wicket incident regression).
+func TestErrFingerprintCounter_InformationalCodesExemptFromStreakAndTotal(t *testing.T) {
+	cases := []struct {
+		name string
+		code string
+	}{
+		{"NOT_FOUND", "NOT_FOUND"},
+		{"PERMISSION", "PERMISSION"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			var c errFingerprintCounter
+			for step := 1; step <= 3; step++ {
+				n, tripped := bumpToolError(&c, map[string]bool{}, tc.code, "/dev/web")
+				if tripped || n != 0 {
+					t.Fatalf("step %d: got count=%d tripped=%v, want 0/false", step, n, tripped)
+				}
+			}
+			if c.count != 0 || c.total != 0 {
+				t.Fatalf("counter count=%d total=%d, want 0/0 (informational classes must not count)", c.count, c.total)
+			}
+		})
+	}
+}
+
+// D2: exempting only the streak would re-impose the trip through the cumulative
+// channel at TotalToolErrorThreshold — the 4f4ddc2 lesson. Informational errors
+// must not accumulate into `total` either.
+func TestErrFingerprintCounter_InformationalNotFoundExcludedFromTotal(t *testing.T) {
+	var c errFingerprintCounter
+	for range TotalToolErrorThreshold + 4 {
+		if n, tripped := bumpToolError(&c, map[string]bool{}, "NOT_FOUND", "/dev/web"); tripped || n != 0 {
+			t.Fatalf("got count=%d tripped=%v, want 0/false", n, tripped)
+		}
+	}
+	if c.total != 0 {
+		t.Fatalf("NOT_FOUND leaked into cumulative total: got %d, want 0", c.total)
+	}
+}
+
+// AC4: a real driver failure (DRIVER) keeps the 3-strike protection, and the
+// trip is attributed to the streak breaker.
+func TestErrFingerprintCounter_DriverStreakStillTripsAt3(t *testing.T) {
+	var c errFingerprintCounter
+	for step := 1; step <= 3; step++ {
+		n, tripped := bumpToolError(&c, map[string]bool{}, "DRIVER", "/dev/web")
+		if step < 3 && tripped {
+			t.Fatalf("step %d: tripped early at count=%d", step, n)
+		}
+		if step == 3 && !tripped {
+			t.Fatal("step 3: DRIVER must still trip at 3 (AC4)")
+		}
+	}
+	if reason := circuitBreakerReason(&c); !strings.Contains(reason, "consecutive") {
+		t.Fatalf("reason %q should be attributed to the streak breaker", reason)
+	}
+}
+
+// epic-73 red line: SERVICE_UNAVAILABLE is NOT in the exemption table — it is
+// the classification input of the 429 disposition chain, and exempting it would
+// nullify that work.
+func TestErrFingerprintCounter_ServiceUnavailableStillTrips(t *testing.T) {
+	var c errFingerprintCounter
+	for step := 1; step <= 3; step++ {
+		n, tripped := bumpToolError(&c, map[string]bool{}, "SERVICE_UNAVAILABLE", "/dev/web")
+		if step < 3 && tripped {
+			t.Fatalf("step %d: tripped early at count=%d", step, n)
+		}
+		if step == 3 && !tripped {
+			t.Fatal("step 3: SERVICE_UNAVAILABLE must still trip (epic-73 boundary)")
+		}
+	}
+}
+
+// Regression guard for the story 76.1 review finding F1: an exempt error must
+// RESET the per-fingerprint streak, not freeze it. Freezing let a stale streak
+// survive an unbounded run of exempt steps and then trip, reporting errors that
+// were hundreds of steps apart as "consecutive".
+func TestErrFingerprintCounter_ExemptResetsStreak(t *testing.T) {
+	var c errFingerprintCounter
+
+	for range 2 {
+		bumpToolError(&c, map[string]bool{}, "DRIVER", "/dev/web")
+	}
+	if c.count != 2 {
+		t.Fatalf("setup: count = %d, want 2", c.count)
+	}
+
+	// A single exempt step must clear the streak.
+	if _, tripped := bumpToolError(&c, map[string]bool{}, "NOT_FOUND", "/dev/web"); tripped {
+		t.Fatal("exempt error must never trip")
+	}
+	if c.count != 0 || c.fp != "" {
+		t.Fatalf("exempt error froze the streak: count=%d fp=%q, want 0 and \"\"", c.count, c.fp)
+	}
+
+	// total is deliberately preserved — those 2 errors really happened.
+	if c.total != 2 {
+		t.Fatalf("total = %d, want 2 (exempt steps must not decay total)", c.total)
+	}
+
+	// The interleaved sequence that used to produce a false "3 consecutive"
+	// report must now need three genuinely consecutive DRIVER errors.
+	for range 500 {
+		bumpToolError(&c, map[string]bool{}, "NOT_FOUND", "/dev/web")
+	}
+	n, tripped := bumpToolError(&c, map[string]bool{}, "DRIVER", "/dev/web")
+	if tripped {
+		t.Fatalf("tripped on the 1st DRIVER after exempt run (count=%d): stale streak resurfaced", n)
+	}
+	if n != 1 {
+		t.Fatalf("count after exempt run = %d, want 1 (fresh streak)", n)
+	}
+}
+
+func TestErrFingerprintCounter_ResourceExhaustedStillTrips(t *testing.T) {
+	var c errFingerprintCounter
+	for step := 1; step <= 3; step++ {
+		n, tripped := bumpToolError(&c, map[string]bool{}, "RESOURCE_EXHAUSTED", "/dev/llm/claude")
+		if step < 3 && tripped {
+			t.Fatalf("step %d: tripped early at count=%d", step, n)
+		}
+		if step == 3 && !tripped {
+			t.Fatal("step 3: RESOURCE_EXHAUSTED must still trip (epic-73 red line)")
+		}
 	}
 }
 

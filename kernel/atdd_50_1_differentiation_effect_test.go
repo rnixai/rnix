@@ -54,6 +54,30 @@ func (f *completeLLMFile501) Stat() (vfs.FileStat, error) {
 
 func (f *completeLLMFile501) SupportsToolCalling() bool { return true }
 
+// deniedLoopLLM501 keeps returning the same denied /dev/fs tool call forever.
+// Since story 76.1 (D1/D2) PERMISSION is informational-exempt, the circuit
+// breaker no longer kills this loop at 3 — the Story 70.1 loop detector is the
+// backstop: same action + same tool + same input + same result repeats until
+// the 2N suspend line, which suspends the process with a non-zero exit.
+type deniedLoopLLM501 struct {
+	mu sync.Mutex
+}
+
+func (f *deniedLoopLLM501) Read(_ int) ([]byte, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return makeToolCallResponse("/dev/fs", map[string]any{"path": "/test.go"}, 10), nil
+}
+
+func (f *deniedLoopLLM501) Write(_ gocontext.Context, _ []byte) error { return nil }
+func (f *deniedLoopLLM501) Close() error                              { return nil }
+
+func (f *deniedLoopLLM501) Stat() (vfs.FileStat, error) {
+	return vfs.FileStat{IsDevice: true, Name: "/dev/llm/claude"}, nil
+}
+
+func (f *deniedLoopLLM501) SupportsToolCalling() bool { return true }
+
 // waitProc501 waits for a process to complete with a timeout.
 func waitProc501(t *testing.T, proc *Process, timeout time.Duration) ExitStatus {
 	t.Helper()
@@ -193,25 +217,20 @@ func TestATDD_50_1_DifferentiatedAgent_ToolCallSucceeds(t *testing.T) {
 
 func TestATDD_50_1_RestrictedAgent_ToolCallRejected(t *testing.T) {
 	// Restricted agent has AllowedDevices=["/dev/shell"] (NO /dev/fs).
-	// LLM returns tool_call for /dev/fs → permission denied → 3 consecutive
-	// errors with same fingerprint → circuit breaker trips → exit code 1.
-	seqFile := &sequenceLLMFile{
-		responses: [][]byte{
-			makeToolCallResponse("/dev/fs", map[string]any{"path": "/test.go"}, 10),
-			makeToolCallResponse("/dev/fs", map[string]any{"path": "/test.go"}, 10),
-			makeToolCallResponse("/dev/fs", map[string]any{"path": "/test.go"}, 10),
-			makeCompleteResponse("should not reach", 5),
-		},
-	}
-
-	mockFS := &mockToolFile{readData: []byte("file content")}
+	// LLM keeps returning a tool_call for /dev/fs → unknown-tool rejection
+	// (PERMISSION fingerprint). Since story 76.1 (D1/D2), PERMISSION is an
+	// informational-exempt class: the circuit breaker no longer trips on it —
+	// the Story 70.1 loop detector backstop suspends the process at 2N steps
+	// (exit non-zero) instead, preserving the restricted agent's failure
+	// outcome through the new enforcement mechanism.
+	deniedLLM := &deniedLoopLLM501{}
 
 	reg := vfs.NewDeviceRegistry()
 	_ = reg.Register("/dev/llm/claude", func(_ string, _ vfs.OpenFlag, _ string) (vfs.VFSFile, error) {
-		return seqFile, nil
+		return deniedLLM, nil
 	})
 	registerMockTool(reg, "/dev/fs", func(_ string, _ vfs.OpenFlag, _ string) (vfs.VFSFile, error) {
-		return mockFS, nil
+		return &mockToolFile{readData: []byte("file content")}, nil
 	})
 	v := vfs.NewVFS(reg)
 	ctxMgr := rnixctx.NewManager()
@@ -233,10 +252,10 @@ func TestATDD_50_1_RestrictedAgent_ToolCallRejected(t *testing.T) {
 
 	exit := waitProc501(t, proc, 5*time.Second)
 
-	// Result-level assertion: without /dev/fs access, tool_call is rejected
-	// and circuit breaker triggers exit code 1.
+	// Result-level assertion: without /dev/fs access, tool_call is rejected;
+	// the loop detector (70.1) suspends the repeating agent → exit non-zero.
 	if exit.Code == 0 {
-		t.Errorf("restricted agent exit code = 0, want non-zero (circuit breaker should trip)")
+		t.Errorf("restricted agent exit code = 0, want non-zero (loop-detector backstop for PERMISSION-exempt errors)")
 	}
 }
 
@@ -485,26 +504,19 @@ func TestATDD_50_1_E2E_DifferentiatedAgent_ExitSuccess(t *testing.T) {
 
 func TestATDD_50_1_E2E_RestrictedAgent_ExitFailure(t *testing.T) {
 	// Restricted agent: AllowedDevices=["/dev/shell"], tool_call to /dev/fs
-	// is rejected 3 times → circuit breaker → exit code != 0.
+	// rejected repeatedly → non-zero exit.
 	// This is the MOST DIRECT result-level effect indicator: differentiation
 	// improves task completion rate.
-	seqFile := &sequenceLLMFile{
-		responses: [][]byte{
-			makeToolCallResponse("/dev/fs", map[string]any{"path": "/main.go"}, 10),
-			makeToolCallResponse("/dev/fs", map[string]any{"path": "/main.go"}, 10),
-			makeToolCallResponse("/dev/fs", map[string]any{"path": "/main.go"}, 10),
-			makeCompleteResponse("should not reach", 5),
-		},
-	}
-
-	mockFS := &mockToolFile{readData: []byte("file content")}
+	// Since story 76.1 (D1/D2) PERMISSION is exempt from the circuit breaker,
+	// the failure is enforced by the Story 70.1 loop detector (suspend at 2N).
+	deniedLLM := &deniedLoopLLM501{}
 
 	reg := vfs.NewDeviceRegistry()
 	_ = reg.Register("/dev/llm/claude", func(_ string, _ vfs.OpenFlag, _ string) (vfs.VFSFile, error) {
-		return seqFile, nil
+		return deniedLLM, nil
 	})
 	registerMockTool(reg, "/dev/fs", func(_ string, _ vfs.OpenFlag, _ string) (vfs.VFSFile, error) {
-		return mockFS, nil
+		return &mockToolFile{readData: []byte("file content")}, nil
 	})
 	v := vfs.NewVFS(reg)
 	ctxMgr := rnixctx.NewManager()
@@ -528,7 +540,7 @@ func TestATDD_50_1_E2E_RestrictedAgent_ExitFailure(t *testing.T) {
 
 	// Result-level: restricted agent fails because it lacks /dev/fs access
 	if exit.Code == 0 {
-		t.Errorf("restricted agent exit code = 0, want non-zero (circuit breaker)")
+		t.Errorf("restricted agent exit code = 0, want non-zero (loop-detector backstop)")
 	}
 
 	// Verify the agent did NOT have /dev/fs in its AllowedDevices

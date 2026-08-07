@@ -3,6 +3,7 @@ package web
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -10,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/rnixai/rnix/internal/types"
 	"github.com/rnixai/rnix/vfs"
 )
 
@@ -338,6 +340,15 @@ func TestWebFile_Fetch_HTTPError(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "404") {
 		t.Errorf("expected 404 in error, got: %v", err)
+	}
+	// Story 76.1 AC1: a 404 is informational — the code must be NOT_FOUND, not
+	// the DRIVER default bucket that the wicket incident's breaker saw.
+	var de *types.DriverError
+	if !errors.As(err, &de) {
+		t.Fatalf("expected *types.DriverError, got %T", err)
+	}
+	if de.Code != types.ErrNotFound {
+		t.Errorf("expected ErrNotFound for 404, got %v", de.Code)
 	}
 }
 
