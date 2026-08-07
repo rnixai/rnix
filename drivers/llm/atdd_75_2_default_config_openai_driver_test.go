@@ -7,8 +7,8 @@ import (
 	"github.com/goccy/go-yaml"
 )
 
-// Story 75.2: 内置默认配置 deepseek provider 已从 openai-compat 迁移到统一
-// openai driver（75.3 删除 openai-compat 的前置）。E2E 链路：
+// Story 75.2: 内置默认配置 deepseek provider 已从 compat 迁移到统一
+// openai driver（75.3 删除 compat driver 的前置）。E2E 链路：
 // DefaultProvidersConfig → YAML round-trip → ParseProvidersConfig/Validate
 // → CreateDriverWithEnv → RegisterProviders。
 
@@ -31,7 +31,7 @@ func TestATDD_75_2_DefaultConfig_DeepseekUsesOpenAIDriver(t *testing.T) {
 		t.Fatal("default config has no deepseek provider")
 	}
 	if deepseek.Driver != DriverOpenAI {
-		t.Errorf("deepseek.Driver = %q, want %q (openai-compat migration)", deepseek.Driver, DriverOpenAI)
+		t.Errorf("deepseek.Driver = %q, want %q (75.2 migration)", deepseek.Driver, DriverOpenAI)
 	}
 	// 其余字段在 75.2 不得变动（AC1）。
 	if deepseek.BaseURL != "https://api.deepseek.com/v1" {
@@ -73,7 +73,7 @@ func TestATDD_75_2_DefaultConfig_RoundTripKeepsOpenAIDriver(t *testing.T) {
 func TestATDD_75_2_DefaultConfig_ValidatePasses(t *testing.T) {
 	t.Parallel()
 	// DriverOpenAI 无 base_url 必填要求；内置默认配置本身必须可校验通过
-	// （openai-compat 迁移后不能破坏开箱即用）。
+	// （75.2 迁移后不能破坏开箱即用）。
 	if err := DefaultProvidersConfig().Validate(); err != nil {
 		t.Errorf("DefaultProvidersConfig().Validate() = %v, want nil", err)
 	}
@@ -101,7 +101,7 @@ func TestATDD_75_2_Factory_CreatesOpenAIDriverForDeepseek(t *testing.T) {
 	}
 	oai, ok := drv.(*OpenAIDriver)
 	if !ok {
-		t.Fatalf("driver type = %T, want *OpenAIDriver (75.2 迁移后不得再是 *OpenAICompatDriver)", drv)
+		t.Fatalf("driver type = %T, want *OpenAIDriver (75.3 删除 compat 后 deepseek 必须由 openai driver 服务)", drv)
 	}
 	info := oai.Info()
 	if info.DriverType != DriverOpenAI {
@@ -131,9 +131,6 @@ func TestATDD_75_2_RegisterProviders_DeepseekIsOpenAI(t *testing.T) {
 	if !ok {
 		t.Fatal("deepseek not in driver registry")
 	}
-	if _, isCompat := drv.(*OpenAICompatDriver); isCompat {
-		t.Error("deepseek registered as *OpenAICompatDriver, want *OpenAIDriver after 75.2 migration")
-	}
 	if _, isOpenAI := drv.(*OpenAIDriver); !isOpenAI {
 		t.Errorf("deepseek registered driver type = %T, want *OpenAIDriver", drv)
 	}
@@ -142,7 +139,7 @@ func TestATDD_75_2_RegisterProviders_DeepseekIsOpenAI(t *testing.T) {
 func TestATDD_75_2_OpenAIDriverNoBaseURLRequired(t *testing.T) {
 	t.Parallel()
 	// 迁移后的默认语义：openai driver 允许缺 base_url（官方端点），
-	// 与 openai-compat 的必填校验相反 —— 这是 75.3 删除 compat 前的关键差异。
+	// 与 compat 的必填校验相反 —— 这是 75.3 删除 compat driver 前的关键差异。
 	cfg := ProvidersConfig{
 		Version: "1",
 		Providers: []ProviderConfig{
@@ -163,7 +160,7 @@ func TestATDD_75_2_InvalidDriverStillRejected(t *testing.T) {
 	cfg := ProvidersConfig{
 		Version: "1",
 		Providers: []ProviderConfig{
-			{Name: "bad", Driver: "openai-compat-typo"},
+			{Name: "bad", Driver: "openai-typo"},
 		},
 	}
 	err := cfg.Validate()

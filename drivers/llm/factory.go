@@ -140,32 +140,6 @@ func CreateDriverWithEnv(cfg ProviderConfig, envLookup func(string) string) (LLM
 		}
 		return NewCodexCliDriver(opts...), nil
 
-	case DriverOpenAICompat:
-		var opts []CompatOption
-		if cfg.DefaultModel != "" {
-			opts = append(opts, WithCompatModel(cfg.DefaultModel))
-		}
-		if cfg.MaxTokens > 0 {
-			opts = append(opts, WithCompatMaxTokens(cfg.MaxTokens))
-		}
-		if cfg.APIKeyEnv != "" {
-			if key := envLookup(cfg.APIKeyEnv); key != "" {
-				opts = append(opts, WithAPIKey(key))
-			} else {
-				log.Printf("[llm] warning: provider %q: API key env var %s not set", cfg.Name, cfg.APIKeyEnv)
-			}
-		}
-		if cfg.TimeoutSec > 0 {
-			opts = append(opts, WithCompatTimeout(time.Duration(cfg.TimeoutSec)*time.Second))
-		}
-		if cfg.ThinkingBudget > 0 {
-			opts = append(opts, WithCompatThinkingBudget(cfg.ThinkingBudget))
-		}
-		if cfg.ReasoningEffort != "" {
-			opts = append(opts, WithCompatReasoningEffort(cfg.ReasoningEffort))
-		}
-		return NewOpenAICompatDriver(cfg.Name, cfg.BaseURL, opts...), nil
-
 	case DriverOpenAI:
 		var opts []OpenAIOption
 		if cfg.DefaultModel != "" {
@@ -176,25 +150,6 @@ func CreateDriverWithEnv(cfg ProviderConfig, envLookup func(string) string) (LLM
 		}
 		if cfg.BaseURL != "" {
 			opts = append(opts, WithOpenAIBaseURL(cfg.BaseURL))
-			// Endpoints that return reasoning (DeepSeek V4, GLM, Qwen-thinker,
-			// OpenRouter thinking) WORK on this driver — a 2026-08-04 probe
-			// confirmed deepseek-v4-flash returns 200 on multi-turn requests,
-			// including tool calls, with reasoning_content omitted. What breaks
-			// is not the request but the observability: convertCompletion only
-			// fills Content/ToolCalls, so LLMResponse.Reasoning stays empty, no
-			// "reasoning" stream events reach the dashboard, and the model loses
-			// sight of its own prior thinking. The same probe showed the SDK CAN
-			// carry the field (option.WithJSONSet to write,
-			// msg.JSON.ExtraFields to read, both streaming and not) — this
-			// driver simply does not yet do it. Until it does, use
-			// driver=openai-compat when the upstream emits reasoning.
-			if !isLikelyOpenAIOfficial(cfg.BaseURL) {
-				log.Printf("[llm] warning: provider %q: driver=openai with non-official BaseURL %q. "+
-					"If the upstream returns reasoning (DeepSeek/Qwen-thinker/GLM/OpenRouter thinking), "+
-					"this driver silently DROPS it — requests succeed but reasoning is lost. "+
-					"Use driver=openai-compat to retain it.",
-					cfg.Name, cfg.BaseURL)
-			}
 		}
 		if cfg.APIKeyEnv != "" {
 			if key := envLookup(cfg.APIKeyEnv); key != "" {
@@ -281,16 +236,6 @@ func CreateDriverWithEnv(cfg ProviderConfig, envLookup func(string) string) (LLM
 	default:
 		return nil, fmt.Errorf("unsupported driver type: %q", cfg.Driver)
 	}
-}
-
-// isLikelyOpenAIOfficial returns true when baseURL points at an OpenAI
-// official endpoint (api.openai.com or its known regional variants). This is
-// a best-effort heuristic used only to silence the openai_compat suggestion
-// warning — false negatives are acceptable (the warning is informational, not
-// an error) and false positives only suppress the warning.
-func isLikelyOpenAIOfficial(baseURL string) bool {
-	u := strings.ToLower(baseURL)
-	return strings.Contains(u, "api.openai.com") || strings.Contains(u, "openai.azure.com")
 }
 
 // RegisterProviders creates driver instances from config and registers them

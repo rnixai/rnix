@@ -90,8 +90,8 @@ func (k *KernelImpl) resolveDriverTimeout(proc *Process) time.Duration {
 		}
 	}
 	// ③ Driver family default. llm.DefaultTimeout is the shared 5-minute
-	//    default reused by all 8 drivers (claude-cli / cursor-cli / codex-cli /
-	//    qwen-cli / openai / openai-compat / anthropic / gemini); referencing
+	//    default reused by all 7 drivers (claude-cli / cursor-cli / codex-cli /
+	//    qwen-cli / openai / anthropic / gemini); referencing
 	//    it directly (rather than mirroring a second constant) lets kernel
 	// track driver-side drift automatically.
 	return llm.DefaultTimeout

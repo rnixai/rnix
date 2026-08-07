@@ -44,7 +44,6 @@ models:
 | Driver | 机制 | 已知取值 | 备注 |
 |--------|------|----------|------|
 | `openai` | API 参数 `reasoning_effort` | none/minimal/low/medium/high/**xhigh**（小写） | — |
-| `openai-compat` | 请求 body `reasoning_effort` | 同 OpenAI（DeepSeek V4 等原生接受） | 与 `thinking_budget` **正交可共存** |
 | `anthropic` | API 参数 `OutputConfig.Effort` | low/medium/high/max（小写） | 迁移目标；`thinking_budget` 保留为降级 |
 | `gemini` | API 参数 `ThinkingConfig.ThinkingLevel` | **MINIMAL/LOW/MEDIUM/HIGH（大写！）** | 与 `thinking_budget` **互斥** |
 | `claude-cli` | CLI flag `--effort <value>` | 透传 | 旧版 CLI 不识别会自行报错 |

@@ -24,7 +24,7 @@ import (
 )
 
 // driverTypeForProvider 返回 provider 名对应的 driver 类型字符串（"anthropic"
-// / "openai-compat" / "claude-cli" 等）。
+// / "openai" / "claude-cli" 等）。
 //
 // providers.yaml 未配置该 provider 时返回 ""，由调用方处理（dashboard 会走
 // fallback OpenAI 语义公式）。

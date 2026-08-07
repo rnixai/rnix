@@ -2,7 +2,6 @@ package llm
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
@@ -15,15 +14,15 @@ import (
 // ATDD Tests for Story 23.4: HTTP API Provider 的 API Key 管理
 //
 // Tests verify that CreateDriver reads api_key_env from environment variables
-// and passes them via WithAPIKey() to the OpenAICompatDriver.
+// and passes them via WithOpenAIKey() to the OpenAIDriver.
 // ============================================================================
 
-// --- AC #1: api_key_env 环境变量读取并通过 WithAPIKey() 传入驱动 ---
+// --- AC #1: api_key_env 环境变量读取并通过 WithOpenAIKey() 传入驱动 ---
 
 func TestATDD_23_4_AC1_CreateDriver_ReadsAPIKeyFromEnv(t *testing.T) {
 	// GIVEN: rnix-providers.yaml 中 provider 配置了 api_key_env: TEST_GROQ_KEY
 	// AND:   环境变量 TEST_GROQ_KEY 已设置为 "sk-test-groq-12345"
-	// WHEN:  创建 OpenAICompatDriver 实例
+	// WHEN:  创建 OpenAIDriver 实例
 	// THEN:  HTTP 请求包含 Authorization: Bearer sk-test-groq-12345
 
 	t.Setenv("TEST_GROQ_KEY", "sk-test-groq-12345")
@@ -32,16 +31,13 @@ func TestATDD_23_4_AC1_CreateDriver_ReadsAPIKeyFromEnv(t *testing.T) {
 	var gotAuth string
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		gotAuth = r.Header.Get("Authorization")
-		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(oaiResponse{
-			Choices: []oaiChoice{{Message: oaiMessage{Content: "ok"}}},
-		})
+		writeJSON(w, okCompletion)
 	}))
 	defer srv.Close()
 
 	d, err := CreateDriver(ProviderConfig{
 		Name:      "groq",
-		Driver:    DriverOpenAICompat,
+		Driver:    DriverOpenAI,
 		BaseURL:   srv.URL,
 		APIKeyEnv: "TEST_GROQ_KEY",
 	})
@@ -67,10 +63,7 @@ func TestATDD_23_4_AC1_RegisterProviders_PassesAPIKey(t *testing.T) {
 	var gotAuth string
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		gotAuth = r.Header.Get("Authorization")
-		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(oaiResponse{
-			Choices: []oaiChoice{{Message: oaiMessage{Content: "ok"}}},
-		})
+		writeJSON(w, okCompletion)
 	}))
 	defer srv.Close()
 
@@ -79,7 +72,7 @@ func TestATDD_23_4_AC1_RegisterProviders_PassesAPIKey(t *testing.T) {
 		Providers: []ProviderConfig{
 			{
 				Name:      "test-api-provider",
-				Driver:    DriverOpenAICompat,
+				Driver:    DriverOpenAI,
 				BaseURL:   srv.URL,
 				APIKeyEnv: "TEST_REG_KEY",
 			},
@@ -110,7 +103,7 @@ func TestATDD_23_4_AC1_RegisterProviders_PassesAPIKey(t *testing.T) {
 
 func TestATDD_23_4_AC2_CreateDriver_MissingEnvVar_StillCreates(t *testing.T) {
 	// GIVEN: api_key_env: NONEXISTENT_API_KEY 但该环境变量未设置
-	// WHEN:  创建 OpenAICompatDriver
+	// WHEN:  创建 OpenAIDriver
 	// THEN:  driver 创建成功（不报错），provider 仍然注册
 
 	// Ensure the env var is truly unset
@@ -118,7 +111,7 @@ func TestATDD_23_4_AC2_CreateDriver_MissingEnvVar_StillCreates(t *testing.T) {
 
 	d, err := CreateDriver(ProviderConfig{
 		Name:      "test-nokey",
-		Driver:    DriverOpenAICompat,
+		Driver:    DriverOpenAI,
 		BaseURL:   "http://localhost:9999",
 		APIKeyEnv: "ATDD_23_4_NONEXISTENT_KEY",
 	})
@@ -138,16 +131,13 @@ func TestATDD_23_4_AC2_MissingEnvVar_NoAuthHeader(t *testing.T) {
 	var gotAuth string
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		gotAuth = r.Header.Get("Authorization")
-		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(oaiResponse{
-			Choices: []oaiChoice{{Message: oaiMessage{Content: "ok"}}},
-		})
+		writeJSON(w, okCompletion)
 	}))
 	defer srv.Close()
 
 	d, err := CreateDriver(ProviderConfig{
 		Name:      "test-nokey",
-		Driver:    DriverOpenAICompat,
+		Driver:    DriverOpenAI,
 		BaseURL:   srv.URL,
 		APIKeyEnv: "ATDD_23_4_MISSING_VAR",
 	})
@@ -174,15 +164,13 @@ func TestATDD_23_4_AC2_MissingEnvVar_ReturnsErrAuth(t *testing.T) {
 			return
 		}
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(oaiResponse{
-			Choices: []oaiChoice{{Message: oaiMessage{Content: "ok"}}},
-		})
+		writeJSON(w, okCompletion)
 	}))
 	defer srv.Close()
 
 	d, err := CreateDriver(ProviderConfig{
 		Name:      "test-nokey",
-		Driver:    DriverOpenAICompat,
+		Driver:    DriverOpenAI,
 		BaseURL:   srv.URL,
 		APIKeyEnv: "ATDD_23_4_MISSING_FOR_AUTH",
 	})
@@ -211,16 +199,13 @@ func TestATDD_23_4_AC3_NoAPIKeyEnv_CreatesDriverWithoutAuth(t *testing.T) {
 	var gotAuth string
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		gotAuth = r.Header.Get("Authorization")
-		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(oaiResponse{
-			Choices: []oaiChoice{{Message: oaiMessage{Content: "ok"}}},
-		})
+		writeJSON(w, okCompletion)
 	}))
 	defer srv.Close()
 
 	d, err := CreateDriver(ProviderConfig{
 		Name:    "ollama",
-		Driver:  DriverOpenAICompat,
+		Driver:  DriverOpenAI,
 		BaseURL: srv.URL,
 		// APIKeyEnv intentionally empty
 	})
@@ -245,16 +230,13 @@ func TestATDD_23_4_AC3_EmptyAPIKeyEnv_CreatesDriverWithoutAuth(t *testing.T) {
 	var gotAuth string
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		gotAuth = r.Header.Get("Authorization")
-		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(oaiResponse{
-			Choices: []oaiChoice{{Message: oaiMessage{Content: "ok"}}},
-		})
+		writeJSON(w, okCompletion)
 	}))
 	defer srv.Close()
 
 	d, err := CreateDriver(ProviderConfig{
 		Name:      "local-llm",
-		Driver:    DriverOpenAICompat,
+		Driver:    DriverOpenAI,
 		BaseURL:   srv.URL,
 		APIKeyEnv: "", // Explicitly empty
 	})
@@ -280,7 +262,7 @@ func TestATDD_23_4_AC4_APIKeyNotInDriverInfo(t *testing.T) {
 
 	d, err := CreateDriver(ProviderConfig{
 		Name:      "secret-provider",
-		Driver:    DriverOpenAICompat,
+		Driver:    DriverOpenAI,
 		BaseURL:   "http://localhost:9999",
 		APIKeyEnv: "TEST_SECRET_KEY",
 	})
@@ -311,7 +293,7 @@ func TestATDD_23_4_AC4_APIKeyNotInErrorMessage(t *testing.T) {
 
 	d, err := CreateDriver(ProviderConfig{
 		Name:      "error-provider",
-		Driver:    DriverOpenAICompat,
+		Driver:    DriverOpenAI,
 		BaseURL:   srv.URL,
 		APIKeyEnv: "TEST_ERROR_KEY",
 	})
@@ -339,7 +321,7 @@ func TestATDD_23_4_AC4_ProviderConfigStoresEnvVarNameNotValue(t *testing.T) {
 
 	cfg := ProviderConfig{
 		Name:      "groq",
-		Driver:    DriverOpenAICompat,
+		Driver:    DriverOpenAI,
 		BaseURL:   "https://api.groq.com/openai/v1",
 		APIKeyEnv: "GROQ_API_KEY",
 	}
@@ -368,7 +350,7 @@ func TestATDD_23_4_RegisterProviders_APIKeyEnvMissing_StillRegisters(t *testing.
 		Providers: []ProviderConfig{
 			{
 				Name:      "missing-key-provider",
-				Driver:    DriverOpenAICompat,
+				Driver:    DriverOpenAI,
 				BaseURL:   "http://localhost:9999",
 				APIKeyEnv: "ATDD_23_4_TOTALLY_MISSING_KEY",
 			},

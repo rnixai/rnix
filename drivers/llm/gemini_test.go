@@ -51,7 +51,7 @@ func TestGeminiDriver_Info_NoModel(t *testing.T) {
 }
 
 // TestGeminiConfig_NoBaseURLRequired verifies that a gemini provider config
-// does not require base_url, unlike openai-compat.
+// does not require base_url, unlike the OpenAI driver's compat-era validation.
 func TestGeminiConfig_NoBaseURLRequired(t *testing.T) {
 	data := []byte(`
 version: "1"

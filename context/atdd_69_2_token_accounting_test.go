@@ -131,7 +131,7 @@ func TestEstimateMessageTokens_RedactedThinkingDataCounted(t *testing.T) {
 }
 
 func TestEstimateMessageTokens_FlatReasoningCounted(t *testing.T) {
-	// 新发现 2：Message.Reasoning 平铺字段（openai-compat 类 driver 的
+	// 新发现 2：Message.Reasoning 平铺字段（openai 类 driver 的
 	// reasoning_content）同样漏算。
 	base := Message{Role: RoleAssistant, Content: "answer"}
 	withReasoning := base

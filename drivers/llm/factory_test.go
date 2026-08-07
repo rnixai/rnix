@@ -79,11 +79,11 @@ func TestCreateDriver_CursorCLI_WithModel(t *testing.T) {
 	}
 }
 
-func TestCreateDriver_OpenAICompat(t *testing.T) {
+func TestCreateDriver_OpenAI_NamedProvider(t *testing.T) {
 	t.Parallel()
 	d, err := CreateDriver(ProviderConfig{
 		Name:    "ollama",
-		Driver:  DriverOpenAICompat,
+		Driver:  DriverOpenAI,
 		BaseURL: "http://localhost:11434/v1",
 	})
 	if err != nil {
@@ -98,11 +98,11 @@ func TestCreateDriver_OpenAICompat(t *testing.T) {
 	}
 }
 
-func TestCreateDriver_OpenAICompat_WithModel(t *testing.T) {
+func TestCreateDriver_OpenAI_WithModel(t *testing.T) {
 	t.Parallel()
 	d, err := CreateDriver(ProviderConfig{
 		Name:         "groq",
-		Driver:       DriverOpenAICompat,
+		Driver:       DriverOpenAI,
 		BaseURL:      "https://api.groq.com/openai/v1",
 		DefaultModel: "llama-3.3-70b-versatile",
 	})
@@ -180,7 +180,7 @@ func TestRegisterProviders_FullConfig(t *testing.T) {
 		Providers: []ProviderConfig{
 			{Name: "claude", Driver: DriverClaudeCLI, DefaultModel: "haiku"},
 			{Name: "cursor", Driver: DriverCursorCLI},
-			{Name: "ollama", Driver: DriverOpenAICompat, BaseURL: "http://localhost:11434/v1", DefaultModel: "llama3"},
+			{Name: "ollama", Driver: DriverOpenAI, BaseURL: "http://localhost:11434/v1", DefaultModel: "llama3"},
 		},
 	}
 	driverReg := NewDriverRegistry()
@@ -207,7 +207,7 @@ func TestRegisterProviders_VFSPathCorrect(t *testing.T) {
 		Version: "1",
 		Providers: []ProviderConfig{
 			{Name: "claude", Driver: DriverClaudeCLI},
-			{Name: "ollama", Driver: DriverOpenAICompat, BaseURL: "http://localhost:11434/v1"},
+			{Name: "ollama", Driver: DriverOpenAI, BaseURL: "http://localhost:11434/v1"},
 		},
 	}
 	driverReg := NewDriverRegistry()
@@ -232,7 +232,7 @@ func TestRegisterProviders_DriverRegistryNames(t *testing.T) {
 		Providers: []ProviderConfig{
 			{Name: "cursor", Driver: DriverCursorCLI},
 			{Name: "claude", Driver: DriverClaudeCLI},
-			{Name: "ollama", Driver: DriverOpenAICompat, BaseURL: "http://localhost:11434/v1"},
+			{Name: "ollama", Driver: DriverOpenAI, BaseURL: "http://localhost:11434/v1"},
 		},
 	}
 	driverReg := NewDriverRegistry()
@@ -304,7 +304,7 @@ func TestRegisterProviders_VFSOpenRouting(t *testing.T) {
 		Version: "1",
 		Providers: []ProviderConfig{
 			{Name: "claude", Driver: DriverClaudeCLI},
-			{Name: "ollama", Driver: DriverOpenAICompat, BaseURL: "http://localhost:11434/v1"},
+			{Name: "ollama", Driver: DriverOpenAI, BaseURL: "http://localhost:11434/v1"},
 		},
 	}
 	driverReg := NewDriverRegistry()
@@ -376,6 +376,7 @@ func TestRegisterProviders_DefaultConfig_VFSCompat(t *testing.T) {
 func TestRunHealthChecks_HTTPProvider_Healthy(t *testing.T) {
 	t.Parallel()
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(200)
 		fmt.Fprint(w, `{"data":[]}`)
 	}))
@@ -384,11 +385,11 @@ func TestRunHealthChecks_HTTPProvider_Healthy(t *testing.T) {
 	cfg := &ProvidersConfig{
 		Version: "1",
 		Providers: []ProviderConfig{
-			{Name: "test-api", Driver: DriverOpenAICompat, BaseURL: ts.URL},
+			{Name: "test-api", Driver: DriverOpenAI, BaseURL: ts.URL},
 		},
 	}
 	driverReg := NewDriverRegistry()
-	drv := NewOpenAICompatDriver("test-api", ts.URL, WithHTTPClient(ts.Client()))
+	drv := NewOpenAIDriver("test-api", WithOpenAIBaseURL(ts.URL), WithOpenAIHTTPClient(ts.Client()), WithOpenAIKey("sk-test"))
 	_ = driverReg.Register("test-api", drv)
 
 	RunHealthChecks(cfg, driverReg, 3*time.Second)
@@ -410,11 +411,11 @@ func TestRunHealthChecks_HTTPProvider_Unhealthy(t *testing.T) {
 	cfg := &ProvidersConfig{
 		Version: "1",
 		Providers: []ProviderConfig{
-			{Name: "bad-api", Driver: DriverOpenAICompat, BaseURL: "http://127.0.0.1:1"},
+			{Name: "bad-api", Driver: DriverOpenAI, BaseURL: "http://127.0.0.1:1"},
 		},
 	}
 	driverReg := NewDriverRegistry()
-	drv := NewOpenAICompatDriver("bad-api", "http://127.0.0.1:1")
+	drv := NewOpenAIDriver("bad-api", WithOpenAIBaseURL("http://127.0.0.1:1"), WithOpenAIKey("sk-test"))
 	_ = driverReg.Register("bad-api", drv)
 
 	RunHealthChecks(cfg, driverReg, 3*time.Second)
@@ -473,11 +474,11 @@ func TestRunHealthChecks_NonBlocking(t *testing.T) {
 	cfg := &ProvidersConfig{
 		Version: "1",
 		Providers: []ProviderConfig{
-			{Name: "slow-api", Driver: DriverOpenAICompat, BaseURL: ts.URL},
+			{Name: "slow-api", Driver: DriverOpenAI, BaseURL: ts.URL},
 		},
 	}
 	driverReg := NewDriverRegistry()
-	drv := NewOpenAICompatDriver("slow-api", ts.URL, WithHTTPClient(ts.Client()))
+	drv := NewOpenAIDriver("slow-api", WithOpenAIBaseURL(ts.URL), WithOpenAIHTTPClient(ts.Client()), WithOpenAIKey("sk-test"))
 	_ = driverReg.Register("slow-api", drv)
 
 	start := time.Now()
@@ -491,7 +492,7 @@ func TestRunHealthChecks_NonBlocking(t *testing.T) {
 
 // --- CreateDriverWithEnv tests ---
 
-func TestCreateDriverWithEnv_OpenAICompat_UsesEnvLookup(t *testing.T) {
+func TestCreateDriverWithEnv_OpenAI_UsesEnvLookup(t *testing.T) {
 	t.Parallel()
 	var calledKeys []string
 	envLookup := func(key string) string {
@@ -504,7 +505,7 @@ func TestCreateDriverWithEnv_OpenAICompat_UsesEnvLookup(t *testing.T) {
 
 	d, err := CreateDriverWithEnv(ProviderConfig{
 		Name:      "test-api",
-		Driver:    DriverOpenAICompat,
+		Driver:    DriverOpenAI,
 		BaseURL:   "http://localhost:1234/v1",
 		APIKeyEnv: "MY_API_KEY",
 	}, envLookup)

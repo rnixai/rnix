@@ -58,7 +58,7 @@ func TestDriverRegistry_Names_Sorted(t *testing.T) {
 	r := NewDriverRegistry()
 	_ = r.Register("cursor", NewCursorCliDriver())
 	_ = r.Register("claude", NewClaudeCliDriver())
-	_ = r.Register("ollama", NewOpenAICompatDriver("ollama", "http://localhost:11434/v1"))
+	_ = r.Register("ollama", NewOpenAIDriver("ollama", WithOpenAIBaseURL("http://localhost:11434/v1")))
 
 	names := r.Names()
 	expected := []string{"claude", "cursor", "ollama"}
@@ -103,7 +103,7 @@ func TestDriverRegistry_HealthStatus_DefaultUnchecked(t *testing.T) {
 func TestDriverRegistry_SetHealth_Healthy(t *testing.T) {
 	t.Parallel()
 	r := NewDriverRegistry()
-	_ = r.Register("ollama", NewOpenAICompatDriver("ollama", "http://localhost:11434/v1"))
+	_ = r.Register("ollama", NewOpenAIDriver("ollama", WithOpenAIBaseURL("http://localhost:11434/v1")))
 
 	r.SetHealth("ollama", HealthStatusHealthy)
 	if got := r.GetHealth("ollama"); got != HealthStatusHealthy {
@@ -114,7 +114,7 @@ func TestDriverRegistry_SetHealth_Healthy(t *testing.T) {
 func TestDriverRegistry_SetHealth_Unhealthy(t *testing.T) {
 	t.Parallel()
 	r := NewDriverRegistry()
-	_ = r.Register("groq", NewOpenAICompatDriver("groq", "https://api.groq.com/openai/v1"))
+	_ = r.Register("groq", NewOpenAIDriver("groq", WithOpenAIBaseURL("https://api.groq.com/openai/v1")))
 
 	r.SetHealth("groq", HealthStatusUnhealthy)
 	if got := r.GetHealth("groq"); got != HealthStatusUnhealthy {
@@ -136,7 +136,7 @@ func TestDriverRegistry_HealthStatuses_Sorted(t *testing.T) {
 	r := NewDriverRegistry()
 	_ = r.Register("cursor", NewCursorCliDriver())
 	_ = r.Register("claude", NewClaudeCliDriver())
-	_ = r.Register("ollama", NewOpenAICompatDriver("ollama", "http://localhost:11434/v1"))
+	_ = r.Register("ollama", NewOpenAIDriver("ollama", WithOpenAIBaseURL("http://localhost:11434/v1")))
 
 	r.SetHealth("ollama", HealthStatusHealthy)
 
@@ -160,8 +160,8 @@ func TestDriverRegistry_HealthStatuses_Sorted(t *testing.T) {
 	if statuses[1].Driver != DriverCursorCLI {
 		t.Errorf("cursor driver = %q, want %q", statuses[1].Driver, DriverCursorCLI)
 	}
-	if statuses[2].Driver != DriverOpenAICompat {
-		t.Errorf("ollama driver = %q, want %q", statuses[2].Driver, DriverOpenAICompat)
+	if statuses[2].Driver != DriverOpenAI {
+		t.Errorf("ollama driver = %q, want %q", statuses[2].Driver, DriverOpenAI)
 	}
 
 	// Verify health statuses

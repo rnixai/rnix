@@ -32,7 +32,7 @@ func newMetaLensDetailFixture(step int, driverType string, in, cached, out int) 
 	}
 }
 
-func TestBuildMetaLens_CacheHitRow_OpenAICompat(t *testing.T) {
+func TestBuildMetaLens_CacheHitRow_OpenAI(t *testing.T) {
 	m := newTestInspectorModelWithDetail()
 	m.inspector.Detail = newMetaLensDetailFixture(2, "openai", 14118, 3456, 239)
 	content := m.buildMetaLens(m.inspector.Detail)

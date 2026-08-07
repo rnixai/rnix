@@ -14,7 +14,7 @@
 //   - RenderRateLine — 通用 "label %  (num / denom suffix)" 渲染原语
 //   - ComputeCacheHitRate — 按 driver 类型分支计算 hit rate + 分母
 //   - FirstStepWarmHitRateThreshold — 首步 prefix 共享 / 冷启动判定阈值
-//   - driverAnthropic / driverOpenAICompat / ... — 本地字符串常量
+//   - driverAnthropic / driverOpenAI / ... — 本地字符串常量
 //     （与 drivers/llm/config.go 同步 · 测试守门防漂移）
 //
 // 迁出动机（spec § 04 风险 5 中断保险原则）：
@@ -239,15 +239,14 @@ const FirstStepWarmHitRateThreshold = 0.05
 // driver type 字符串常量（与 drivers/llm/config.go 同步 · 反向 import 仅在
 // _test.go 守门测试中，生产代码保持 dashboard → drivers 单向依赖禁止）。
 const (
-	driverOpenAICompat = "openai-compat"
-	driverOpenAI       = "openai"
-	driverDeepSeek     = "deepseek"
-	driverAnthropic    = "anthropic"
-	driverClaudeCLI    = "claude-cli"
-	driverCursorCLI    = "cursor-cli"
-	driverCodexCLI     = "codex-cli"
-	driverQwenCLI      = "qwen-cli"
-	driverGemini       = "gemini"
+	driverOpenAI    = "openai"
+	driverDeepSeek  = "deepseek"
+	driverAnthropic = "anthropic"
+	driverClaudeCLI = "claude-cli"
+	driverCursorCLI = "cursor-cli"
+	driverCodexCLI  = "codex-cli"
+	driverQwenCLI   = "qwen-cli"
+	driverGemini    = "gemini"
 )
 
 // IsAnthropicDriver 判断 driver 是否为 Anthropic 原生接口（cached 不含在 input
@@ -318,7 +317,7 @@ func RenderRateLine(label string, numerator, denominator int, suffix string) str
 //
 //	driverType                                 公式               分母
 //	─────────────────────────────────────────────────────────────────
-//	openai-compat / openai / deepseek          cached / input     input
+//	openai / deepseek                         cached / input     input
 //	anthropic                                  cached/(in+cached) input+cached
 //	claude-cli / cursor-cli / codex-cli /      cached / input     input   (OpenAI fallback)
 //	qwen-cli / gemini
@@ -340,7 +339,7 @@ func ComputeCacheHitRate(driverType string, input, cached int) (rate float64, de
 	case driverAnthropic:
 		denom = input + cached
 	default:
-		// openai-compat / openai / deepseek / CLI drivers / 空 / unknown
+		// openai / deepseek / CLI drivers / 空 / unknown
 		// → OpenAI 语义（input 已含 cached）
 		denom = input
 	}

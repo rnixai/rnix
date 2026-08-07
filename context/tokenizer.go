@@ -47,8 +47,10 @@ func EstimateTokens(text string) int {
 // tool-heavy workloads by up to 58% and kept the token axis from ever firing.
 //
 // Counted payloads:
-//   - Content and the flat Reasoning field (openai-compat drivers echo
-//     reasoning_content back; DeepSeek returns HTTP 400 when it is dropped).
+//   - Content and the flat Reasoning field (the unified openai driver echoes
+//     reasoning_content back via the dual-spelling round-trip; dropping it
+//     previously surfaced as HTTP 400 on DeepSeek — disproven by a 2026-08-04
+//     probe, 4×200 — and the compat driver that prompted that caveat is gone).
 //   - ToolCalls[].Name (the tool name goes on the wire) and ToolCalls[].Input.
 //     Input is map[string]any, not a pre-serialized arguments string, so it is
 //     marshalled first. json.Marshal orders keys deterministically; a

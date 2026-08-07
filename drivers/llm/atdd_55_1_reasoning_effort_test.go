@@ -98,80 +98,6 @@ func TestOpenAIDriver_ReasoningEffort_Empty_NoRegression(t *testing.T) {
 	}
 }
 
-// --- openai-compat -----------------------------------------------------------
-
-func TestOpenAICompatDriver_ReasoningEffort_Passthrough(t *testing.T) {
-	var gotBody oaiRequest
-	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		body, _ := io.ReadAll(r.Body)
-		_ = json.Unmarshal(body, &gotBody)
-		writeJSON(w, `{"choices":[{"message":{"content":"ok"}}],"usage":{}}`)
-	}))
-	defer ts.Close()
-
-	d := NewOpenAICompatDriver("test", ts.URL,
-		WithCompatModel("test-model"),
-		WithHTTPClient(ts.Client()),
-		WithCompatReasoningEffort("medium"),
-	)
-	if _, err := d.Call(context.Background(), LLMRequest{Intent: "hi"}); err != nil {
-		t.Fatalf("Call: %v", err)
-	}
-	if gotBody.ReasoningEffort != "medium" {
-		t.Errorf("reasoning_effort = %q, want medium", gotBody.ReasoningEffort)
-	}
-}
-
-func TestOpenAICompatDriver_ReasoningEffort_Empty_NoRegression(t *testing.T) {
-	var gotBody oaiRequest
-	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		body, _ := io.ReadAll(r.Body)
-		_ = json.Unmarshal(body, &gotBody)
-		writeJSON(w, `{"choices":[{"message":{"content":"ok"}}],"usage":{}}`)
-	}))
-	defer ts.Close()
-
-	d := NewOpenAICompatDriver("test", ts.URL,
-		WithCompatModel("test-model"),
-		WithHTTPClient(ts.Client()),
-	)
-	if _, err := d.Call(context.Background(), LLMRequest{Intent: "hi"}); err != nil {
-		t.Fatalf("Call: %v", err)
-	}
-	if gotBody.ReasoningEffort != "" {
-		t.Errorf("reasoning_effort = %q, want empty when unset", gotBody.ReasoningEffort)
-	}
-}
-
-// TestOpenAICompatDriver_ReasoningEffort_CoexistsWithBudget verifies the
-// thinking_budget path (DeepSeek multi-turn tool calls) is RETAINED alongside
-// reasoning_effort — both ship in the same request body (orthogonal, no clobber).
-func TestOpenAICompatDriver_ReasoningEffort_CoexistsWithBudget(t *testing.T) {
-	var gotBody oaiRequest
-	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		body, _ := io.ReadAll(r.Body)
-		_ = json.Unmarshal(body, &gotBody)
-		writeJSON(w, `{"choices":[{"message":{"content":"ok"}}],"usage":{}}`)
-	}))
-	defer ts.Close()
-
-	d := NewOpenAICompatDriver("test", ts.URL,
-		WithCompatModel("deepseek-v4"),
-		WithHTTPClient(ts.Client()),
-		WithCompatThinkingBudget(8192),
-		WithCompatReasoningEffort("high"),
-	)
-	if _, err := d.Call(context.Background(), LLMRequest{Intent: "hi"}); err != nil {
-		t.Fatalf("Call: %v", err)
-	}
-	if gotBody.ReasoningEffort != "high" {
-		t.Errorf("reasoning_effort = %q, want high", gotBody.ReasoningEffort)
-	}
-	if gotBody.Thinking == nil || gotBody.Thinking.BudgetTokens != 8192 {
-		t.Errorf("thinking budget not retained alongside effort: %+v", gotBody.Thinking)
-	}
-}
-
 // --- anthropic (migration) ---------------------------------------------------
 
 func TestAnthropicDriver_Effort_Passthrough(t *testing.T) {
@@ -438,18 +364,9 @@ func TestOpenAIFactory_ReasoningEffort(t *testing.T) {
 	}
 }
 
-func TestOpenAICompatFactory_ReasoningEffort(t *testing.T) {
-	drv := mustCreateDriver(t, ProviderConfig{
-		Name: "compat", Driver: DriverOpenAICompat, BaseURL: "http://x", ReasoningEffort: "low",
-	})
-	d, ok := drv.(*OpenAICompatDriver)
-	if !ok {
-		t.Fatalf("got %T", drv)
-	}
-	if d.reasoningEffort != "low" {
-		t.Errorf("reasoningEffort = %q, want low", d.reasoningEffort)
-	}
-}
+// The compat factory-effort test has been removed: the openai driver
+// (TestOpenAIFactory_ReasoningEffort above) now carries the same factory wiring,
+// and the compat driver no longer exists (Story 75.3).
 
 func TestAnthropicFactory_ReasoningEffort(t *testing.T) {
 	drv := mustCreateDriver(t, ProviderConfig{

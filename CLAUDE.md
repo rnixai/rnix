@@ -262,7 +262,7 @@ Story artifacts live in `_bmad-output/implementation-artifacts/`. Sprint status 
 ## Driver Token Semantics (Cache Hit Rate)
 
 The `input_tokens` field has driver-dependent semantics:
-- **openai-compat / DeepSeek / OpenAI**: prompt_tokens INCLUDES cached_tokens; hit rate = cached / input
+- **DeepSeek / OpenAI**: prompt_tokens INCLUDES cached_tokens; hit rate = cached / input
 - **Anthropic** (native API): input_tokens EXCLUDES CacheReadInputTokens; hit rate = cached / (input + cached)
 - **CLI drivers** (claude-cli / cursor-cli / codex-cli): use OpenAI fallback semantics
 
@@ -277,7 +277,6 @@ See `internal/dashboard/inspector/meta_lens.go:ComputeCacheHitRate` for branchin
 | Driver | 机制 | 写入位置 | 已知取值 | 备注 |
 |--------|------|----------|----------|------|
 | `openai` | API 参数 | `ChatCompletionNewParams.ReasoningEffort` | none/minimal/low/medium/high/**xhigh**（小写） | 空=省略字段 |
-| `openai-compat` | 请求 body | `reasoning_effort` 字段 | 同 OpenAI（DeepSeek V4 等原生接受） | 与 `thinking_budget` **正交可共存**（DeepSeek 多轮工具调用需 budget） |
 | `anthropic` | API 参数 | `MessageNewParams.OutputConfig.Effort`（stable 非 beta） | low/medium/high/max（小写） | **迁移**：effort 优先；`thinking_budget` 路径**保留为降级**（DeepSeek V4 Anthropic-兼容端点多轮工具调用必需，缺失 HTTP 400） |
 | `gemini` | API 参数 | `ThinkingConfig.ThinkingLevel` | **MINIMAL/LOW/MEDIUM/HIGH（大写！）** | **迁移**：level 与 `thinking_budget` **互斥**（Gemini 3 同传两者报错）；level 非空时不传 budget；budget 保留给 Gemini ≤2.5 |
 | `claude-cli` | CLI flag | `--effort <value>`（内置 args → effort → extraArgs） | 透传 | 旧版 CLI 不识别 `--effort` 会自行报错（见「Claude CLI Driver 兼容性约定」，MVP 不做 probe） |

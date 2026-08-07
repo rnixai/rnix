@@ -879,7 +879,7 @@ func (m dashboardModel) renderStepTimeline(width, height int) string {
 						if detail := m.timeline.StepDetailCache[s.Step]; detail != nil {
 							// Show "fresh" tokens (non-cached input + output) so high
 							// cache-hit scenarios don't display misleading megaton-scale
-							// numbers. openai-compat semantics include cached inside
+							// numbers. openai-family semantics include cached inside
 							// InputTokens; Anthropic semantics exclude it (see CLAUDE.md
 							// "Driver Token Semantics").
 							freshInput := detail.InputTokens

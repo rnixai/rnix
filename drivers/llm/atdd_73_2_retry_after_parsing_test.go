@@ -286,12 +286,9 @@ func TestATDD_73_2_D2_HeaderPrecedence(t *testing.T) {
 // 73.2 extends exactly that family, so they land with it.
 
 // TestATDD_73_2_ContradictoryEvidenceTerminalFirst closes deferral 1.
-// openai_compat is the only driver feeding BOTH channels of
-// classifyRateLimitBody (message + structured Code/Type); 73.1's tests only
-// covered agreeing evidence. When they CONTRADICT — a body that reads like a
-// retryable throttle carried by an error.type that says the quota is spent —
-// the HTTP-side terminal-first ordering must let quota win. That precedence
-// was a deliberate decision with no test pinning it.
+// The HTTP-side terminal-first ordering was a deliberate decision with no test
+// pinning it: a body that reads like a retryable throttle carried by a
+// structured error.type saying the quota is spent must let quota win.
 func TestATDD_73_2_ContradictoryEvidenceTerminalFirst(t *testing.T) {
 	// Body evidence says retryable; structured type says terminal.
 	const throttleBody = "Rate limit exceeded (5 requests per minute). Please try again after 6 seconds."
@@ -299,13 +296,12 @@ func TestATDD_73_2_ContradictoryEvidenceTerminalFirst(t *testing.T) {
 		t.Fatalf("contradictory evidence classified %v, want %v — structured terminal type must beat body throttle evidence (HTTP terminal-first)", got, KindQuota)
 	}
 
-	// Same contradiction end-to-end through the driver, since that is where
-	// the two channels actually meet.
-	d, _, cleanup := newTestDriver(func(w http.ResponseWriter, _ *http.Request) {
-		// Header carries a wait; the type still decides the KIND. The two
-		// dimensions are orthogonal — 73.2 fills wait fields on quota errors
-		// too (the disposition difference is the kernel's, not the
-		// classifier's).
+	// Driver-level propagation: the unified openai driver (Story 75.3) renders
+	// the SDK's typed error as text that carries BOTH the structured type and
+	// the body evidence (JSON bodies are surfaced verbatim in err.Error()), so
+	// the terminal-first ordering must let quota win — the same contradiction
+	// the compat driver used to prove, now through the SDK path.
+	d, _, cleanup := newTestOpenAIDriver(func(w http.ResponseWriter, _ *http.Request) {
 		// 🔴 Header BEFORE WriteHeader: net/http snapshots the header map at
 		// WriteHeader, so setting it afterwards never reaches the client
 		// (review 2026-08-03: the original ordering made this E2E verify

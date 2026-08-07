@@ -27,11 +27,11 @@ providers:
   - name: cursor
     driver: cursor-cli
   - name: ollama
-    driver: openai-compat
+    driver: openai
     base_url: http://localhost:11434/v1
     default_model: llama3
   - name: groq
-    driver: openai-compat
+    driver: openai
     base_url: https://api.groq.com/openai/v1
     default_model: llama-3.3-70b-versatile
     api_key_env: GROQ_API_KEY
@@ -53,8 +53,8 @@ func TestProviderConfig_DriverConstants(t *testing.T) {
 	if DriverCursorCLI != "cursor-cli" {
 		t.Errorf("DriverCursorCLI = %q, want %q", DriverCursorCLI, "cursor-cli")
 	}
-	if DriverOpenAICompat != "openai-compat" {
-		t.Errorf("DriverOpenAICompat = %q, want %q", DriverOpenAICompat, "openai-compat")
+	if DriverOpenAI != "openai" {
+		t.Errorf("DriverOpenAI = %q, want %q", DriverOpenAI, "openai")
 	}
 }
 
@@ -106,13 +106,13 @@ func TestLoadProvidersConfig_ValidFile(t *testing.T) {
 		t.Errorf("Providers[1].Driver = %q, want %q", cursor.Driver, DriverCursorCLI)
 	}
 
-	// openai-compat provider with all fields
+	// openai provider with all fields
 	groq := cfg.Providers[3]
 	if groq.Name != "groq" {
 		t.Errorf("Providers[3].Name = %q, want %q", groq.Name, "groq")
 	}
-	if groq.Driver != DriverOpenAICompat {
-		t.Errorf("Providers[3].Driver = %q, want %q", groq.Driver, DriverOpenAICompat)
+	if groq.Driver != DriverOpenAI {
+		t.Errorf("Providers[3].Driver = %q, want %q", groq.Driver, DriverOpenAI)
 	}
 	if groq.BaseURL != "https://api.groq.com/openai/v1" {
 		t.Errorf("Providers[3].BaseURL = %q, want %q", groq.BaseURL, "https://api.groq.com/openai/v1")
@@ -227,26 +227,6 @@ providers:
 	}
 }
 
-func TestLoadProvidersConfig_MissingBaseURL(t *testing.T) {
-	t.Parallel()
-	dir := t.TempDir()
-	yaml := `version: "1"
-providers:
-  - name: my-openai
-    driver: openai-compat
-    default_model: gpt-4
-`
-	path := writeYAML(t, dir, ProvidersConfigFile, yaml)
-
-	_, err := LoadProvidersConfig(path)
-	if err == nil {
-		t.Fatal("expected error for openai-compat missing base_url, got nil")
-	}
-	if !strings.Contains(strings.ToLower(err.Error()), "base_url") {
-		t.Errorf("error should mention 'base_url', got: %s", err.Error())
-	}
-}
-
 func TestLoadProvidersConfig_DuplicateNames(t *testing.T) {
 	t.Parallel()
 	dir := t.TempDir()
@@ -313,7 +293,7 @@ providers:
   - name: ""
     driver: bad-driver
   - name: "no spaces!"
-    driver: openai-compat
+    driver: openai
 `
 	path := writeYAML(t, dir, ProvidersConfigFile, yaml)
 
@@ -349,11 +329,11 @@ func TestValidate_TableDriven(t *testing.T) {
 			wantErr: "",
 		},
 		{
-			name: "valid openai-compat with base_url",
+			name: "valid openai with base_url",
 			cfg: ProvidersConfig{
 				Version: "1",
 				Providers: []ProviderConfig{{
-					Name: "ollama", Driver: DriverOpenAICompat,
+					Name: "ollama", Driver: DriverOpenAI,
 					BaseURL: "http://localhost:11434/v1",
 				}},
 			},
@@ -390,14 +370,6 @@ func TestValidate_TableDriven(t *testing.T) {
 				Providers: []ProviderConfig{{Name: "x", Driver: "nope"}},
 			},
 			wantErr: "driver",
-		},
-		{
-			name: "openai-compat missing base_url",
-			cfg: ProvidersConfig{
-				Version:   "1",
-				Providers: []ProviderConfig{{Name: "x", Driver: DriverOpenAICompat}},
-			},
-			wantErr: "base_url",
 		},
 		{
 			name: "duplicate names",
@@ -650,7 +622,7 @@ func TestLoadProvidersConfig_Performance(t *testing.T) {
 	for i := range 10 {
 		sb.WriteString("  - name: provider-")
 		sb.WriteByte(byte('a' + i))
-		sb.WriteString("\n    driver: openai-compat\n    base_url: http://localhost:11434/v1\n    default_model: model-")
+		sb.WriteString("\n    driver: openai\n    base_url: http://localhost:11434/v1\n    default_model: model-")
 		sb.WriteByte(byte('a' + i))
 		sb.WriteString("\n    api_key_env: KEY_")
 		sb.WriteByte(byte('A' + i))
@@ -719,7 +691,7 @@ providers:
   - name: claude
     driver: claude-cli
   - name: groq
-    driver: openai-compat
+    driver: openai
     base_url: https://api.groq.com/openai/v1
 `
 	dir := t.TempDir()
@@ -784,7 +756,7 @@ func TestResolveDefaultProvider_ExplicitValue(t *testing.T) {
 		DefaultProvider: "groq",
 		Providers: []ProviderConfig{
 			{Name: "claude", Driver: DriverClaudeCLI},
-			{Name: "groq", Driver: DriverOpenAICompat, BaseURL: "http://localhost"},
+			{Name: "groq", Driver: DriverOpenAI, BaseURL: "http://localhost"},
 		},
 	}
 	if got := cfg.ResolveDefaultProvider(); got != "groq" {
@@ -796,7 +768,7 @@ func TestResolveDefaultProvider_FallsBackToFirstProvider(t *testing.T) {
 	t.Parallel()
 	cfg := ProvidersConfig{
 		Providers: []ProviderConfig{
-			{Name: "ollama", Driver: DriverOpenAICompat, BaseURL: "http://localhost"},
+			{Name: "ollama", Driver: DriverOpenAI, BaseURL: "http://localhost"},
 			{Name: "claude", Driver: DriverClaudeCLI},
 		},
 	}

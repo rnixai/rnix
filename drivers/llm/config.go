@@ -16,7 +16,6 @@ const (
 	DriverCursorCLI     = "cursor-cli"
 	DriverQwenCLI       = "qwen-cli"
 	DriverCodexCLI      = "codex-cli"
-	DriverOpenAICompat  = "openai-compat"
 	DriverOpenAI        = "openai"
 	DriverGemini        = "gemini"
 	DriverAnthropic     = "anthropic"
@@ -30,15 +29,14 @@ const (
 )
 
 var validDrivers = map[string]bool{
-	DriverClaudeCLI:    true,
-	DriverCursorCLI:    true,
-	DriverQwenCLI:      true,
-	DriverCodexCLI:     true,
-	DriverOpenAICompat: true,
-	DriverOpenAI:       true,
-	DriverGemini:       true,
-	DriverAnthropic:    true,
-	DriverReplay:       true,
+	DriverClaudeCLI: true,
+	DriverCursorCLI: true,
+	DriverQwenCLI:   true,
+	DriverCodexCLI:  true,
+	DriverOpenAI:    true,
+	DriverGemini:    true,
+	DriverAnthropic: true,
+	DriverReplay:    true,
 }
 
 var validModes = map[string]bool{
@@ -94,7 +92,7 @@ type ProviderConfig struct {
 	Mode            string                 `yaml:"mode"`             // "stream" (default) or "call"
 	MaxTokens       int                    `yaml:"max_tokens"`       // default max output tokens; 0 = use API default
 	CostPerToken    float64                `yaml:"cost_per_token"`   // cost per token in USD; 0 = cost tracking disabled
-	ThinkingBudget  int                    `yaml:"thinking_budget"`  // thinking budget tokens (openai-compat/anthropic/gemini; 0 = disabled); legacy — newest models prefer reasoning_effort
+	ThinkingBudget  int                    `yaml:"thinking_budget"`  // thinking budget tokens (anthropic/gemini; 0 = disabled); legacy — newest models prefer reasoning_effort
 	ReasoningEffort string                 `yaml:"reasoning_effort"` // discrete reasoning effort/level; passed through verbatim to each driver, NO validation/mapping; "" = unset. See CLAUDE.md "Reasoning Effort"
 	ExtraArgs       []string               `yaml:"extra_args"`       // additional CLI arguments (claude-cli/cursor-cli only)
 	TimeoutSec      int                    `yaml:"timeout_sec"`      // per-request timeout in seconds; 0 = driver default (5 min for CLI)
@@ -198,11 +196,7 @@ func (c *ProvidersConfig) Validate() error {
 		}
 
 		if !validDrivers[p.Driver] {
-			errs = append(errs, fmt.Errorf("provider[%d] %q: invalid driver %q (valid: %s, %s, %s, %s, %s, %s, %s, %s, %s)", i, p.Name, p.Driver, DriverClaudeCLI, DriverCursorCLI, DriverQwenCLI, DriverCodexCLI, DriverOpenAICompat, DriverOpenAI, DriverGemini, DriverAnthropic, DriverReplay))
-		}
-
-		if p.Driver == DriverOpenAICompat && p.BaseURL == "" {
-			errs = append(errs, fmt.Errorf("provider[%d] %q: base_url is required for driver %s", i, p.Name, DriverOpenAICompat))
+			errs = append(errs, fmt.Errorf("provider[%d] %q: invalid driver %q (valid: %s, %s, %s, %s, %s, %s, %s, %s)", i, p.Name, p.Driver, DriverClaudeCLI, DriverCursorCLI, DriverQwenCLI, DriverCodexCLI, DriverOpenAI, DriverGemini, DriverAnthropic, DriverReplay))
 		}
 
 		if !validModes[p.Mode] {

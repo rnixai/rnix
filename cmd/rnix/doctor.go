@@ -351,7 +351,7 @@ func checkProviderAuth(p llm.ProviderConfig) []doctorCheck {
 			Level:   checkInfo,
 			Message: fmt.Sprintf("auth handled by %s CLI itself (run its login command if needed)", p.Driver),
 		})
-	case llm.DriverOpenAICompat, llm.DriverOpenAI, llm.DriverGemini, llm.DriverAnthropic:
+	case llm.DriverOpenAI, llm.DriverGemini, llm.DriverAnthropic:
 		envVar := p.APIKeyEnv
 		if envVar == "" {
 			envVar = defaultAPIKeyEnvFor(p.Driver)
@@ -387,7 +387,7 @@ func checkProviderAuth(p llm.ProviderConfig) []doctorCheck {
 // when the user didn't set api_key_env explicitly.
 func defaultAPIKeyEnvFor(d string) string {
 	switch d {
-	case llm.DriverOpenAI, llm.DriverOpenAICompat:
+	case llm.DriverOpenAI:
 		return "OPENAI_API_KEY"
 	case llm.DriverGemini:
 		return "GEMINI_API_KEY"

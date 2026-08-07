@@ -384,19 +384,9 @@ func TestATDD_73_1_AC3_GeminiOverloadStatuses(t *testing.T) {
 	}
 }
 
-func TestATDD_73_1_AC3_OpenAICompatOverloadStatuses(t *testing.T) {
-	for _, status := range []int{529, 503} {
-		t.Run(fmt.Sprintf("status_%d", status), func(t *testing.T) {
-			d, _, cleanup := newTestDriver(func(w http.ResponseWriter, r *http.Request) {
-				w.WriteHeader(status)
-				// Captured 503 bodies are empty.
-			})
-			defer cleanup()
-			_, err := d.Call(context.Background(), LLMRequest{Intent: "hi"})
-			assertOverload(t, err, status)
-		})
-	}
-}
+// The compat-driver overload-statuses test was deleted (Story 75.3): the
+// deleted compat driver no longer exists, and the unified openai driver's
+// overload classification is covered by TestATDD_73_1_AC3_OpenAIOfficialOverloadStatuses.
 
 func TestATDD_73_1_AC3_OpenAIOfficialOverloadStatuses(t *testing.T) {
 	for _, status := range []int{529, 503} {
@@ -440,8 +430,8 @@ func TestATDD_73_1_AC4_DriverWiring429(t *testing.T) {
 		{"throttle body", throttleBodyFixture, KindThrottle},
 	}
 	for _, tc := range cases {
-		t.Run("openai_compat/"+tc.name, func(t *testing.T) {
-			d, _, cleanup := newTestDriver(func(w http.ResponseWriter, r *http.Request) {
+		t.Run("openai/"+tc.name, func(t *testing.T) {
+			d, _, cleanup := newTestOpenAIDriver(func(w http.ResponseWriter, r *http.Request) {
 				w.WriteHeader(429)
 				fmt.Fprintf(w, `{"error":{"message":%q}}`, tc.body)
 			})
@@ -465,26 +455,12 @@ func TestATDD_73_1_AC4_DriverWiring429(t *testing.T) {
 		})
 	}
 
-	// openai_compat can also read the provider's structured error.type, which
+	// openai can also read the provider's structured error.type, which
 	// is authoritative even when the message is unhelpful.
-	t.Run("openai_compat/structured insufficient_quota", func(t *testing.T) {
-		d, _, cleanup := newTestDriver(func(w http.ResponseWriter, r *http.Request) {
+	t.Run("openai/structured insufficient_quota", func(t *testing.T) {
+		d, _, cleanup := newTestOpenAIDriver(func(w http.ResponseWriter, r *http.Request) {
 			w.WriteHeader(429)
 			fmt.Fprint(w, `{"error":{"message":"You exceeded your current plan.","type":"insufficient_quota"}}`)
-		})
-		defer cleanup()
-		_, err := d.Call(context.Background(), LLMRequest{Intent: "hi"})
-		assertKind(t, err, KindQuota)
-	})
-
-	// A non-JSON 429 body bypasses every structured field (message/code/type
-	// all stay empty); the classifier must see the same body-fallback text
-	// that RateLimitError.Message carries. Review patch 2026-08-03: the first
-	// argument was the unparsed field, so body-level evidence was invisible.
-	t.Run("openai_compat/non-JSON body evidence", func(t *testing.T) {
-		d, _, cleanup := newTestDriver(func(w http.ResponseWriter, r *http.Request) {
-			w.WriteHeader(429)
-			fmt.Fprint(w, "Your quota has been exhausted. Reset at midnight.")
 		})
 		defer cleanup()
 		_, err := d.Call(context.Background(), LLMRequest{Intent: "hi"})

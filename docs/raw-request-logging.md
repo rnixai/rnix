@@ -1,6 +1,6 @@
 # Raw LLM Request/Response Logging
 
-> Story 56.1 地基；Story 56.2 接通 4 个 API driver（openai / openai-compat / anthropic / gemini）；Story 56.3 接通 4 个 CLI driver（claude-cli / codex-cli / cursor-cli / qwen-cli）。8/8 driver 全量产生 `raw.jsonl`。
+> Story 56.1 地基；Story 56.2 接通 3 个 API driver（openai / anthropic / gemini）；Story 56.3 接通 4 个 CLI driver（claude-cli / codex-cli / cursor-cli / qwen-cli）。7/7 driver 全量产生 `raw.jsonl`。
 
 Rnix 自 Epic 56 起为每个进程的 LLM 调用记录原始请求与响应（HTTP body / CLI argv+stdin+stdout 的字节流），用于回答"这个 reasoning_effort / thinking_budget / temperature 究竟有没有提交给 LLM？"这类透传可观察问题。
 
@@ -9,7 +9,7 @@ Rnix 自 Epic 56 起为每个进程的 LLM 调用记录原始请求与响应（H
 - **默认开启**（CAP-4 红线）。`raw_capture.enabled: true`。
 - 每次 `reasonStep` 内一次成功的 LLM 读响应后，kernel 把当次原始请求 / 响应追加为 **一行 NDJSON** 到 `<dataDir>/steps/<uuid>/raw.jsonl`。
 - `raw.jsonl` 与 `steps.jsonl` / `events.jsonl` / `ctx-profile.json` / `process-meta.json` 同目录、同生命周期，受现有 gc 策略统一清理。
-- 56.2 / 56.3 完成后 8 个 driver（4 个 API + 4 个 CLI）的 Call 与 Stream 路径都会产生 `raw.jsonl`。`raw.jsonl` 文件采用 **lazy creation**——首次成功写入才 `O_CREATE`；driver 一次都没产生 capture 时该文件不会出现，避免在 `<uuid>/` 目录留空文件。
+- 56.2 / 56.3 完成后 7 个 driver（3 个 API + 4 个 CLI）的 Call 与 Stream 路径都会产生 `raw.jsonl`。`raw.jsonl` 文件采用 **lazy creation**——首次成功写入才 `O_CREATE`；driver 一次都没产生 capture 时该文件不会出现，避免在 `<uuid>/` 目录留空文件。
 
 ## 配置（`~/.config/rnix/config.yaml`）
 
@@ -100,7 +100,7 @@ raw_capture:
 
 - `Enabled=false` → 不创建 `raw.jsonl`，hook 在 cfg 检查处直接退出。
 - 写盘失败 → 仅 `log.Printf` 一行 `[raw_writer] write error pid=… step=…: …`，**reasonStep 继续执行**（best-effort 可观察）。
-- driver 未实现 `vfs.RawCaptureProvider` → hook 在 type-assert 处返回 nil，不写任何记录。当前 8 个内置 driver（4 API + 4 CLI）全部接通；自定义 driver 不实现 `LastRawCapture` 不影响主流程。
+- driver 未实现 `vfs.RawCaptureProvider` → hook 在 type-assert 处返回 nil，不写任何记录。当前 7 个内置 driver（3 API + 4 CLI）全部接通；自定义 driver 不实现 `LastRawCapture` 不影响主流程。
 - API driver 调 driver.Call/Stream 出错 → sink 已落入的 Request 形态保留（便于审计排错），Response 字段缺失。
 - CLI driver `cmd.Run` / `cmd.Start` 失败 → sink 已设的 Request 保留；Response 不会填，`exit_code` 为 `-1`（`processExitCode` 判 nil ProcessState 兜底）。
 - CLI Stream 路径 ctx 未挂 sink（生产路径必有，仅测试场景） → driver 跳过 tee + 不分配 `rawStdoutBuf`，零开销 fast path。
@@ -117,14 +117,13 @@ raw_capture:
 - `drivers/llm/raw_capture.go` — driver 层共享设施：
   - `rawCaptureSink` + `withRawSink` / `rawSinkFromContext` — ctx-scoped sink（裁决 1 并发铁律：driver 是跨进程共享单例，capture 不能存 driver 字段）
   - `captureMiddlewareFunc` — openai-go / anthropic-sdk-go 的 `option.Middleware` 共享函数（两 SDK Middleware 都是 type alias 同底层签名）
-  - `captureRoundTripper` + `wrapHTTPClientWithCapture` — gemini SDK 与 openai-compat 共用的 RoundTripper 包装
+  - `captureRoundTripper` + `wrapHTTPClientWithCapture` — gemini SDK 共用的 RoundTripper 包装
   - `newCLIRawCapture` / `fillCLIRequest` / `fillCLIResponse` / `processExitCode` — 56.3 引入的 CLI 族 helper：driver 在 Call/Stream 内联直接填 sink，无需 SDK hook
 
 ## 各 API driver 的捕获机制（56.2）
 
 | Driver | 类型 | 捕获机制 | 注入点 |
 |--------|------|---------|--------|
-| `openai-compat` | 手写 HTTP | `wrapHTTPClientWithCapture` 包装 `d.httpClient.Transport` 为 `captureRoundTripper` | `NewOpenAICompatDriver` |
 | `openai` | SDK（openai-go v3） | `option.WithMiddleware(captureMiddlewareFunc)` 追加到 `cfg.sdkOpts` | `NewOpenAIDriver` |
 | `anthropic` | SDK（anthropic-sdk-go） | `option.WithMiddleware(captureMiddlewareFunc)` 追加到 `cfg.sdkOpts` | `NewAnthropicDriver` |
 | `gemini` | SDK（genai） | `wrapHTTPClientWithCapture(d.httpClient)` → `ClientConfig.HTTPClient` | `GeminiDriver.newClient`（per-Call/Stream） |

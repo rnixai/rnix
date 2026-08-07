@@ -11,7 +11,7 @@ import (
 //
 // 痛点根源 (investigations/llm-thinking-phase-invisible): writeStream 的
 // `case "reasoning"` 只做 reasoning.WriteString,从不调 f.onEvent → API driver
-// (anthropic/gemini/openai-compat) 的思考增量永不成为实时可观测事件。
+// (anthropic/gemini) 的思考增量永不成为实时可观测事件。
 //
 // 本文件复用 vfsfile_test.go 既有的 streamMockDriver（events []StreamEvent）+
 // LLMFile.SetStreamHandler,无需任何生产骨架——AC1 是真 RED(skip),AC4 是

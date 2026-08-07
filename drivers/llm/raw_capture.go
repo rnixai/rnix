@@ -70,7 +70,7 @@ func rawSinkFromContext(ctx context.Context) *rawCaptureSink {
 
 // --- Shared API-family helpers ----------------------------------------------
 //
-// 56.2 各 API driver 出口（openai-compat 手写 HTTP / openai+anthropic SDK
+// 56.2 各 API driver 出口（openai+anthropic SDK
 // middleware / gemini RoundTripper）都需要：从 *http.Request 拿 method/url/
 // headers/body 字符串 → 主脱敏 → 填进 RawCapture.Request。响应侧的 body 由
 // 调用方按 streaming/non-streaming 各自 tee 得到。下面 helper 集中这套

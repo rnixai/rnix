@@ -5,12 +5,23 @@ package llm
 // captureMiddlewareFunc，无需测试侧额外配置。
 
 import (
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
 )
+
+// writeSSE writes one SSE "data:" frame and flushes. Shared by the 56.2
+// capture tests (openai/gemini) — previously defined in the deleted
+// compat test file.
+func writeSSE(w http.ResponseWriter, data string) {
+	fmt.Fprintf(w, "data: %s\n\n", data)
+	if f, ok := w.(http.Flusher); ok {
+		f.Flush()
+	}
+}
 
 // ============================================================================
 // 56-2-INT-006 — openai Call: CAP-1 (effort 透传) + CAP-2 (原始 JSON)

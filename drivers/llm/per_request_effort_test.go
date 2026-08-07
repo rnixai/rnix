@@ -12,7 +12,7 @@ package llm
 //   - fallback: req.ReasoningEffort == "" uses the instance default verbatim.
 //   - case/forward-compat passthrough: arbitrary values pass untouched.
 //   - budget interplay preserved under the override path (anthropic/gemini mutual
-//     exclusion; openai-compat orthogonal coexistence).
+//     exclusion).
 // no-op drivers (cursor/qwen) ignore a non-empty req.ReasoningEffort without error.
 
 import (
@@ -75,59 +75,6 @@ func TestOpenAIDriver_ReasoningEffort_RequestEmpty_FallsBackToInstance(t *testin
 	}
 	if gotBody["reasoning_effort"] != "medium" {
 		t.Errorf("reasoning_effort = %v, want medium (fallback to instance default)", gotBody["reasoning_effort"])
-	}
-}
-
-// --- openai-compat -----------------------------------------------------------
-
-func TestOpenAICompatDriver_ReasoningEffort_RequestOverride(t *testing.T) {
-	var gotBody oaiRequest
-	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		body, _ := io.ReadAll(r.Body)
-		_ = json.Unmarshal(body, &gotBody)
-		writeJSON(w, `{"choices":[{"message":{"content":"ok"}}],"usage":{}}`)
-	}))
-	defer ts.Close()
-
-	d := NewOpenAICompatDriver("test", ts.URL,
-		WithCompatModel("test-model"),
-		WithHTTPClient(ts.Client()),
-		WithCompatReasoningEffort("low"),
-	)
-	if _, err := d.Call(context.Background(), LLMRequest{Intent: "hi", ReasoningEffort: "high"}); err != nil {
-		t.Fatalf("Call: %v", err)
-	}
-	if gotBody.ReasoningEffort != "high" {
-		t.Errorf("reasoning_effort = %q, want high (request override)", gotBody.ReasoningEffort)
-	}
-}
-
-// TestOpenAICompatDriver_ReasoningEffort_RequestOverride_CoexistsWithBudget
-// proves the per-request override does NOT disturb the orthogonal thinking_budget
-// path (DeepSeek multi-turn tool calls): both ship together.
-func TestOpenAICompatDriver_ReasoningEffort_RequestOverride_CoexistsWithBudget(t *testing.T) {
-	var gotBody oaiRequest
-	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		body, _ := io.ReadAll(r.Body)
-		_ = json.Unmarshal(body, &gotBody)
-		writeJSON(w, `{"choices":[{"message":{"content":"ok"}}],"usage":{}}`)
-	}))
-	defer ts.Close()
-
-	d := NewOpenAICompatDriver("test", ts.URL,
-		WithCompatModel("deepseek-v4"),
-		WithHTTPClient(ts.Client()),
-		WithCompatThinkingBudget(8192),
-		WithCompatReasoningEffort("low"),
-	)
-	if _, err := d.Call(context.Background(), LLMRequest{Intent: "hi", ReasoningEffort: "high"}); err != nil {
-		t.Fatalf("Call: %v", err)
-	}
-	if gotBody.ReasoningEffort != "high" {
-		t.Errorf("reasoning_effort = %q, want high (request override)", gotBody.ReasoningEffort)
-	}
-	if gotBody.Thinking == nil || gotBody.Thinking.BudgetTokens != 8192 {
-		t.Errorf("thinking budget not retained alongside per-request effort: %+v", gotBody.Thinking)
 	}
 }
 

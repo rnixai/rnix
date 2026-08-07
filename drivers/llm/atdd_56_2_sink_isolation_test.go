@@ -203,7 +203,7 @@ func TestATDD_56_2_INT004_DriversLLMNoKernelImport(t *testing.T) {
 // 实例并发各发一次带不同 effort 的调用，各自取回自己那条 capture（不串味，
 // -race 干净）。
 //
-// 用 openai-compat driver（最直接，无 SDK 黑盒），单实例 + httptest mux 按
+// 用 openai driver（SDK 之上的统一实现），单实例 + httptest mux 按
 // 请求体里的 sentinel 字段返回不同响应，验证 sink 是 per-call/per-LLMFile 的。
 // ============================================================================
 
@@ -231,10 +231,11 @@ func TestATDD_56_2_INT005_LLMFile_ConcurrentNoCrossTalk(t *testing.T) {
 	defer ts.Close()
 
 	// 单 driver 实例 — 模拟「跨进程共享 driver」场景。
-	sharedDriver := NewOpenAICompatDriver("test", ts.URL,
-		WithCompatModel("m"),
-		WithHTTPClient(ts.Client()),
-		WithAPIKey("sk-test"),
+	sharedDriver := NewOpenAIDriver("test",
+		WithOpenAIModel("m"),
+		WithOpenAIBaseURL(ts.URL),
+		WithOpenAIHTTPClient(ts.Client()),
+		WithOpenAIKey("sk-test"),
 	)
 
 	var wg sync.WaitGroup

@@ -287,7 +287,7 @@ func TestRenderRateLine_OverHundredPercent(t *testing.T) {
 // Story 41.2 — ComputeCacheHitRate (6 项契约 driver 分支 + 边界)
 // =============================================================================
 
-func TestComputeCacheHitRate_OpenAICompat(t *testing.T) {
+func TestComputeCacheHitRate_OpenAI(t *testing.T) {
 	rate, denom := ComputeCacheHitRate("openai", 14118, 3456)
 	wantRate := 3456.0 / 14118.0
 	if rate != wantRate {
@@ -423,7 +423,6 @@ func TestComputeCacheHitRate_DriverConstantsInSync(t *testing.T) {
 		{driverCursorCLI, llm.DriverCursorCLI, "CursorCLI"},
 		{driverCodexCLI, llm.DriverCodexCLI, "CodexCLI"},
 		{driverQwenCLI, llm.DriverQwenCLI, "QwenCLI"},
-		{driverOpenAICompat, llm.DriverOpenAICompat, "OpenAICompat"},
 		{driverOpenAI, llm.DriverOpenAI, "OpenAI"},
 		{driverGemini, llm.DriverGemini, "Gemini"},
 		{driverAnthropic, llm.DriverAnthropic, "Anthropic"},

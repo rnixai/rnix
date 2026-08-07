@@ -1,13 +1,11 @@
 package llm
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
-	"log"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -673,106 +671,11 @@ func TestExtractSDKStatusCode_Nil(t *testing.T) {
 	}
 }
 
-// TestIsLikelyOpenAIOfficial verifies the heuristic used by the factory to
-// decide whether to emit the openai_compat suggestion warning. False positives
-// merely suppress an informational warning; false negatives only over-warn.
-func TestIsLikelyOpenAIOfficial(t *testing.T) {
-	cases := []struct {
-		baseURL string
-		want    bool
-	}{
-		{"https://api.openai.com/v1", true},
-		{"https://API.OpenAI.com/v1", true}, // case-insensitive
-		{"https://eastus.api.openai.azure.com/openai/deployments/gpt-4o", true},
-		{"https://api.deepseek.com/v1", false},
-		{"https://openrouter.ai/api/v1", false},
-		{"https://api.x.ai/v1", false},
-		{"https://my-proxy.example.com/v1", false},
-		{"", false},
-	}
-	for _, tc := range cases {
-		if got := isLikelyOpenAIOfficial(tc.baseURL); got != tc.want {
-			t.Errorf("isLikelyOpenAIOfficial(%q) = %v, want %v", tc.baseURL, got, tc.want)
-		}
-	}
-}
-
-// TestCreateDriver_OpenAI_WarnsOnNonOfficialBaseURL verifies the factory
-// emits a warning when driver=openai is configured with a non-OpenAI BaseURL,
-// pointing users at openai-compat for upstreams that return reasoning.
-//
-// What the warning is FOR changed on 2026-08-04: a live probe against
-// deepseek-v4-flash showed such requests succeed (200, tool calls included)
-// with reasoning_content omitted — the old "cryptic HTTP 400" rationale was
-// wrong. The real cost is silent data loss: this driver drops the reasoning it
-// receives. The assertion below checks "openai-compat" (hyphen) because that is
-// the actual config value (see DriverOpenAICompat); the earlier spelling
-// "openai_compat" pointed at a driver name no user could type.
-func TestCreateDriver_OpenAI_WarnsOnNonOfficialBaseURL(t *testing.T) {
-	var buf bytes.Buffer
-	prevOut := log.Writer()
-	prevFlags := log.Flags()
-	log.SetOutput(&buf)
-	log.SetFlags(0)
-	t.Cleanup(func() {
-		log.SetOutput(prevOut)
-		log.SetFlags(prevFlags)
-	})
-
-	_, err := CreateDriverWithEnv(ProviderConfig{
-		Name:    "deepseek-via-openai",
-		Driver:  DriverOpenAI,
-		BaseURL: "https://api.deepseek.com/v1",
-	}, func(string) string { return "" })
-	if err != nil {
-		t.Fatalf("CreateDriverWithEnv: %v", err)
-	}
-
-	got := buf.String()
-	if !strings.Contains(got, DriverOpenAICompat) {
-		t.Errorf("expected warning to mention %s, got: %q", DriverOpenAICompat, got)
-	}
-	if !strings.Contains(got, "deepseek-via-openai") {
-		t.Errorf("expected warning to mention provider name, got: %q", got)
-	}
-	if !strings.Contains(got, "api.deepseek.com") {
-		t.Errorf("expected warning to mention BaseURL, got: %q", got)
-	}
-}
-
-// TestCreateDriver_OpenAI_NoWarnOnOfficialBaseURL verifies the warning is
-// suppressed for legitimate OpenAI / Azure OpenAI endpoints — the heuristic
-// must not nag users running the driver as designed.
-func TestCreateDriver_OpenAI_NoWarnOnOfficialBaseURL(t *testing.T) {
-	for _, baseURL := range []string{
-		"https://api.openai.com/v1",
-		"https://eastus.api.openai.azure.com/openai/deployments/gpt-4o",
-	} {
-		t.Run(baseURL, func(t *testing.T) {
-			var buf bytes.Buffer
-			prevOut := log.Writer()
-			prevFlags := log.Flags()
-			log.SetOutput(&buf)
-			log.SetFlags(0)
-			t.Cleanup(func() {
-				log.SetOutput(prevOut)
-				log.SetFlags(prevFlags)
-			})
-
-			_, err := CreateDriverWithEnv(ProviderConfig{
-				Name:    "openai",
-				Driver:  DriverOpenAI,
-				BaseURL: baseURL,
-			}, func(string) string { return "" })
-			if err != nil {
-				t.Fatalf("CreateDriverWithEnv: %v", err)
-			}
-			if strings.Contains(buf.String(), DriverOpenAICompat) {
-				t.Errorf("unexpected %s warning for %q: %q", DriverOpenAICompat, baseURL, buf.String())
-			}
-		})
-	}
-}
+// TestIsLikelyOpenAIOfficial and the factory warning tests
+// (TestCreateDriver_OpenAI_WarnsOnNonOfficialBaseURL /
+// TestCreateDriver_OpenAI_NoWarnOnOfficialBaseURL) were deleted (Story 75.3):
+// the isLikelyOpenAIOfficial heuristic and its warning are gone together with
+// the deleted compat driver they pointed users at.
 
 // --- Story 75.1: reasoning round-trip tests ---
 

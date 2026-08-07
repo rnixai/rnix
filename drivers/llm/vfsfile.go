@@ -256,7 +256,7 @@ func (f *LLMFile) writeStream(ctx context.Context, req LLMRequest) error {
 		case "reasoning":
 			reasoning.WriteString(evt.Content)
 			// Story 60.1 AC1: 把 reasoning 增量也转发到 onEvent,归一为
-			// "thinking" 事件类型,使 API driver(anthropic/gemini/openai-compat)
+			// "thinking" 事件类型,使 API driver(anthropic/gemini)
 			// 的思考阶段成为实时可观测事件——与 CLI driver 的 "thinking" 路径对齐,
 			// 下游 driverEventToLog "thinking"→LogThink 分支零改动即命中。
 			// 这是额外旁路: 上面的 reasoning.WriteString 仍独立驱动

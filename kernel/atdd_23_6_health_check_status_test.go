@@ -259,11 +259,11 @@ func TestATDD_23_6_AC3_CLIDriverDoesNotImplementHealthChecker(t *testing.T) {
 	}
 }
 
-func TestATDD_23_6_AC3_OpenAICompatImplementsHealthChecker(t *testing.T) {
+func TestATDD_23_6_AC3_OpenAIDriverImplementsHealthChecker(t *testing.T) {
 	t.Parallel()
 	drv := llm.NewOpenAIDriver("test", llm.WithOpenAIBaseURL("http://localhost:11434"))
 	if _, ok := any(drv).(llm.HealthChecker); !ok {
-		t.Error("AC3: OpenAICompatDriver should implement HealthChecker")
+		t.Error("AC3: OpenAIDriver should implement HealthChecker")
 	}
 }
 
