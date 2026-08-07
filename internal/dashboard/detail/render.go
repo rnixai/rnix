@@ -180,6 +180,22 @@ func Render(state DetailState, ctx RenderContext, innerW int) string {
 		fmt.Fprintf(&b, "    [%s] %.0f%%\n", bar, pct)
 	}
 
+	// Section 4b: Token Spend (Story 74.2) — process-level four-way cumulative
+	// token spend, inserted BETWEEN §4 Context stats and §5 Stall. §4 measures
+	// context occupancy (量纲: 占用量), this section measures lifetime spend
+	// (量纲: 累计花费) — NFR1 keeps §4 byte-identical. Skip-if-empty (NFR5):
+	// all-zero cumulatives (legacy history, processes with no completed step)
+	// omit the section entirely, same convention as Lineage / Stall.
+	if d.CumInputTokens != 0 || d.CumCachedInputTokens != 0 ||
+		d.CumCacheCreationInputTokens != 0 || d.CumOutputTokens != 0 {
+		b.WriteString(divider("Token Spend"))
+		b.WriteString("\n")
+		fmt.Fprintf(&b, "    Input: %s tok\n", timeline.FormatTokenCount(d.CumInputTokens))
+		fmt.Fprintf(&b, "    Cached: %s tok\n", timeline.FormatTokenCount(d.CumCachedInputTokens))
+		fmt.Fprintf(&b, "    Cache Create: %s tok\n", timeline.FormatTokenCount(d.CumCacheCreationInputTokens))
+		fmt.Fprintf(&b, "    Output: %s tok\n", timeline.FormatTokenCount(d.CumOutputTokens))
+	}
+
 	// Section 5: Stall intensity heatmap (Story 45.5)
 	// P4 daemon-passive supervision: daemon emits ProcessStalled events
 	// but no longer drives cancel_step / suspend automatically. This

@@ -102,6 +102,15 @@ type Process struct {
 	StreamInputTokens int
 	UsageProvenance   string
 	DriverType        string
+	// Story 74.2 — process-level four-way cumulative token spend. Accumulated
+	// ONLY at the authoritative step boundary in reason.go (where resp is
+	// authoritative); mid-stream AddStreamUsage deltas NEVER touch them (NFR4:
+	// no decomposition exists to fold at kill time, so they stop at the last
+	// authoritative step). All mu protected.
+	CumInputTokens              int
+	CumCachedInputTokens        int
+	CumCacheCreationInputTokens int
+	CumOutputTokens             int
 	// ToolCallCount is the process-level cumulative tool-call count (Story 66.6):
 	// CLI drivers bump it per DriverToolCall flush (observe.go), the kernel bumps
 	// it per native VFS tool dispatch (tool_exec.go). A ps ACTIVE-column liveness
@@ -521,14 +530,20 @@ type DetailSnapshot struct {
 	CtxID           types.CtxID
 	TokensUsed      int
 	LastInputTokens int
-	ContextBudget   int
-	MaxTokens       int64
-	MaxCost         float64
-	UsedCost        float64
-	ComposeNode     string
-	ComposeDeps     []string
-	PipelineIndex   int
-	PipelineTotal   int
+	// Story 74.2 — four-way cumulative token spend snapshot (mu-protected
+	// reads, same place as TokensUsed / LastInputTokens).
+	CumInputTokens              int
+	CumCachedInputTokens        int
+	CumCacheCreationInputTokens int
+	CumOutputTokens             int
+	ContextBudget               int
+	MaxTokens                   int64
+	MaxCost                     float64
+	UsedCost                    float64
+	ComposeNode                 string
+	ComposeDeps                 []string
+	PipelineIndex               int
+	PipelineTotal               int
 
 	// Story 42.3 — resume lineage fields (populated when process is the result
 	// of a fork/resume operation; empty otherwise).
@@ -543,36 +558,40 @@ func (p *Process) GetDetailSnapshot() DetailSnapshot {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	return DetailSnapshot{
-		PID:             p.PID,
-		UUID:            p.UUID,
-		PPID:            p.PPID,
-		State:           p.State,
-		Intent:          p.Intent,
-		Provider:        p.Provider,
-		Model:           p.Model,
-		ReasoningEffort: p.ReasoningEffort,
-		CreatedAt:       p.CreatedAt,
-		DeadAt:          p.DeadAt,
-		PausedTotal:     p.pausedTotal,
-		Skills:          append([]string(nil), p.Skills...),
-		AllowedDevices:  append([]string(nil), p.AllowedDevices...),
-		DeniedDevices:   append([]string(nil), p.DeniedDevices...),
-		AllowedTools:    append([]string(nil), p.AllowedTools...),
-		CtxID:           p.CtxID,
-		TokensUsed:      p.TokensUsed,
-		LastInputTokens: p.LastInputTokens,
-		ContextBudget:   p.ContextBudget,
-		MaxTokens:       p.Budget.MaxTokens,
-		MaxCost:         p.Budget.MaxCost,
-		UsedCost:        p.Budget.UsedCost,
-		ComposeNode:     p.ComposeNode,
-		ComposeDeps:     append([]string(nil), p.ComposeDeps...),
-		PipelineIndex:   p.PipelineIndex,
-		PipelineTotal:   p.PipelineTotal,
-		OriginUUID:      p.OriginUUID,
-		ResumedFromStep: p.ResumedFromStep,
-		DriverMeta:      p.DriverMeta,
-		FeatureProfile:  p.FeatureFlags.ProfileName,
+		PID:                         p.PID,
+		UUID:                        p.UUID,
+		PPID:                        p.PPID,
+		State:                       p.State,
+		Intent:                      p.Intent,
+		Provider:                    p.Provider,
+		Model:                       p.Model,
+		ReasoningEffort:             p.ReasoningEffort,
+		CreatedAt:                   p.CreatedAt,
+		DeadAt:                      p.DeadAt,
+		PausedTotal:                 p.pausedTotal,
+		Skills:                      append([]string(nil), p.Skills...),
+		AllowedDevices:              append([]string(nil), p.AllowedDevices...),
+		DeniedDevices:               append([]string(nil), p.DeniedDevices...),
+		AllowedTools:                append([]string(nil), p.AllowedTools...),
+		CtxID:                       p.CtxID,
+		TokensUsed:                  p.TokensUsed,
+		LastInputTokens:             p.LastInputTokens,
+		CumInputTokens:              p.CumInputTokens,
+		CumCachedInputTokens:        p.CumCachedInputTokens,
+		CumCacheCreationInputTokens: p.CumCacheCreationInputTokens,
+		CumOutputTokens:             p.CumOutputTokens,
+		ContextBudget:               p.ContextBudget,
+		MaxTokens:                   p.Budget.MaxTokens,
+		MaxCost:                     p.Budget.MaxCost,
+		UsedCost:                    p.Budget.UsedCost,
+		ComposeNode:                 p.ComposeNode,
+		ComposeDeps:                 append([]string(nil), p.ComposeDeps...),
+		PipelineIndex:               p.PipelineIndex,
+		PipelineTotal:               p.PipelineTotal,
+		OriginUUID:                  p.OriginUUID,
+		ResumedFromStep:             p.ResumedFromStep,
+		DriverMeta:                  p.DriverMeta,
+		FeatureProfile:              p.FeatureFlags.ProfileName,
 	}
 }
 

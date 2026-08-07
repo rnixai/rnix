@@ -67,17 +67,24 @@ type ProcInfo struct {
 	Skills          []string
 	TokensUsed      int
 	LastInputTokens int
-	ContextBudget   int
-	MaxTokens       int64
-	MaxCost         float64
-	UsedCost        float64
-	MaxSteps        int
-	CreatedAt       time.Time
-	DeadAt          time.Time
-	CtxID           types.CtxID
-	Result          string
-	ResultPartial   bool `json:"result_partial,omitempty"`
-	AllowedDevices  []string
+	// Story 74.2 — process-level four-way cumulative token spend. Accumulated
+	// only at the authoritative step boundary; 0 for processes with no
+	// completed step (omitempty keeps legacy snapshots / wires clean).
+	CumInputTokens              int `json:"cum_input_tokens,omitempty"`
+	CumCachedInputTokens        int `json:"cum_cached_input_tokens,omitempty"`
+	CumCacheCreationInputTokens int `json:"cum_cache_creation_input_tokens,omitempty"`
+	CumOutputTokens             int `json:"cum_output_tokens,omitempty"`
+	ContextBudget               int
+	MaxTokens                   int64
+	MaxCost                     float64
+	UsedCost                    float64
+	MaxSteps                    int
+	CreatedAt                   time.Time
+	DeadAt                      time.Time
+	CtxID                       types.CtxID
+	Result                      string
+	ResultPartial               bool `json:"result_partial,omitempty"`
+	AllowedDevices              []string
 	// DeniedDevices is the process device blocklist, checked before AllowedDevices
 	// in kernel tool dispatch. Persisted alongside AllowedDevices (Story 37.6) so
 	// resume / daemon-restart revival keeps the anti-recursive-orchestration guard

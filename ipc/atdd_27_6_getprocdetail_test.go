@@ -59,13 +59,13 @@ func TestATDD_27_6_AC1_GetProcDetailRequest_Serialization(t *testing.T) {
 func TestATDD_27_6_AC1_GetProcDetailResponse_Serialization(t *testing.T) {
 
 	resp := GetProcDetailResponse{
-		PID:      types.PID(1),
-		UUID:     "01960abc-def0-7000-8000-000000000001",
-		PPID:     types.PID(0),
-		State:    "running",
-		Intent:   "analyze code",
-		Provider: "claude",
-		Model:    "opus-4",
+		PID:         types.PID(1),
+		UUID:        "01960abc-def0-7000-8000-000000000001",
+		PPID:        types.PID(0),
+		State:       "running",
+		Intent:      "analyze code",
+		Provider:    "claude",
+		Model:       "opus-4",
 		CreatedAtMs: time.Now().UnixMilli(),
 		Skills: []SkillInfoWire{
 			{Name: "code-analysis", AllowedTools: []string{"/dev/fs", "/dev/shell"}},
@@ -82,6 +82,11 @@ func TestATDD_27_6_AC1_GetProcDetailResponse_Serialization(t *testing.T) {
 			ContextBudget: 20000,
 			UsagePct:      62.5,
 		},
+		// Story 74.2 — four-way cumulative token spend rides GetProcDetailResponse.
+		CumInputTokens:              600,
+		CumCachedInputTokens:        300,
+		CumCacheCreationInputTokens: 120,
+		CumOutputTokens:             180,
 	}
 	data, err := json.Marshal(resp)
 	if err != nil {
@@ -108,6 +113,13 @@ func TestATDD_27_6_AC1_GetProcDetailResponse_Serialization(t *testing.T) {
 	}
 	if decoded.ContextStats.UsagePct != 62.5 {
 		t.Errorf("AC-1: UsagePct = %f, want 62.5", decoded.ContextStats.UsagePct)
+	}
+	// Story 74.2 — the four-way cumulatives survive the serialization roundtrip.
+	if decoded.CumInputTokens != 600 || decoded.CumCachedInputTokens != 300 ||
+		decoded.CumCacheCreationInputTokens != 120 || decoded.CumOutputTokens != 180 {
+		t.Errorf("AC-1: cumulatives = %d/%d/%d/%d, want 600/300/120/180",
+			decoded.CumInputTokens, decoded.CumCachedInputTokens,
+			decoded.CumCacheCreationInputTokens, decoded.CumOutputTokens)
 	}
 }
 

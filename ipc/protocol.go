@@ -261,21 +261,29 @@ type ProcInfoWire struct {
 	Skills          []string           `json:"skills"`
 	TokensUsed      int                `json:"tokens_used"`
 	LastInputTokens int                `json:"last_input_tokens,omitempty"`
-	CreatedAt       int64              `json:"created_at_ms"`
-	DeadAt          int64              `json:"dead_at_ms,omitempty"`
-	CtxID           types.CtxID        `json:"ctx_id"`
-	Result          string             `json:"result,omitempty"`
-	ContextBudget   int                `json:"context_budget,omitempty"`
-	MaxTokens       int64              `json:"max_tokens,omitempty"`
-	MaxCost         float64            `json:"max_cost,omitempty"`
-	UsedCost        float64            `json:"used_cost,omitempty"`
-	MaxSteps        int                `json:"max_steps,omitempty"`
-	Provider        string             `json:"provider,omitempty"`
-	Model           string             `json:"model,omitempty"`
-	ReasoningEffort string             `json:"reasoning_effort,omitempty"`
-	LastHeartbeatMs int64              `json:"last_heartbeat_ms,omitempty"`
-	StepTimeoutMs   int64              `json:"step_timeout_ms,omitempty"`
-	SuspendReason   string             `json:"suspend_reason,omitempty"`
+	// Story 74.2 — process-level four-way cumulative token spend, mirrored
+	// from vfs.ProcInfo so `rnix ps` / JSON IPC consumers can answer "how
+	// much did this process read/write of cache, how many completions".
+	// Additive omitempty: legacy daemons omit them and clients read 0.
+	CumInputTokens              int         `json:"cum_input_tokens,omitempty"`
+	CumCachedInputTokens        int         `json:"cum_cached_input_tokens,omitempty"`
+	CumCacheCreationInputTokens int         `json:"cum_cache_creation_input_tokens,omitempty"`
+	CumOutputTokens             int         `json:"cum_output_tokens,omitempty"`
+	CreatedAt                   int64       `json:"created_at_ms"`
+	DeadAt                      int64       `json:"dead_at_ms,omitempty"`
+	CtxID                       types.CtxID `json:"ctx_id"`
+	Result                      string      `json:"result,omitempty"`
+	ContextBudget               int         `json:"context_budget,omitempty"`
+	MaxTokens                   int64       `json:"max_tokens,omitempty"`
+	MaxCost                     float64     `json:"max_cost,omitempty"`
+	UsedCost                    float64     `json:"used_cost,omitempty"`
+	MaxSteps                    int         `json:"max_steps,omitempty"`
+	Provider                    string      `json:"provider,omitempty"`
+	Model                       string      `json:"model,omitempty"`
+	ReasoningEffort             string      `json:"reasoning_effort,omitempty"`
+	LastHeartbeatMs             int64       `json:"last_heartbeat_ms,omitempty"`
+	StepTimeoutMs               int64       `json:"step_timeout_ms,omitempty"`
+	SuspendReason               string      `json:"suspend_reason,omitempty"`
 	// ResumeAtMs is the quota-window reset instant (ms since epoch) a
 	// quota-suspended process waits for (Story 73.3). Mirrors
 	// vfs.ProcInfo.ResumeAt; 0 = not quota-suspended or no server-declared
@@ -343,45 +351,49 @@ func ProcInfoToWire(p vfs.ProcInfo) ProcInfoWire {
 		skills = []string{}
 	}
 	w := ProcInfoWire{
-		PID:             p.PID,
-		UUID:            p.UUID,
-		OriginUUID:      p.OriginUUID,
-		ResumedFromStep: p.ResumedFromStep,
-		ExitReason:      p.ExitReason,
-		CtxSize:         p.CtxSize,
-		PPID:            p.PPID,
-		ParentUUID:      p.ParentUUID,
-		State:           p.State,
-		Intent:          p.Intent,
-		Skills:          skills,
-		TokensUsed:      p.TokensUsed,
-		LastInputTokens: p.LastInputTokens,
-		CreatedAt:       p.CreatedAt.UnixMilli(),
-		CtxID:           p.CtxID,
-		Result:          p.Result,
-		ResultPartial:   p.ResultPartial,
-		ContextBudget:   p.ContextBudget,
-		MaxTokens:       p.MaxTokens,
-		MaxCost:         p.MaxCost,
-		UsedCost:        p.UsedCost,
-		MaxSteps:        p.MaxSteps,
-		Provider:        p.Provider,
-		Model:           p.Model,
-		ReasoningEffort: p.ReasoningEffort,
-		StepTimeoutMs:   p.StepTimeout.Milliseconds(),
-		SuspendReason:   p.SuspendReason,
-		CompactLatched:  p.CompactLatched,
-		IsPaused:        p.IsPaused,
-		ComposeNode:     p.ComposeNode,
-		ComposeDeps:     append([]string(nil), p.ComposeDeps...),
-		PipelineIndex:   p.PipelineIndex,
-		PipelineTotal:   p.PipelineTotal,
-		ExitCode:        p.ExitCode,
-		ExitCodeSet:     p.ExitCodeSet,
-		DriverMeta:      p.DriverMeta,
-		FeatureProfile:  p.FeatureProfile,
-		UsageProvenance: p.UsageProvenance,
-		ToolCallCount:   p.ToolCallCount,
+		PID:                         p.PID,
+		UUID:                        p.UUID,
+		OriginUUID:                  p.OriginUUID,
+		ResumedFromStep:             p.ResumedFromStep,
+		ExitReason:                  p.ExitReason,
+		CtxSize:                     p.CtxSize,
+		PPID:                        p.PPID,
+		ParentUUID:                  p.ParentUUID,
+		State:                       p.State,
+		Intent:                      p.Intent,
+		Skills:                      skills,
+		TokensUsed:                  p.TokensUsed,
+		LastInputTokens:             p.LastInputTokens,
+		CumInputTokens:              p.CumInputTokens,
+		CumCachedInputTokens:        p.CumCachedInputTokens,
+		CumCacheCreationInputTokens: p.CumCacheCreationInputTokens,
+		CumOutputTokens:             p.CumOutputTokens,
+		CreatedAt:                   p.CreatedAt.UnixMilli(),
+		CtxID:                       p.CtxID,
+		Result:                      p.Result,
+		ResultPartial:               p.ResultPartial,
+		ContextBudget:               p.ContextBudget,
+		MaxTokens:                   p.MaxTokens,
+		MaxCost:                     p.MaxCost,
+		UsedCost:                    p.UsedCost,
+		MaxSteps:                    p.MaxSteps,
+		Provider:                    p.Provider,
+		Model:                       p.Model,
+		ReasoningEffort:             p.ReasoningEffort,
+		StepTimeoutMs:               p.StepTimeout.Milliseconds(),
+		SuspendReason:               p.SuspendReason,
+		CompactLatched:              p.CompactLatched,
+		IsPaused:                    p.IsPaused,
+		ComposeNode:                 p.ComposeNode,
+		ComposeDeps:                 append([]string(nil), p.ComposeDeps...),
+		PipelineIndex:               p.PipelineIndex,
+		PipelineTotal:               p.PipelineTotal,
+		ExitCode:                    p.ExitCode,
+		ExitCodeSet:                 p.ExitCodeSet,
+		DriverMeta:                  p.DriverMeta,
+		FeatureProfile:              p.FeatureProfile,
+		UsageProvenance:             p.UsageProvenance,
+		ToolCallCount:               p.ToolCallCount,
 	}
 	if !p.DeadAt.IsZero() {
 		w.DeadAt = p.DeadAt.UnixMilli()
@@ -404,45 +416,49 @@ func ProcInfoToWire(p vfs.ProcInfo) ProcInfoWire {
 // WireToProcInfo converts a ProcInfoWire back to vfs.ProcInfo.
 func WireToProcInfo(w ProcInfoWire) vfs.ProcInfo {
 	p := vfs.ProcInfo{
-		PID:             w.PID,
-		UUID:            w.UUID,
-		OriginUUID:      w.OriginUUID,
-		ResumedFromStep: w.ResumedFromStep,
-		ExitReason:      w.ExitReason,
-		CtxSize:         w.CtxSize,
-		PPID:            w.PPID,
-		ParentUUID:      w.ParentUUID,
-		State:           w.State,
-		Intent:          w.Intent,
-		Skills:          w.Skills,
-		TokensUsed:      w.TokensUsed,
-		LastInputTokens: w.LastInputTokens,
-		CreatedAt:       unixMilliToTime(w.CreatedAt),
-		CtxID:           w.CtxID,
-		Result:          w.Result,
-		ResultPartial:   w.ResultPartial,
-		ContextBudget:   w.ContextBudget,
-		MaxTokens:       w.MaxTokens,
-		MaxCost:         w.MaxCost,
-		UsedCost:        w.UsedCost,
-		MaxSteps:        w.MaxSteps,
-		Provider:        w.Provider,
-		Model:           w.Model,
-		ReasoningEffort: w.ReasoningEffort,
-		StepTimeout:     time.Duration(w.StepTimeoutMs) * time.Millisecond,
-		SuspendReason:   w.SuspendReason,
-		CompactLatched:  w.CompactLatched,
-		IsPaused:        w.IsPaused,
-		ComposeNode:     w.ComposeNode,
-		ComposeDeps:     w.ComposeDeps,
-		PipelineIndex:   w.PipelineIndex,
-		PipelineTotal:   w.PipelineTotal,
-		ExitCode:        w.ExitCode,
-		ExitCodeSet:     w.ExitCodeSet,
-		DriverMeta:      w.DriverMeta,
-		FeatureProfile:  w.FeatureProfile,
-		UsageProvenance: w.UsageProvenance,
-		ToolCallCount:   w.ToolCallCount,
+		PID:                         w.PID,
+		UUID:                        w.UUID,
+		OriginUUID:                  w.OriginUUID,
+		ResumedFromStep:             w.ResumedFromStep,
+		ExitReason:                  w.ExitReason,
+		CtxSize:                     w.CtxSize,
+		PPID:                        w.PPID,
+		ParentUUID:                  w.ParentUUID,
+		State:                       w.State,
+		Intent:                      w.Intent,
+		Skills:                      w.Skills,
+		TokensUsed:                  w.TokensUsed,
+		LastInputTokens:             w.LastInputTokens,
+		CumInputTokens:              w.CumInputTokens,
+		CumCachedInputTokens:        w.CumCachedInputTokens,
+		CumCacheCreationInputTokens: w.CumCacheCreationInputTokens,
+		CumOutputTokens:             w.CumOutputTokens,
+		CreatedAt:                   unixMilliToTime(w.CreatedAt),
+		CtxID:                       w.CtxID,
+		Result:                      w.Result,
+		ResultPartial:               w.ResultPartial,
+		ContextBudget:               w.ContextBudget,
+		MaxTokens:                   w.MaxTokens,
+		MaxCost:                     w.MaxCost,
+		UsedCost:                    w.UsedCost,
+		MaxSteps:                    w.MaxSteps,
+		Provider:                    w.Provider,
+		Model:                       w.Model,
+		ReasoningEffort:             w.ReasoningEffort,
+		StepTimeout:                 time.Duration(w.StepTimeoutMs) * time.Millisecond,
+		SuspendReason:               w.SuspendReason,
+		CompactLatched:              w.CompactLatched,
+		IsPaused:                    w.IsPaused,
+		ComposeNode:                 w.ComposeNode,
+		ComposeDeps:                 w.ComposeDeps,
+		PipelineIndex:               w.PipelineIndex,
+		PipelineTotal:               w.PipelineTotal,
+		ExitCode:                    w.ExitCode,
+		ExitCodeSet:                 w.ExitCodeSet,
+		DriverMeta:                  w.DriverMeta,
+		FeatureProfile:              w.FeatureProfile,
+		UsageProvenance:             w.UsageProvenance,
+		ToolCallCount:               w.ToolCallCount,
 	}
 	if w.DeadAt != 0 {
 		p.DeadAt = unixMilliToTime(w.DeadAt)
@@ -1480,10 +1496,17 @@ type GetProcDetailResponse struct {
 	EnvSnapshot     map[string]string `json:"env_snapshot"`
 	FDTable         []FDEntryWire     `json:"fd_table"`
 	ContextStats    ContextStatsWire  `json:"context_stats"`
-	ComposeNode     string            `json:"compose_node,omitempty"`
-	ComposeDeps     []string          `json:"compose_deps,omitempty"`
-	PipelineIndex   int               `json:"pipeline_index"`
-	PipelineTotal   int               `json:"pipeline_total"`
+	// Story 74.2 — process-level four-way cumulative token spend for the
+	// Detail pane Token Spend section. omitempty: legacy/history processes
+	// without completed steps omit them and the section is skipped (NFR5).
+	CumInputTokens              int      `json:"cum_input_tokens,omitempty"`
+	CumCachedInputTokens        int      `json:"cum_cached_input_tokens,omitempty"`
+	CumCacheCreationInputTokens int      `json:"cum_cache_creation_input_tokens,omitempty"`
+	CumOutputTokens             int      `json:"cum_output_tokens,omitempty"`
+	ComposeNode                 string   `json:"compose_node,omitempty"`
+	ComposeDeps                 []string `json:"compose_deps,omitempty"`
+	PipelineIndex               int      `json:"pipeline_index"`
+	PipelineTotal               int      `json:"pipeline_total"`
 
 	// Story 42.3 — Resume lineage fields (mirrored from proc.OriginUUID /
 	// proc.ResumedFromStep for active procs, procInfoDisk for history).

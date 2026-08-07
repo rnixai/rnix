@@ -610,6 +610,12 @@ func (k *KernelImpl) resumeFromCheckpoint(uuid string, opts ResumeOpts, start ti
 	proc.ResumedFromStep = startStep
 	proc.mu.Lock()
 	proc.TokensUsed = cp.UsedTokens
+	// Story 74.2 — restore the four-way cumulatives; legacy checkpoints
+	// without them read 0 (omitempty).
+	proc.CumInputTokens = cp.CumInputTokens
+	proc.CumCachedInputTokens = cp.CumCachedInputTokens
+	proc.CumCacheCreationInputTokens = cp.CumCacheCreationInputTokens
+	proc.CumOutputTokens = cp.CumOutputTokens
 	// LastInputTokens is NOT in the checkpoint schema (only UsedTokens is), so
 	// backpressure stays silent until the first post-resume LLM response reports
 	// it. The disk path (resumeFromHistory) restores it from proc-info.json.
@@ -978,6 +984,12 @@ func (k *KernelImpl) resumeFromHistory(uuid string, opts ResumeOpts, start time.
 	proc.PipelineTotal = diskInfo.PipelineTotal
 	proc.mu.Lock()
 	proc.TokensUsed = diskInfo.TokensUsed
+	// Story 74.2 — restore the four-way cumulatives from proc-info.json;
+	// legacy snapshots without them read 0.
+	proc.CumInputTokens = diskInfo.CumInputTokens
+	proc.CumCachedInputTokens = diskInfo.CumCachedInputTokens
+	proc.CumCacheCreationInputTokens = diskInfo.CumCacheCreationInputTokens
+	proc.CumOutputTokens = diskInfo.CumOutputTokens
 	// Story 71.1 code-review P1: restore the provider-reported prompt tokens so
 	// the backpressure section is live from step one of a resumed process — the
 	// old slot numerator (len(Messages)) was always available post-deserialize,

@@ -127,6 +127,13 @@ func (k *KernelImpl) LoadSuspendedFromDisk() (int, error) {
 		proc.pausedAt = info.PausedAt
 		proc.pausedTotal = info.PausedTotal
 		proc.TokensUsed = info.TokensUsed
+		// Story 74.2 — third restore path (epic 漏列, create-story 修正 3):
+		// daemon-restart placeholder revival must carry the four-way
+		// cumulatives or suspend → restart → resume zeroes them.
+		proc.CumInputTokens = info.CumInputTokens
+		proc.CumCachedInputTokens = info.CumCachedInputTokens
+		proc.CumCacheCreationInputTokens = info.CumCacheCreationInputTokens
+		proc.CumOutputTokens = info.CumOutputTokens
 		// Story 71.1 code-review P1: same rationale as resumeFromHistory — the
 		// backpressure numerator must be live from step one, not 0 until the
 		// first post-resume LLM response.

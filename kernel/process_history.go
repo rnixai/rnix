@@ -228,11 +228,17 @@ type procInfoDisk struct {
 	Skills          []string `json:"skills,omitempty"`
 	TokensUsed      int      `json:"tokens_used"`
 	LastInputTokens int      `json:"last_input_tokens,omitempty"`
-	ContextBudget   int      `json:"context_budget,omitempty"`
-	MaxSteps        int      `json:"max_steps,omitempty"`
-	CreatedAt       string   `json:"created_at"`
-	DeadAt          string   `json:"dead_at,omitempty"`
-	PausedTotalMs   int64    `json:"paused_total_ms,omitempty"`
+	// Story 74.2 — process-level four-way cumulative token spend. Additive
+	// omitempty: legacy snapshots without the keys load as 0 (NFR5).
+	CumInputTokens              int    `json:"cum_input_tokens,omitempty"`
+	CumCachedInputTokens        int    `json:"cum_cached_input_tokens,omitempty"`
+	CumCacheCreationInputTokens int    `json:"cum_cache_creation_input_tokens,omitempty"`
+	CumOutputTokens             int    `json:"cum_output_tokens,omitempty"`
+	ContextBudget               int    `json:"context_budget,omitempty"`
+	MaxSteps                    int    `json:"max_steps,omitempty"`
+	CreatedAt                   string `json:"created_at"`
+	DeadAt                      string `json:"dead_at,omitempty"`
+	PausedTotalMs               int64  `json:"paused_total_ms,omitempty"`
 	// Story 44.3 AC#1 — suspend metadata persisted across daemon restart so
 	// LoadSuspendedFromDisk can recreate accurate Suspended placeholders.
 	// SuspendReason intentionally typed as string (not enum) to stay
@@ -318,38 +324,42 @@ type mcpMountDisk struct {
 
 func procInfoToDisk(info vfs.ProcInfo) procInfoDisk {
 	d := procInfoDisk{
-		PID:             uint64(info.PID),
-		UUID:            info.UUID,
-		OriginUUID:      info.OriginUUID,
-		ResumedFromStep: info.ResumedFromStep,
-		ExitReason:      info.ExitReason,
-		CtxSize:         info.CtxSize,
-		PPID:            uint64(info.PPID),
-		ParentUUID:      info.ParentUUID,
-		State:           info.State.String(),
-		Intent:          info.Intent,
-		Skills:          info.Skills,
-		TokensUsed:      info.TokensUsed,
-		LastInputTokens: info.LastInputTokens,
-		ContextBudget:   info.ContextBudget,
-		MaxSteps:        info.MaxSteps,
-		CreatedAt:       info.CreatedAt.Format(time.RFC3339Nano),
-		CtxID:           uint64(info.CtxID),
-		Result:          info.Result,
-		ResultPartial:   info.ResultPartial,
-		AllowedDevices:  info.AllowedDevices,
-		DeniedDevices:   info.DeniedDevices,
-		AllowedTools:    info.AllowedTools,
-		Provider:        info.Provider,
-		Model:           info.Model,
-		ReasoningEffort: info.ReasoningEffort,
-		PrimaryDevice:   info.PrimaryDevice,
-		ProjectDir:      info.ProjectDir,
-		ContextWindow:   info.ContextWindow,
-		ComposeNode:     info.ComposeNode,
-		ComposeDeps:     append([]string(nil), info.ComposeDeps...),
-		PipelineIndex:   info.PipelineIndex,
-		PipelineTotal:   info.PipelineTotal,
+		PID:                         uint64(info.PID),
+		UUID:                        info.UUID,
+		OriginUUID:                  info.OriginUUID,
+		ResumedFromStep:             info.ResumedFromStep,
+		ExitReason:                  info.ExitReason,
+		CtxSize:                     info.CtxSize,
+		PPID:                        uint64(info.PPID),
+		ParentUUID:                  info.ParentUUID,
+		State:                       info.State.String(),
+		Intent:                      info.Intent,
+		Skills:                      info.Skills,
+		TokensUsed:                  info.TokensUsed,
+		LastInputTokens:             info.LastInputTokens,
+		CumInputTokens:              info.CumInputTokens,
+		CumCachedInputTokens:        info.CumCachedInputTokens,
+		CumCacheCreationInputTokens: info.CumCacheCreationInputTokens,
+		CumOutputTokens:             info.CumOutputTokens,
+		ContextBudget:               info.ContextBudget,
+		MaxSteps:                    info.MaxSteps,
+		CreatedAt:                   info.CreatedAt.Format(time.RFC3339Nano),
+		CtxID:                       uint64(info.CtxID),
+		Result:                      info.Result,
+		ResultPartial:               info.ResultPartial,
+		AllowedDevices:              info.AllowedDevices,
+		DeniedDevices:               info.DeniedDevices,
+		AllowedTools:                info.AllowedTools,
+		Provider:                    info.Provider,
+		Model:                       info.Model,
+		ReasoningEffort:             info.ReasoningEffort,
+		PrimaryDevice:               info.PrimaryDevice,
+		ProjectDir:                  info.ProjectDir,
+		ContextWindow:               info.ContextWindow,
+		ComposeNode:                 info.ComposeNode,
+		ComposeDeps:                 append([]string(nil), info.ComposeDeps...),
+		PipelineIndex:               info.PipelineIndex,
+		PipelineTotal:               info.PipelineTotal,
 		// Story 44.3 AC#1 — persist suspend metadata so daemon restart can
 		// reload Suspended placeholders into procTable.
 		SuspendReason:   info.SuspendReason,
@@ -398,37 +408,41 @@ func procInfoToDisk(info vfs.ProcInfo) procInfoDisk {
 
 func procInfoFromDisk(d procInfoDisk) vfs.ProcInfo {
 	info := vfs.ProcInfo{
-		PID:             types.PID(d.PID),
-		UUID:            d.UUID,
-		OriginUUID:      d.OriginUUID,
-		ResumedFromStep: d.ResumedFromStep,
-		ExitReason:      d.ExitReason,
-		CtxSize:         d.CtxSize,
-		PPID:            types.PID(d.PPID),
-		ParentUUID:      d.ParentUUID,
-		State:           parseProcessState(d.State),
-		Intent:          d.Intent,
-		Skills:          d.Skills,
-		TokensUsed:      d.TokensUsed,
-		LastInputTokens: d.LastInputTokens,
-		ContextBudget:   d.ContextBudget,
-		MaxSteps:        d.MaxSteps,
-		CtxID:           types.CtxID(d.CtxID),
-		Result:          d.Result,
-		ResultPartial:   d.ResultPartial,
-		AllowedDevices:  d.AllowedDevices,
-		DeniedDevices:   d.DeniedDevices,
-		AllowedTools:    d.AllowedTools,
-		Provider:        d.Provider,
-		Model:           d.Model,
-		ReasoningEffort: d.ReasoningEffort,
-		PrimaryDevice:   d.PrimaryDevice,
-		ProjectDir:      d.ProjectDir,
-		ContextWindow:   d.ContextWindow,
-		ComposeNode:     d.ComposeNode,
-		ComposeDeps:     d.ComposeDeps,
-		PipelineIndex:   d.PipelineIndex,
-		PipelineTotal:   d.PipelineTotal,
+		PID:                         types.PID(d.PID),
+		UUID:                        d.UUID,
+		OriginUUID:                  d.OriginUUID,
+		ResumedFromStep:             d.ResumedFromStep,
+		ExitReason:                  d.ExitReason,
+		CtxSize:                     d.CtxSize,
+		PPID:                        types.PID(d.PPID),
+		ParentUUID:                  d.ParentUUID,
+		State:                       parseProcessState(d.State),
+		Intent:                      d.Intent,
+		Skills:                      d.Skills,
+		TokensUsed:                  d.TokensUsed,
+		LastInputTokens:             d.LastInputTokens,
+		CumInputTokens:              d.CumInputTokens,
+		CumCachedInputTokens:        d.CumCachedInputTokens,
+		CumCacheCreationInputTokens: d.CumCacheCreationInputTokens,
+		CumOutputTokens:             d.CumOutputTokens,
+		ContextBudget:               d.ContextBudget,
+		MaxSteps:                    d.MaxSteps,
+		CtxID:                       types.CtxID(d.CtxID),
+		Result:                      d.Result,
+		ResultPartial:               d.ResultPartial,
+		AllowedDevices:              d.AllowedDevices,
+		DeniedDevices:               d.DeniedDevices,
+		AllowedTools:                d.AllowedTools,
+		Provider:                    d.Provider,
+		Model:                       d.Model,
+		ReasoningEffort:             d.ReasoningEffort,
+		PrimaryDevice:               d.PrimaryDevice,
+		ProjectDir:                  d.ProjectDir,
+		ContextWindow:               d.ContextWindow,
+		ComposeNode:                 d.ComposeNode,
+		ComposeDeps:                 d.ComposeDeps,
+		PipelineIndex:               d.PipelineIndex,
+		PipelineTotal:               d.PipelineTotal,
 		// Story 44.3 AC#1 — restore suspend metadata. SuspendReason is a
 		// transparent string passthrough; PausedAt parses best-effort and
 		// stays zero on parse failure.

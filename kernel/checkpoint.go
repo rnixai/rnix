@@ -25,25 +25,31 @@ type CheckpointData struct {
 
 // CheckpointProcState captures the mutable process state at checkpoint time.
 type CheckpointProcState struct {
-	PID                   types.PID `json:"pid"`
-	Provider              string    `json:"provider"`
-	Model                 string    `json:"model"`
-	ReasoningEffort       string    `json:"reasoning_effort,omitempty"`
-	Skills                []string  `json:"skills"`
-	AllowedDevices        []string  `json:"allowed_devices"`
-	DeniedDevices         []string  `json:"denied_devices,omitempty"`
-	AllowedTools          []string  `json:"allowed_tools,omitempty"` // Story 54.1: persisted authoritative tool whitelist; omitempty keeps legacy checkpoints clean
-	Intent                string    `json:"intent"`
-	IntentID              string    `json:"intent_id,omitempty"`
-	MaxSteps              int       `json:"max_steps"`
-	UsedTokens            int       `json:"used_tokens"`
-	MaxTokens             int64     `json:"max_tokens,omitempty"`
-	MaxCost               float64   `json:"max_cost,omitempty"`
-	UsedCost              float64   `json:"used_cost,omitempty"`
-	CtxSize               int       `json:"ctx_size,omitempty"`
-	ConsecutiveToolErrors int       `json:"consecutive_tool_errors"`
-	SuspendReason         string    `json:"suspend_reason,omitempty"`
-	ParentUUID            string    `json:"parent_uuid,omitempty"`
+	PID             types.PID `json:"pid"`
+	Provider        string    `json:"provider"`
+	Model           string    `json:"model"`
+	ReasoningEffort string    `json:"reasoning_effort,omitempty"`
+	Skills          []string  `json:"skills"`
+	AllowedDevices  []string  `json:"allowed_devices"`
+	DeniedDevices   []string  `json:"denied_devices,omitempty"`
+	AllowedTools    []string  `json:"allowed_tools,omitempty"` // Story 54.1: persisted authoritative tool whitelist; omitempty keeps legacy checkpoints clean
+	Intent          string    `json:"intent"`
+	IntentID        string    `json:"intent_id,omitempty"`
+	MaxSteps        int       `json:"max_steps"`
+	UsedTokens      int       `json:"used_tokens"`
+	// Story 74.2 — four-way cumulative token spend snapshotted at checkpoint
+	// time (omitempty keeps legacy checkpoints clean → resume reads 0).
+	CumInputTokens              int     `json:"cum_input_tokens,omitempty"`
+	CumCachedInputTokens        int     `json:"cum_cached_input_tokens,omitempty"`
+	CumCacheCreationInputTokens int     `json:"cum_cache_creation_input_tokens,omitempty"`
+	CumOutputTokens             int     `json:"cum_output_tokens,omitempty"`
+	MaxTokens                   int64   `json:"max_tokens,omitempty"`
+	MaxCost                     float64 `json:"max_cost,omitempty"`
+	UsedCost                    float64 `json:"used_cost,omitempty"`
+	CtxSize                     int     `json:"ctx_size,omitempty"`
+	ConsecutiveToolErrors       int     `json:"consecutive_tool_errors"`
+	SuspendReason               string  `json:"suspend_reason,omitempty"`
+	ParentUUID                  string  `json:"parent_uuid,omitempty"`
 	// ProjectDir is the absolute path to the project the process belongs to.
 	// Persisted so the checkpoint resume path can resolve the process's OWN
 	// project (project-level providers/.env) instead of the operator's cwd.
@@ -106,6 +112,9 @@ func ReadCheckpointPublic(dir string) (*CheckpointData, error) {
 func buildCheckpointData(proc *Process, step int, contextSnapshot json.RawMessage, consecutiveToolErrors int) *CheckpointData {
 	proc.mu.Lock()
 	tokensUsed := proc.TokensUsed
+	// Story 74.2 — snapshot the four-way cumulatives under the same lock so
+	// resume-from-checkpoint does not zero them.
+	cumInput, cumCached, cumCreation, cumOutput := proc.CumInputTokens, proc.CumCachedInputTokens, proc.CumCacheCreationInputTokens, proc.CumOutputTokens
 	budgetSnap := proc.Budget
 	suspendReason := proc.SuspendReason
 	parentUUID := proc.ParentUUID
@@ -143,26 +152,30 @@ func buildCheckpointData(proc *Process, step int, contextSnapshot json.RawMessag
 		Timestamp:       time.Now(),
 		ContextSnapshot: contextSnapshot,
 		ProcState: CheckpointProcState{
-			PID:                   proc.PID,
-			Provider:              proc.Provider,
-			Model:                 proc.Model,
-			ReasoningEffort:       proc.ReasoningEffort,
-			Skills:                skills,
-			AllowedDevices:        allowedDevices,
-			DeniedDevices:         deniedDevices,
-			AllowedTools:          allowedTools,
-			Intent:                proc.Intent,
-			MaxSteps:              proc.MaxSteps,
-			CtxSize:               proc.CtxSize,
-			UsedTokens:            tokensUsed,
-			MaxTokens:             budgetSnap.MaxTokens,
-			MaxCost:               budgetSnap.MaxCost,
-			UsedCost:              budgetSnap.UsedCost,
-			ConsecutiveToolErrors: consecutiveToolErrors,
-			SuspendReason:         suspendReason,
-			ParentUUID:            parentUUID,
-			ProjectDir:            projectDir,
-			EnvSnapshot:           envSnapshot,
+			PID:                         proc.PID,
+			Provider:                    proc.Provider,
+			Model:                       proc.Model,
+			ReasoningEffort:             proc.ReasoningEffort,
+			Skills:                      skills,
+			AllowedDevices:              allowedDevices,
+			DeniedDevices:               deniedDevices,
+			AllowedTools:                allowedTools,
+			Intent:                      proc.Intent,
+			MaxSteps:                    proc.MaxSteps,
+			CtxSize:                     proc.CtxSize,
+			UsedTokens:                  tokensUsed,
+			CumInputTokens:              cumInput,
+			CumCachedInputTokens:        cumCached,
+			CumCacheCreationInputTokens: cumCreation,
+			CumOutputTokens:             cumOutput,
+			MaxTokens:                   budgetSnap.MaxTokens,
+			MaxCost:                     budgetSnap.MaxCost,
+			UsedCost:                    budgetSnap.UsedCost,
+			ConsecutiveToolErrors:       consecutiveToolErrors,
+			SuspendReason:               suspendReason,
+			ParentUUID:                  parentUUID,
+			ProjectDir:                  projectDir,
+			EnvSnapshot:                 envSnapshot,
 		},
 	}
 }

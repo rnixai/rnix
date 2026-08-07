@@ -1210,6 +1210,15 @@ func (k *KernelImpl) reasonStep(proc *Process, llmFD types.FD, opts SpawnOpts) {
 		proc.UsageProvenance = mergeProvenance(proc.UsageProvenance, stepProvenance)
 		proc.TokensUsed += resp.TokensUsed
 		proc.LastInputTokens = resp.InputTokens
+		// Story 74.2 — four-way cumulative accumulation at the SAME
+		// authoritative point (same lock, same step boundary). NFR4: the
+		// cumulatives never touch mid-stream deltas; a kill folds
+		// StreamTokensUsed into TokensUsed but has no per-dimension
+		// decomposition, so they honestly stop at the last authoritative step.
+		proc.CumInputTokens += resp.InputTokens
+		proc.CumCachedInputTokens += resp.CachedInputTokens
+		proc.CumCacheCreationInputTokens += resp.CacheCreationInputTokens
+		proc.CumOutputTokens += resp.OutputTokens
 		budget := proc.ContextBudget
 		tokens := proc.TokensUsed
 		inputTokens := resp.InputTokens
