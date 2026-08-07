@@ -44,6 +44,13 @@ const (
 	ErrServiceUnavailable ErrCode = "SERVICE_UNAVAILABLE"
 	ErrAlreadyMounted     ErrCode = "ALREADY_MOUNTED"
 	ErrResourceExhausted  ErrCode = "RESOURCE_EXHAUSTED"
+	// ErrRateLimit is the categorized code for the rate-limit family (HTTP 429
+	// throttle / terminal quota / 529-503 overload, Story 73.1 trichotomy).
+	// Assigned by the kernel's llmErrCode mapping (Story 73.4 AC2) so the event
+	// stream can distinguish "died/suspended by rate limit" from other driver
+	// failures. Distinct from ErrServiceUnavailable (web-device 5xx-class) and
+	// ErrResourceExhausted (context budget / cron store-full) — see Story 73.4 D1.
+	ErrRateLimit ErrCode = "RATE_LIMIT"
 	// ErrForceKilled is returned by drivers/mcp/transport.Close when the
 	// graceful SIGTERM timeout expires and the transport had to escalate to
 	// SIGKILL. Kernel finishProcess uses errors.As + DriverError.Code ==

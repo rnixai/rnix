@@ -379,6 +379,35 @@ func driverErrorDetail(err error) string {
 	return truncateUTF8Bytes(strings.TrimSpace(msg), maxExitReasonDetailBytes)
 }
 
+// llmErrCode maps an LLM-driver failure to its coarse types.ErrCode bucket for
+// the terminal event stream (Story 73.4 AC2 / D2). The kernel consumes the
+// classification at the four terminal error sites (write-fail / read-fail /
+// the two fallback_exhausted events) so the event stream can distinguish
+// "died/suspended by rate limit" from auth, context, not-found, timeout, or
+// generic driver failure. Drivers emit no ErrCode of their own, so the
+// mapping is shape-based on the llm sentinel chain, mirroring extractErrCode's
+// errors.As + default pattern. nil and unknown shapes fall into ErrDriver —
+// the LLM-driver default bucket (same philosophy as the web device's DRIVER
+// default).
+func llmErrCode(err error) types.ErrCode {
+	switch {
+	case err == nil:
+		return types.ErrDriver
+	case llm.IsRateLimited(err):
+		return types.ErrRateLimit
+	case errors.Is(err, llm.ErrAuth), errors.Is(err, llm.ErrLoginRequired):
+		return types.ErrPermission
+	case errors.Is(err, llm.ErrContextLength):
+		return types.ErrResourceExhausted
+	case errors.Is(err, llm.ErrModelNotFound):
+		return types.ErrNotFound
+	case errors.Is(err, llm.ErrTimeout), errors.Is(err, llm.ErrStreamIncomplete):
+		return types.ErrTimeout
+	default:
+		return types.ErrDriver
+	}
+}
+
 func (k *KernelImpl) attemptFallback(proc *Process, req llmRequest, primaryDevice string, primaryErr error, step int) ([]byte, error) {
 	if proc.FallbackDevice == "" {
 		return nil, primaryErr
@@ -446,6 +475,9 @@ func (k *KernelImpl) attemptFallback(proc *Process, req llmRequest, primaryDevic
 			"primary_error":   primaryErr.Error(),
 			"fallback_device": proc.FallbackDevice,
 			"fallback_error":  err.Error(),
+			// Story 73.4 AC2: the primary's coarse code (the fallback's code is
+			// carried by the write-fail / read-fail terminal error events).
+			"code": llmErrCode(primaryErr),
 		}, nil, err, time.Since(fallbackStart))
 		// Story 56.7 (G4): the fallback call is persisted to raw.jsonl whether
 		// it succeeds or fails. Explicit calls before each return — the
@@ -464,6 +496,8 @@ func (k *KernelImpl) attemptFallback(proc *Process, req llmRequest, primaryDevic
 			"primary_error":   primaryErr.Error(),
 			"fallback_device": proc.FallbackDevice,
 			"fallback_error":  err.Error(),
+			// Story 73.4 AC2: same primary-code rule as the write branch above.
+			"code": llmErrCode(primaryErr),
 		}, nil, err, time.Since(fallbackStart))
 		k.captureRawLLMCall(proc, fbFD, step, err)
 		return nil, fmt.Errorf("primary %s: %v; fallback %s: %w", primaryDevice, primaryErr, proc.FallbackDevice, err)
@@ -939,7 +973,19 @@ func (k *KernelImpl) reasonStep(proc *Process, llmFD types.FD, opts SpawnOpts) {
 				// record below keeps the base reason — it already carries the
 				// full error text.
 				exitReason := reason
-				if detail := driverErrorDetail(fbErr); detail != "" {
+				detail := driverErrorDetail(fbErr)
+				// Story 73.4 / D5: when the PRIMARY error was rate-limited but
+				// the fallback failed for another reason, the fallback aggregate
+				// (which %w-wraps only the fallback err) hides the rate-limit
+				// attribution — the very death shape the 73.x epic exists to
+				// make visible. Primary rate-limit detail wins; the fallback's
+				// detail remains in events.jsonl.
+				if llm.IsRateLimited(err) {
+					if rl := driverErrorDetail(err); rl != "" {
+						detail = rl
+					}
+				}
+				if detail != "" {
 					exitReason = reason + ": " + detail
 				}
 				logDevice := proc.PrimaryDevice
@@ -953,7 +999,14 @@ func (k *KernelImpl) reasonStep(proc *Process, llmFD types.FD, opts SpawnOpts) {
 				// Record the failed step with prompt data so it's visible in LLM viewer
 				k.writeStepRecord(proc, step, promptResult, "",
 					nil, "error", fmt.Sprintf("%s: %v", reason, fbErr), "", "", "", "", 0, nil)
-				k.emitEvent(proc, "ReasonStep", map[string]any{"step": step, "action": "error"}, nil, fbErr, time.Since(stepStart))
+				k.emitEvent(proc, "ReasonStep", map[string]any{
+					"step": step, "action": "error",
+					// Story 73.4 AC2: the terminal write-fail event carries the
+					// aggregate's coarse code (the %w-wrapped fallback err
+					// dominates; a primary-only failure flows through here as
+					// the primary's code).
+					"code": llmErrCode(fbErr),
+				}, nil, fbErr, time.Since(stepStart))
 				k.finishProcess(proc, ExitStatus{Code: 1, Reason: exitReason, Err: fbErr})
 				return
 			}
@@ -1009,7 +1062,12 @@ func (k *KernelImpl) reasonStep(proc *Process, llmFD types.FD, opts SpawnOpts) {
 				// Record the failed step with prompt data so it's visible in LLM viewer
 				k.writeStepRecord(proc, step, promptResult, string(respData),
 					nil, "error", fmt.Sprintf("llm read failed: %v", readErr), "", "", "", "", 0, nil)
-				k.emitEvent(proc, "ReasonStep", map[string]any{"step": step, "action": "error"}, nil, readErr, time.Since(stepStart))
+				k.emitEvent(proc, "ReasonStep", map[string]any{
+					"step": step, "action": "error",
+					// Story 73.4 AC2: read-fail is a single-error path (no
+					// primary/fallback split), so the code is the read error's.
+					"code": llmErrCode(readErr),
+				}, nil, readErr, time.Since(stepStart))
 				k.finishProcess(proc, ExitStatus{Code: 1, Reason: exitReason, Err: readErr})
 				return
 			}

@@ -276,6 +276,12 @@ type ProcInfoWire struct {
 	LastHeartbeatMs int64              `json:"last_heartbeat_ms,omitempty"`
 	StepTimeoutMs   int64              `json:"step_timeout_ms,omitempty"`
 	SuspendReason   string             `json:"suspend_reason,omitempty"`
+	// ResumeAtMs is the quota-window reset instant (ms since epoch) a
+	// quota-suspended process waits for (Story 73.3). Mirrors
+	// vfs.ProcInfo.ResumeAt; 0 = not quota-suspended or no server-declared
+	// wait (manual resume only). Additive omitempty — legacy daemons omit it
+	// and consumers read 0.
+	ResumeAtMs int64 `json:"resume_at_ms,omitempty"`
 	// Story 71.4 AC4-② — the compact latch made process-visible on the wire so
 	// `rnix ps` / IPC consumers can see that automatic compaction is disabled for
 	// this process. omitempty keeps it off the wire for the overwhelmingly common
@@ -386,6 +392,9 @@ func ProcInfoToWire(p vfs.ProcInfo) ProcInfoWire {
 	if !p.PausedAt.IsZero() {
 		w.PausedAtMs = p.PausedAt.UnixMilli()
 	}
+	if !p.ResumeAt.IsZero() {
+		w.ResumeAtMs = p.ResumeAt.UnixMilli()
+	}
 	if p.PausedTotal > 0 {
 		w.PausedTotalMs = p.PausedTotal.Milliseconds()
 	}
@@ -443,6 +452,9 @@ func WireToProcInfo(w ProcInfoWire) vfs.ProcInfo {
 	}
 	if w.PausedAtMs != 0 {
 		p.PausedAt = unixMilliToTime(w.PausedAtMs)
+	}
+	if w.ResumeAtMs != 0 {
+		p.ResumeAt = unixMilliToTime(w.ResumeAtMs)
 	}
 	if w.PausedTotalMs > 0 {
 		p.PausedTotal = time.Duration(w.PausedTotalMs) * time.Millisecond
