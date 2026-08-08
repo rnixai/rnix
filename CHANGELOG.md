@@ -7,6 +7,34 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.14.0] - 2026-08-09
+
+Theme: **Rate-Limit Resilience, Token Cost Accounting & Unified OpenAI Driver (Epics 73–76)** — processes now survive provider rate limits: they suspend instead of dying on exhausted quota windows and resume automatically when the window resets, and per-provider concurrency caps stop retries from amplifying into thundering herds. Token spend is tracked per request and across each process's lifetime, and all OpenAI-compatible endpoints are served by a single unified driver.
+
+### Added
+
+- **Quota-window suspension & auto-resume**: when a provider reports a terminal quota window — or any rate limit whose required wait exceeds the in-process retry budget — the process is suspended with its state preserved instead of being killed. It resumes automatically when the server-declared window resets, and supervised children suspended by a quota are left alone: their supervisor waits for the window instead of restarting them into an immediate re-suspension loop.
+- **Server-declared wait honoring**: rate-limit responses that state when a retry is allowed are honored literally — the process backs off for the server-required duration instead of firing retries that are all guaranteed to land inside the same window.
+- **Per-provider concurrency gate**: concurrent LLM requests are capped per provider (configurable in provider settings, default 4), so when several agents hit a rate limit at once, their retries no longer pile up into 3N meaningless requests.
+- **Process-level token spend tracking**: each process now records its cumulative input, cached, cache-creation and output tokens across its whole lifetime — persisted, restored on resume, and visible in process listings and the Dashboard's process detail view. Cache-write volume is also reported per request in the inspector, so cache cost is visible at both granularities.
+- **Reasoning round-trip for the `openai` driver**: non-streaming, streaming and echoed model reasoning are now supported by the unified `openai` driver, matching the previously separate compatible driver.
+
+### Changed
+
+- **Unified OpenAI driver**: all OpenAI-compatible endpoints — DeepSeek, Ollama, Groq, OpenRouter, GLM — are now served by the single SDK-based `openai` driver; the legacy `openai-compat` driver has been removed. The default configuration now targets the unified driver, and compatibility was verified against all four endpoint families, including endpoints that omit usage data and endpoints that use different reasoning field spellings.
+- **Rate-limit visibility**: rate-limit failures are now clearly distinguishable from other driver failures in exit reasons and process listings, and retryable throttles are separated from terminal quota exhaustion so each is handled with the right strategy.
+- **WebFetch error semantics**: WebFetch now classifies upstream HTTP failures semantically (e.g. 404 as not-found, 401/403 as permission denied), and the circuit breaker no longer counts these informational errors against a process — an agent legitimately handling a 404 by trying another URL is no longer cascaded into failure.
+
+### Fixed
+
+- **Circuit breaker fairness**: provider timeouts are no longer counted as tool misuse by the circuit breaker.
+- **Dashboard accounting accuracy**: context usage and budget percentages are now computed from current occupancy rather than cumulative token spend, and the detail card label was corrected to match.
+- **Rate-limit error handling**: nil responses and truncated streams are now classified and surfaced more reliably instead of surfacing as ambiguous failures.
+
+### Removed
+
+- **`openai-compat` driver**: merged into the unified `openai` driver (see Changed); configurations using `driver: openai-compat` should switch to `driver: openai`.
+
 ## [0.13.0] - 2026-08-03
 
 Theme: **Context Management Redesign & Long-Run Stability** — context pressure and compaction now operate on real token volume instead of message counts, compaction lands far enough below its trigger to stay there, loop protection no longer interrupts agents that are making steady progress, and the Dashboard stays responsive for processes with very long histories.
