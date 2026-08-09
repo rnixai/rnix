@@ -123,6 +123,17 @@ func TestSelfHostingEvidence_Tier2Isolation(t *testing.T) {
 // the Tier2 artifact must exist with a manual review conclusion marking at
 // least one finding as confirmed.
 func TestSelfHostingEvidence_ArtifactReviewed(t *testing.T) {
+	// `_bmad-output/` is a gitignored nested repo (.gitignore:55) — absent in
+	// a clean checkout / CI by design, not a fault. Skip there (code-review
+	// 2026-07-11 convention, see skills/atdd_67_3_docs_sync_test.go) instead
+	// of failing the pipeline; the guard stays active in local dev where the
+	// nested repo is checked out.
+	if _, err := os.Stat(evidenceArtifactsDir); err != nil {
+		if os.IsNotExist(err) {
+			t.Skipf("%s not present — _bmad-output/ is gitignored and not checked out here: %v", evidenceArtifactsDir, err)
+		}
+		t.Fatalf("stat evidence artifacts dir: %v", err)
+	}
 	matches, err := filepath.Glob(filepath.Join(evidenceArtifactsDir, "self-hosting-evidence-*.md"))
 	if err != nil {
 		t.Fatalf("glob evidence artifacts: %v", err)

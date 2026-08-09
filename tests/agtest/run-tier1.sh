@@ -43,6 +43,16 @@ export XDG_CONFIG_HOME="$RNIX_RUN_XDG_CONFIG_HOME"
 cleanup() {
   local status=$?
   ./rnix daemon stop >/dev/null 2>&1 || true
+  # `daemon stop` (client.Shutdown) 只发请求即返回，daemon 随后还有
+  # k.Shutdown / immune 落盘 / recall index 保存要写数据目录。socket 文件
+  # 是 daemon 退出序列最后移除的（cmd/rnix/main.go），等它消失再 rm -rf，
+  # 否则撞上 "Directory not empty"（CI 实测竞态）。有界等待防挂死。
+  local sock="$RNIX_RUN_XDG_RUNTIME_DIR/rnix/rnix.sock"
+  local tries=0
+  while [ -e "$sock" ] && [ "$tries" -lt 100 ]; do
+    sleep 0.1
+    tries=$((tries + 1))
+  done
   rm -rf "$RNIX_RUN_XDG_RUNTIME_DIR" "$RNIX_RUN_DATA_DIR" "$RNIX_RUN_XDG_CONFIG_HOME"
   exit "$status"
 }
